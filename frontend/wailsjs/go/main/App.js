@@ -50,6 +50,10 @@ export function GetDefaultLine() {
   return window['go']['main']['App']['GetDefaultLine']();
 }
 
+export function GetHealth() {
+  return window['go']['main']['App']['GetHealth']();
+}
+
 export function GetLanIP() {
   return window['go']['main']['App']['GetLanIP']();
 }

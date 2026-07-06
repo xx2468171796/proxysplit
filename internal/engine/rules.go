@@ -69,6 +69,14 @@ func (m *Matcher) SetRules(rules []Rule, mode, defaultTarget string) {
 		}
 		if strings.ContainsAny(key, "\\/") {
 			bp[strings.ReplaceAll(key, "/", "\\")] = r.Target
+			// Also index by base name so the rule still matches if the runtime
+			// image path differs at all from the stored one (8.3 names, casing,
+			// symlinks, WOW64 redirection). Precise byPath still wins at lookup.
+			if base := proc.BaseName(key); base != "" {
+				if _, exists := bn[base]; !exists {
+					bn[base] = r.Target
+				}
+			}
 		} else {
 			bn[key] = r.Target
 		}

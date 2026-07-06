@@ -58,6 +58,23 @@ type Engine struct {
 	totalConns  int64
 	upBytes     int64
 	downBytes   int64
+
+	captured    int64        // total packets pulled off the WinDivert handle
+	firstLogged int32        // atomic once-guard for the "capture works" log
+	directSeen  sync.Map     // exe base name -> logged (dedupe the "went direct" diagnostic)
+	captureWarn atomic.Value // string: set when WinDivert Open succeeded but no packets flow
+}
+
+// Captured returns the total packets pulled off the WinDivert handle since Start.
+func (e *Engine) Captured() int64 { return atomic.LoadInt64(&e.captured) }
+
+// CaptureWarn returns a non-empty warning when WinDivert opened but isn't
+// actually capturing (another VPN/AV eating packets) — "" when healthy.
+func (e *Engine) CaptureWarn() string {
+	if v, ok := e.captureWarn.Load().(string); ok {
+		return v
+	}
+	return ""
 }
 
 // New creates an Engine. dllPath points at WinDivert.dll; matcher holds the app
@@ -164,12 +181,28 @@ func (e *Engine) Start() error {
 	e.handle = h
 	e.stopCh = make(chan struct{})
 	e.running = true
+	atomic.StoreInt64(&e.captured, 0)
+	atomic.StoreInt32(&e.firstLogged, 0)
+	e.directSeen = sync.Map{}
+	e.captureWarn.Store("")
 
 	go e.serve(ln)
 	go e.divertLoop(h)
 	go e.gcLoop()
 
-	e.log(fmt.Sprintf("[engine] redirector on 127.0.0.1:%d (%d upstream line(s))", e.redirPort, len(e.dialers)))
+	// Self-check: if WinDivert captured nothing after a few seconds, its Open
+	// succeeded but a security product / another WinDivert-based VPN is likely
+	// eating the packets — the #1 cause of "selected apps don't get proxied".
+	go func() {
+		time.Sleep(4 * time.Second)
+		if e.Running() && atomic.LoadInt64(&e.captured) == 0 {
+			warn := "WinDivert 抓不到流量 —— 很可能有其他代理/VPN(v2rayN、Clash TUN 等)或杀软在占用。请退出其它代理工具后重启本程序。"
+			e.captureWarn.Store(warn)
+			e.log("[engine] ⚠ " + warn)
+		}
+	}()
+
+	e.log(fmt.Sprintf("[engine] 分流引擎已启动,redirector 127.0.0.1:%d,%d 条上游线路", e.redirPort, len(e.dialers)))
 	return nil
 }
 
@@ -206,6 +239,12 @@ func (e *Engine) divertLoop(h *divert.Handle) {
 			default:
 				continue
 			}
+		}
+		// First captured packet confirms WinDivert is actually filtering (Open can
+		// succeed while a security product / another WinDivert app blocks capture).
+		if atomic.AddInt64(&e.captured, 1) == 1 && atomic.CompareAndSwapInt32(&e.firstLogged, 0, 1) {
+			e.captureWarn.Store("") // healthy: packets are flowing
+			e.log("[engine] WinDivert 抓包正常（已捕获到流量）")
 		}
 		pkt := buf[:n]
 		if !divert.IsIPv4(pkt) {
@@ -276,6 +315,14 @@ func (e *Engine) handlePacket(h *divert.Handle, pkt []byte, addr *divert.Address
 				e.log(fmt.Sprintf("[block] %s -> %s:%d", proc.BaseName(exe), dst, dport))
 				return // drop: do not re-inject, connection is refused
 			case TargetDirect:
+				// Diagnostic: a captured app going direct to a PUBLIC address means
+				// no rule matched it. Log once per exe so a mis-added rule is obvious.
+				if !isPrivate(dst) {
+					base := proc.BaseName(exe)
+					if _, seen := e.directSeen.LoadOrStore(base, true); !seen {
+						e.log(fmt.Sprintf("[直连] %s 未匹配任何规则 → 直连（如需代理请在「应用分流」加规则）", base))
+					}
+				}
 				// fall through to direct pass-through below
 			default: // proxy via upstream key t
 				ifIdx, subIfIdx := addr.NetworkIfIdx()

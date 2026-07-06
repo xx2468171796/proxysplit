@@ -304,6 +304,9 @@ func (a *App) Stop() { a.svc.Stop() }
 // GetStatus returns a UI status snapshot.
 func (a *App) GetStatus() service.Status { return a.svc.Status() }
 
+// GetHealth returns live engine-capture + per-line reachability for the status panel.
+func (a *App) GetHealth() service.Health { return a.svc.Health() }
+
 // binDir resolves the directory holding sing-box.exe / WinDivert.dll. It prefers
 // a bin/ next to the executable and falls back to ./bin for `wails dev`.
 func binDir() string {

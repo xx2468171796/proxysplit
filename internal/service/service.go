@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"proxysplit/internal/core"
@@ -110,6 +111,7 @@ type Service struct {
 	clashMode   string            // last-applied clash mode: rule|global|direct (default rule)
 	sysProxyOn   bool             // the Windows system proxy is currently applied by us
 	sysProxyWant bool             // user wants system proxy on — re-applied (new port) each Start
+	healthCache  atomic.Value     // []LineHealth — refreshed by the background health loop
 }
 
 // New loads (or initializes) config from dataDir.
@@ -124,6 +126,7 @@ func New(binDir, dataDir string) (*Service, error) {
 	s.core.SetOnExit(s.onCoreExit) // clear a dangling system proxy if the core crashes
 	s.healStaleSystemProxy()       // recover from a prior crash that left one dangling
 	s.startScheduler()
+	go s.healthLoop() // live line/node reachability for the status panel
 	return s, nil
 }
 

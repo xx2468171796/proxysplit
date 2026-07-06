@@ -29,6 +29,8 @@ export function GetCoreVersion():Promise<string>;
 
 export function GetDefaultLine():Promise<string>;
 
+export function GetHealth():Promise<service.Health>;
+
 export function GetLanIP():Promise<string>;
 
 export function GetLines():Promise<Array<service.Line>>;

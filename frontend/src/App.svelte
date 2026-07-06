@@ -49,6 +49,7 @@
     TestApp as WTestApp,
     ExportConfig as WExportConfig,
     ImportConfig as WImportConfig,
+    GetHealth as WGetHealth,
   } from '../wailsjs/go/main/App.js'
   import { EventsOn } from '../wailsjs/runtime/runtime.js'
 
@@ -79,6 +80,8 @@
     routing: { mode: string; rules: RouteRule[] } // mode: 'global' | 'bypass_cn' | 'custom'
     builtin: boolean
   }
+  type LineHealth = { id: string; name: string; node: string; latency: number; ok: boolean }
+  type Health = { running: boolean; capturing: boolean; capturedPkts: number; warning: string; lines: LineHealth[] }
   type LogItem = { time: string; level: 'INFO' | 'WARN' | 'ERROR'; msg: string }
   type Status = {
     coreRunning: boolean
@@ -187,6 +190,8 @@
   let lanIP = '' // this machine's LAN IP (for the 对局域网开放 hint)
   let appLat: Record<string, number> = {} // rule.match -> latency ms (-99 testing, -1 fail, 0 direct, -2 block)
   let runningExes = new Set<string>() // lowercased basenames of currently-running processes
+  let health: Health = { running: false, capturing: false, capturedPkts: 0, warning: '', lines: [] }
+  let warnDismissed = '' // the warning text the user dismissed (hide banner until it changes)
   let themePref = 'light' // 'light' | 'dark' | 'system'
   let switchingMode = false // guard while TUN<->app-split restart is in flight
   let rulesMsg = '' // import/export status
@@ -261,6 +266,11 @@
     }
     if (s) { prevDown = s.downBytes; prevUp = s.upBytes; prevT = now }
   }
+  const demoHealth: Health = { running: true, capturing: true, capturedPkts: 12873, warning: '',
+    lines: [ { id: 'rule', name: '规则', node: 'JP | Tokyo - 01', latency: 48, ok: true },
+             { id: 'global', name: '全局', node: 'JP | Tokyo - 01', latency: 48, ok: true },
+             { id: 'us', name: '美区-全局', node: 'US | Los Angeles - 02', latency: 126, ok: true } ] }
+  async function refreshHealth() { health = await safe<Health>(() => WGetHealth() as Promise<Health>, demoHealth) }
   async function refreshRules() {
     if (!isWailsReady()) { useDemo = true; rules = demoRules; recent = demoLogs; return }
     const list = await safe(() => WGetAppRules() as Promise<AppRule[]>, demoRules)
@@ -543,6 +553,18 @@
     if (!useDemo && isWailsReady()) await WSetSettings(settings)
   }
 
+  // --- real-time status / line detection (reactive so it tracks `health`) ---
+  $: capB = !health.running ? { t: '未运行', c: 'idle' }
+    : health.warning ? { t: '抓包异常', c: 'bad' }
+    : health.capturing ? { t: '抓包正常', c: 'ok' }
+    : { t: '等待流量…', c: 'wait' }
+  function lhLat(l: LineHealth): string {
+    if (l.node === '直连' || l.node === '拦截') return l.node
+    if (l.latency < 0) return '不通'
+    if (l.latency === 0) return '—'
+    return l.latency + ' ms'
+  }
+
   // --- overview derived state (reactive so it updates when nodes/status/mode change) ---
   $: activeNodeObj = nodes.find((n) => n.id === status?.selectedId)
   $: clashHintText =
@@ -626,7 +648,14 @@
         return
       }
       if (running) await WStop()
-      else { const err = await WStart(); if (err) pushLog('[error] ' + err) }
+      else {
+        const err = await WStart()
+        if (err) {
+          pushLog('[error] ' + err)
+          const adminish = /admin|windivert|管理员|driver/i.test(err)
+          toast(adminish ? '启动失败：请关闭后「右键 → 以管理员身份运行」' : '启动失败：' + err)
+        }
+      }
       await refreshStatus()
     } finally { busy = false }
   }
@@ -647,12 +676,12 @@
     await refreshCoreVersion(); await refreshClashMode(); await refreshSysProxy()
     await refreshAutostart(); await refreshLogLevel()
     lanIP = await safe<string>(() => WGetLanIP(), '192.168.1.100')
-    await refreshRunning()
+    await refreshRunning(); await refreshHealth()
     themePref = settings.theme || 'light'; applyTheme(themePref)
     const m = await safe<string>(() => WGetRuleMode(), ruleMode)
     ruleMode = m === 'whitelist' ? 'whitelist' : 'blacklist'
     if (useDemo && recent.length === 0) recent = demoLogs
-    timer = setInterval(refreshStatus, 1000)
+    timer = setInterval(() => { refreshStatus(); refreshHealth() }, 1000)
   })
   onDestroy(() => { if (timer) clearInterval(timer) })
 
@@ -738,9 +767,6 @@
             <button class:on={clashMode === 'direct'} on:click={() => setClash('direct')}>直连</button>
           </div>
         </div>
-        <button class="route-chip sys" class:on={sysProxy} on:click={toggleSysProxy} title="系统代理开关（供只认系统代理的老程序使用）">
-          <span class="rc-dot"></span>{sysProxy ? '系统代理 开' : '系统代理 关'}
-        </button>
       </div>
 
       <div class="tb-right">
@@ -756,6 +782,14 @@
         </button>
       </div>
     </header>
+
+    {#if health.warning && health.warning !== warnDismissed}
+      <div class="warnbar">
+        <span class="warnbar-ic">⚠</span>
+        <div class="warnbar-txt"><strong>分流没生效 —— </strong>{health.warning}</div>
+        <button class="warnbar-x" on:click={() => (warnDismissed = health.warning)} title="忽略此提示">✕</button>
+      </div>
+    {/if}
 
     <div class="scroll">
       <div class="wrap">
@@ -823,11 +857,30 @@
             </section>
 
             <section class="card">
-              <div class="card-head sm"><div><h3>系统代理</h3><p class="sub">给只认系统代理的老程序用</p></div>
+              <div class="card-head sm"><div><h3>系统代理 <span class="opt-tag">可选</span></h3><p class="sub">给「不被应用分流抓到、但认系统代理」的老程序补充用</p></div>
                 <label class="switch"><input type="checkbox" checked={sysProxy} on:change={toggleSysProxy} /><i></i></label></div>
-              <p class="mode-hint">{sysProxy ? '已开启：系统 HTTP 代理指向本机' : '关闭：仅应用分流 / TUN 生效'}</p>
+              <p class="mode-hint">{sysProxy ? '已开启：系统 HTTP 代理指向本机' : '一般不用开 —— 点上面「启动」就已按应用分流。只有个别老程序抓不到时才需要它。'}</p>
             </section>
           </div>
+
+          <section class="card">
+            <div class="card-head sm">
+              <div><h3>实时状态 · 线路检测</h3><p class="sub">引擎抓包 + 各线路节点连通性（每 10 秒刷新）</p></div>
+              <span class="cap-badge {capB.c}">{capB.t}{#if health.capturing && health.capturedPkts} · {health.capturedPkts} 包{/if}</span>
+            </div>
+            <div class="lh-list">
+              <div class="lh-head"><span></span><span>线路</span><span>出口节点</span><span class="r">延迟</span></div>
+              {#each (health.lines || []) as l}
+                <div class="lh-row">
+                  <span class="lh-dot" class:ok={l.ok && l.latency !== -1} class:bad={l.latency === -1}></span>
+                  <span class="lh-name">{l.name}</span>
+                  <span class="lh-node">{l.node}</span>
+                  <span class="lh-lat r" data-q={qual(l.latency > 0 ? l.latency : undefined)} class:err={l.latency === -1}>{lhLat(l)}</span>
+                </div>
+              {/each}
+              {#if !health.lines || health.lines.length === 0}<div class="empty sm">暂无线路数据</div>{/if}
+            </div>
+          </section>
         </div>
       {:else if tab === 'apps'}
         <div class="cols">
@@ -1326,6 +1379,33 @@
   .mode-explain { font-size: 13px; color: var(--ink-2); background: var(--soft); border: 1px solid var(--line-2); border-radius: 10px; padding: 11px 14px; line-height: 1.55; margin-top: 4px; }
   .mode-explain b { color: var(--brand-600); }
   .mx-tag { display: inline-block; margin-left: 6px; font-size: 11px; font-weight: 700; color: var(--ok-600); background: var(--ok-tint); padding: 1px 8px; border-radius: 6px; }
+  .opt-tag { font-size: 10.5px; font-weight: 700; color: var(--muted); background: var(--surface-3, #eef2f8); padding: 1px 7px; border-radius: 6px; vertical-align: middle; margin-left: 4px; }
+
+  /* prominent warning banner */
+  .warnbar { display: flex; align-items: center; gap: 12px; padding: 12px 22px; background: var(--bad-bg, #fdecec); border-bottom: 2px solid var(--danger); color: var(--danger); font-size: 13.5px; flex: none; }
+  .warnbar-ic { font-size: 18px; flex: none; }
+  .warnbar-txt { flex: 1; line-height: 1.45; } .warnbar-txt strong { font-weight: 780; }
+  .warnbar-x { background: none; border: none; color: var(--danger); cursor: pointer; font-size: 15px; opacity: .7; padding: 4px; flex: none; }
+  .warnbar-x:hover { opacity: 1; }
+
+  /* capture badge + line health */
+  .cap-badge { font-size: 12px; font-weight: 700; padding: 3px 11px; border-radius: 999px; white-space: nowrap; }
+  .cap-badge.ok { color: var(--ok-600); background: var(--ok-tint); }
+  .cap-badge.bad { color: var(--danger); background: var(--bad-bg, #fdecec); }
+  .cap-badge.wait { color: var(--warn); background: var(--warn-bg, #fdf3e3); }
+  .cap-badge.idle { color: var(--muted); background: var(--surface-3, #eef2f8); }
+  .lh-head, .lh-row { display: grid; grid-template-columns: 16px minmax(0, 1fr) minmax(0, 1.4fr) 74px; gap: 10px; align-items: center; }
+  .lh-head { font-size: 11px; color: var(--muted-2); font-weight: 600; padding: 0 2px 8px; border-bottom: 1px solid var(--line-2); }
+  .lh-head .r { text-align: right; }
+  .lh-row { padding: 9px 2px; border-bottom: 1px solid var(--line-3); font-size: 13px; }
+  .lh-row:last-child { border-bottom: none; }
+  .lh-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted-2); justify-self: center; }
+  .lh-dot.ok { background: var(--ok); box-shadow: 0 0 0 3px var(--ok-tint); }
+  .lh-dot.bad { background: var(--danger); box-shadow: 0 0 0 3px var(--bad-bg, #fdecec); }
+  .lh-name { font-weight: 620; color: var(--ink); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .lh-node { color: var(--muted); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .lh-lat { font-variant-numeric: tabular-nums; font-weight: 650; color: var(--ink-2); }
+  .lh-lat.r { text-align: right; } .lh-lat.err { color: var(--danger); }
 
   /* per-app: running dot + test button + file picker */
   .run-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--muted-2); vertical-align: middle; margin-left: 2px; }
