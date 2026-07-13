@@ -3,6 +3,7 @@
 package service
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -34,21 +35,22 @@ type Sub struct {
 
 // Settings holds user-tunable options.
 type Settings struct {
-	MixedPort     int    `json:"mixedPort"`
-	TunMode       bool   `json:"tunMode"` // true = system-wide TUN (global); false = per-app WinDivert
-	LanShare      bool   `json:"lanShare"`
-	LanPort       int    `json:"lanPort"`     // fixed port for the LAN proxy inbound (0 => 7890)
-	LanType       string `json:"lanType"`     // mixed | socks | http
-	LanUser       string `json:"lanUser"`     // LAN proxy auth username (empty = no auth)
-	LanPass       string `json:"lanPass"`     // LAN proxy auth password
-	ExcludeSelf   bool   `json:"excludeSelf"`
-	PrivateDirect bool   `json:"privateDirect"`
-	BlockQUIC     bool   `json:"blockQUIC"`
-	RemoteDNS     bool   `json:"remoteDNS"`
-	FakeIP        bool   `json:"fakeIP"`
-	Autostart     bool   `json:"autostart"`
-	TrayClose     bool   `json:"trayClose"`
-	Theme         string `json:"theme"`
+	MixedPort       int    `json:"mixedPort"`
+	TunMode         bool   `json:"tunMode"` // true = system-wide TUN (global); false = per-app WinDivert
+	LanShare        bool   `json:"lanShare"`
+	LanPort         int    `json:"lanPort"` // fixed port for the LAN proxy inbound (0 => 7890)
+	LanType         string `json:"lanType"` // mixed | socks | http
+	LanUser         string `json:"lanUser"` // LAN proxy auth username (empty = no auth)
+	LanPass         string `json:"lanPass"` // LAN proxy auth password
+	ExcludeSelf     bool   `json:"excludeSelf"`
+	PrivateDirect   bool   `json:"privateDirect"`
+	BlockQUIC       bool   `json:"blockQUIC"`
+	RemoteDNS       bool   `json:"remoteDNS"`
+	FakeIP          bool   `json:"fakeIP"`
+	Autostart       bool   `json:"autostart"`
+	TrayClose       bool   `json:"trayClose"`
+	Theme           string `json:"theme"`
+	AutoUpdateRules bool   `json:"autoUpdateRules"` // 添加节点后自动更新分流规则集(可选,默认关)
 }
 
 func defaultSettings() Settings {
@@ -84,14 +86,14 @@ type Config struct {
 
 // Status is a snapshot for the UI.
 type Status struct {
-	CoreRunning   bool          `json:"coreRunning"`
-	EngineRunning bool          `json:"engineRunning"`
-	CorePort      int           `json:"corePort"`
-	NodeName      string        `json:"nodeName"`
-	SelectedID    string        `json:"selectedId"`
-	RuleMode      string        `json:"ruleMode"`
-	UptimeSec     int64         `json:"uptimeSec"`
-	Stats         engine.Stats  `json:"stats"`
+	CoreRunning   bool         `json:"coreRunning"`
+	EngineRunning bool         `json:"engineRunning"`
+	CorePort      int          `json:"corePort"`
+	NodeName      string       `json:"nodeName"`
+	SelectedID    string       `json:"selectedId"`
+	RuleMode      string       `json:"ruleMode"`
+	UptimeSec     int64        `json:"uptimeSec"`
+	Stats         engine.Stats `json:"stats"`
 }
 
 // Service ties the pieces together.
@@ -99,19 +101,19 @@ type Service struct {
 	binDir  string
 	dataDir string
 
-	mu          sync.Mutex
-	cfg         Config
-	core        *core.Manager
-	eng         *engine.Engine
-	onLog       func(string)
-	startedAt   time.Time
-	activeFP    map[string]string // running line id -> content fingerprint (change detection)
-	clashPort   int               // clash_api external controller port of the running core
-	clashSecret string            // clash_api bearer secret
-	clashMode   string            // last-applied clash mode: rule|global|direct (default rule)
-	sysProxyOn   bool             // the Windows system proxy is currently applied by us
-	sysProxyWant bool             // user wants system proxy on — re-applied (new port) each Start
-	healthCache  atomic.Value     // []LineHealth — refreshed by the background health loop
+	mu           sync.Mutex
+	cfg          Config
+	core         *core.Manager
+	eng          *engine.Engine
+	onLog        func(string)
+	startedAt    time.Time
+	activeFP     map[string]string // running line id -> content fingerprint (change detection)
+	clashPort    int               // clash_api external controller port of the running core
+	clashSecret  string            // clash_api bearer secret
+	clashMode    string            // last-applied clash mode: rule|global|direct (default rule)
+	sysProxyOn   bool              // the Windows system proxy is currently applied by us
+	sysProxyWant bool              // user wants system proxy on — re-applied (new port) each Start
+	healthCache  atomic.Value      // []LineHealth — refreshed by the background health loop
 }
 
 // New loads (or initializes) config from dataDir.
@@ -166,17 +168,29 @@ func (s *Service) log(line string) {
 
 func (s *Service) configPath() string { return filepath.Join(s.dataDir, "config.json") }
 
+// isCoreConfig reports whether data is a sing-box config (which has outbounds /
+// inbounds) rather than the app config — a guard against ever loading a file the
+// core clobbered into place.
+func isCoreConfig(data []byte) bool {
+	return bytes.Contains(data, []byte(`"outbounds"`)) || bytes.Contains(data, []byte(`"inbounds"`))
+}
+
 func (s *Service) load() {
-	// Read the main config; if it is missing or corrupt, fall back to the last
-	// known-good backup so a truncated write never wipes the user's data.
+	// Read the main config; if it is missing, corrupt, or was clobbered by the
+	// core's sing-box config (a past bug wrote it here), fall back to the last
+	// known-good backup so the user's nodes/rules are never lost.
 	data, err := os.ReadFile(s.configPath())
-	if err != nil || !json.Valid(data) {
-		if bak, berr := os.ReadFile(s.configPath() + ".bak"); berr == nil && json.Valid(bak) {
+	bad := err != nil || !json.Valid(data) || isCoreConfig(data)
+	if bad {
+		if bak, berr := os.ReadFile(s.configPath() + ".bak"); berr == nil && json.Valid(bak) && !isCoreConfig(bak) {
 			data = bak
-			s.log("[store] 主配置损坏,已从备份恢复")
+			s.log("[store] 主配置异常,已从备份恢复节点/规则")
+			_ = os.WriteFile(s.configPath(), bak, 0o600) // repair the main file
+		} else {
+			data = nil // nothing usable — start clean rather than importing junk
 		}
 	}
-	if json.Valid(data) {
+	if len(data) > 0 && json.Valid(data) && !isCoreConfig(data) {
 		_ = json.Unmarshal(data, &s.cfg)
 	}
 	// Defaults / migration.
@@ -220,8 +234,9 @@ func (s *Service) save() {
 		return
 	}
 	path := s.configPath()
-	// Snapshot the current valid file as the recovery backup.
-	if cur, rerr := os.ReadFile(path); rerr == nil && json.Valid(cur) {
+	// Snapshot the current valid app-config file as the recovery backup (never a
+	// core-config, so .bak always holds real nodes/rules).
+	if cur, rerr := os.ReadFile(path); rerr == nil && json.Valid(cur) && !isCoreConfig(cur) {
 		_ = os.WriteFile(path+".bak", cur, 0o600)
 	}
 	tmp := path + ".tmp"
@@ -241,12 +256,15 @@ func (s *Service) save() {
 func (s *Service) AddNodes(text string) (added, skipped int) {
 	parsed, skip := nodes.ParseMany(text)
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	added = s.mergeNodesLocked(parsed, "")
 	if s.cfg.SelectedID == "" && len(s.cfg.Nodes) > 0 {
 		s.cfg.SelectedID = s.cfg.Nodes[0].ID
 	}
 	s.save()
+	s.mu.Unlock()
+	if added > 0 {
+		s.maybeAutoUpdateRules() // opt-in: refresh rule-sets after adding a node
+	}
 	return added, skip
 }
 
@@ -289,6 +307,7 @@ func (s *Service) AddManualNode(nodeType, name, server string, port int, usernam
 	if added == 0 {
 		return "节点已存在"
 	}
+	s.maybeAutoUpdateRules() // opt-in: refresh rule-sets after adding a node
 	return ""
 }
 

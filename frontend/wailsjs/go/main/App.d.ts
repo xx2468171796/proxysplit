@@ -45,6 +45,8 @@ export function GetRouting():Promise<service.Routing>;
 
 export function GetRuleMode():Promise<string>;
 
+export function GetRuleSets():Promise<Array<service.RuleSetInfo>>;
+
 export function GetSettings():Promise<service.Settings>;
 
 export function GetStatus():Promise<service.Status>;
@@ -64,6 +66,8 @@ export function PickExeFiles():Promise<Array<string>>;
 export function RemoveNode(arg1:string):Promise<void>;
 
 export function RemoveSub(arg1:string):Promise<void>;
+
+export function ResetConfig():Promise<void>;
 
 export function SelectNode(arg1:string):Promise<void>;
 

@@ -154,7 +154,7 @@ func (m *Manager) StartLines(lines []LineConfig, logLevel string, opts Options) 
 	if err := os.MkdirAll(m.dataDir, 0o755); err != nil {
 		return err
 	}
-	cfgPath := filepath.Join(m.dataDir, "config.json")
+	cfgPath := filepath.Join(m.dataDir, "sing-box.json")
 	if err := os.WriteFile(cfgPath, cfg, 0o600); err != nil {
 		return err
 	}
@@ -221,7 +221,7 @@ func (m *Manager) StartTUN(node *nodes.Node, logLevel, routeMode string, routeRu
 	if err := os.MkdirAll(m.dataDir, 0o755); err != nil {
 		return err
 	}
-	cfgPath := filepath.Join(m.dataDir, "config.json")
+	cfgPath := filepath.Join(m.dataDir, "sing-box.json")
 	if err := os.WriteFile(cfgPath, cfg, 0o600); err != nil {
 		return err
 	}

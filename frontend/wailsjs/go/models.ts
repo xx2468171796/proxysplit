@@ -341,6 +341,28 @@ export namespace service {
 	}
 	
 	
+	export class RuleSetInfo {
+	    name: string;
+	    display: string;
+	    desc: string;
+	    sizeKB: number;
+	    modified: string;
+	    present: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new RuleSetInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.display = source["display"];
+	        this.desc = source["desc"];
+	        this.sizeKB = source["sizeKB"];
+	        this.modified = source["modified"];
+	        this.present = source["present"];
+	    }
+	}
 	export class Settings {
 	    mixedPort: number;
 	    tunMode: boolean;
@@ -357,6 +379,7 @@ export namespace service {
 	    autostart: boolean;
 	    trayClose: boolean;
 	    theme: string;
+	    autoUpdateRules: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new Settings(source);
@@ -379,6 +402,7 @@ export namespace service {
 	        this.autostart = source["autostart"];
 	        this.trayClose = source["trayClose"];
 	        this.theme = source["theme"];
+	        this.autoUpdateRules = source["autoUpdateRules"];
 	    }
 	}
 	export class Status {

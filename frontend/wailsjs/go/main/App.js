@@ -82,6 +82,10 @@ export function GetRuleMode() {
   return window['go']['main']['App']['GetRuleMode']();
 }
 
+export function GetRuleSets() {
+  return window['go']['main']['App']['GetRuleSets']();
+}
+
 export function GetSettings() {
   return window['go']['main']['App']['GetSettings']();
 }
@@ -120,6 +124,10 @@ export function RemoveNode(arg1) {
 
 export function RemoveSub(arg1) {
   return window['go']['main']['App']['RemoveSub'](arg1);
+}
+
+export function ResetConfig() {
+  return window['go']['main']['App']['ResetConfig']();
 }
 
 export function SelectNode(arg1) {

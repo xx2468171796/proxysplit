@@ -171,6 +171,12 @@ func (a *App) SetRouting(r service.Routing) { a.svc.SetRouting(r) }
 // UpdateRuleSets refreshes the geosite/geoip rule-sets (returns "" or an error).
 func (a *App) UpdateRuleSets() string { return a.svc.UpdateRuleSets() }
 
+// GetRuleSets returns the state of the routing rule-sets for the 规则 page.
+func (a *App) GetRuleSets() []service.RuleSetInfo { return a.svc.GetRuleSets() }
+
+// ResetConfig restores settings/rules/mode to defaults (keeps nodes + subs).
+func (a *App) ResetConfig() { a.svc.ResetConfig() }
+
 // Clash runtime mode toggle (全局/直连/规则 — no restart).
 func (a *App) GetClashMode() string            { return a.svc.GetClashMode() }
 func (a *App) SetClashMode(mode string) string { return errStr(a.svc.SetClashMode(mode)) }

@@ -50,10 +50,13 @@
     ExportConfig as WExportConfig,
     ImportConfig as WImportConfig,
     GetHealth as WGetHealth,
+    GetRuleSets as WGetRuleSets,
+    ResetConfig as WResetConfig,
   } from '../wailsjs/go/main/App.js'
   import { EventsOn } from '../wailsjs/runtime/runtime.js'
 
-  type Tab = 'overview' | 'nodes' | 'apps' | 'subs' | 'logs' | 'settings'
+  type Tab = 'overview' | 'nodes' | 'apps' | 'rules' | 'subs' | 'logs' | 'settings'
+  type RuleSet = { name: string; display: string; desc: string; sizeKB: number; modified: string; present: boolean }
   type Node = {
     id: string
     name: string
@@ -192,6 +195,7 @@
   let runningExes = new Set<string>() // lowercased basenames of currently-running processes
   let health: Health = { running: false, capturing: false, capturedPkts: 0, warning: '', lines: [] }
   let warnDismissed = '' // the warning text the user dismissed (hide banner until it changes)
+  let ruleSets: RuleSet[] = [] // routing rule-sets (geosite/geoip) for the 规则 page
   let themePref = 'light' // 'light' | 'dark' | 'system'
   let switchingMode = false // guard while TUN<->app-split restart is in flight
   let rulesMsg = '' // import/export status
@@ -333,7 +337,23 @@
     ruleSetMsg = '更新中…'
     const err = await safe<string>(() => WUpdateRuleSets(), '')
     ruleSetMsg = err ? '失败：' + err : '已更新'
+    await refreshRuleSets()
     setTimeout(() => (ruleSetMsg = ''), 3500)
+  }
+  const demoRuleSets: RuleSet[] = [
+    { name: 'geosite-cn.srs', display: '国内网站 (geosite-cn)', desc: '识别大陆网站域名 → 直连不走代理', sizeKB: 52, modified: '2026-07-06', present: true },
+    { name: 'geoip-cn.srs', display: '国内 IP (geoip-cn)', desc: '识别大陆 IP 段 → 直连不走代理', sizeKB: 33, modified: '2026-07-06', present: true },
+    { name: 'geosite-category-ads-all.srs', display: '广告域名 (ads)', desc: '广告/追踪域名 → 直接拦截', sizeKB: 8, modified: '2026-07-06', present: true },
+  ]
+  async function refreshRuleSets() { ruleSets = await safe<RuleSet[]>(() => WGetRuleSets() as Promise<RuleSet[]>, demoRuleSets) }
+  async function resetConfig() {
+    if (!confirm('重置为默认配置?\n\n会清空:应用规则、自定义线路、所有开关设置(恢复默认)。\n会保留:你添加的节点和订阅。\n\n确定继续?')) return
+    if (useDemo || !isWailsReady()) { toast('演示模式无法重置'); return }
+    await WResetConfig()
+    await refreshRules(); await refreshLines(); await refreshSettings(); await refreshRouting(); await refreshDefaultLine(); await refreshClashMode()
+    const m = await safe<string>(() => WGetRuleMode(), ruleMode); ruleMode = m === 'whitelist' ? 'whitelist' : 'blacklist'
+    themePref = settings.theme || 'light'; applyTheme(themePref)
+    toast('已重置为默认配置(节点已保留)')
   }
 
   function toast(t: string) { addMsg = t; setTimeout(() => (addMsg = ''), 3500) }
@@ -571,9 +591,9 @@
     clashMode === 'global' ? '全局：所有被接管的流量都走活动节点。'
     : clashMode === 'direct' ? '直连：所有流量直连，相当于暂停代理（不断线）。'
     : '规则：按你的应用/线路规则智能分流（大陆直连、境外走代理）。'
-  $: statusText = `${settings.tunMode ? '全局 TUN' : '应用分流'} · ${
+  $: statusText = `${settings.tunMode ? '整机全局' : '应用分流'} · 策略「${
     clashMode === 'global' ? '全局' : clashMode === 'direct' ? '直连' : '规则'
-  } · 节点 ${activeNodeObj?.name || '未选节点'}`
+  }」· 节点 ${activeNodeObj?.name || '未选'}`
   async function submitSub() {
     const n = subName.trim(), u = subUrl.trim()
     if (!n || !u) return
@@ -676,7 +696,7 @@
     await refreshCoreVersion(); await refreshClashMode(); await refreshSysProxy()
     await refreshAutostart(); await refreshLogLevel()
     lanIP = await safe<string>(() => WGetLanIP(), '192.168.1.100')
-    await refreshRunning(); await refreshHealth()
+    await refreshRunning(); await refreshHealth(); await refreshRuleSets()
     themePref = settings.theme || 'light'; applyTheme(themePref)
     const m = await safe<string>(() => WGetRuleMode(), ruleMode)
     ruleMode = m === 'whitelist' ? 'whitelist' : 'blacklist'
@@ -732,6 +752,7 @@
       <button class:active={tab === 'overview'} on:click={() => (tab = 'overview')}><i>{@html I.dash}</i><span>概览</span></button>
       <button class:active={tab === 'nodes'} on:click={() => (tab = 'nodes')}><i>{@html I.nodes}</i><span>节点</span></button>
       <button class:active={tab === 'apps'} on:click={() => { tab = 'apps'; refreshRunning() }}><i>{@html I.apps}</i><span>应用分流</span></button>
+      <button class:active={tab === 'rules'} on:click={() => { tab = 'rules'; refreshRuleSets() }}><i>{@html I.shield}</i><span>分流规则</span></button>
       <button class:active={tab === 'subs'} on:click={() => (tab = 'subs')}><i>{@html I.subs}</i><span>订阅</span></button>
       <button class:active={tab === 'logs'} on:click={() => (tab = 'logs')}><i>{@html I.logs}</i><span>日志</span></button>
       <button class:active={tab === 'settings'} on:click={() => (tab = 'settings')}><i>{@html I.settings}</i><span>设置</span></button>
@@ -760,8 +781,8 @@
           </select>
         </div>
         <div class="tb-field">
-          <label>流量走向</label>
-          <div class="mode-seg" title="一键切换流量走向（无需重启核心）">
+          <label>代理策略</label>
+          <div class="mode-seg" title="切换代理策略：规则=智能分流 / 全局=全走代理 / 直连=全不走（不重启）">
             <button class:on={clashMode === 'rule'} on:click={() => setClash('rule')}>规则</button>
             <button class:on={clashMode === 'global'} on:click={() => setClash('global')}>全局</button>
             <button class:on={clashMode === 'direct'} on:click={() => setClash('direct')}>直连</button>
@@ -825,20 +846,20 @@
 
           <div class="ov-grid">
             <section class="card">
-              <div class="card-head sm"><div><h3>运行模式</h3><p class="sub">决定「哪些流量被代理接管」</p></div></div>
+              <div class="card-head sm"><div><h3>代理范围</h3><p class="sub">哪些流量被代理接管</p></div></div>
               <div class="mode-choice">
                 <button class="mc" class:on={!settings.tunMode} on:click={() => setCaptureMode(false)} disabled={switchingMode}>
-                  <strong>应用分流</strong><small>只有你指定的应用走代理，其余直连。ProxySplit 招牌能力。</small>
+                  <strong>只代理指定应用</strong><small>只有你在「应用分流」里选的程序走代理,其余直连。招牌能力。</small>
                 </button>
                 <button class="mc" class:on={settings.tunMode} on:click={() => setCaptureMode(true)} disabled={switchingMode}>
-                  <strong>全局 TUN</strong><small>整机所有流量都接管（v2rayN 那种），老程序、游戏也覆盖。</small>
+                  <strong>整机全局</strong><small>整台电脑所有流量都走代理(像 v2rayN),老程序、游戏也覆盖。</small>
                 </button>
               </div>
               {#if switchingMode}<p class="mode-hint">切换中，正在重启内核…</p>{/if}
             </section>
 
             <section class="card">
-              <div class="card-head sm"><div><h3>流量走向 · 一键切</h3><p class="sub">接管后往哪走，随时切、不重启</p></div></div>
+              <div class="card-head sm"><div><h3>代理策略</h3><p class="sub">接管后流量往哪走,随时切、不重启</p></div></div>
               <div class="mode-seg lg full">
                 <button class:on={clashMode === 'rule'} on:click={() => setClash('rule')}>规则</button>
                 <button class:on={clashMode === 'global'} on:click={() => setClash('global')}>全局</button>
@@ -897,13 +918,13 @@
                 {/if}
                 <div class="flow-label">流量转发路径：</div>
                 <div class="flow">
-                  <div class="fbox"><i>{@html I.monitor}</i>应用程序</div>
+                  <div class="fbox"><i>{@html I.monitor}</i>你的程序</div>
                   <span class="farr">{@html I.chevron}</span>
-                  <div class="fbox"><i>{@html I.shield}</i>WinDivert</div>
+                  <div class="fbox"><i>{@html I.shield}</i>流量捕获</div>
                   <span class="farr">{@html I.chevron}</span>
-                  <div class="fbox"><i>{@html I.box}</i>sing-box</div>
+                  <div class="fbox"><i>{@html I.box}</i>代理内核</div>
                   <span class="farr">{@html I.chevron}</span>
-                  <div class="fbox active"><i>{@html I.server}</i>活动节点</div>
+                  <div class="fbox active"><i>{@html I.server}</i>你的节点</div>
                 </div>
               </div>
             </section>
@@ -1011,7 +1032,7 @@
 
           <aside class="col-rail">
             <section class="card">
-              <div class="card-head sm"><h3>节点延迟 / 速度</h3><button class="link" on:click={testAllLatency}>{@html I.refresh} 刷新</button></div>
+              <div class="card-head sm"><h3>节点延迟 / 速度</h3><button class="link" on:click={testAllLatency}>{@html I.refresh} 测延迟</button></div>
               <div class="nrail-head"><span>节点名称</span><span>延迟</span><span>下载速度</span></div>
               {#each (useDemo ? demoNodes : nodes).slice(0, 6) as n}
                 <div class="nrail-row" class:sel={n.id === status?.selectedId} on:dblclick={() => selectNode(n.id)}>
@@ -1036,7 +1057,6 @@
                 {/each}
                 {#if recent.length === 0}<div class="empty sm">暂无日志</div>{/if}
               </div>
-              <button class="link foot-link" on:click={() => (logs = [])}>{@html I.trash} 清空日志</button>
             </section>
           </aside>
         </div>
@@ -1050,9 +1070,7 @@
           </div>
 
           <div class="route-actions">
-            <button class="ghost-btn" on:click={updateRuleSets} disabled={ruleSetMsg === '更新中…'}>{@html I.refresh} 更新规则</button>
-            {#if ruleSetMsg}<span class="rs-msg" class:err={ruleSetMsg.indexOf('失败') === 0}>{ruleSetMsg}</span>{/if}
-            <span class="rs-hint">从内置 / 在线更新 geosite、geoip 规则集，让「绕过大陆」等线路更准。</span>
+            <span class="rs-hint">「绕过大陆」等智能分流依赖地区规则库 —— 更新它请去左侧「分流规则」页。</span>
           </div>
 
           <div class="line-list">
@@ -1181,6 +1199,30 @@
           </div>
         </section>
 
+      {:else if tab === 'rules'}
+        <section class="card page">
+          <div class="card-head">
+            <div><h3>分流规则库</h3><p class="sub">决定「哪些网站/IP 走代理、哪些直连」的地区规则(geosite / geoip)。「代理策略」选「规则」时,靠这套库判断大陆直连、境外走代理。</p></div>
+            <div class="actions">
+              <button class="primary" on:click={updateRuleSets} disabled={ruleSetMsg === '更新中…'}>{@html I.refresh} {ruleSetMsg === '更新中…' ? '更新中…' : '手动更新规则库'}</button>
+              {#if ruleSetMsg && ruleSetMsg !== '更新中…'}<span class="rs-msg" class:err={ruleSetMsg.indexOf('失败') === 0}>{ruleSetMsg}</span>{/if}
+            </div>
+          </div>
+          <div class="rs-list">
+            <div class="rs-head"><span></span><span>规则库</span><span class="r">大小 / 更新日期</span></div>
+            {#each ruleSets as rs}
+              <div class="rs-row">
+                <span class="lh-dot" class:ok={rs.present} class:bad={!rs.present}></span>
+                <div class="rs-meta"><strong>{rs.display}</strong><small>{rs.desc}</small></div>
+                <div class="rs-info r">{#if rs.present}<b>{rs.sizeKB} KB</b><small>更新于 {rs.modified}</small>{:else}<span class="rs-miss">缺失</span>{/if}</div>
+              </div>
+            {/each}
+            {#if ruleSets.length === 0}<div class="empty sm">暂无规则库信息</div>{/if}
+          </div>
+          <div class="setting"><span>添加节点后自动更新规则库<small class="setting-hint">勾上后:每次加完节点自动更新一次。需代理运行中(规则库源在墙外,走节点下载)。默认关,手动更新更可控。</small></span><label class="switch"><input type="checkbox" bind:checked={settings.autoUpdateRules} on:change={saveSettings} /><i></i></label></div>
+          <p class="rs-note">📦 规则库来自 sing-box 官方(SagerNet),已内置最新版。更新走<b>当前节点</b>下载(直连被墙),所以更新前请先「启动」并连上节点。</p>
+        </section>
+
       {:else if tab === 'subs'}
         <section class="card page">
           <div class="card-head"><div><h3>订阅</h3><p class="sub">名称、URL、节点数、上次更新、自动更新</p></div><button class="primary" on:click={() => (showSubForm = !showSubForm)}>{@html I.plus} 添加订阅</button></div>
@@ -1233,13 +1275,14 @@
             <div class="setting"><span>本地端口<small class="setting-hint">混合入站 SOCKS5 + HTTP，自动分配</small></span><strong>{running ? (status?.corePort || '—') : '未运行'}</strong></div>
             <div class="setting"><span>日志级别</span><select class="sel" value={logLevel} on:change={changeLogLevel}><option value="error">error</option><option value="warn">warn</option><option value="info">info</option><option value="debug">debug</option></select></div>
             <div class="setting"><span>配置备份<small class="setting-hint">节点 / 规则 / 线路 / 设置 全部存到文件，换机可导回</small></span><div class="cfg-io"><button class="mini" on:click={exportConfig}>{@html I.exp} 导出</button><button class="mini" on:click={importConfig}>{@html I.imp} 导入</button></div></div>
+            <div class="setting"><span>重置为默认配置<small class="setting-hint">恢复默认设置、清空应用规则/自定义线路 —— <b>保留</b>你的节点和订阅</small></span><button class="mini danger" on:click={resetConfig}>{@html I.refresh} 重置</button></div>
           </section>
           <section class="card">
             <h3>分流引擎</h3>
-            <div class="setting"><span>阻断 QUIC<small class="setting-hint">阻断 UDP/443 回落 TCP，使其可被分流</small></span><label class="switch"><input type="checkbox" bind:checked={settings.blockQUIC} on:change={saveSettings} /><i></i></label></div>
-            <div class="setting"><span>远程 DNS<small class="setting-hint">域名交节点解析，防污染</small></span><label class="switch"><input type="checkbox" bind:checked={settings.remoteDNS} on:change={saveSettings} /><i></i></label></div>
-            <div class="setting"><span>私网直连<small class="setting-hint">局域网 / 内网地址不走代理</small></span><label class="switch"><input type="checkbox" bind:checked={settings.privateDirect} on:change={saveSettings} /><i></i></label></div>
-            <div class="setting"><span>排除自身 / 内核</span><label class="switch"><input type="checkbox" bind:checked={settings.excludeSelf} on:change={saveSettings} /><i></i></label></div>
+            <div class="setting"><span>阻止 QUIC 协议<small class="setting-hint">部分浏览器/视频用的新加密协议,不挡住会绕过分流导致代理失效。建议开</small></span><label class="switch"><input type="checkbox" bind:checked={settings.blockQUIC} on:change={saveSettings} /><i></i></label></div>
+            <div class="setting"><span>远程解析域名<small class="setting-hint">把域名交给节点解析,防止运营商劫持/污染。建议开</small></span><label class="switch"><input type="checkbox" bind:checked={settings.remoteDNS} on:change={saveSettings} /><i></i></label></div>
+            <div class="setting"><span>内网直连<small class="setting-hint">访问路由器/NAS/公司内网这类本地地址时不走代理。建议开</small></span><label class="switch"><input type="checkbox" bind:checked={settings.privateDirect} on:change={saveSettings} /><i></i></label></div>
+            <div class="setting"><span>代理程序自身不走代理<small class="setting-hint">避免流量绕圈/死循环。建议开</small></span><label class="switch"><input type="checkbox" bind:checked={settings.excludeSelf} on:change={saveSettings} /><i></i></label></div>
           </section>
           <section class="card">
             <h3>系统集成</h3>
@@ -1250,7 +1293,7 @@
                   <label class="lan-field"><span>端口</span><input type="number" min="1" max="65535" bind:value={settings.lanPort} on:change={saveSettings} /></label>
                   <label class="lan-field"><span>类型</span>
                     <select bind:value={settings.lanType} on:change={saveSettings}>
-                      <option value="mixed">混合</option>
+                      <option value="mixed">混合 (SOCKS5+HTTP)</option>
                       <option value="socks">SOCKS5</option>
                       <option value="http">HTTP</option>
                     </select>
@@ -1277,8 +1320,8 @@
     </div>
 
     <footer class="statusbar">
-      <div class="sb-left"><span class="sb-k">本地</span> {running ? (status?.corePort || '—') : '未运行'} <span class="sep">|</span> HTTP(S) <span class="sep">|</span> <button class="sb-mode" title="点击切换：规则 → 全局 → 直连" on:click={cycleClash}>模式 <b>{clashLabel(clashMode)}</b> {@html I.chevron}</button></div>
-      <div class="sb-right">系统代理：<b class:on={sysProxy}>{sysProxy ? '已开启' : '已关闭'}</b><button class="mini" on:click={toggleSysProxy}>{sysProxy ? '关闭代理' : '设置代理'}</button><span class="ok" class:on={running}>✓</span></div>
+      <div class="sb-left"><span class="sb-k">本地</span> {running ? (status?.corePort || '—') : '未运行'} <span class="sep">|</span> HTTP(S) <span class="sep">|</span> 代理策略 <b>{clashLabel(clashMode)}</b></div>
+      <div class="sb-right">系统代理：<b class:on={sysProxy}>{sysProxy ? '已开启' : '已关闭'}</b><span class="ok" class:on={running}>✓</span></div>
     </footer>
   </section>
 
@@ -1406,6 +1449,18 @@
   .lh-node { color: var(--muted); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .lh-lat { font-variant-numeric: tabular-nums; font-weight: 650; color: var(--ink-2); }
   .lh-lat.r { text-align: right; } .lh-lat.err { color: var(--danger); }
+
+  /* rule-set (规则库) list */
+  .rs-head, .rs-row { display: grid; grid-template-columns: 16px minmax(0, 1fr) 150px; gap: 12px; align-items: center; }
+  .rs-head { font-size: 11px; color: var(--muted-2); font-weight: 600; padding: 0 2px 10px; border-bottom: 1px solid var(--line-2); }
+  .rs-head .r { text-align: right; }
+  .rs-row { padding: 12px 2px; border-bottom: 1px solid var(--line-3); }
+  .rs-row:last-of-type { border-bottom: none; }
+  .rs-meta strong { font-size: 13.5px; color: var(--ink); font-weight: 640; } .rs-meta small { display: block; font-size: 12px; color: var(--muted); margin-top: 1px; }
+  .rs-info.r { text-align: right; } .rs-info b { font-size: 13px; color: var(--ink-2); font-variant-numeric: tabular-nums; } .rs-info small { display: block; font-size: 11.5px; color: var(--muted-2); }
+  .rs-miss { color: var(--danger); font-weight: 650; font-size: 12.5px; }
+  .rs-note { margin: 14px 0 0; font-size: 12.5px; color: var(--muted); line-height: 1.55; background: var(--soft); border: 1px solid var(--line-2); border-radius: 10px; padding: 11px 14px; }
+  .rs-note b { color: var(--brand-600); }
 
   /* per-app: running dot + test button + file picker */
   .run-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--muted-2); vertical-align: middle; margin-left: 2px; }
@@ -1621,6 +1676,7 @@
   .proc-count { font-size: 12px; color: var(--muted-2); white-space: nowrap; }
   .picker-foot { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
   .mini { background: var(--brand-tint); color: var(--brand); padding: 8px 13px; font-size: 12.5px; font-weight: 600; }
+  .mini.danger { background: var(--bad-bg, #fdecec); color: var(--danger); }
   .mini:hover { background: #e0e7ff; }
   .grow { flex: 1 1 180px; min-width: 0; }
 
