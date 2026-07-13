@@ -56,6 +56,7 @@
     SetCustomRules as WSetCustomRules,
   } from '../wailsjs/go/main/App.js'
   import { EventsOn } from '../wailsjs/runtime/runtime.js'
+  import donateQR from './assets/images/donate.png'
 
   type Tab = 'overview' | 'nodes' | 'apps' | 'rules' | 'subs' | 'logs' | 'settings'
   type RuleSet = { name: string; display: string; desc: string; sizeKB: number; modified: string; present: boolean }
@@ -190,6 +191,11 @@
   let speedTesting = false
   let qrData = '' // PNG data URI for the QR overlay ('' = hidden)
   let qrName = ''
+  // 赞赏码：每次启动强制弹出，先倒计时 3 秒（期间不可关闭），倒计时结束后
+  // 才出现「关闭」按钮，且只能由用户手动点击关闭，不点则一直保留、绝不自动消失。
+  let showDonate = false
+  let donateLeft = 3 // 关闭前必须停留的秒数；>0 时关闭按钮禁用
+  let donateTimer: ReturnType<typeof setInterval> | null = null
   let autostart = false // 开机自启 (real, registry-backed)
   let logLevel = 'info' // core log verbosity
   let lanIP = '' // this machine's LAN IP (for the 对局域网开放 hint)
@@ -565,6 +571,21 @@
   }
   function closeQR() { qrData = ''; qrName = '' }
 
+  // --- 赞赏码弹窗 ---
+  function openDonate() {
+    showDonate = true
+    donateLeft = 3
+    if (donateTimer) clearInterval(donateTimer)
+    donateTimer = setInterval(() => {
+      donateLeft = Math.max(0, donateLeft - 1)
+      if (donateLeft === 0 && donateTimer) { clearInterval(donateTimer); donateTimer = null }
+    }, 1000)
+  }
+  function closeDonate() {
+    if (donateLeft > 0) return // 倒计时未结束，强制停留，忽略关闭
+    showDonate = false
+  }
+
   // --- 运行模式 (捕获方式: 应用分流 vs 全局 TUN) ---
   async function setCaptureMode(tun: boolean) {
     if (settings.tunMode === tun || switchingMode) return
@@ -734,7 +755,7 @@
   function pushLog(raw: string) {
     // sing-box colorizes stdout with ANSI escapes; strip them so the log reads
     // as clean text instead of raw ANSI color codes.
-    const line = raw.replace(/\[[0-9;]*[a-zA-Z]/g, '')
+    const line = raw.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '')
     logs = [...logs.slice(-800), line]
     const m = line.match(/\[(divert|core|engine|service|rule|ui|error)\]\s*(.*)/)
     const now = new Date()
@@ -756,8 +777,9 @@
     ruleMode = m === 'whitelist' ? 'whitelist' : 'blacklist'
     if (useDemo && recent.length === 0) recent = demoLogs
     timer = setInterval(() => { refreshStatus(); refreshHealth() }, 1000)
+    openDonate() // 每次启动强制弹出赞赏码
   })
-  onDestroy(() => { if (timer) clearInterval(timer) })
+  onDestroy(() => { if (timer) clearInterval(timer); if (donateTimer) clearInterval(donateTimer) })
 
   const I = {
     nodes: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><circle cx="7" cy="7.5" r=".6" fill="currentColor"/><circle cx="7" cy="16.5" r=".6" fill="currentColor"/></svg>',
@@ -1428,6 +1450,21 @@
       </div>
     </div>
   {/if}
+
+  {#if showDonate}
+    <div class="modal-mask donate-mask">
+      <div class="donate-modal">
+        <div class="donate-title">☕ 支持一下作者</div>
+        <img class="donate-img" src={donateQR} alt="微信赞赏码" />
+        <p class="donate-hint">微信扫码赞赏，您的支持是我持续开发的最大动力 ❤</p>
+        {#if donateLeft > 0}
+          <button class="donate-close waiting" disabled>请欣赏 {donateLeft}s…</button>
+        {:else}
+          <button class="donate-close" on:click={closeDonate}>我知道了，关闭</button>
+        {/if}
+      </div>
+    </div>
+  {/if}
 </div>
 
 <style>
@@ -1928,6 +1965,18 @@
   .qr-name { font-size: 13px; color: var(--muted); margin-bottom: 14px; word-break: break-all; }
   .qr-img { width: 260px; height: 260px; max-width: 100%; border-radius: 12px; background: #fff; padding: 10px; border: 1px solid var(--line-2); }
   .qr-hint { font-size: 12px; color: var(--muted-2); margin-top: 14px; }
+
+  /* ---------- 赞赏码弹窗 (donation) ---------- */
+  .donate-mask { z-index: 200; background: rgba(15, 23, 42, 0.62); backdrop-filter: blur(4px); }
+  .donate-modal { width: min(340px, 92vw); background: var(--card); border: 1px solid var(--line); border-radius: 20px; padding: 20px 20px 22px; box-shadow: 0 30px 80px rgba(15, 23, 42, 0.45); text-align: center; animation: donatePop 0.28s cubic-bezier(0.16, 1, 0.3, 1); }
+  .donate-title { font-size: 17px; font-weight: 800; color: var(--ink); letter-spacing: 0.02em; margin-bottom: 14px; }
+  .donate-img { width: 100%; max-width: 280px; border-radius: 14px; display: block; margin: 0 auto; box-shadow: 0 8px 24px rgba(15, 23, 42, 0.22); }
+  .donate-hint { margin: 14px 4px 18px; font-size: 12.5px; line-height: 1.6; color: var(--muted); }
+  .donate-close { width: 100%; padding: 12px; border: none; border-radius: 12px; font-size: 14px; font-weight: 700; font-family: inherit; cursor: pointer; color: #fff; background: linear-gradient(135deg, var(--brand), #4f46e5); box-shadow: 0 8px 20px rgba(37, 99, 235, 0.3); transition: filter 0.15s, transform 0.1s; }
+  .donate-close:hover { filter: brightness(1.07); }
+  .donate-close:active { transform: translateY(1px); }
+  .donate-close.waiting { background: var(--soft); color: var(--muted-2); box-shadow: none; cursor: not-allowed; font-variant-numeric: tabular-nums; }
+  @keyframes donatePop { from { opacity: 0; transform: scale(0.9) translateY(8px); } to { opacity: 1; transform: scale(1) translateY(0); } }
 
   /* ---------- responsive breakpoints ---------- */
   @media (max-width: 1180px) {
