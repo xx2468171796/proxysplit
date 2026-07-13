@@ -218,7 +218,11 @@
   async function safe<T>(call: () => Promise<T>, fallback: T): Promise<T> {
     if (!isWailsReady()) { useDemo = true; return fallback }
     // A transient backend error must NOT flip the whole app into demo mode.
-    try { return await call() } catch (e) { console.warn('[ProxySplit] call failed', e); return fallback }
+    // Also coerce null/undefined to the fallback: Go marshals a nil slice to
+    // JSON `null`, and a null reaching a {#each}/.length throws inside Svelte's
+    // flush(), which re-throws without clearing update_scheduled and wedges the
+    // scheduler → the whole UI freezes. `?? fallback` keeps 0/false/'' intact.
+    try { const r = await call(); return r ?? fallback } catch (e) { console.warn('[ProxySplit] call failed', e); return fallback }
   }
 
   $: running = !!status && (status.coreRunning || status.engineRunning)

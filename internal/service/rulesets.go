@@ -59,7 +59,10 @@ func (s *Service) RuleSetsUpdatedAt() string {
 func (s *Service) GetCustomRules() []core.RouteRule {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return append([]core.RouteRule(nil), s.cfg.CustomRules...)
+	// Use a non-nil empty slice so JSON marshals to `[]`, never `null`; a null
+	// reaching the frontend {#each customRules} throws and wedges Svelte's
+	// scheduler (whole-UI freeze on the 分流规则 page).
+	return append([]core.RouteRule{}, s.cfg.CustomRules...)
 }
 
 // SetCustomRules replaces the global custom routing rules (域名/IP → 代理/直连/
