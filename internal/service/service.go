@@ -78,8 +78,9 @@ type Config struct {
 	LogLevel    string        `json:"logLevel"`
 	CorePort    int           `json:"corePort"`
 
-	ClashMode    string `json:"clashMode,omitempty"`    // rule|global|direct (persisted across restarts)
-	SysProxyLast string `json:"sysProxyLast,omitempty"` // exact host:port we last set as OS proxy (crash-recovery marker)
+	ClashMode    string           `json:"clashMode,omitempty"`    // rule|global|direct (persisted across restarts)
+	SysProxyLast string           `json:"sysProxyLast,omitempty"` // exact host:port we last set as OS proxy (crash-recovery marker)
+	CustomRules  []core.RouteRule `json:"customRules,omitempty"`  // global user rules (域名/IP → 代理/直连/拦截), highest priority
 
 	Apps []string `json:"apps,omitempty"` // legacy; migrated to Rules on load
 }
@@ -791,6 +792,7 @@ func (s *Service) Start() error {
 	level := s.cfg.LogLevel
 	mode := s.cfg.RuleMode
 	set := s.cfg.Settings
+	custom := append([]core.RouteRule(nil), s.cfg.CustomRules...)
 	// TUN base routing is always rule-based (bypass China); the clash mode overlays
 	// 全局/直连 at run time. So 规则 = 智能分流, 全局 = 全走代理, 直连 = 全直连.
 	tunRoute := core.RouteBypassCN
@@ -813,7 +815,8 @@ func (s *Service) Start() error {
 			ctl = fmt.Sprintf("127.0.0.1:%d", port)
 		}
 		return core.Options{RemoteDNS: set.RemoteDNS, GeoDir: s.binDir, ClashController: ctl, ClashSecret: clashSecret, ClashMode: wantMode,
-			LanShare: set.LanShare, LanPort: set.LanPort, LanType: set.LanType, LanUser: set.LanUser, LanPass: set.LanPass}
+			LanShare: set.LanShare, LanPort: set.LanPort, LanType: set.LanType, LanUser: set.LanUser, LanPass: set.LanPass,
+			CustomRules: custom}
 	}
 
 	// TUN mode: system-wide via sing-box TUN; no per-app WinDivert engine.

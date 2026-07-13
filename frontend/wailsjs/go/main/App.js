@@ -46,6 +46,10 @@ export function GetCoreVersion() {
   return window['go']['main']['App']['GetCoreVersion']();
 }
 
+export function GetCustomRules() {
+  return window['go']['main']['App']['GetCustomRules']();
+}
+
 export function GetDefaultLine() {
   return window['go']['main']['App']['GetDefaultLine']();
 }
@@ -148,6 +152,10 @@ export function SetAutostart(arg1) {
 
 export function SetClashMode(arg1) {
   return window['go']['main']['App']['SetClashMode'](arg1);
+}
+
+export function SetCustomRules(arg1) {
+  return window['go']['main']['App']['SetCustomRules'](arg1);
 }
 
 export function SetDefaultLine(arg1) {

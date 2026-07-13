@@ -10,6 +10,7 @@ import (
 	"github.com/energye/systray"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 
+	"proxysplit/internal/core"
 	"proxysplit/internal/nodes"
 	"proxysplit/internal/proc"
 	"proxysplit/internal/service"
@@ -120,15 +121,15 @@ func (a *App) RemoveNode(id string) { a.svc.RemoveNode(id) }
 func (a *App) SelectNode(id string) { a.svc.SelectNode(id) }
 
 // GetApps / SetApps are legacy string-based accessors (kept for compatibility).
-func (a *App) GetApps() []string      { return a.svc.Apps() }
-func (a *App) SetApps(apps []string)  { a.svc.SetApps(apps) }
+func (a *App) GetApps() []string     { return a.svc.Apps() }
+func (a *App) SetApps(apps []string) { a.svc.SetApps(apps) }
 
 // GetAppRules / SetAppRules manage the app -> line rules.
-func (a *App) GetAppRules() []service.AppRule     { return a.svc.GetAppRules() }
+func (a *App) GetAppRules() []service.AppRule      { return a.svc.GetAppRules() }
 func (a *App) SetAppRules(rules []service.AppRule) { a.svc.SetAppRules(rules) }
 
 // GetLines / SetLines manage routing lines (builtin + custom; SetLines takes custom).
-func (a *App) GetLines() []service.Line   { return a.svc.GetLines() }
+func (a *App) GetLines() []service.Line      { return a.svc.GetLines() }
 func (a *App) SetLines(lines []service.Line) { a.svc.SetLines(lines) }
 
 // GetRuleMode / SetRuleMode manage blacklist vs whitelist.
@@ -150,11 +151,13 @@ func (a *App) TestLatency(id string) int { return a.svc.TestLatency(id) }
 func (a *App) TestAllLatency()           { a.svc.TestAllLatency() }
 
 // Subscriptions.
-func (a *App) GetSubs() []service.Sub                          { return a.svc.GetSubs() }
-func (a *App) AddSub(name, url string, autoUpdate bool) string { return errStr(a.svc.AddSub(name, url, autoUpdate)) }
-func (a *App) UpdateSub(id string) string                      { return errStr(a.svc.UpdateSub(id)) }
-func (a *App) RemoveSub(id string)                             { a.svc.RemoveSub(id) }
-func (a *App) SetSubAutoUpdate(id string, on bool)            { a.svc.SetSubAutoUpdate(id, on) }
+func (a *App) GetSubs() []service.Sub { return a.svc.GetSubs() }
+func (a *App) AddSub(name, url string, autoUpdate bool) string {
+	return errStr(a.svc.AddSub(name, url, autoUpdate))
+}
+func (a *App) UpdateSub(id string) string          { return errStr(a.svc.UpdateSub(id)) }
+func (a *App) RemoveSub(id string)                 { a.svc.RemoveSub(id) }
+func (a *App) SetSubAutoUpdate(id string, on bool) { a.svc.SetSubAutoUpdate(id, on) }
 
 // Core (sing-box) version + update.
 func (a *App) GetCoreVersion() string { return a.svc.GetCoreVersion() }
@@ -174,6 +177,10 @@ func (a *App) UpdateRuleSets() string { return a.svc.UpdateRuleSets() }
 // GetRuleSets returns the state of the routing rule-sets for the 规则 page.
 func (a *App) GetRuleSets() []service.RuleSetInfo { return a.svc.GetRuleSets() }
 
+// Global custom routing rules (域名/IP → 代理/直连/拦截).
+func (a *App) GetCustomRules() []core.RouteRule      { return a.svc.GetCustomRules() }
+func (a *App) SetCustomRules(rules []core.RouteRule) { a.svc.SetCustomRules(rules) }
+
 // ResetConfig restores settings/rules/mode to defaults (keeps nodes + subs).
 func (a *App) ResetConfig() { a.svc.ResetConfig() }
 
@@ -190,11 +197,11 @@ func (a *App) GetAutostart() bool          { return a.svc.GetAutostart() }
 func (a *App) SetAutostart(on bool) string { return errStr(a.svc.SetAutostart(on)) }
 
 // Log verbosity (trace|debug|info|warn|error).
-func (a *App) GetLogLevel() string       { return a.svc.GetLogLevel() }
-func (a *App) SetLogLevel(level string)  { a.svc.SetLogLevel(level) }
+func (a *App) GetLogLevel() string      { return a.svc.GetLogLevel() }
+func (a *App) SetLogLevel(level string) { a.svc.SetLogLevel(level) }
 
 // App-rule import/export (a JSON bundle of rules + custom lines).
-func (a *App) ExportAppRules() string { s, _ := a.svc.ExportAppRules(); return s }
+func (a *App) ExportAppRules() string            { s, _ := a.svc.ExportAppRules(); return s }
 func (a *App) ImportAppRules(data string) string { return errStr(a.svc.ImportAppRules(data)) }
 
 // PickExeFiles opens a native dialog to choose one or more programs to proxy

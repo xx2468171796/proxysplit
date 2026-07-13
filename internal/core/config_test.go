@@ -1,6 +1,7 @@
 package core
 
 import (
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -122,7 +123,13 @@ func TestClashConfig(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	opts := Options{RemoteDNS: true, GeoDir: geoDir, ClashController: "127.0.0.1:19090", ClashSecret: "deadbeef", ClashMode: "global"}
+	opts := Options{RemoteDNS: true, GeoDir: geoDir, ClashController: "127.0.0.1:19090", ClashSecret: "deadbeef", ClashMode: "global",
+		CustomRules: []RouteRule{
+			{Type: "suffix", Value: "github.com", Action: "proxy"},
+			{Type: "domain", Value: "ipinfo.io", Action: "direct"},
+			{Type: "keyword", Value: "doubleclick", Action: "block"},
+			{Type: "ip", Value: "1.1.1.1/32", Action: "direct"},
+		}}
 
 	// Multi-line config with clash_api enabled.
 	multi := []LineConfig{{Key: "L1", InboundPort: 21001, Node: node, RouteMode: RouteBypassCN}}
@@ -150,6 +157,59 @@ func TestClashConfig(t *testing.T) {
 		t.Fatalf("clash tun rejected:\n%s\n%s", out, tcfg)
 	}
 	t.Log("clash TUN -> OK")
+}
+
+func TestCustomRulesPriority(t *testing.T) {
+	bin := singboxPath(t)
+	dir := t.TempDir()
+	geoDir, _ := filepath.Abs(filepath.Join("..", "..", "bin"))
+	node, err := nodes.ParseLink(sampleLinks["vless-reality"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	opts := Options{RemoteDNS: true, GeoDir: geoDir, ClashController: "127.0.0.1:19091", ClashSecret: "x", ClashMode: "rule",
+		CustomRules: []RouteRule{{Type: "domain", Value: "custom-test.example", Action: "direct"}}}
+	lines := []LineConfig{{Key: "L1", InboundPort: 21001, Node: node, RouteMode: RouteBypassCN}}
+	cfg, err := BuildMultiConfig(lines, "info", opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := filepath.Join(dir, "custom.json")
+	os.WriteFile(p, cfg, 0o600)
+	if out, err := exec.Command(bin, "check", "-c", p).CombinedOutput(); err != nil {
+		t.Fatalf("sing-box rejected custom-rule config:\n%s\n%s", out, cfg)
+	}
+	// The custom domain rule must sit BEFORE the geo (geosite-cn) rule in route.rules.
+	var m map[string]interface{}
+	if err := json.Unmarshal(cfg, &m); err != nil {
+		t.Fatal(err)
+	}
+	rules := m["route"].(map[string]interface{})["rules"].([]interface{})
+	customIdx, geoIdx := -1, -1
+	for i, r := range rules {
+		rm := r.(map[string]interface{})
+		if d, ok := rm["domain"].([]interface{}); ok {
+			for _, v := range d {
+				if v == "custom-test.example" {
+					customIdx = i
+				}
+			}
+		}
+		if rs, ok := rm["rule_set"].([]interface{}); ok {
+			for _, v := range rs {
+				if v == "geosite-cn" {
+					geoIdx = i
+				}
+			}
+		}
+	}
+	if customIdx < 0 {
+		t.Fatal("custom rule missing from generated config")
+	}
+	if geoIdx >= 0 && customIdx > geoIdx {
+		t.Fatalf("custom rule (idx %d) is AFTER geo rule (idx %d) — wrong priority", customIdx, geoIdx)
+	}
+	t.Logf("custom rule present at idx %d, before geo rule at idx %d — priority OK", customIdx, geoIdx)
 }
 
 func TestLanShareConfig(t *testing.T) {

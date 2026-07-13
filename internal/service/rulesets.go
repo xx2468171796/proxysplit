@@ -3,7 +3,10 @@ package service
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
+
+	"proxysplit/internal/core"
 )
 
 // RuleSetInfo describes one bundled sing-box rule-set (.srs) for the 规则 page.
@@ -50,6 +53,35 @@ func (s *Service) RuleSetsUpdatedAt() string {
 		return ""
 	}
 	return newest.Format("2006-01-02")
+}
+
+// GetCustomRules returns the user's global custom routing rules.
+func (s *Service) GetCustomRules() []core.RouteRule {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]core.RouteRule(nil), s.cfg.CustomRules...)
+}
+
+// SetCustomRules replaces the global custom routing rules (域名/IP → 代理/直连/
+// 拦截) and regenerates the running config so they take effect immediately.
+func (s *Service) SetCustomRules(rules []core.RouteRule) {
+	kept := make([]core.RouteRule, 0, len(rules))
+	for _, r := range rules {
+		if strings.TrimSpace(r.Value) != "" {
+			kept = append(kept, core.RouteRule{Type: r.Type, Value: strings.TrimSpace(r.Value), Action: r.Action})
+		}
+	}
+	s.mu.Lock()
+	s.cfg.CustomRules = kept
+	s.save()
+	running := s.core.Running()
+	s.mu.Unlock()
+	if running {
+		s.Stop()
+		if err := s.Start(); err != nil {
+			s.log("[rules] restart after custom-rule change failed: " + err.Error())
+		}
+	}
 }
 
 // maybeAutoUpdateRules refreshes the rule-sets in the background after a node is

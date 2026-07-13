@@ -52,6 +52,8 @@
     GetHealth as WGetHealth,
     GetRuleSets as WGetRuleSets,
     ResetConfig as WResetConfig,
+    GetCustomRules as WGetCustomRules,
+    SetCustomRules as WSetCustomRules,
   } from '../wailsjs/go/main/App.js'
   import { EventsOn } from '../wailsjs/runtime/runtime.js'
 
@@ -346,6 +348,19 @@
     { name: 'geosite-category-ads-all.srs', display: '广告域名 (ads)', desc: '广告/追踪域名 → 直接拦截', sizeKB: 8, modified: '2026-07-06', present: true },
   ]
   async function refreshRuleSets() { ruleSets = await safe<RuleSet[]>(() => WGetRuleSets() as Promise<RuleSet[]>, demoRuleSets) }
+  let customRules: RouteRule[] = []
+  let custRuleMsg = ''
+  async function refreshCustomRules() { customRules = await safe<RouteRule[]>(() => WGetCustomRules() as Promise<RouteRule[]>, []) }
+  function addCustomRule() { customRules = [...customRules, { type: 'suffix', value: '', action: 'proxy' }] }
+  function removeCustomRule(i: number) { customRules = customRules.filter((_, k) => k !== i) }
+  async function saveCustomRules() {
+    if (useDemo || !isWailsReady()) { custRuleMsg = '演示模式无法保存'; setTimeout(() => (custRuleMsg = ''), 2500); return }
+    custRuleMsg = '应用中…'
+    await WSetCustomRules(customRules.filter((r) => (r.value || '').trim()))
+    await refreshCustomRules()
+    custRuleMsg = running ? '已保存并重启生效' : '已保存(启动后生效)'
+    setTimeout(() => (custRuleMsg = ''), 3500)
+  }
   async function resetConfig() {
     if (!confirm('重置为默认配置?\n\n会清空:应用规则、自定义线路、所有开关设置(恢复默认)。\n会保留:你添加的节点和订阅。\n\n确定继续?')) return
     if (useDemo || !isWailsReady()) { toast('演示模式无法重置'); return }
@@ -752,7 +767,7 @@
       <button class:active={tab === 'overview'} on:click={() => (tab = 'overview')}><i>{@html I.dash}</i><span>概览</span></button>
       <button class:active={tab === 'nodes'} on:click={() => (tab = 'nodes')}><i>{@html I.nodes}</i><span>节点</span></button>
       <button class:active={tab === 'apps'} on:click={() => { tab = 'apps'; refreshRunning() }}><i>{@html I.apps}</i><span>应用分流</span></button>
-      <button class:active={tab === 'rules'} on:click={() => { tab = 'rules'; refreshRuleSets() }}><i>{@html I.shield}</i><span>分流规则</span></button>
+      <button class:active={tab === 'rules'} on:click={() => { tab = 'rules'; refreshRuleSets(); refreshCustomRules() }}><i>{@html I.shield}</i><span>分流规则</span></button>
       <button class:active={tab === 'subs'} on:click={() => (tab = 'subs')}><i>{@html I.subs}</i><span>订阅</span></button>
       <button class:active={tab === 'logs'} on:click={() => (tab = 'logs')}><i>{@html I.logs}</i><span>日志</span></button>
       <button class:active={tab === 'settings'} on:click={() => (tab = 'settings')}><i>{@html I.settings}</i><span>设置</span></button>
@@ -1223,6 +1238,38 @@
           <p class="rs-note">📦 规则库来自 sing-box 官方(SagerNet),已内置最新版。更新走<b>当前节点</b>下载(直连被墙),所以更新前请先「启动」并连上节点。</p>
         </section>
 
+        <section class="card page">
+          <div class="card-head">
+            <div><h3>自定义规则</h3><p class="sub">你自己填的规则,<b>优先级最高</b>,盖过上面的国内外分流。「代理策略」为「规则」时生效。</p></div>
+            <div class="actions">
+              <button class="ghost-btn" on:click={addCustomRule}>{@html I.plus} 加一条</button>
+              <button class="primary" on:click={saveCustomRules} disabled={custRuleMsg === '应用中…'}>{custRuleMsg === '应用中…' ? '应用中…' : '保存并应用'}</button>
+              {#if custRuleMsg && custRuleMsg !== '应用中…'}<span class="rs-msg">{custRuleMsg}</span>{/if}
+            </div>
+          </div>
+          <div class="cr-list">
+            {#if customRules.length > 0}<div class="cr-head"><span>匹配方式</span><span>内容</span><span>动作</span><span></span></div>{/if}
+            {#each customRules as r, i}
+              <div class="cr-row">
+                <select bind:value={r.type}>
+                  <option value="suffix">域名后缀</option>
+                  <option value="domain">完整域名</option>
+                  <option value="keyword">关键字</option>
+                  <option value="ip">IP 段(CIDR)</option>
+                </select>
+                <input bind:value={r.value} placeholder={r.type === 'ip' ? '如 1.1.1.1/32、10.0.0.0/8' : r.type === 'keyword' ? '如 google' : '如 github.com'} />
+                <select bind:value={r.action}>
+                  <option value="proxy">走代理</option>
+                  <option value="direct">直连</option>
+                  <option value="block">拦截</option>
+                </select>
+                <button class="icon-btn danger" on:click={() => removeCustomRule(i)} title="删除">{@html I.trash}</button>
+              </div>
+            {/each}
+            {#if customRules.length === 0}<div class="empty sm">还没有自定义规则。点「加一条」添加 —— 比如「github.com → 走代理」、「某国内网站 → 直连」、「广告域名 → 拦截」。填完点「保存并应用」。</div>{/if}
+          </div>
+        </section>
+
       {:else if tab === 'subs'}
         <section class="card page">
           <div class="card-head"><div><h3>订阅</h3><p class="sub">名称、URL、节点数、上次更新、自动更新</p></div><button class="primary" on:click={() => (showSubForm = !showSubForm)}>{@html I.plus} 添加订阅</button></div>
@@ -1461,6 +1508,13 @@
   .rs-miss { color: var(--danger); font-weight: 650; font-size: 12.5px; }
   .rs-note { margin: 14px 0 0; font-size: 12.5px; color: var(--muted); line-height: 1.55; background: var(--soft); border: 1px solid var(--line-2); border-radius: 10px; padding: 11px 14px; }
   .rs-note b { color: var(--brand-600); }
+
+  /* custom-rules editor */
+  .cr-head, .cr-row { display: grid; grid-template-columns: 132px minmax(0, 1fr) 110px 34px; gap: 10px; align-items: center; }
+  .cr-head { font-size: 11px; color: var(--muted-2); font-weight: 600; padding: 2px 2px 8px; }
+  .cr-row { padding: 6px 0; }
+  .cr-row select, .cr-row input { width: 100%; min-width: 0; box-sizing: border-box; border: 1px solid var(--line); background: var(--soft); color: var(--ink); border-radius: 8px; padding: 7px 10px; font-size: 13px; font-family: inherit; }
+  .cr-row select:focus, .cr-row input:focus { outline: none; border-color: var(--brand); }
 
   /* per-app: running dot + test button + file picker */
   .run-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--muted-2); vertical-align: middle; margin-left: 2px; }

@@ -57,6 +57,43 @@ type Options struct {
 	LanType  string // mixed | socks | http
 	LanUser  string // auth username (empty = no auth)
 	LanPass  string // auth password
+
+	// CustomRules are global user routing rules (highest priority, applied in
+	// "rule" clash mode before the geo-based bypass-CN rules).
+	CustomRules []RouteRule
+}
+
+// customRoutingRules turns the user's global custom rules into route entries
+// (proxy → nodeTag, direct → direct, block → reject). Not inbound-scoped, so
+// they apply to all proxied traffic. nil when there are none.
+func customRoutingRules(opts Options, nodeTag string) []M {
+	var out []M
+	for _, r := range opts.CustomRules {
+		m := ruleMatch(r)
+		if m == nil {
+			continue
+		}
+		switch r.Action {
+		case "direct":
+			m["outbound"] = "direct"
+		case "block":
+			m["action"] = "reject"
+		default:
+			m["outbound"] = nodeTag
+		}
+		out = append(out, m)
+	}
+	return out
+}
+
+// customNeedsDomain reports whether any custom rule matches on a domain (needs sniff).
+func customNeedsDomain(opts Options) bool {
+	for _, r := range opts.CustomRules {
+		if r.Type == "domain" || r.Type == "suffix" || r.Type == "keyword" {
+			return true
+		}
+	}
+	return false
 }
 
 // lanInbound builds the dedicated LAN-shared inbound (fixed port, chosen
@@ -132,11 +169,11 @@ func clashDNSRules(opts Options) []M {
 // matched app to its line's inbound port, so different apps can use different
 // nodes/policies simultaneously.
 type LineConfig struct {
-	Key         string       // engine upstream key; inbound tag is "in-<Key>"
-	InboundPort int          // loopback port for this line's inbound
-	Node        *nodes.Node  // resolved node this line exits through
-	RouteMode   string       // global | bypass_cn | custom
-	RouteRules  []RouteRule  // used when RouteMode == custom
+	Key         string      // engine upstream key; inbound tag is "in-<Key>"
+	InboundPort int         // loopback port for this line's inbound
+	Node        *nodes.Node // resolved node this line exits through
+	RouteMode   string      // global | bypass_cn | custom
+	RouteRules  []RouteRule // used when RouteMode == custom
 }
 
 // BuildConfig produces a single-line config (back-compat wrapper).
@@ -196,7 +233,7 @@ func BuildMultiConfig(lines []LineConfig, logLevel string, opts Options) ([]byte
 
 	// Domain awareness (sniff + DNS + resolver) is needed for remote-DNS or any
 	// domain-based routing.
-	needDomain := opts.RemoteDNS
+	needDomain := opts.RemoteDNS || customNeedsDomain(opts)
 	geoNeeded := false
 	for _, ln := range lines {
 		if ln.RouteMode == RouteBypassCN {
@@ -238,6 +275,8 @@ func BuildMultiConfig(lines []LineConfig, logLevel string, opts Options) ([]byte
 	}
 	// LAN-shared inbound routes through the active node.
 	rules = append(rules, lanRules(opts, nodeTag[lines[0].Node.ID])...)
+	// Global user custom rules — highest priority, before the geo/per-line rules.
+	rules = append(rules, customRoutingRules(opts, nodeTag[lines[0].Node.ID])...)
 
 	// Per-line, inbound-scoped routing rules.
 	for _, ln := range lines {
@@ -319,6 +358,8 @@ func BuildTUNConfig(node *nodes.Node, logLevel string, opts Options) ([]byte, er
 	}
 	// LAN-shared inbound (if any) routes through the node.
 	rules = append(rules, lanRules(opts, "proxy")...)
+	// Global user custom rules — highest priority.
+	rules = append(rules, customRoutingRules(opts, "proxy")...)
 	geoNeeded := false
 	switch routeMode {
 	case RouteBypassCN:
