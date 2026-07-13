@@ -62,6 +62,8 @@ export function ImportAppRules(arg1:string):Promise<string>;
 
 export function ImportConfig():Promise<string>;
 
+export function LegalNotice():Promise<string>;
+
 export function ListProcesses():Promise<Array<proc.ProcInfo>>;
 
 export function PickExeFiles():Promise<Array<string>>;

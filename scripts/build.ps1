@@ -7,8 +7,12 @@ Set-Location $root
 $env:Path = "C:\Program Files\Go\bin;$env:USERPROFILE\go\bin;$env:Path"
 $env:CGO_ENABLED = "0"
 
-Write-Host "==> wails build" -ForegroundColor Cyan
-& "$env:USERPROFILE\go\bin\wails.exe" build
+Write-Host "==> wails build (hardened: stripped symbols + no debug/paths)" -ForegroundColor Cyan
+# Anti-decompile hardening (safe for Wails — does NOT rename methods so the
+# JS<->Go bindings keep working):
+#   -s -w    strip the symbol table + DWARF debug info (no function names)
+#   -trimpath  remove local source paths from the binary
+& "$env:USERPROFILE\go\bin\wails.exe" build -trimpath -ldflags "-s -w"
 if ($LASTEXITCODE -ne 0) { throw "wails build failed" }
 
 $exe = Join-Path $root "build\bin\proxysplit.exe"

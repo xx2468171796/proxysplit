@@ -114,6 +114,10 @@ export function ImportConfig() {
   return window['go']['main']['App']['ImportConfig']();
 }
 
+export function LegalNotice() {
+  return window['go']['main']['App']['LegalNotice']();
+}
+
 export function ListProcesses() {
   return window['go']['main']['App']['ListProcesses']();
 }

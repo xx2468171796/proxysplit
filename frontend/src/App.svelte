@@ -204,7 +204,7 @@
   let iconMap: Record<string, string> = {}
   const iconPending = new Set<string>()
   let prevDown = 0, prevUp = 0, prevT = 0
-  let downSpeedVal = '0.00', upSpeedVal = '0.00'
+  let downRate = 0, upRate = 0 // bytes/sec (formatted adaptively for display)
   let timer: ReturnType<typeof setInterval> | null = null
   let useDemo = false
 
@@ -224,17 +224,53 @@
     return !procFilter || t.includes(procFilter.toLowerCase())
   })
   $: visibleLogs = logs.filter((l) => !logFilter || l.toLowerCase().includes(logFilter.toLowerCase()))
-  $: downSpeed = useDemo ? '12.45' : downSpeedVal
-  $: upSpeed = useDemo ? '2.34' : upSpeedVal
+  $: parsedLogs = visibleLogs.map(parseLog)
+  $: dn = useDemo ? { v: '12.45', u: 'MB/s' } : fmtRate(downRate)
+  $: up = useDemo ? { v: '2.34', u: 'MB/s' } : fmtRate(upRate)
   $: activeConns = status?.stats?.activeConns ?? (useDemo ? 24 : 0)
   $: uptime = running ? fmtUptime(status?.uptimeSec ?? 0) : '00:00:00'
   $: rules.forEach((r) => loadIcon(r.path))
   $: filteredProcs.forEach((p) => loadIcon(p.path))
 
-  function fmtSpeed(n: number) { return (n / 1024 / 1024).toFixed(2) }
+  // Adaptive rate formatter so slow traffic reads precisely (KB/s, B/s) instead
+  // of rounding to 0.00 MB/s.
+  function fmtRate(bps: number): { v: string; u: string } {
+    if (!(bps > 0)) return { v: '0.00', u: 'MB/s' }
+    if (bps >= 1024 * 1024) return { v: (bps / 1048576).toFixed(2), u: 'MB/s' }
+    if (bps >= 1024) return { v: (bps / 1024).toFixed(1), u: 'KB/s' }
+    return { v: Math.round(bps).toString(), u: 'B/s' }
+  }
   function fmtUptime(secs: number) {
     const h = Math.floor(secs / 3600), m = Math.floor((secs % 3600) / 60), s = secs % 60
     return [h, m, s].map((x) => String(x).padStart(2, '0')).join(':')
+  }
+  // Split a raw log line into time / level / tag / message so the log renders as
+  // clean, colored, left-aligned columns instead of a wall of text.
+  function parseLog(raw: string): { time: string; level: string; tag: string; msg: string } {
+    const s = raw.replace(/\s+$/, '')
+    const tmMatch = s.match(/(\d{2}:\d{2}:\d{2})/)
+    const time = tmMatch ? tmMatch[1] : ''
+    // drop any leading timestamp block(s) so the message body starts clean
+    let body = s
+      .replace(/^\s*[+\-]?\d{4}[-/]\d{2}[-/]\d{2}[ T]\d{2}:\d{2}:\d{2}(?:\.\d+)?\s*/, '')
+      .replace(/^\s*[+\-]\d{4}\s+/, '')
+      .replace(/^\s*\d{2}:\d{2}:\d{2}(?:\.\d+)?\s*/, '')
+    const lvMatch = body.match(/^\s*(TRACE|DEBUG|INFO|WARN(?:ING)?|ERROR|FATAL|PANIC)\b/i)
+    let level = lvMatch ? lvMatch[1].toUpperCase() : ''
+    if (level) body = body.slice(lvMatch![0].length)
+    body = body.replace(/^[:\s]+/, '')
+    let tag = ''
+    const tgMatch = body.match(/^\[([^\]]+)\]\s*/)
+    if (tgMatch) { tag = tgMatch[1]; body = body.slice(tgMatch[0].length) }
+    let msg = body.trim() || s.trim()
+    // infer a level for coloring when the core did not print one (our own logs)
+    if (!level) {
+      if (/error|fail|失败|拒绝|无法|panic/i.test(msg)) level = 'ERROR'
+      else if (/warn|warning|超时|timeout|重试|抓不到/i.test(msg)) level = 'WARN'
+      else level = 'INFO'
+    }
+    if (level === 'WARNING') level = 'WARN'
+    return { time, level, tag, msg }
   }
   function ruleName(r: AppRule): string {
     const m = r.match || r.path || '?'
@@ -266,8 +302,8 @@
     if (s && prevT) {
       const dt = (now - prevT) / 1000
       if (dt > 0) {
-        downSpeedVal = fmtSpeed(Math.max(0, s.downBytes - prevDown) / dt)
-        upSpeedVal = fmtSpeed(Math.max(0, s.upBytes - prevUp) / dt)
+        downRate = Math.max(0, s.downBytes - prevDown) / dt
+        upRate = Math.max(0, s.upBytes - prevUp) / dt
       }
     }
     if (s) { prevDown = s.downBytes; prevUp = s.upBytes; prevT = now }
@@ -695,7 +731,10 @@
     } finally { busy = false }
   }
 
-  function pushLog(line: string) {
+  function pushLog(raw: string) {
+    // sing-box colorizes stdout with ANSI escapes; strip them so the log reads
+    // as clean text instead of raw ANSI color codes.
+    const line = raw.replace(/\[[0-9;]*[a-zA-Z]/g, '')
     logs = [...logs.slice(-800), line]
     const m = line.match(/\[(divert|core|engine|service|rule|ui|error)\]\s*(.*)/)
     const now = new Date()
@@ -806,8 +845,8 @@
       </div>
 
       <div class="tb-right">
-        <div class="metric"><span class="mi down">{@html I.down}</span><b>{downSpeed}</b> MB/s</div>
-        <div class="metric"><span class="mi up">{@html I.up}</span><b>{upSpeed}</b> MB/s</div>
+        <div class="metric"><span class="mi down">{@html I.down}</span><b>{dn.v}</b> {dn.u}</div>
+        <div class="metric"><span class="mi up">{@html I.up}</span><b>{up.v}</b> {up.u}</div>
         <div class="metric col"><span class="mi">{@html I.users}</span><div><small>活动连接</small><b>{activeConns}</b></div></div>
         <div class="conn" class:on={running}>
           <span class="mi">{@html I.wifi}</span>
@@ -852,8 +891,8 @@
               </button>
             </div>
             <div class="ov-stats">
-              <div class="ov-stat"><small>下行</small><b>{downSpeed}</b><em>MB/s</em></div>
-              <div class="ov-stat"><small>上行</small><b>{upSpeed}</b><em>MB/s</em></div>
+              <div class="ov-stat"><small>下行</small><b>{dn.v}</b><em>{dn.u}</em></div>
+              <div class="ov-stat"><small>上行</small><b>{up.v}</b><em>{up.u}</em></div>
               <div class="ov-stat"><small>活动连接</small><b>{activeConns}</b></div>
               <div class="ov-stat"><small>运行时长</small><b>{uptime}</b></div>
             </div>
@@ -1308,8 +1347,15 @@
         <section class="card log-full">
           <div class="card-head"><div><h3>实时日志</h3><p class="sub">核心 + 分流引擎 + 每条连接</p></div><div class="actions"><input bind:value={logFilter} placeholder="过滤（支持关键字）" /><button class="ghost-btn" on:click={() => (logs = [])}>清空</button></div></div>
           <div class="logbox">
-            {#each visibleLogs as l}<div>{l}</div>{/each}
-            {#if visibleLogs.length === 0}<div class="muted">暂无日志</div>{/if}
+            {#each parsedLogs as p}
+              <div class="lg-line {p.level.toLowerCase()}">
+                <span class="lg-time">{p.time || '—'}</span>
+                <span class="lg-lv {p.level.toLowerCase()}">{p.level}</span>
+                {#if p.tag}<span class="lg-tag">{p.tag}</span>{/if}
+                <span class="lg-msg">{p.msg}</span>
+              </div>
+            {/each}
+            {#if parsedLogs.length === 0}<div class="lg-empty">暂无日志</div>{/if}
           </div>
         </section>
 
@@ -1844,8 +1890,22 @@
   /* ---------- logs ---------- */
   .log-full { min-height: calc(100vh - 180px); display: flex; flex-direction: column; }
   .log-full .actions input { min-width: 0; }
-  .logbox { flex: 1; min-height: 360px; background: #0f172a; border-radius: var(--r3); padding: 14px; overflow: auto; color: #cbd5e1; font-family: ui-monospace, Consolas, monospace; font-size: 12px; line-height: 1.7; }
-  .logbox div { white-space: pre-wrap; word-break: break-word; }
+  .logbox { flex: 1; min-height: 360px; background: #0b1120; border: 1px solid #1e293b; border-radius: var(--r3); padding: 8px 6px; overflow: auto; font-family: ui-monospace, 'Cascadia Code', 'JetBrains Mono', Consolas, monospace; font-size: 12.5px; line-height: 1.55; }
+  .lg-line { display: flex; align-items: baseline; gap: 9px; padding: 2px 8px; border-radius: 5px; text-align: left; white-space: normal; }
+  .lg-line:hover { background: rgba(148, 163, 184, 0.08); }
+  .lg-line.error { background: rgba(239, 68, 68, 0.09); }
+  .lg-line.warn { background: rgba(245, 158, 11, 0.08); }
+  .lg-time { flex: none; color: #64748b; font-variant-numeric: tabular-nums; font-size: 11.5px; letter-spacing: 0.02em; }
+  .lg-lv { flex: none; min-width: 46px; text-align: center; font-weight: 800; font-size: 10px; letter-spacing: 0.05em; padding: 1px 5px; border-radius: 4px; }
+  .lg-lv.info { color: #38bdf8; background: rgba(56, 189, 248, 0.14); }
+  .lg-lv.warn { color: #fbbf24; background: rgba(251, 191, 36, 0.16); }
+  .lg-lv.error, .lg-lv.fatal, .lg-lv.panic { color: #f87171; background: rgba(248, 113, 113, 0.18); }
+  .lg-lv.debug, .lg-lv.trace { color: #94a3b8; background: rgba(148, 163, 184, 0.14); }
+  .lg-tag { flex: none; color: #c084fc; font-weight: 700; font-size: 11.5px; }
+  .lg-msg { flex: 1; min-width: 0; color: #d1dae7; word-break: break-word; }
+  .lg-line.error .lg-msg { color: #fca5a5; }
+  .lg-line.warn .lg-msg { color: #fcd77f; }
+  .lg-empty { padding: 16px; text-align: center; color: #64748b; }
 
   /* ---------- bottom status bar ---------- */
   .statusbar { min-height: 40px; flex: none; display: flex; align-items: center; justify-content: space-between; gap: 8px 16px; flex-wrap: wrap; padding: 6px 22px; background: var(--card); border-top: 1px solid var(--line); font-size: 12.5px; color: var(--muted); }
