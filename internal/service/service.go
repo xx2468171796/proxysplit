@@ -416,7 +416,11 @@ func (s *Service) TestAllLatency() {
 func (s *Service) GetAppRules() []AppRule {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return append([]AppRule(nil), s.cfg.Rules...)
+	// Non-nil empty slice → JSON `[]`, never `null`. A null here makes the
+	// frontend safe() fall back to demo apps, so an empty rule set would show
+	// PHANTOM apps (Code.exe/Chrome.exe…) that are not actually captured →
+	// user thinks apps are added but nothing is proxied.
+	return append([]AppRule{}, s.cfg.Rules...)
 }
 
 // SetAppRules replaces the rule set and applies it live (restarting the core if
@@ -567,7 +571,7 @@ func (s *Service) GetAppIcon(exePath string) string {
 func (s *Service) GetSubs() []Sub {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return append([]Sub(nil), s.cfg.Subs...)
+	return append([]Sub{}, s.cfg.Subs...) // non-nil → JSON [] (avoid phantom demo subs on empty)
 }
 
 // AddSub adds a subscription, fetches it and merges its nodes.
@@ -658,7 +662,7 @@ func (s *Service) RemoveSub(id string) {
 func (s *Service) GetRouting() Routing {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return Routing{Enabled: s.cfg.Routing.Enabled, Mode: s.cfg.Routing.Mode, Rules: append([]core.RouteRule(nil), s.cfg.Routing.Rules...)}
+	return Routing{Enabled: s.cfg.Routing.Enabled, Mode: s.cfg.Routing.Mode, Rules: append([]core.RouteRule{}, s.cfg.Routing.Rules...)}
 }
 
 // SetRouting replaces the routing config. It takes effect on the next Start (a

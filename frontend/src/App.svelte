@@ -325,10 +325,12 @@
   async function refreshHealth() { health = await safe<Health>(() => WGetHealth() as Promise<Health>, demoHealth) }
   async function refreshRules() {
     if (!isWailsReady()) { useDemo = true; rules = demoRules; recent = demoLogs; return }
-    const list = await safe(() => WGetAppRules() as Promise<AppRule[]>, demoRules)
+    // Real backend path: fall back to EMPTY (not demoRules) so a genuinely
+    // empty rule set never shows phantom demo apps the user didn't add.
+    const list = await safe(() => WGetAppRules() as Promise<AppRule[]>, [] as AppRule[])
     rules = list.map((r) => ({ match: r.match, path: r.path, line: r.line || 'rule', enabled: !!r.enabled }))
   }
-  async function refreshSubs() { subs = await safe(() => WGetSubs() as Promise<Sub[]>, demoSubs) }
+  async function refreshSubs() { subs = isWailsReady() ? await safe(() => WGetSubs() as Promise<Sub[]>, [] as Sub[]) : demoSubs }
   async function refreshSettings() { settings = await safe(() => WGetSettings() as Promise<Settings>, demoSettings) }
   async function refreshRouting() {
     routing = await safe(() => WGetRouting() as Promise<Routing>, { enabled: true, mode: 'global', rules: [] })

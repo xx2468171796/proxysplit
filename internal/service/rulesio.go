@@ -18,8 +18,8 @@ type rulesBundle struct {
 func (s *Service) ExportAppRules() (string, error) {
 	s.mu.Lock()
 	bundle := rulesBundle{
-		Rules: append([]AppRule(nil), s.cfg.Rules...),
-		Lines: append([]Line(nil), s.cfg.Lines...),
+		Rules: append([]AppRule{}, s.cfg.Rules...),
+		Lines: append([]Line{}, s.cfg.Lines...),
 	}
 	s.mu.Unlock()
 
