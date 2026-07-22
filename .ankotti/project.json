@@ -1,0 +1,19 @@
+{
+  "id": "proxysplit",
+  "name": "ProxySplit 应用分流代理",
+  "category": "tool",
+  "hub": {
+    "ankottipublic": "http://192.168.110.246:3001/admin/ankottipublic.git",
+    "ecosystemHub": "http://192.168.110.246:8771"
+  },
+  "mcp": "ecosystem",
+  "stack": "unknown",
+  "dependsOn": [],
+  "provides": [
+    "Windows 单文件应用分流代理",
+    "按节点与规则持久化应用路由",
+    "本地 AI 控制 HTTP/MCP 接口"
+  ],
+  "status": "active",
+  "adopted": true
+}
