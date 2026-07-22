@@ -803,22 +803,43 @@
     recent = [{ time: t, level, msg: m ? m[2] || line : line }, ...recent].slice(0, 8)
   }
 
+  // Re-pull all persisted data from the backend. Called on mount AND whenever
+  // the window regains focus / becomes visible, so the UI never gets stuck on a
+  // stale/empty state (e.g. reopened from tray, or a startup race).
+  async function reloadData() {
+    if (!isWailsReady()) return
+    useDemo = false
+    await refreshNodes(); await refreshLines(); await refreshRules()
+    await refreshSubs(); await refreshSettings(); await refreshDefaultLine(); await refreshStatus()
+    const m = await safe<string>(() => WGetRuleMode(), ruleMode)
+    ruleMode = m === 'blacklist' ? 'blacklist' : 'whitelist'
+  }
+  const onVisible = () => { if (document.visibilityState === 'visible') reloadData() }
+
   onMount(async () => {
-    if (isWailsReady()) EventsOn('log', (line: string) => pushLog(line))
-    await refreshNodes(); await refreshLines(); await refreshRules(); await refreshStatus()
-    await refreshSubs(); await refreshSettings(); await refreshRouting(); await refreshDefaultLine()
+    // Wait for Wails to inject its bindings before the first fetch — otherwise a
+    // startup race drops us into demo mode and the real nodes/rules never show.
+    for (let i = 0; i < 60 && !isWailsReady(); i++) await new Promise((r) => setTimeout(r, 100))
+    if (isWailsReady()) { useDemo = false; EventsOn('log', (line: string) => pushLog(line)) }
+    await reloadData()
+    await refreshRouting()
     await refreshCoreVersion(); await refreshClashMode(); await refreshSysProxy()
     await refreshAutostart(); await refreshLogLevel()
     lanIP = await safe<string>(() => WGetLanIP(), '192.168.1.100')
     await refreshRunning(); await refreshHealth(); await refreshRuleSets(); await refreshAIInfo()
     themePref = settings.theme || 'light'; applyTheme(themePref)
-    const m = await safe<string>(() => WGetRuleMode(), ruleMode)
-    ruleMode = m === 'blacklist' ? 'blacklist' : 'whitelist'
     if (useDemo && recent.length === 0) recent = demoLogs
+    window.addEventListener('focus', reloadData)
+    document.addEventListener('visibilitychange', onVisible)
     timer = setInterval(() => { refreshStatus(); refreshHealth() }, 1000)
     openDonate() // 每次启动强制弹出赞赏码
   })
-  onDestroy(() => { if (timer) clearInterval(timer); if (donateTimer) clearInterval(donateTimer) })
+  onDestroy(() => {
+    if (timer) clearInterval(timer)
+    if (donateTimer) clearInterval(donateTimer)
+    window.removeEventListener('focus', reloadData)
+    document.removeEventListener('visibilitychange', onVisible)
+  })
 
   const I = {
     nodes: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><circle cx="7" cy="7.5" r=".6" fill="currentColor"/><circle cx="7" cy="16.5" r=".6" fill="currentColor"/></svg>',
