@@ -1036,11 +1036,12 @@
                   <button class:on={ruleMode === 'blacklist'} on:click={() => setRuleMode('blacklist')}>默认全走代理</button>
                 </div>
               </div>
-              <div class="mode-explain">
+              <div class="mode-explain" class:warn={ruleMode === 'blacklist'}>
                 {#if ruleMode === 'whitelist'}
                   <b>只代理列出的</b>：只有下面标为「走代理」的程序走节点，其余程序（含没列出的）一律直连。<span class="mx-tag">日常推荐</span>
                 {:else}
-                  <b>默认全走代理</b>：整机所有程序默认走节点，只有下面标为「直连 / 拦截」的程序除外。
+                  ⚠️ <b>默认全走代理 = 全局</b>：整机所有程序都走节点（下面的「规则/全局」逐应用设置不会改变这一点），只有标为「直连/拦截」的程序除外。想只让指定程序走代理，请
+                  <button class="linkbtn" on:click={() => setRuleMode('whitelist')}>切到「只代理列出的」</button>。
                 {/if}
               </div>
             </section>
@@ -1588,6 +1589,8 @@
   .sel { border: 1px solid var(--line); background: var(--soft); color: var(--ink-2); border-radius: 8px; padding: 6px 10px; font-size: 12.5px; font-weight: 600; font-family: inherit; cursor: pointer; }
   .mode-explain { font-size: 13px; color: var(--ink-2); background: var(--soft); border: 1px solid var(--line-2); border-radius: 10px; padding: 11px 14px; line-height: 1.55; margin-top: 4px; }
   .mode-explain b { color: var(--brand-600); }
+  .mode-explain.warn { background: rgba(245, 158, 11, 0.1); border-color: rgba(245, 158, 11, 0.4); color: var(--ink); }
+  .mode-explain.warn b { color: #b45309; }
   .mx-tag { display: inline-block; margin-left: 6px; font-size: 11px; font-weight: 700; color: var(--ok-600); background: var(--ok-tint); padding: 1px 8px; border-radius: 6px; }
   .opt-tag { font-size: 10.5px; font-weight: 700; color: var(--muted); background: var(--surface-3, #eef2f8); padding: 1px 7px; border-radius: 6px; vertical-align: middle; margin-left: 4px; }
 
