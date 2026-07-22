@@ -951,7 +951,7 @@
                   <strong>只代理指定应用</strong><small>只有你在「应用分流」里选的程序走代理,其余直连。招牌能力。</small>
                 </button>
                 <button class="mc" class:on={settings.tunMode} on:click={() => setCaptureMode(true)} disabled={switchingMode}>
-                  <strong>整机全局</strong><small>整台电脑所有流量都走代理(像 v2rayN),老程序、游戏也覆盖。</small>
+                  <strong>整机全局（真·全局）</strong><small>整台电脑所有流量都走节点——含大陆站、老程序、游戏,像 v2rayN 全局。不用加应用,点启动即可。</small>
                 </button>
               </div>
               {#if switchingMode}<p class="mode-hint">切换中，正在重启内核…</p>{/if}
