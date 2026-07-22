@@ -26,6 +26,8 @@ export function GetApps():Promise<Array<string>>;
 
 export function GetAutostart():Promise<boolean>;
 
+export function GetBootstrapState():Promise<main.BootstrapState>;
+
 export function GetClashMode():Promise<string>;
 
 export function GetCoreVersion():Promise<string>;

@@ -42,6 +42,10 @@ export function GetAutostart() {
   return window['go']['main']['App']['GetAutostart']();
 }
 
+export function GetBootstrapState() {
+  return window['go']['main']['App']['GetBootstrapState']();
+}
+
 export function GetClashMode() {
   return window['go']['main']['App']['GetClashMode']();
 }

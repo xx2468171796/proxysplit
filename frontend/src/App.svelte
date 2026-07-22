@@ -4,6 +4,7 @@
     AddNodes as WAddNodes,
     AddManualNode as WAddManualNode,
     GetNodes as WGetNodes,
+    GetBootstrapState as WGetBootstrapState,
     RemoveNode as WRemoveNode,
     SelectNode as WSelectNode,
     ListProcesses as WListProcesses,
@@ -101,6 +102,11 @@
     ruleMode: string
     uptimeSec: number
     stats?: { activeConns: number; totalConns: number; tracked: number; upBytes: number; downBytes: number }
+  }
+  type BootstrapState = {
+    ready?: boolean; error?: string
+    nodes?: Node[]; rules?: AppRule[]; lines?: Line[]; subs?: Sub[]; settings?: Settings
+    defaultLine?: string; ruleMode?: string; status?: Status
   }
   type Sub = { id: string; name: string; url: string; autoUpdate: boolean; lastUpdate: string; nodeCount: number }
   type RouteRule = { type: string; value: string; action: string }
@@ -217,17 +223,62 @@
   let timer: ReturnType<typeof setInterval> | null = null
   let dataRetryTimer: ReturnType<typeof setInterval> | null = null
   let dataReloading = false
+  let bootstrapLoaded = false
   let useDemo = false
 
   const isWailsReady = () => typeof window !== 'undefined' && !!(window as any).go?.main?.App
   async function safe<T>(call: () => Promise<T>, fallback: T): Promise<T> {
-    if (!isWailsReady()) { useDemo = true; return fallback }
+    if (!isWailsReady()) { if (!bootstrapLoaded) useDemo = true; return fallback }
     // A transient backend error must NOT flip the whole app into demo mode.
     // Also coerce null/undefined to the fallback: Go marshals a nil slice to
     // JSON `null`, and a null reaching a {#each}/.length throws inside Svelte's
     // flush(), which re-throws without clearing update_scheduled and wedges the
     // scheduler → the whole UI freezes. `?? fallback` keeps 0/false/'' intact.
     try { const r = await call(); return r ?? fallback } catch (e) { console.warn('[ProxySplit] call failed', e); return fallback }
+  }
+
+  function normalizeRules(list: AppRule[] | null | undefined): AppRule[] {
+    return (list ?? []).map((r) => ({
+      match: r.match, path: r.path,
+      line: ['global', 'direct', 'block'].includes(r.line) ? r.line : 'rule',
+      node: r.node || '', enabled: !!r.enabled,
+    }))
+  }
+
+  // The Go OnDomReady hook writes this snapshot to a window global and emits
+  // an event.  This server-push path is independent from the initial Wails RPC
+  // timing, which is important on slower WebView2 starts.
+  function applyBootstrap(s: BootstrapState | null | undefined): boolean {
+    if (!s || typeof s !== 'object' || s.ready !== true) {
+      if (s?.error) console.error('[ProxySplit] backend startup failed:', s.error)
+      return false
+    }
+    nodes = s.nodes ?? []
+    rules = normalizeRules(s.rules)
+    lines = s.lines ?? []
+    subs = s.subs ?? []
+    if (s.settings) settings = s.settings
+    defaultLine = s.defaultLine || 'rule'
+    if (s.status) status = s.status
+    ruleMode = s.ruleMode === 'blacklist' ? 'blacklist' : 'whitelist'
+    bootstrapLoaded = true
+    useDemo = false
+    return true
+  }
+  const onBootstrap = (event: Event) => applyBootstrap((event as CustomEvent<BootstrapState>).detail)
+
+  // This is the only RPC used for the first load. The Go method waits on the
+  // backend readiness barrier, so its promise cannot be orphaned by a nil
+  // service panic and it can never turn an initialization race into an empty UI.
+  async function loadBootstrap(): Promise<boolean> {
+    if (bootstrapLoaded) return true
+    if (!isWailsReady()) return false
+    try {
+      return applyBootstrap(await WGetBootstrapState() as BootstrapState)
+    } catch (e) {
+      console.warn('[ProxySplit] bootstrap load failed; will retry', e)
+      return false
+    }
   }
 
   $: running = !!status && (status.coreRunning || status.engineRunning)
@@ -338,7 +389,7 @@
     const list = await safe(() => WGetAppRules() as Promise<AppRule[]>, [] as AppRule[])
     // Per-app action: 规则(rule) / 全局(global) / 直连(direct) / 拦截(block).
     // Normalize any legacy/custom line id to one of these four (default 规则).
-    rules = list.map((r) => ({ match: r.match, path: r.path, line: ['global', 'direct', 'block'].includes(r.line) ? r.line : 'rule', node: r.node || '', enabled: !!r.enabled }))
+    rules = normalizeRules(list)
   }
   async function refreshSubs() { subs = isWailsReady() ? await safe(() => WGetSubs() as Promise<Sub[]>, [] as Sub[]) : demoSubs }
   async function refreshSettings() { settings = await safe(() => WGetSettings() as Promise<Settings>, demoSettings) }
@@ -821,11 +872,7 @@
         WGetAppRules() as Promise<AppRule[]>,
       ])
       nodes = newNodes ?? []
-      rules = (newRules ?? []).map((r) => ({
-        match: r.match, path: r.path,
-        line: ['global', 'direct', 'block'].includes(r.line) ? r.line : 'rule',
-        node: r.node || '', enabled: !!r.enabled,
-      }))
+      rules = normalizeRules(newRules)
       useDemo = false
 
       // Secondary state is best-effort and retains what is already on screen on
@@ -855,16 +902,20 @@
   const onVisible = () => { if (document.visibilityState === 'visible') reloadData() }
 
   onMount(async () => {
-    // Wait for BOTH bindings and successful backend RPCs.  A binding can exist
-    // slightly before the Go service is ready, so checking window.go alone is
-    // not sufficient.  The periodic retry below is the permanent safety net.
-    let loaded = false
+    // Register before the first await. If Go already ran OnDomReady, consume the
+    // retained global; otherwise the event below will deliver the same snapshot.
+    window.addEventListener('proxysplit:bootstrap', onBootstrap)
+    applyBootstrap((window as any).__PROXYSPLIT_BOOTSTRAP__ as BootstrapState | undefined)
+
+    // Wait for the binding, then let GetBootstrapState wait for service.New and
+    // config loading. Do not call GetNodes/GetAppRules during this startup gap.
+    let loaded = bootstrapLoaded
     for (let i = 0; i < 120 && !loaded; i++) {
-      loaded = await reloadData()
+      loaded = await loadBootstrap()
       if (!loaded) await new Promise((r) => setTimeout(r, 100))
     }
     if (isWailsReady()) EventsOn('log', (line: string) => pushLog(line))
-    if (!loaded) useDemo = true
+    if (!loaded && !bootstrapLoaded) useDemo = true
     await refreshRouting()
     await refreshCoreVersion(); await refreshClashMode(); await refreshSysProxy()
     await refreshAutostart(); await refreshLogLevel()
@@ -879,7 +930,7 @@
     // overwritten by a polling refresh.
     if (!loaded) {
       dataRetryTimer = setInterval(async () => {
-        if (await reloadData()) {
+        if (await loadBootstrap()) {
           if (dataRetryTimer) clearInterval(dataRetryTimer)
           dataRetryTimer = null
         }
@@ -893,6 +944,7 @@
     if (dataRetryTimer) clearInterval(dataRetryTimer)
     if (donateTimer) clearInterval(donateTimer)
     window.removeEventListener('focus', reloadData)
+    window.removeEventListener('proxysplit:bootstrap', onBootstrap)
     document.removeEventListener('visibilitychange', onVisible)
   })
 

@@ -3,9 +3,11 @@ package main
 import (
 	"context"
 	"embed"
+	"encoding/json"
 	"net"
 	"os"
 	"path/filepath"
+	"sync"
 
 	"github.com/energye/systray"
 	"github.com/wailsapp/wails/v2/pkg/options"
@@ -31,10 +33,21 @@ type App struct {
 	forceQuit bool // set when the user picks 退出 from the tray (allow real close)
 	trayUp    bool // the tray icon initialized OK (only then may we hide to it)
 	apiUp     bool // the local AI-control HTTP API is listening
+	ready     chan struct{}
+	readyOnce sync.Once
+	initErr   error
 }
 
 // NewApp creates the App.
-func NewApp() *App { return &App{} }
+func NewApp() *App { return &App{ready: make(chan struct{})} }
+
+// finishStartup releases every startup reader exactly once. Wails may expose
+// bindings and render the page before OnStartup has finished, so bound methods
+// must synchronize with service creation rather than dereference a nil service.
+func (a *App) finishStartup(err error) {
+	a.initErr = err
+	a.readyOnce.Do(func() { close(a.ready) })
+}
 
 // startup wires the service and streams core/engine logs to the frontend.
 func (a *App) startup(ctx context.Context) {
@@ -47,14 +60,77 @@ func (a *App) startup(ctx context.Context) {
 	svc, err := service.New(bin, dataDir())
 	if err != nil {
 		runtime.LogError(ctx, "service init: "+err.Error())
+		a.finishStartup(err)
 		return
 	}
 	a.svc = svc
 	svc.SetLogSink(func(line string) {
 		runtime.EventsEmit(ctx, "log", line)
 	})
-	go a.initTray()       // system-tray icon (minimise-to-tray, quick start/stop)
-	a.startAPIServer()    // local AI-control HTTP API (127.0.0.1)
+	a.finishStartup(nil)
+	go a.initTray()    // system-tray icon (minimise-to-tray, quick start/stop)
+	a.startAPIServer() // local AI-control HTTP API (127.0.0.1)
+}
+
+// BootstrapState is the complete persisted state needed for the first UI
+// render.  It is pushed from OnDomReady as well as being available as a normal
+// binding, so startup does not depend on the frontend winning a WebView/Wails
+// injection race.
+type BootstrapState struct {
+	Ready       bool              `json:"ready"`
+	Error       string            `json:"error,omitempty"`
+	Nodes       []*nodes.Node     `json:"nodes"`
+	Rules       []service.AppRule `json:"rules"`
+	Lines       []service.Line    `json:"lines"`
+	Subs        []service.Sub     `json:"subs"`
+	Settings    service.Settings  `json:"settings"`
+	DefaultLine string            `json:"defaultLine"`
+	RuleMode    string            `json:"ruleMode"`
+	Status      service.Status    `json:"status"`
+}
+
+func (a *App) GetBootstrapState() BootstrapState {
+	// The first frontend call is intentionally allowed to wait. Unlike the old
+	// GetNodes/GetAppRules race, it resolves only after service.New has loaded the
+	// persisted config, so an empty startup screen can never masquerade as data.
+	<-a.ready
+	if a.svc == nil {
+		message := "service initialization failed"
+		if a.initErr != nil {
+			message = a.initErr.Error()
+		}
+		return BootstrapState{Error: message}
+	}
+	return BootstrapState{
+		Ready:       true,
+		Nodes:       a.svc.Nodes(),
+		Rules:       a.svc.GetAppRules(),
+		Lines:       a.svc.GetLines(),
+		Subs:        a.svc.GetSubs(),
+		Settings:    a.svc.GetSettings(),
+		DefaultLine: a.svc.GetDefaultLine(),
+		RuleMode:    a.svc.GetRuleMode(),
+		Status:      a.svc.Status(),
+	}
+}
+
+// domReady injects a server-owned startup snapshot into the page.  The global
+// covers the case where this runs before Svelte mounts; the event covers the
+// opposite order.  Either way, saved nodes/rules render without waiting for an
+// initial JS -> Go RPC.
+func (a *App) domReady(ctx context.Context) {
+	// Do not block Wails' DOM-ready callback while OnStartup is still loading the
+	// config. The goroutine waits for the same readiness barrier as the binding.
+	go func() {
+		data, err := json.Marshal(a.GetBootstrapState())
+		if err != nil {
+			runtime.LogError(ctx, "bootstrap state: "+err.Error())
+			return
+		}
+		script := "window.__PROXYSPLIT_BOOTSTRAP__=" + string(data) + ";" +
+			"window.dispatchEvent(new CustomEvent('proxysplit:bootstrap',{detail:window.__PROXYSPLIT_BOOTSTRAP__}));"
+		runtime.WindowExecJS(ctx, script)
+	}()
 }
 
 // shutdown runs when the app window closes. It tears the core down and clears any

@@ -33,6 +33,7 @@ func main() {
 		},
 		BackgroundColour: &options.RGBA{R: 17, G: 18, B: 23, A: 1},
 		OnStartup:        app.startup,
+		OnDomReady:       app.domReady,
 		OnShutdown:       app.shutdown,
 		OnBeforeClose:    app.beforeClose,
 		// Single-instance: a 2nd launch just focuses the running window instead of
