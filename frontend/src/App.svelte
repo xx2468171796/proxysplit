@@ -9,6 +9,7 @@
     ListProcesses as WListProcesses,
     Start as WStart,
     Stop as WStop,
+    Restart as WRestart,
     GetStatus as WGetStatus,
     GetAppRules as WGetAppRules,
     SetAppRules as WSetAppRules,
@@ -301,9 +302,12 @@
   }
 
   // Persist the AppRule[] model straight to the backend.
+  let savedMsg = ''
   async function pushRules() {
     if (useDemo || !isWailsReady()) return
     await WSetAppRules(rules)
+    savedMsg = '✓ 已自动保存'
+    setTimeout(() => (savedMsg = ''), 1800)
   }
 
   async function refreshNodes() { nodes = await safe(() => WGetNodes() as Promise<Node[]>, demoNodes) }
@@ -775,6 +779,18 @@
     } finally { busy = false }
   }
 
+  async function restartCore() {
+    if (busy) return
+    busy = true
+    try {
+      if (useDemo || !isWailsReady()) { toast('演示：已重启'); return }
+      const err = await WRestart()
+      if (err) { pushLog('[error] ' + err); toast('重启失败：' + err) }
+      else toast('已重启')
+      await refreshStatus()
+    } finally { busy = false }
+  }
+
   function pushLog(raw: string) {
     // sing-box colorizes stdout with ANSI escapes; strip them so the log reads
     // as clean text instead of raw ANSI color codes.
@@ -931,9 +947,14 @@
                 <span class="ov-dot" class:on={running}></span>
                 <div><h2>{running ? '正在运行' : '已停止'}</h2><p>{running ? statusText : '点「启动」开始代理'}</p></div>
               </div>
-              <button class="power-btn lg" class:running on:click={toggleRun} disabled={busy}>
-                {@html running ? I.stop : I.power}<span>{busy ? '…' : running ? '停止' : '启动'}</span>
-              </button>
+              <div class="ov-ctrl">
+                {#if running}
+                  <button class="restart-btn" on:click={restartCore} disabled={busy} title="停止并重新启动内核">{@html I.refresh}<span>重启</span></button>
+                {/if}
+                <button class="power-btn lg" class:running on:click={toggleRun} disabled={busy}>
+                  {@html running ? I.stop : I.power}<span>{busy ? '…' : running ? '停止' : '启动'}</span>
+                </button>
+              </div>
             </div>
             <div class="ov-stats">
               <div class="ov-stat"><small>下行</small><b>{dn.v}</b><em>{dn.u}</em></div>
@@ -1054,8 +1075,9 @@
 
             <section class="card">
               <div class="card-head">
-                <div><h3>应用规则</h3><p class="sub">共 {ruleCount} 条规则，其中 {proxyCount} 条走代理</p></div>
+                <div><h3>应用规则 <small class="autosave">改动即自动保存,关了再开也在</small></h3><p class="sub">共 {ruleCount} 条规则，其中 {proxyCount} 条走代理</p></div>
                 <div class="actions">
+                  {#if savedMsg}<span class="saved-tag">{savedMsg}</span>{/if}
                   <button class="primary" on:click={openPicker}>{@html I.plus} 添加规则</button>
                   <button class="ghost-btn" on:click={importRules}>{@html I.imp} 导入</button>
                   <button class="ghost-btn" on:click={exportRules}>{@html I.exp} 导出</button>
@@ -1595,6 +1617,13 @@
   .ov-node .grow strong { font-size: 14px; color: var(--ink); }
   .ov-node .grow small { display: block; color: var(--muted-2); font-size: 12px; }
   .power-btn.lg { height: 48px; padding: 0 26px; font-size: 15px; }
+  .ov-ctrl { display: flex; align-items: center; gap: 10px; }
+  .restart-btn { display: flex; align-items: center; gap: 6px; height: 48px; padding: 0 18px; border-radius: var(--r2); font-weight: 700; font-size: 14px; font-family: inherit; cursor: pointer; border: 1.5px solid var(--line); background: var(--soft); color: var(--ink-2); transition: all var(--tr); }
+  .restart-btn:hover:not(:disabled) { border-color: var(--brand); color: var(--brand-600); }
+  .restart-btn:disabled { opacity: .5; cursor: not-allowed; }
+  .restart-btn :global(svg) { width: 17px; height: 17px; }
+  .saved-tag { font-size: 12px; font-weight: 700; color: var(--ok-600, #16a34a); white-space: nowrap; align-self: center; }
+  .autosave { font-size: 11.5px; font-weight: 500; color: var(--muted-2); margin-left: 6px; }
   .mode-seg.lg { height: 42px; } .mode-seg.lg button { font-size: 14px; padding: 0 18px; }
   .mode-seg.full { display: flex; } .mode-seg.full button { flex: 1; }
   .mode-seg.sm { height: 30px; align-self: center; } .mode-seg.sm button { font-size: 12px; padding: 0 10px; }

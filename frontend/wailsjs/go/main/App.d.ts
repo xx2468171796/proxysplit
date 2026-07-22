@@ -76,6 +76,8 @@ export function RemoveSub(arg1:string):Promise<void>;
 
 export function ResetConfig():Promise<void>;
 
+export function Restart():Promise<string>;
+
 export function SelectNode(arg1:string):Promise<void>;
 
 export function SetAppRules(arg1:Array<service.AppRule>):Promise<void>;

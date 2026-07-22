@@ -142,6 +142,10 @@ export function ResetConfig() {
   return window['go']['main']['App']['ResetConfig']();
 }
 
+export function Restart() {
+  return window['go']['main']['App']['Restart']();
+}
+
 export function SelectNode(arg1) {
   return window['go']['main']['App']['SelectNode'](arg1);
 }

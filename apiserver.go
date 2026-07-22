@@ -175,6 +175,14 @@ func (a *App) startAPIServer() {
 		a.svc.Stop()
 		writeJSON(w, 200, map[string]any{"ok": true})
 	}))
+	mux.HandleFunc("/api/restart", auth(func(w http.ResponseWriter, r *http.Request) {
+		a.svc.Stop()
+		if err := a.svc.Start(); err != nil {
+			writeJSON(w, 500, map[string]string{"error": err.Error()})
+			return
+		}
+		writeJSON(w, 200, map[string]any{"ok": true})
+	}))
 
 	// POST /mcp — a real Model Context Protocol server (JSON-RPC 2.0 over HTTP)
 	// so Claude Code / Codex can use ProxySplit as native MCP tools.

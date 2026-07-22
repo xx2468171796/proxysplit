@@ -316,6 +316,15 @@ func (a *App) Start() string {
 // Stop stops everything.
 func (a *App) Stop() { a.svc.Stop() }
 
+// Restart stops then starts the core (one click to reload after config changes).
+func (a *App) Restart() string {
+	a.svc.Stop()
+	if err := a.svc.Start(); err != nil {
+		return err.Error()
+	}
+	return ""
+}
+
 // GetStatus returns a UI status snapshot.
 func (a *App) GetStatus() service.Status { return a.svc.Status() }
 
