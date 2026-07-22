@@ -31,6 +31,7 @@ type AppRule struct {
 	Match   string `json:"match"`
 	Path    string `json:"path"`
 	Line    string `json:"line"`
+	Node    string `json:"node,omitempty"` // node id for rule/global apps; "" = active/selected node
 	Enabled bool   `json:"enabled"`
 
 	// Legacy fields (migrated to Line on load).

@@ -72,14 +72,29 @@ type Options struct {
 	// is direct (route.final = direct). false (blacklist) => the whole machine
 	// uses the node EXCEPT SplitDirect/SplitBlock apps (route.final = proxy).
 	SplitWhitelist bool
-	// Per-app routing lists (executable base names, e.g. "chrome.exe"), each app
-	// independently: SplitRule = smart split (mainland direct, else node);
-	// SplitGlobal = everything through the node; SplitDirect = always direct;
-	// SplitBlock = rejected.
-	SplitRule   []string
-	SplitGlobal []string
+	// Per-app split routing. SplitGroups carries the rule/global apps grouped by
+	// (mode, node) so different apps can use different nodes; SplitDirect/Block
+	// are node-independent. ExtraNodes are outbounds for nodes OTHER than the
+	// primary (active) node, referenced by SplitGroups[i].NodeTag.
+	SplitGroups []SplitGroup
 	SplitDirect []string
 	SplitBlock  []string
+	ExtraNodes  []ExtraNode
+}
+
+// SplitGroup is a set of processes routed the same way: Mode is "rule" (smart
+// split) or "global" (everything through the node); NodeTag is the outbound tag
+// ("proxy" = active node, or "node-<id>" for an ExtraNode).
+type SplitGroup struct {
+	Names   []string
+	Mode    string
+	NodeTag string
+}
+
+// ExtraNode is an additional node outbound (beyond the primary "proxy").
+type ExtraNode struct {
+	Tag  string
+	Node *nodes.Node
 }
 
 // customRoutingRules turns the user's global custom rules into route entries
@@ -389,29 +404,37 @@ func BuildTUNConfig(node *nodes.Node, logLevel string, opts Options) ([]byte, er
 		}
 		if opts.SplitWhitelist {
 			// Whitelist: ONLY the rule/global apps are eligible; everything else
-			// (incl. unlisted) falls through to route.final = direct.
+			// (incl. unlisted) falls through to route.final = direct. Each group
+			// may target a different node (g.NodeTag) → per-app 不同节点.
 			finalOut = "direct"
-			// The top-bar 代理策略 (直连/全局) is a master override, scoped here to
-			// the apps that would otherwise be proxied (rule + global).
-			eligible := append(append([]string{}, opts.SplitRule...), opts.SplitGlobal...)
-			if len(eligible) > 0 && clashExp != nil {
-				rules = append(rules,
-					M{"process_name": eligible, "clash_mode": "direct", "outbound": "direct"},
-					M{"process_name": eligible, "clash_mode": "global", "outbound": "proxy"},
-				)
+			// Top-bar 代理策略 (直连/全局) master override, scoped per group so 全局
+			// still routes each app to ITS node.
+			if clashExp != nil {
+				for _, g := range opts.SplitGroups {
+					if len(g.Names) == 0 {
+						continue
+					}
+					rules = append(rules,
+						M{"process_name": g.Names, "clash_mode": "direct", "outbound": "direct"},
+						M{"process_name": g.Names, "clash_mode": "global", "outbound": g.NodeTag},
+					)
+				}
 			}
-			// Per-app 全局: everything from these apps → node (no mainland bypass).
-			if len(opts.SplitGlobal) > 0 {
-				rules = append(rules, M{"process_name": opts.SplitGlobal, "outbound": "proxy"})
-			}
-			// Per-app 规则: ads reject, mainland direct, everything else → node.
-			if len(opts.SplitRule) > 0 {
-				rules = append(rules,
-					M{"process_name": opts.SplitRule, "rule_set": []string{"geosite-ads"}, "action": "reject"},
-					M{"process_name": opts.SplitRule, "rule_set": []string{"geosite-cn", "geoip-cn"}, "outbound": "direct"},
-					M{"process_name": opts.SplitRule, "outbound": "proxy"},
-				)
-				geoNeeded = true
+			// Per-app-mode rules (apply in the default "rule" clash mode).
+			for _, g := range opts.SplitGroups {
+				if len(g.Names) == 0 {
+					continue
+				}
+				if g.Mode == "global" {
+					rules = append(rules, M{"process_name": g.Names, "outbound": g.NodeTag})
+				} else {
+					rules = append(rules,
+						M{"process_name": g.Names, "rule_set": []string{"geosite-ads"}, "action": "reject"},
+						M{"process_name": g.Names, "rule_set": []string{"geosite-cn", "geoip-cn"}, "outbound": "direct"},
+						M{"process_name": g.Names, "outbound": g.NodeTag},
+					)
+					geoNeeded = true
+				}
 			}
 		} else {
 			// Blacklist: the whole machine uses the node (route.final = proxy)
@@ -497,11 +520,22 @@ func BuildTUNConfig(node *nodes.Node, logLevel string, opts Options) ([]byte, er
 	if lan := lanInbound(opts); lan != nil {
 		tunInbounds = append(tunInbounds, lan)
 	}
+	outs := []M{ob, {"type": "direct", "tag": "direct"}}
+	for _, en := range opts.ExtraNodes {
+		if en.Node == nil {
+			continue
+		}
+		eob, oerr := buildOutbound(en.Node, en.Tag)
+		if oerr != nil {
+			return nil, oerr
+		}
+		outs = append(outs, eob)
+	}
 	cfg := M{
 		"log":       M{"level": logLevel, "timestamp": true},
 		"dns":       dnsBlock,
 		"inbounds":  tunInbounds,
-		"outbounds": []M{ob, {"type": "direct", "tag": "direct"}},
+		"outbounds": outs,
 		"route":     route,
 	}
 	if clashExp != nil {

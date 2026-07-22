@@ -433,7 +433,8 @@ func (s *Service) APIToken() string {
 
 // UpsertAppRule adds or updates a single app rule (used by the control API).
 // line is one of rule/global/direct/block; anything else defaults to rule.
-func (s *Service) UpsertAppRule(match, path, line string, enabled bool) {
+// node is an optional node id ("" = active node).
+func (s *Service) UpsertAppRule(match, path, line, node string, enabled bool) {
 	match = strings.TrimSpace(match)
 	if match == "" {
 		return
@@ -448,6 +449,7 @@ func (s *Service) UpsertAppRule(match, path, line string, enabled bool) {
 	for i := range s.cfg.Rules {
 		if strings.EqualFold(s.cfg.Rules[i].Match, match) {
 			s.cfg.Rules[i].Line = line
+			s.cfg.Rules[i].Node = node
 			if path != "" {
 				s.cfg.Rules[i].Path = path
 			}
@@ -461,7 +463,7 @@ func (s *Service) UpsertAppRule(match, path, line string, enabled bool) {
 		if p == "" {
 			p = match
 		}
-		s.cfg.Rules = append(s.cfg.Rules, AppRule{Match: match, Path: p, Line: line, Enabled: enabled})
+		s.cfg.Rules = append(s.cfg.Rules, AppRule{Match: match, Path: p, Line: line, Node: node, Enabled: enabled})
 	}
 	s.save()
 	s.mu.Unlock()
@@ -932,7 +934,15 @@ func (s *Service) Start() error {
 		return fmt.Errorf("no node selected")
 	}
 	s.mu.Lock()
-	var ruleApps, globalApps, directApps, blockApps []string
+	activeID := node.ID
+	nodeByID := map[string]*nodes.Node{}
+	for _, n := range s.cfg.Nodes {
+		nodeByID[n.ID] = n
+	}
+	type gkey struct{ tag, mode string }
+	groups := map[gkey][]string{}
+	extraByTag := map[string]*nodes.Node{}
+	var directApps, blockApps []string
 	for _, r := range s.cfg.Rules {
 		if !r.Enabled {
 			continue
@@ -947,15 +957,40 @@ func (s *Service) Start() error {
 		switch r.Line {
 		case LineDirect:
 			directApps = append(directApps, name)
+			continue
 		case LineBlock:
 			blockApps = append(blockApps, name)
-		case LineGlobal:
-			globalApps = append(globalApps, name) // 全走节点（不分流）
-		default:
-			ruleApps = append(ruleApps, name) // 规则：智能分流（大陆直连）
+			continue
 		}
+		mode := "rule"
+		if r.Line == LineGlobal {
+			mode = "global"
+		}
+		// Resolve which node this app uses. "" / "active" / the selected node
+		// all map to the primary "proxy" outbound; any other existing node id
+		// becomes a dedicated extra outbound → per-app 不同节点.
+		tag := "proxy"
+		if r.Node != "" && r.Node != "active" && r.Node != activeID {
+			if n, ok := nodeByID[r.Node]; ok {
+				tag = "node-" + r.Node
+				extraByTag[tag] = n
+			}
+		}
+		k := gkey{tag, mode}
+		groups[k] = append(groups[k], name)
 	}
 	s.mu.Unlock()
+
+	var splitGroups []core.SplitGroup
+	total := 0
+	for k, names := range groups {
+		splitGroups = append(splitGroups, core.SplitGroup{Names: names, Mode: k.mode, NodeTag: k.tag})
+		total += len(names)
+	}
+	var extraNodes []core.ExtraNode
+	for tag, n := range extraByTag {
+		extraNodes = append(extraNodes, core.ExtraNode{Tag: tag, Node: n})
+	}
 
 	clashPort, _ := core.FreePort()
 	s.mu.Lock()
@@ -964,8 +999,9 @@ func (s *Service) Start() error {
 	opts := clashOptsFor(clashPort)
 	opts.Split = true
 	opts.SplitWhitelist = mode != "blacklist"
-	opts.SplitRule, opts.SplitGlobal = ruleApps, globalApps
+	opts.SplitGroups = splitGroups
 	opts.SplitDirect, opts.SplitBlock = directApps, blockApps
+	opts.ExtraNodes = extraNodes
 	if err := s.core.StartTUN(node, level, tunRoute, nil, opts); err != nil {
 		return fmt.Errorf("core(应用分流 TUN): %w", err)
 	}
@@ -977,8 +1013,8 @@ func (s *Service) Start() error {
 	s.mu.Unlock()
 
 	s.applySystemProxyOnStart()
-	s.log(fmt.Sprintf("[service] started — 应用分流 (TUN+进程名), 规则 %d / 全局 %d / 直连 %d / 拦截 %d, 节点 %s",
-		len(ruleApps), len(globalApps), len(directApps), len(blockApps), node.Name))
+	s.log(fmt.Sprintf("[service] started — 应用分流 (TUN+进程名), 代理 %d / 直连 %d / 拦截 %d 个程序, 额外节点 %d, 主节点 %s",
+		total, len(directApps), len(blockApps), len(extraNodes), node.Name))
 	return nil
 }
 

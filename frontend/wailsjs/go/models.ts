@@ -211,6 +211,7 @@ export namespace service {
 	    match: string;
 	    path: string;
 	    line: string;
+	    node?: string;
 	    enabled: boolean;
 	    action?: string;
 	    follow?: boolean;
@@ -224,6 +225,7 @@ export namespace service {
 	        this.match = source["match"];
 	        this.path = source["path"];
 	        this.line = source["line"];
+	        this.node = source["node"];
 	        this.enabled = source["enabled"];
 	        this.action = source["action"];
 	        this.follow = source["follow"];

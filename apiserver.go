@@ -118,6 +118,7 @@ func (a *App) startAPIServer() {
 			Match   string `json:"match"`
 			Path    string `json:"path"`
 			Line    string `json:"line"`
+			Node    string `json:"node"`
 			Enabled *bool  `json:"enabled"`
 		}
 		_ = json.NewDecoder(r.Body).Decode(&b)
@@ -126,7 +127,7 @@ func (a *App) startAPIServer() {
 			return
 		}
 		en := b.Enabled == nil || *b.Enabled
-		a.svc.UpsertAppRule(b.Match, b.Path, b.Line, en)
+		a.svc.UpsertAppRule(b.Match, b.Path, b.Line, b.Node, en)
 		writeJSON(w, 200, map[string]any{"ok": true, "apps": a.svc.GetAppRules()})
 	}))
 
@@ -198,10 +199,11 @@ func mcpTools() []map[string]any {
 		{"name": "proxysplit_status", "description": "查看 ProxySplit 代理当前状态(是否运行、活动节点、策略、应用规则)。", "inputSchema": map[string]any{"type": "object", "properties": map[string]any{}}},
 		{"name": "proxysplit_list_nodes", "description": "列出所有可用节点(含 id/名称)。", "inputSchema": map[string]any{"type": "object", "properties": map[string]any{}}},
 		{"name": "proxysplit_select_node", "description": "选择活动节点。", "inputSchema": map[string]any{"type": "object", "properties": map[string]any{"id": strProp("节点 id(来自 proxysplit_list_nodes)")}, "required": []string{"id"}}},
-		{"name": "proxysplit_set_app", "description": "把某个程序设为走代理/直连/全局/拦截(会自动新增或更新规则)。", "inputSchema": map[string]any{"type": "object", "properties": map[string]any{
+		{"name": "proxysplit_set_app", "description": "把某个程序设为走代理/直连/全局/拦截(会自动新增或更新规则)。可选 node 指定走哪个节点。", "inputSchema": map[string]any{"type": "object", "properties": map[string]any{
 			"match": strProp("程序名或完整路径,如 chrome.exe"),
 			"line":  map[string]any{"type": "string", "enum": []string{"rule", "global", "direct", "block"}, "description": "rule=智能分流 / global=全走节点 / direct=直连 / block=拦截"},
 			"path":  strProp("可选:程序完整路径"),
+			"node":  strProp("可选:节点 id(来自 proxysplit_list_nodes);留空=活动节点"),
 		}, "required": []string{"match", "line"}}},
 		{"name": "proxysplit_remove_app", "description": "移除某程序的分流规则。", "inputSchema": map[string]any{"type": "object", "properties": map[string]any{"match": strProp("程序名,如 chrome.exe")}, "required": []string{"match"}}},
 		{"name": "proxysplit_set_mode", "description": "设置总代理策略。", "inputSchema": map[string]any{"type": "object", "properties": map[string]any{"clash": map[string]any{"type": "string", "enum": []string{"rule", "global", "direct"}}}, "required": []string{"clash"}}},
@@ -277,7 +279,7 @@ func (a *App) mcpCall(name string, args json.RawMessage) string {
 			return "错误: 需要 match(程序名)"
 		}
 		line := str("line")
-		a.svc.UpsertAppRule(str("match"), str("path"), line, true)
+		a.svc.UpsertAppRule(str("match"), str("path"), line, str("node"), true)
 		return fmt.Sprintf("已设置 %s => %s", str("match"), line)
 	case "proxysplit_remove_app":
 		a.svc.RemoveAppRule(str("match"))
@@ -314,6 +316,7 @@ func aiPrompt(url, token string) string {
 4) 列出应用规则：GET %s/api/apps
 5) 让某程序走代理/改分流方式：POST %s/api/apps  body {"match":"chrome.exe","line":"rule"}
    - line 取值：rule=智能分流(大陆直连,境外走节点) / global=全走节点 / direct=直连 / block=拦截断网
+   - 可选 "node"(节点 id,来自接口 2;留空=活动节点，用于让不同程序走不同节点)
    - 可选 "path"(完整路径)、"enabled"(true/false 暂停或启用)
 6) 移除某程序：POST %s/api/apps/remove  body {"match":"chrome.exe"}
 7) 设置总代理策略：POST %s/api/mode  body {"clash":"rule"}  (rule/global/direct)

@@ -77,7 +77,8 @@
   type AppRule = {
     match: string
     path: string
-    line: string // line id (see Line)
+    line: string // 规则/全局/直连/拦截 (rule/global/direct/block)
+    node?: string // node id for rule/global apps; '' = active/selected node
     enabled: boolean
   }
   type Line = {
@@ -331,7 +332,7 @@
     const list = await safe(() => WGetAppRules() as Promise<AppRule[]>, [] as AppRule[])
     // Per-app action: 规则(rule) / 全局(global) / 直连(direct) / 拦截(block).
     // Normalize any legacy/custom line id to one of these four (default 规则).
-    rules = list.map((r) => ({ match: r.match, path: r.path, line: ['global', 'direct', 'block'].includes(r.line) ? r.line : 'rule', enabled: !!r.enabled }))
+    rules = list.map((r) => ({ match: r.match, path: r.path, line: ['global', 'direct', 'block'].includes(r.line) ? r.line : 'rule', node: r.node || '', enabled: !!r.enabled }))
   }
   async function refreshSubs() { subs = isWailsReady() ? await safe(() => WGetSubs() as Promise<Sub[]>, [] as Sub[]) : demoSubs }
   async function refreshSettings() { settings = await safe(() => WGetSettings() as Promise<Settings>, demoSettings) }
@@ -1089,7 +1090,7 @@
 
               <div class="tscroll">
                 <div class="rtable">
-                  <div class="rhead"><span>应用程序</span><span>分流方式</span><span class="ctr">启用</span><span class="ctr">操作</span></div>
+                  <div class="rhead"><span>应用程序</span><span>分流方式</span><span>节点</span><span class="ctr">启用</span><span class="ctr">操作</span></div>
                   {#each rules as r}
                     <div class="rrow" class:off={!r.enabled}>
                       <div class="app-cell">
@@ -1105,6 +1106,10 @@
                         <option value="global">全局</option>
                         <option value="direct">直连</option>
                         <option value="block">拦截</option>
+                      </select>
+                      <select class="line-select node-select" bind:value={r.node} on:change={onRuleLineChange} disabled={r.line === 'direct' || r.line === 'block'} title="该应用走哪个节点">
+                        <option value="">活动节点</option>
+                        {#each nodes as n}<option value={n.id}>{n.name}</option>{/each}
                       </select>
                       <label class="switch ctr"><input type="checkbox" checked={r.enabled} on:change={() => toggleRule(r)} /><i></i></label>
                       <div class="row-actions ctr">
@@ -1792,7 +1797,9 @@
   /* ---------- rules table ---------- */
   .tscroll { overflow-x: auto; overflow-y: hidden; margin: 0 calc(var(--s5) * -1); padding: 0 var(--s5); }
   .rtable { display: grid; gap: 2px; min-width: 500px; }
-  .rhead, .rrow { display: grid; grid-template-columns: minmax(0, 2fr) minmax(110px, 1.1fr) 58px 108px; gap: 12px; align-items: center; }
+  .rhead, .rrow { display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(96px, 0.9fr) minmax(96px, 1fr) 52px 96px; gap: 10px; align-items: center; }
+  .node-select { font-weight: 500; }
+  .node-select:disabled { opacity: .4; cursor: not-allowed; }
   .rhead { padding: 0 6px 10px; font-size: 11.5px; color: var(--muted-2); border-bottom: 1px solid var(--line-2); font-weight: 600; letter-spacing: .02em; }
   .ctr { text-align: center; justify-content: center; }
   .rrow { padding: 11px 6px; border-bottom: 1px solid var(--line-3); border-radius: 8px; transition: background var(--tr); }
