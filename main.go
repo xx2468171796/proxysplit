@@ -2,6 +2,7 @@ package main
 
 import (
 	"embed"
+	"fmt"
 
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
@@ -11,13 +12,18 @@ import (
 //go:embed all:frontend/dist
 var assets embed.FS
 
+// appVersion is injected by scripts/build.ps1 (for example "1.7.1").  Keeping
+// it in the window title makes it immediately obvious which versioned exe is
+// actually running when several builds are present in output\.
+var appVersion = "dev"
+
 func main() {
 	// Create an instance of the app structure
 	app := NewApp()
 
 	// Create application with options
 	err := wails.Run(&options.App{
-		Title:     "ProxySplit — 应用分流代理",
+		Title:     fmt.Sprintf("ProxySplit v%s — 应用分流代理", appVersion),
 		Width:     1400,
 		Height:    880,
 		MinWidth:  1180,

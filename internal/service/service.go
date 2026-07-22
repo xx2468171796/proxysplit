@@ -186,6 +186,14 @@ func (s *Service) altConfigPath() string {
 	if err != nil {
 		return ""
 	}
+	// `go test` runs every case from the same temporary *.test executable.
+	// Writing a portable backup beside that binary leaks one test's nodes into
+	// the next test's otherwise-isolated dataDir.  Production binaries never use
+	// this suffix, so disable the exe-adjacent store only for test executables.
+	if strings.HasSuffix(strings.ToLower(filepath.Base(exe)), ".test.exe") ||
+		strings.HasSuffix(strings.ToLower(filepath.Base(exe)), ".test") {
+		return ""
+	}
 	return filepath.Join(filepath.Dir(exe), "proxysplit-data.json")
 }
 

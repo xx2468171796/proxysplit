@@ -246,7 +246,7 @@ func (a *App) handleMCP(w http.ResponseWriter, r *http.Request) {
 		reply(map[string]any{
 			"protocolVersion": "2024-11-05",
 			"capabilities":    map[string]any{"tools": map[string]any{}},
-			"serverInfo":      map[string]any{"name": "proxysplit", "version": "1.6.0"},
+			"serverInfo":      map[string]any{"name": "proxysplit", "version": appVersion},
 		})
 	case "tools/list":
 		reply(map[string]any{"tools": mcpTools()})

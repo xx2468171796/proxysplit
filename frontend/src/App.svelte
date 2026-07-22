@@ -108,7 +108,7 @@
   type Settings = {
     mixedPort: number; tunMode: boolean; lanShare: boolean; excludeSelf: boolean; privateDirect: boolean; blockQUIC: boolean
     remoteDNS: boolean; fakeIP: boolean; autostart: boolean; trayClose: boolean; theme: string
-    lanPort: number; lanType: string; lanUser: string; lanPass: string
+    lanPort: number; lanType: string; lanUser: string; lanPass: string; autoUpdateRules: boolean
   }
 
   // --- demo data (matches the design mockup 1:1, shown in browser preview) ---
@@ -154,7 +154,7 @@
   const demoSettings: Settings = {
     mixedPort: 10808, tunMode: false, lanShare: false, excludeSelf: true, privateDirect: true, blockQUIC: true,
     remoteDNS: true, fakeIP: false, autostart: false, trayClose: true, theme: 'light',
-    lanPort: 7890, lanType: 'mixed', lanUser: '', lanPass: '',
+    lanPort: 7890, lanType: 'mixed', lanUser: '', lanPass: '', autoUpdateRules: false,
   }
 
   let tab: Tab = 'overview'
@@ -215,6 +215,8 @@
   let prevDown = 0, prevUp = 0, prevT = 0
   let downRate = 0, upRate = 0 // bytes/sec (formatted adaptively for display)
   let timer: ReturnType<typeof setInterval> | null = null
+  let dataRetryTimer: ReturnType<typeof setInterval> | null = null
+  let dataReloading = false
   let useDemo = false
 
   const isWailsReady = () => typeof window !== 'undefined' && !!(window as any).go?.main?.App
@@ -347,7 +349,7 @@
   }
   async function saveRouting() {
     if (useDemo || !isWailsReady()) return
-    await WSetRouting({ enabled: routing.enabled, mode: routing.mode, rules: routing.rules.filter((r) => r.value.trim()) })
+    await WSetRouting({ enabled: routing.enabled, mode: routing.mode, rules: routing.rules.filter((r) => r.value.trim()) } as any)
   }
   // --- lines (routing targets) + default line (whitelist) ---
   async function refreshLines() { lines = await safe(() => WGetLines() as Promise<Line[]>, demoLines) }
@@ -378,13 +380,13 @@
     const entry: Line = { id, name, node: lineForm.node, routing: { mode: lineForm.mode, rules: lineForm.rules.filter((r) => r.value.trim()) }, builtin: false }
     const custom = [...lines.filter((l) => !l.builtin && l.id !== id), entry]
     if (useDemo || !isWailsReady()) { lines = [...lines.filter((l) => l.builtin), ...custom] }
-    else { await WSetLines(custom); await refreshLines() }
+    else { await WSetLines(custom as any); await refreshLines() }
     showLineForm = false
   }
   async function deleteLine(l: Line) {
     const custom = lines.filter((x) => !x.builtin && x.id !== l.id)
     if (useDemo || !isWailsReady()) { lines = [...lines.filter((x) => x.builtin), ...custom] }
-    else { await WSetLines(custom); await refreshLines() }
+    else { await WSetLines(custom as any); await refreshLines() }
     if (rules.some((r) => r.line === l.id)) { rules = rules.map((r) => (r.line === l.id ? { ...r, line: 'rule' } : r)); await pushRules() }
     if (defaultLine === l.id) { defaultLine = 'rule'; await applyDefaultLine() }
   }
@@ -619,7 +621,7 @@
     settings.tunMode = tun
     if (useDemo || !isWailsReady()) { settings = settings; return }
     switchingMode = true
-    try { await WSetSettings(settings); await refreshStatus() } finally { switchingMode = false }
+    try { await WSetSettings(settings as any); await refreshStatus() } finally { switchingMode = false }
   }
 
   // --- 开机自启 (真实注册表) ---
@@ -669,7 +671,7 @@
     themePref = p
     applyTheme(p)
     settings.theme = p
-    if (!useDemo && isWailsReady()) await WSetSettings(settings)
+    if (!useDemo && isWailsReady()) await WSetSettings(settings as any)
   }
 
   // --- real-time status / line detection (reactive so it tracks `health`) ---
@@ -744,7 +746,7 @@
   }
   async function saveSettings() {
     if (useDemo || !isWailsReady()) return
-    await WSetSettings(settings)
+    await WSetSettings(settings as any)
   }
 
   async function openPicker() {
@@ -803,25 +805,66 @@
     recent = [{ time: t, level, msg: m ? m[2] || line : line }, ...recent].slice(0, 8)
   }
 
-  // Re-pull all persisted data from the backend. Called on mount AND whenever
-  // the window regains focus / becomes visible, so the UI never gets stuck on a
-  // stale/empty state (e.g. reopened from tray, or a startup race).
-  async function reloadData() {
-    if (!isWailsReady()) return
-    useDemo = false
-    await refreshNodes(); await refreshLines(); await refreshRules()
-    await refreshSubs(); await refreshSettings(); await refreshDefaultLine(); await refreshStatus()
-    const m = await safe<string>(() => WGetRuleMode(), ruleMode)
-    ruleMode = m === 'blacklist' ? 'blacklist' : 'whitelist'
+  // Pull one consistent persisted-data snapshot without going through safe().
+  // safe() deliberately returns UI fallbacks on transport errors; that is handy
+  // for browser preview, but at app startup it used to turn a brief Wails RPC
+  // race into apparently "lost" nodes/rules.  Only replace the screen after all
+  // decisive calls succeeded, and keep retrying in the background otherwise.
+  async function reloadData(): Promise<boolean> {
+    if (!isWailsReady() || dataReloading) return false
+    dataReloading = true
+    try {
+      // Nodes + application rules are the irreplaceable user data.  Do not make
+      // them wait on any secondary settings/status call that might fail.
+      const [newNodes, newRules] = await Promise.all([
+        WGetNodes() as Promise<Node[]>,
+        WGetAppRules() as Promise<AppRule[]>,
+      ])
+      nodes = newNodes ?? []
+      rules = (newRules ?? []).map((r) => ({
+        match: r.match, path: r.path,
+        line: ['global', 'direct', 'block'].includes(r.line) ? r.line : 'rule',
+        node: r.node || '', enabled: !!r.enabled,
+      }))
+      useDemo = false
+
+      // Secondary state is best-effort and retains what is already on screen on
+      // a transient RPC error; it can never blank the nodes/rules loaded above.
+      const [newLines, newSubs, newSettings, newDefaultLine, newStatus, newRuleMode] = await Promise.all([
+        safe(() => WGetLines() as Promise<Line[]>, lines),
+        safe(() => WGetSubs() as Promise<Sub[]>, subs),
+        safe(() => WGetSettings() as Promise<Settings>, settings),
+        safe<string>(() => WGetDefaultLine(), defaultLine),
+        safe<Status | null>(() => WGetStatus() as Promise<Status>, status),
+        safe<string>(() => WGetRuleMode(), ruleMode),
+      ])
+      lines = newLines ?? []
+      subs = newSubs ?? []
+      if (newSettings) settings = newSettings
+      defaultLine = newDefaultLine || 'rule'
+      status = newStatus
+      ruleMode = newRuleMode === 'blacklist' ? 'blacklist' : 'whitelist'
+      return true
+    } catch (e) {
+      console.warn('[ProxySplit] persisted data reload failed; will retry', e)
+      return false
+    } finally {
+      dataReloading = false
+    }
   }
   const onVisible = () => { if (document.visibilityState === 'visible') reloadData() }
 
   onMount(async () => {
-    // Wait for Wails to inject its bindings before the first fetch — otherwise a
-    // startup race drops us into demo mode and the real nodes/rules never show.
-    for (let i = 0; i < 60 && !isWailsReady(); i++) await new Promise((r) => setTimeout(r, 100))
-    if (isWailsReady()) { useDemo = false; EventsOn('log', (line: string) => pushLog(line)) }
-    await reloadData()
+    // Wait for BOTH bindings and successful backend RPCs.  A binding can exist
+    // slightly before the Go service is ready, so checking window.go alone is
+    // not sufficient.  The periodic retry below is the permanent safety net.
+    let loaded = false
+    for (let i = 0; i < 120 && !loaded; i++) {
+      loaded = await reloadData()
+      if (!loaded) await new Promise((r) => setTimeout(r, 100))
+    }
+    if (isWailsReady()) EventsOn('log', (line: string) => pushLog(line))
+    if (!loaded) useDemo = true
     await refreshRouting()
     await refreshCoreVersion(); await refreshClashMode(); await refreshSysProxy()
     await refreshAutostart(); await refreshLogLevel()
@@ -831,11 +874,23 @@
     if (useDemo && recent.length === 0) recent = demoLogs
     window.addEventListener('focus', reloadData)
     document.addEventListener('visibilitychange', onVisible)
+    // If the initial 12-second window was still too early, keep trying until the
+    // first successful snapshot, then stop so normal in-page edits are never
+    // overwritten by a polling refresh.
+    if (!loaded) {
+      dataRetryTimer = setInterval(async () => {
+        if (await reloadData()) {
+          if (dataRetryTimer) clearInterval(dataRetryTimer)
+          dataRetryTimer = null
+        }
+      }, 2000)
+    }
     timer = setInterval(() => { refreshStatus(); refreshHealth() }, 1000)
     openDonate() // 每次启动强制弹出赞赏码
   })
   onDestroy(() => {
     if (timer) clearInterval(timer)
+    if (dataRetryTimer) clearInterval(dataRetryTimer)
     if (donateTimer) clearInterval(donateTimer)
     window.removeEventListener('focus', reloadData)
     document.removeEventListener('visibilitychange', onVisible)
