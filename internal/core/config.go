@@ -61,6 +61,22 @@ type Options struct {
 	// CustomRules are global user routing rules (highest priority, applied in
 	// "rule" clash mode before the geo-based bypass-CN rules).
 	CustomRules []RouteRule
+
+	// Split selects per-app (application-split) routing on the TUN inbound using
+	// sing-box's own process_name matcher instead of the WinDivert engine. Only
+	// the listed processes are eligible for the proxy; every other process goes
+	// direct (route.final = direct). This is the robust replacement for the
+	// hand-rolled WinDivert redirect.
+	Split bool
+	// SplitWhitelist true => only SplitProxy apps use the node, everything else
+	// is direct (route.final = direct). false (blacklist) => the whole machine
+	// uses the node EXCEPT SplitDirect/SplitBlock apps (route.final = proxy).
+	SplitWhitelist bool
+	// SplitProxy/Direct/Block are executable base names (e.g. "chrome.exe") that
+	// route to the node / straight to direct / are rejected, respectively.
+	SplitProxy  []string
+	SplitDirect []string
+	SplitBlock  []string
 }
 
 // customRoutingRules turns the user's global custom rules into route entries
@@ -351,44 +367,90 @@ func BuildTUNConfig(node *nodes.Node, logLevel string, opts Options) ([]byte, er
 		{"protocol": "dns", "action": "hijack-dns"},
 		{"ip_is_private": true, "outbound": "direct"},
 	}
-	// clash_mode overrides (Direct/Global) — node tag in TUN is "proxy".
 	clashExp := clashExperimental(opts)
-	if clashExp != nil {
-		rules = append(rules, clashRules("proxy")...)
-	}
-	// LAN-shared inbound (if any) routes through the node.
-	rules = append(rules, lanRules(opts, "proxy")...)
-	// Global user custom rules — highest priority.
-	rules = append(rules, customRoutingRules(opts, "proxy")...)
 	geoNeeded := false
-	switch routeMode {
-	case RouteBypassCN:
-		rules = append(rules,
-			M{"rule_set": []string{"geosite-ads"}, "action": "reject"},
-			M{"rule_set": []string{"geosite-cn", "geoip-cn"}, "outbound": "direct"},
-		)
-		geoNeeded = true
-	case RouteCustom:
-		for _, r := range routeRules {
-			m := ruleMatch(r)
-			if m == nil {
-				continue
+	finalOut := "proxy"
+	// LAN-shared inbound (if any) routes through the node; global custom rules
+	// apply in both modes (highest-priority user intent).
+	rules = append(rules, lanRules(opts, "proxy")...)
+	rules = append(rules, customRoutingRules(opts, "proxy")...)
+
+	if opts.Split {
+		// Application-split via sing-box's own process_name matcher (replaces the
+		// WinDivert engine). Block/direct carve-outs come first in both modes.
+		if len(opts.SplitBlock) > 0 {
+			rules = append(rules, M{"process_name": opts.SplitBlock, "action": "reject"})
+		}
+		if len(opts.SplitDirect) > 0 {
+			rules = append(rules, M{"process_name": opts.SplitDirect, "outbound": "direct"})
+		}
+		if opts.SplitWhitelist {
+			// Whitelist: ONLY SplitProxy apps are eligible; everything else
+			// falls through to route.final = direct.
+			finalOut = "direct"
+			if len(opts.SplitProxy) > 0 {
+				// clash 全局/直连 overrides, scoped to the split apps only.
+				if clashExp != nil {
+					rules = append(rules,
+						M{"process_name": opts.SplitProxy, "clash_mode": "direct", "outbound": "direct"},
+						M{"process_name": opts.SplitProxy, "clash_mode": "global", "outbound": "proxy"},
+					)
+				}
+				// rule mode: ads reject, mainland direct, everything else → node.
+				rules = append(rules,
+					M{"process_name": opts.SplitProxy, "rule_set": []string{"geosite-ads"}, "action": "reject"},
+					M{"process_name": opts.SplitProxy, "rule_set": []string{"geosite-cn", "geoip-cn"}, "outbound": "direct"},
+					M{"process_name": opts.SplitProxy, "outbound": "proxy"},
+				)
+				geoNeeded = true
 			}
-			switch r.Action {
-			case "direct":
-				m["outbound"] = "direct"
-			case "block":
-				m["action"] = "reject"
-			default:
-				m["outbound"] = "proxy"
+		} else {
+			// Blacklist: the whole machine uses the node (route.final = proxy)
+			// EXCEPT the SplitDirect/SplitBlock apps handled above. Smart routing
+			// (clash overrides + mainland bypass) applies globally.
+			if clashExp != nil {
+				rules = append(rules, clashRules("proxy")...)
 			}
-			rules = append(rules, m)
+			rules = append(rules,
+				M{"rule_set": []string{"geosite-ads"}, "action": "reject"},
+				M{"rule_set": []string{"geosite-cn", "geoip-cn"}, "outbound": "direct"},
+			)
+			geoNeeded = true
+		}
+	} else {
+		// System-wide TUN (whole machine): clash overrides apply globally.
+		if clashExp != nil {
+			rules = append(rules, clashRules("proxy")...)
+		}
+		switch routeMode {
+		case RouteBypassCN:
+			rules = append(rules,
+				M{"rule_set": []string{"geosite-ads"}, "action": "reject"},
+				M{"rule_set": []string{"geosite-cn", "geoip-cn"}, "outbound": "direct"},
+			)
+			geoNeeded = true
+		case RouteCustom:
+			for _, r := range routeRules {
+				m := ruleMatch(r)
+				if m == nil {
+					continue
+				}
+				switch r.Action {
+				case "direct":
+					m["outbound"] = "direct"
+				case "block":
+					m["action"] = "reject"
+				default:
+					m["outbound"] = "proxy"
+				}
+				rules = append(rules, m)
+			}
 		}
 	}
 
 	route := M{
 		"rules":                   rules,
-		"final":                   "proxy",
+		"final":                   finalOut,
 		"auto_detect_interface":   true,
 		"default_domain_resolver": M{"server": "dns-direct"},
 	}

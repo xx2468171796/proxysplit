@@ -501,7 +501,16 @@ func (s *Service) applyLive() {
 	s.mu.Lock()
 	eng := s.eng
 	if eng == nil {
+		// sing-box-native mode (TUN / 应用分流): the app rules live in the core
+		// config, so a rule change is applied by regenerating + reloading it.
+		running := s.core.Running()
 		s.mu.Unlock()
+		if running {
+			s.Stop()
+			if err := s.Start(); err != nil {
+				s.log("[service] reload after rule change failed: " + err.Error())
+			}
+		}
 		return
 	}
 	selected := s.selectedNode()
@@ -846,47 +855,56 @@ func (s *Service) Start() error {
 		return nil
 	}
 
-	// App-split mode: per-line inbounds + WinDivert engine.
+	// App-split mode: sing-box TUN + per-app process_name routing (no WinDivert).
+	// Only the listed programs use the node; every other program is direct.
+	if node == nil {
+		return fmt.Errorf("no node selected")
+	}
 	s.mu.Lock()
-	plan, err := s.buildRoutingPlan(node)
-	if err == nil {
-		s.clashPort = plan.clashPort // allocated with the inbound ports (no collision)
+	var proxyApps, directApps, blockApps []string
+	for _, r := range s.cfg.Rules {
+		if !r.Enabled {
+			continue
+		}
+		name := filepath.Base(r.Match)
+		if name == "" || name == "." {
+			name = filepath.Base(r.Path)
+		}
+		if name == "" || name == "." {
+			continue
+		}
+		switch r.Line {
+		case LineDirect:
+			directApps = append(directApps, name)
+		case LineBlock:
+			blockApps = append(blockApps, name)
+		default:
+			proxyApps = append(proxyApps, name)
+		}
 	}
 	s.mu.Unlock()
-	if err != nil {
-		return err
-	}
-	if err := s.core.StartLines(plan.coreLines, level, clashOptsFor(plan.clashPort)); err != nil {
-		return fmt.Errorf("core: %w", err)
-	}
 
-	m := engine.NewMatcher()
-	m.SetRules(plan.engineRules, mode, plan.defaultTarget)
-	m.SetPrivateDirect(set.PrivateDirect)
-	// Never redirect the bundled core's own egress (else whitelist mode loops).
-	m.ExcludeExe("sing-box.exe")
-	if pid := s.core.PID(); pid > 0 {
-		m.ExcludePID(uint32(pid))
-	}
-	eng := engine.New(filepath.Join(s.binDir, "WinDivert.dll"), m, func(line string) { s.log(line) })
-	eng.SetBlockQUIC(set.BlockQUIC)
-	if err := eng.SetUpstreams(plan.upstreams); err != nil {
-		s.core.Stop()
-		return fmt.Errorf("upstreams: %w", err)
-	}
-	if err := eng.Start(); err != nil {
-		s.core.Stop()
-		return fmt.Errorf("engine: %w", err)
+	clashPort, _ := core.FreePort()
+	s.mu.Lock()
+	s.clashPort = clashPort
+	s.mu.Unlock()
+	opts := clashOptsFor(clashPort)
+	opts.Split = true
+	opts.SplitWhitelist = mode != "blacklist"
+	opts.SplitProxy, opts.SplitDirect, opts.SplitBlock = proxyApps, directApps, blockApps
+	if err := s.core.StartTUN(node, level, tunRoute, nil, opts); err != nil {
+		return fmt.Errorf("core(应用分流 TUN): %w", err)
 	}
 
 	s.mu.Lock()
-	s.eng = eng
+	s.eng = nil // no WinDivert engine in the sing-box-native split model
 	s.startedAt = time.Now()
-	s.activeFP = plan.fingerprints
+	s.activeFP = nil
 	s.mu.Unlock()
 
 	s.applySystemProxyOnStart()
-	s.log(fmt.Sprintf("[service] started — %d line(s), %d rule(s), %s mode", len(plan.coreLines), len(plan.engineRules), mode))
+	s.log(fmt.Sprintf("[service] started — 应用分流 (TUN+进程名), 代理 %d / 直连 %d / 拦截 %d 个程序, 节点 %s",
+		len(proxyApps), len(directApps), len(blockApps), node.Name))
 	return nil
 }
 

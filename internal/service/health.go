@@ -30,7 +30,6 @@ func (s *Service) Health() Health {
 	s.mu.Lock()
 	eng := s.eng
 	running := s.core.Running()
-	tun := s.cfg.Settings.TunMode
 	s.mu.Unlock()
 
 	h := Health{Running: running}
@@ -38,8 +37,10 @@ func (s *Service) Health() Health {
 		h.CapturedPkts = eng.Captured()
 		h.Capturing = h.CapturedPkts > 0
 		h.Warning = eng.CaptureWarn()
-	} else if running && tun {
-		h.Capturing = true // TUN mode captures at the adapter, not via WinDivert
+	} else if running {
+		// sing-box TUN captures at the virtual adapter in BOTH 应用分流 (per-app
+		// process routing) and 整机全局 modes — no WinDivert engine involved.
+		h.Capturing = true
 	}
 	if v, ok := s.healthCache.Load().([]LineHealth); ok {
 		h.Lines = v
