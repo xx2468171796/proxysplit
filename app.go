@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 
 	"github.com/energye/systray"
+	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 
 	"proxysplit/internal/core"
@@ -64,6 +65,16 @@ func (a *App) shutdown(ctx context.Context) {
 	if a.svc != nil {
 		a.svc.Stop()
 	}
+}
+
+// onSecondInstance fires (on the FIRST/running instance) when the user launches
+// the app again — bring the existing window back instead of starting a rival.
+func (a *App) onSecondInstance(_ options.SecondInstanceData) {
+	if a.ctx == nil {
+		return
+	}
+	runtime.WindowUnminimise(a.ctx)
+	runtime.WindowShow(a.ctx)
 }
 
 // ensurePayload extracts the embedded runtime binaries into a stable directory

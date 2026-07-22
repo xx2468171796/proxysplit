@@ -29,6 +29,13 @@ func main() {
 		OnStartup:        app.startup,
 		OnShutdown:       app.shutdown,
 		OnBeforeClose:    app.beforeClose,
+		// Single-instance: a 2nd launch just focuses the running window instead of
+		// starting a rival instance (two instances = clobbered config / lost data +
+		// WinDivert/TUN conflicts).
+		SingleInstanceLock: &options.SingleInstanceLock{
+			UniqueId:               "proxysplit-single-instance-lock",
+			OnSecondInstanceLaunch: app.onSecondInstance,
+		},
 		Bind: []interface{}{
 			app,
 		},
