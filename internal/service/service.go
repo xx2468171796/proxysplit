@@ -177,6 +177,18 @@ func (s *Service) LogLine(line string) { s.log(line) }
 
 func (s *Service) configPath() string { return filepath.Join(s.dataDir, "config.json") }
 
+// altConfigPath is a redundant copy of the config kept next to the .exe, so the
+// user's nodes/rules survive even if %APPDATA% is wiped by a cleaner tool. It is
+// best-effort: "" when the exe dir can't be determined; writes are ignored if
+// the folder is read-only (e.g. Program Files).
+func (s *Service) altConfigPath() string {
+	exe, err := os.Executable()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(filepath.Dir(exe), "proxysplit-data.json")
+}
+
 // isCoreConfig reports whether data is a sing-box config (which has outbounds /
 // inbounds) rather than the app config — a guard against ever loading a file the
 // core clobbered into place.
@@ -191,11 +203,25 @@ func (s *Service) load() {
 	data, err := os.ReadFile(s.configPath())
 	bad := err != nil || !json.Valid(data) || isCoreConfig(data)
 	if bad {
+		// Recovery chain: .bak (same dir) → the redundant copy next to the exe.
+		recovered := false
 		if bak, berr := os.ReadFile(s.configPath() + ".bak"); berr == nil && json.Valid(bak) && !isCoreConfig(bak) {
 			data = bak
 			s.log("[store] 主配置异常,已从备份恢复节点/规则")
-			_ = os.WriteFile(s.configPath(), bak, 0o600) // repair the main file
-		} else {
+			_ = os.WriteFile(s.configPath(), bak, 0o600)
+			recovered = true
+		}
+		if !recovered {
+			if alt := s.altConfigPath(); alt != "" {
+				if ad, aerr := os.ReadFile(alt); aerr == nil && json.Valid(ad) && !isCoreConfig(ad) {
+					data = ad
+					s.log("[store] 从 exe 旁的备份 proxysplit-data.json 恢复节点/规则")
+					_ = os.WriteFile(s.configPath(), ad, 0o600)
+					recovered = true
+				}
+			}
+		}
+		if !recovered {
 			data = nil // nothing usable — start clean rather than importing junk
 		}
 	}
@@ -256,6 +282,10 @@ func (s *Service) save() {
 	if err := os.Rename(tmp, path); err != nil {
 		s.log("[store] 保存配置失败: " + err.Error())
 		_ = os.Remove(tmp)
+	}
+	// Redundant copy next to the exe (best-effort; ignore read-only folders).
+	if alt := s.altConfigPath(); alt != "" {
+		_ = os.WriteFile(alt, data, 0o600)
 	}
 }
 
