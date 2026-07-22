@@ -72,9 +72,12 @@ type Options struct {
 	// is direct (route.final = direct). false (blacklist) => the whole machine
 	// uses the node EXCEPT SplitDirect/SplitBlock apps (route.final = proxy).
 	SplitWhitelist bool
-	// SplitProxy/Direct/Block are executable base names (e.g. "chrome.exe") that
-	// route to the node / straight to direct / are rejected, respectively.
-	SplitProxy  []string
+	// Per-app routing lists (executable base names, e.g. "chrome.exe"), each app
+	// independently: SplitRule = smart split (mainland direct, else node);
+	// SplitGlobal = everything through the node; SplitDirect = always direct;
+	// SplitBlock = rejected.
+	SplitRule   []string
+	SplitGlobal []string
 	SplitDirect []string
 	SplitBlock  []string
 }
@@ -385,22 +388,28 @@ func BuildTUNConfig(node *nodes.Node, logLevel string, opts Options) ([]byte, er
 			rules = append(rules, M{"process_name": opts.SplitDirect, "outbound": "direct"})
 		}
 		if opts.SplitWhitelist {
-			// Whitelist: ONLY SplitProxy apps are eligible; everything else
-			// falls through to route.final = direct.
+			// Whitelist: ONLY the rule/global apps are eligible; everything else
+			// (incl. unlisted) falls through to route.final = direct.
 			finalOut = "direct"
-			if len(opts.SplitProxy) > 0 {
-				// clash 全局/直连 overrides, scoped to the split apps only.
-				if clashExp != nil {
-					rules = append(rules,
-						M{"process_name": opts.SplitProxy, "clash_mode": "direct", "outbound": "direct"},
-						M{"process_name": opts.SplitProxy, "clash_mode": "global", "outbound": "proxy"},
-					)
-				}
-				// rule mode: ads reject, mainland direct, everything else → node.
+			// The top-bar 代理策略 (直连/全局) is a master override, scoped here to
+			// the apps that would otherwise be proxied (rule + global).
+			eligible := append(append([]string{}, opts.SplitRule...), opts.SplitGlobal...)
+			if len(eligible) > 0 && clashExp != nil {
 				rules = append(rules,
-					M{"process_name": opts.SplitProxy, "rule_set": []string{"geosite-ads"}, "action": "reject"},
-					M{"process_name": opts.SplitProxy, "rule_set": []string{"geosite-cn", "geoip-cn"}, "outbound": "direct"},
-					M{"process_name": opts.SplitProxy, "outbound": "proxy"},
+					M{"process_name": eligible, "clash_mode": "direct", "outbound": "direct"},
+					M{"process_name": eligible, "clash_mode": "global", "outbound": "proxy"},
+				)
+			}
+			// Per-app 全局: everything from these apps → node (no mainland bypass).
+			if len(opts.SplitGlobal) > 0 {
+				rules = append(rules, M{"process_name": opts.SplitGlobal, "outbound": "proxy"})
+			}
+			// Per-app 规则: ads reject, mainland direct, everything else → node.
+			if len(opts.SplitRule) > 0 {
+				rules = append(rules,
+					M{"process_name": opts.SplitRule, "rule_set": []string{"geosite-ads"}, "action": "reject"},
+					M{"process_name": opts.SplitRule, "rule_set": []string{"geosite-cn", "geoip-cn"}, "outbound": "direct"},
+					M{"process_name": opts.SplitRule, "outbound": "proxy"},
 				)
 				geoNeeded = true
 			}

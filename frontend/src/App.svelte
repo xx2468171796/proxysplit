@@ -165,7 +165,7 @@
   let logs: string[] = []
   let recent: LogItem[] = []
   let status: Status | null = null
-  let ruleMode: 'blacklist' | 'whitelist' = 'blacklist'
+  let ruleMode: 'blacklist' | 'whitelist' = 'whitelist' // 只代理列出的（默认/推荐）
   let linkText = ''
   let addMsg = ''
   let query = ''
@@ -328,7 +328,9 @@
     // Real backend path: fall back to EMPTY (not demoRules) so a genuinely
     // empty rule set never shows phantom demo apps the user didn't add.
     const list = await safe(() => WGetAppRules() as Promise<AppRule[]>, [] as AppRule[])
-    rules = list.map((r) => ({ match: r.match, path: r.path, line: r.line || 'rule', enabled: !!r.enabled }))
+    // Per-app action: 规则(rule) / 全局(global) / 直连(direct) / 拦截(block).
+    // Normalize any legacy/custom line id to one of these four (default 规则).
+    rules = list.map((r) => ({ match: r.match, path: r.path, line: ['global', 'direct', 'block'].includes(r.line) ? r.line : 'rule', enabled: !!r.enabled }))
   }
   async function refreshSubs() { subs = isWailsReady() ? await safe(() => WGetSubs() as Promise<Sub[]>, [] as Sub[]) : demoSubs }
   async function refreshSettings() { settings = await safe(() => WGetSettings() as Promise<Settings>, demoSettings) }
@@ -414,7 +416,7 @@
     if (useDemo || !isWailsReady()) { toast('演示模式无法重置'); return }
     await WResetConfig()
     await refreshRules(); await refreshLines(); await refreshSettings(); await refreshRouting(); await refreshDefaultLine(); await refreshClashMode()
-    const m = await safe<string>(() => WGetRuleMode(), ruleMode); ruleMode = m === 'whitelist' ? 'whitelist' : 'blacklist'
+    const m = await safe<string>(() => WGetRuleMode(), ruleMode); ruleMode = m === 'blacklist' ? 'blacklist' : 'whitelist'
     themePref = settings.theme || 'light'; applyTheme(themePref)
     toast('已重置为默认配置(节点已保留)')
   }
@@ -653,8 +655,8 @@
 
   // --- real-time status / line detection (reactive so it tracks `health`) ---
   $: capB = !health.running ? { t: '未运行', c: 'idle' }
-    : health.warning ? { t: '抓包异常', c: 'bad' }
-    : health.capturing ? { t: '抓包正常', c: 'ok' }
+    : health.warning ? { t: '分流异常', c: 'bad' }
+    : health.capturing ? { t: '分流运行中', c: 'ok' }
     : { t: '等待流量…', c: 'wait' }
   function lhLat(l: LineHealth): string {
     if (l.node === '直连' || l.node === '拦截') return l.node
@@ -780,7 +782,7 @@
     await refreshRunning(); await refreshHealth(); await refreshRuleSets()
     themePref = settings.theme || 'light'; applyTheme(themePref)
     const m = await safe<string>(() => WGetRuleMode(), ruleMode)
-    ruleMode = m === 'whitelist' ? 'whitelist' : 'blacklist'
+    ruleMode = m === 'blacklist' ? 'blacklist' : 'whitelist'
     if (useDemo && recent.length === 0) recent = demoLogs
     timer = setInterval(() => { refreshStatus(); refreshHealth() }, 1000)
     openDonate() // 每次启动强制弹出赞赏码
@@ -968,7 +970,7 @@
 
           <section class="card">
             <div class="card-head sm">
-              <div><h3>实时状态 · 线路检测</h3><p class="sub">引擎抓包 + 各线路节点连通性（每 10 秒刷新）</p></div>
+              <div><h3>实时状态 · 线路检测</h3><p class="sub">内核按进程分流 · 各节点连通性（每 10 秒刷新）</p></div>
               <span class="cap-badge {capB.c}">{capB.t}{#if health.capturing && health.capturedPkts} · {health.capturedPkts} 包{/if}</span>
             </div>
             <div class="lh-list">
@@ -1015,24 +1017,17 @@
               <div class="card-head sm">
                 <div><h3>分流模式</h3><p class="sub">决定「没在下面列出的应用」怎么走</p></div>
                 <div class="mode-seg">
-                  <button class:on={ruleMode === 'blacklist'} on:click={() => setRuleMode('blacklist')}>黑名单</button>
-                  <button class:on={ruleMode === 'whitelist'} on:click={() => setRuleMode('whitelist')}>白名单</button>
+                  <button class:on={ruleMode === 'whitelist'} on:click={() => setRuleMode('whitelist')}>只代理列出的</button>
+                  <button class:on={ruleMode === 'blacklist'} on:click={() => setRuleMode('blacklist')}>默认全走代理</button>
                 </div>
               </div>
               <div class="mode-explain">
-                {#if ruleMode === 'blacklist'}
-                  <b>黑名单</b>：只有下面列出的应用走代理 / 分流，其余应用一律直连。<span class="mx-tag">日常推荐</span>
+                {#if ruleMode === 'whitelist'}
+                  <b>只代理列出的</b>：只有下面标为「走代理」的程序走节点，其余程序（含没列出的）一律直连。<span class="mx-tag">日常推荐</span>
                 {:else}
-                  <b>白名单</b>：没列出的应用统一走「默认线路」，列出的应用走各自线路。适合「几乎全走代理，只放行少数」。
+                  <b>默认全走代理</b>：整机所有程序默认走节点，只有下面标为「直连 / 拦截」的程序除外。
                 {/if}
               </div>
-              {#if ruleMode === 'whitelist'}
-                <div class="setting"><span>默认线路<small class="setting-hint">未列出的应用走这条</small></span>
-                  <select class="sel" bind:value={defaultLine} on:change={applyDefaultLine}>
-                    {#each lines as l}<option value={l.id}>{l.name}</option>{/each}
-                  </select>
-                </div>
-              {/if}
             </section>
 
             <section class="card">
@@ -1080,7 +1075,7 @@
 
               <div class="tscroll">
                 <div class="rtable">
-                  <div class="rhead"><span>应用程序</span><span>线路</span><span class="ctr">启用</span><span class="ctr">操作</span></div>
+                  <div class="rhead"><span>应用程序</span><span>分流方式</span><span class="ctr">启用</span><span class="ctr">操作</span></div>
                   {#each rules as r}
                     <div class="rrow" class:off={!r.enabled}>
                       <div class="app-cell">
@@ -1091,8 +1086,11 @@
                         {/if}
                         <div class="app-meta"><strong>{ruleName(r)} <span class="run-dot" class:on={isRunning(r)} title={isRunning(r) ? '正在运行' : '未运行'}></span></strong><small class="path" title={r.path}>{r.path}</small></div>
                       </div>
-                      <select class="line-select" bind:value={r.line} on:change={onRuleLineChange}>
-                        {#each lines as l}<option value={l.id}>{l.name}</option>{/each}
+                      <select class="line-select" bind:value={r.line} on:change={onRuleLineChange} title="规则=智能分流(大陆直连)·全局=全走节点·直连=不走代理·拦截=断网">
+                        <option value="rule">规则</option>
+                        <option value="global">全局</option>
+                        <option value="direct">直连</option>
+                        <option value="block">拦截</option>
                       </select>
                       <label class="switch ctr"><input type="checkbox" checked={r.enabled} on:change={() => toggleRule(r)} /><i></i></label>
                       <div class="row-actions ctr">
@@ -1106,7 +1104,7 @@
               </div>
 
               <div class="rfoot">
-                <span class="modes-k">当前：<b>{ruleMode === 'whitelist' ? '白名单' : '黑名单'}</b>模式 · 共 {ruleCount} 条</span>
+                <span class="modes-k">当前：<b>{ruleMode === 'whitelist' ? '只代理列出的' : '默认全走代理'}</b> · 共 {ruleCount} 条</span>
                 <button class="ghost-btn danger" on:click={clearRules}>{@html I.trash} 清空规则</button>
               </div>
             </section>

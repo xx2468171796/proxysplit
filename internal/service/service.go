@@ -861,7 +861,7 @@ func (s *Service) Start() error {
 		return fmt.Errorf("no node selected")
 	}
 	s.mu.Lock()
-	var proxyApps, directApps, blockApps []string
+	var ruleApps, globalApps, directApps, blockApps []string
 	for _, r := range s.cfg.Rules {
 		if !r.Enabled {
 			continue
@@ -878,8 +878,10 @@ func (s *Service) Start() error {
 			directApps = append(directApps, name)
 		case LineBlock:
 			blockApps = append(blockApps, name)
+		case LineGlobal:
+			globalApps = append(globalApps, name) // 全走节点（不分流）
 		default:
-			proxyApps = append(proxyApps, name)
+			ruleApps = append(ruleApps, name) // 规则：智能分流（大陆直连）
 		}
 	}
 	s.mu.Unlock()
@@ -891,7 +893,8 @@ func (s *Service) Start() error {
 	opts := clashOptsFor(clashPort)
 	opts.Split = true
 	opts.SplitWhitelist = mode != "blacklist"
-	opts.SplitProxy, opts.SplitDirect, opts.SplitBlock = proxyApps, directApps, blockApps
+	opts.SplitRule, opts.SplitGlobal = ruleApps, globalApps
+	opts.SplitDirect, opts.SplitBlock = directApps, blockApps
 	if err := s.core.StartTUN(node, level, tunRoute, nil, opts); err != nil {
 		return fmt.Errorf("core(应用分流 TUN): %w", err)
 	}
@@ -903,8 +906,8 @@ func (s *Service) Start() error {
 	s.mu.Unlock()
 
 	s.applySystemProxyOnStart()
-	s.log(fmt.Sprintf("[service] started — 应用分流 (TUN+进程名), 代理 %d / 直连 %d / 拦截 %d 个程序, 节点 %s",
-		len(proxyApps), len(directApps), len(blockApps), node.Name))
+	s.log(fmt.Sprintf("[service] started — 应用分流 (TUN+进程名), 规则 %d / 全局 %d / 直连 %d / 拦截 %d, 节点 %s",
+		len(ruleApps), len(globalApps), len(directApps), len(blockApps), node.Name))
 	return nil
 }
 
