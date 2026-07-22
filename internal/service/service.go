@@ -129,6 +129,7 @@ func New(binDir, dataDir string) (*Service, error) {
 	s.clashMode = s.cfg.ClashMode // restore last runtime mode (rule|global|direct)
 	s.core = core.NewManager(filepath.Join(binDir, "sing-box.exe"), dataDir, func(line string) { s.log(line) })
 	s.core.SetOnExit(s.onCoreExit) // clear a dangling system proxy if the core crashes
+	s.core.CleanStrays()           // kill orphaned sing-box from a prior crash (else it keeps proxying)
 	s.healStaleSystemProxy()       // recover from a prior crash that left one dangling
 	s.startScheduler()
 	go s.healthLoop() // live line/node reachability for the status panel

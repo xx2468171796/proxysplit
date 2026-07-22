@@ -30,6 +30,7 @@ type Manager struct {
 	running bool
 	port    int
 	node    *nodes.Node
+	done    chan struct{} // closed when the current cmd exits (for Stop to await)
 }
 
 // SetOnExit registers a callback fired after the core process exits for any
@@ -226,6 +227,41 @@ func (m *Manager) StartTUN(node *nodes.Node, logLevel, routeMode string, routeRu
 		return err
 	}
 
+	m.killStrays() // clean slate: remove any orphaned sing-box before starting
+
+	// Spawn with a retry: a TUN start can transiently fail if a previous wintun
+	// adapter is still being released by the driver. Retry once after a short
+	// settle delay before giving up.
+	var lastErr error
+	for attempt := 0; attempt < 3; attempt++ {
+		if attempt > 0 {
+			m.onLog(fmt.Sprintf("[core] TUN 启动失败，重试 (%d/2)…", attempt))
+			time.Sleep(time.Duration(attempt) * 900 * time.Millisecond)
+		}
+		if err := m.spawn(cfgPath); err != nil {
+			lastErr = err
+			continue
+		}
+		// TUN has no port to probe; a config/wintun failure makes the process
+		// exit quickly, so a short wait + liveness check is the readiness signal.
+		time.Sleep(2500 * time.Millisecond)
+		if m.Running() {
+			m.mu.Lock()
+			m.node = node
+			m.mu.Unlock()
+			m.onLog(fmt.Sprintf("[core] sing-box TUN up (%s) via %s", routeMode, node.Name))
+			return nil
+		}
+		lastErr = fmt.Errorf("core exited on start (TUN/wintun error — check the log)")
+		m.Stop() // clean up before the next attempt
+	}
+	return lastErr
+}
+
+// spawn starts sing-box with the given config and wires up the exit watcher.
+// It does NOT wait for readiness (the caller does). Safe to call only when the
+// core is stopped.
+func (m *Manager) spawn(cfgPath string) error {
 	cmd := exec.Command(m.binPath, "run", "-c", cfgPath)
 	cmd.Dir = m.dataDir
 	hideWindow(cmd)
@@ -237,39 +273,41 @@ func (m *Manager) StartTUN(node *nodes.Node, logLevel, routeMode string, routeRu
 	go m.pump(stdout)
 	go m.pump(stderr)
 
+	done := make(chan struct{})
 	m.mu.Lock()
 	m.cmd = cmd
 	m.running = true
-	m.port = 0 // TUN has no local SOCKS port
-	m.node = node
+	m.port = 0
+	m.done = done
 	m.mu.Unlock()
 
 	go func() {
 		_ = cmd.Wait()
 		m.mu.Lock()
-		m.running = false
-		m.port = 0
+		// Only clear state if this is STILL the active process — otherwise a
+		// stale exit (from a killed old process) would clobber a fresh start
+		// and make it falsely report "启动失败".
+		if m.cmd == cmd {
+			m.running = false
+			m.port = 0
+			m.cmd = nil
+		}
 		m.mu.Unlock()
+		close(done)
 		m.onLog("[core] sing-box exited")
 		if m.onExit != nil {
 			m.onExit()
 		}
 	}()
-
-	// TUN has no port to probe; a config/wintun failure makes the process exit
-	// quickly, so a short wait + liveness check is the readiness signal.
-	time.Sleep(2500 * time.Millisecond)
-	if !m.Running() {
-		return fmt.Errorf("core exited on start (TUN/wintun error — check the log)")
-	}
-	m.onLog(fmt.Sprintf("[core] sing-box TUN up (%s) via %s", routeMode, node.Name))
 	return nil
 }
 
-// Stop terminates the core process if running.
+// Stop terminates the core process and WAITS for it to actually exit, so the
+// wintun adapter + routes are fully released before any following Start.
 func (m *Manager) Stop() error {
 	m.mu.Lock()
 	cmd := m.cmd
+	done := m.done
 	m.cmd = nil
 	m.running = false
 	m.port = 0
@@ -277,7 +315,35 @@ func (m *Manager) Stop() error {
 	if cmd == nil || cmd.Process == nil {
 		return nil
 	}
-	return cmd.Process.Kill()
+	_ = cmd.Process.Kill()
+	if done != nil {
+		select {
+		case <-done:
+		case <-time.After(4 * time.Second):
+		}
+	}
+	m.killStrays() // nuke any orphaned sing-box (else Stop leaves proxying alive)
+	time.Sleep(300 * time.Millisecond) // grace for the wintun driver to release
+	return nil
+}
+
+// CleanStrays kills orphaned sing-box processes from a prior crash. Call once
+// on startup so a leftover core isn't left proxying after the app restarts.
+func (m *Manager) CleanStrays() { m.killStrays() }
+
+// killStrays force-kills every sing-box.exe running from OUR bin path. This
+// catches orphans left by a crash or a botched restart that would otherwise
+// keep the TUN adapter up (proxying) after Stop, or collide with a new Start.
+func (m *Manager) killStrays() {
+	p := filepath.Clean(m.binPath)
+	ps := fmt.Sprintf(
+		"Get-CimInstance Win32_Process -Filter \"Name='sing-box.exe'\" | "+
+			"Where-Object { $_.ExecutablePath -and ($_.ExecutablePath -ieq '%s') } | "+
+			"ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }",
+		p)
+	cmd := exec.Command("powershell", "-NoProfile", "-NonInteractive", "-Command", ps)
+	hideWindow(cmd)
+	_ = cmd.Run()
 }
 
 func (m *Manager) pump(r interface{ Read([]byte) (int, error) }) {
