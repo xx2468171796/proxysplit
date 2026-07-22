@@ -880,10 +880,10 @@ func (s *Service) Start() error {
 	mode := s.cfg.RuleMode
 	set := s.cfg.Settings
 	custom := append([]core.RouteRule(nil), s.cfg.CustomRules...)
-	// 整机全局 = TRUE global: EVERY connection (incl. mainland) goes through the
-	// node — matches the label "所有流量都走代理(像 v2rayN)". The clash 直连 mode
-	// still overlays as a pause. (Smart per-app splitting lives in 应用分流.)
-	tunRoute := core.RouteGlobal
+	// 整机全局 base = 全局规则 (bypass China: 大陆直连、境外走节点) — the DEFAULT.
+	// The clash mode picks the flavor at run time: 规则=全局规则(智能), 全局=全局
+	// 代理(含大陆全走节点), 直连=暂停. So 整机全局 has two sub-modes, default 全局规则.
+	tunRoute := core.RouteBypassCN
 	s.mu.Unlock()
 
 	// clash_api controller for live mode switching (全局/直连/规则) + a fresh random

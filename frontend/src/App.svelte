@@ -951,9 +951,15 @@
                   <strong>只代理指定应用</strong><small>只有你在「应用分流」里选的程序走代理,其余直连。招牌能力。</small>
                 </button>
                 <button class="mc" class:on={settings.tunMode} on:click={() => setCaptureMode(true)} disabled={switchingMode}>
-                  <strong>整机全局（真·全局）</strong><small>整台电脑所有流量都走节点——含大陆站、老程序、游戏,像 v2rayN 全局。不用加应用,点启动即可。</small>
+                  <strong>整机全局</strong><small>整台电脑都走代理(像 v2rayN),不用加应用。老程序、游戏也覆盖。</small>
                 </button>
               </div>
+              {#if settings.tunMode}
+                <div class="glob-seg">
+                  <button class:on={clashMode === 'rule'} on:click={() => setClash('rule')}><b>全局规则</b><em>大陆直连、境外走节点(默认)</em></button>
+                  <button class:on={clashMode === 'global'} on:click={() => setClash('global')}><b>全局代理</b><em>含大陆,全部走节点</em></button>
+                </div>
+              {/if}
               {#if switchingMode}<p class="mode-hint">切换中，正在重启内核…</p>{/if}
             </section>
 
@@ -1571,6 +1577,12 @@
   .ov-stat em { font-style: normal; font-size: 11px; color: var(--muted); margin-left: 3px; }
   .ov-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: var(--s4); }
   .mode-choice { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .glob-seg { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px; }
+  .glob-seg button { text-align: left; border: 1.5px solid var(--line); background: var(--soft); border-radius: 10px; padding: 8px 12px; cursor: pointer; font-family: inherit; transition: all var(--tr); }
+  .glob-seg button b { display: block; font-size: 13px; color: var(--ink-2); font-weight: 700; }
+  .glob-seg button em { display: block; font-size: 11px; color: var(--muted-2); font-style: normal; margin-top: 2px; }
+  .glob-seg button.on { border-color: var(--brand); background: var(--brand-50, rgba(37,99,235,0.07)); }
+  .glob-seg button.on b { color: var(--brand-600); }
   .mc { text-align: left; border: 1.5px solid var(--line); background: var(--soft); border-radius: 12px; padding: 12px 14px; cursor: pointer; transition: all var(--tr); font-family: inherit; }
   .mc:hover { border-color: var(--brand); }
   .mc.on { border-color: var(--brand); background: var(--brand-tint); }
