@@ -486,25 +486,33 @@ func BuildTUNConfig(node *nodes.Node, logLevel string, opts Options) ([]byte, er
 		"auto_detect_interface":   true,
 		"default_domain_resolver": M{"server": "dns-direct"},
 	}
-	if geoNeeded {
-		route["rule_set"] = []M{
-			{"type": "local", "tag": "geosite-cn", "format": "binary", "path": srsPath(geoDir, "geosite-cn.srs")},
-			{"type": "local", "tag": "geoip-cn", "format": "binary", "path": srsPath(geoDir, "geoip-cn.srs")},
-			{"type": "local", "tag": "geosite-ads", "format": "binary", "path": srsPath(geoDir, "geosite-category-ads-all.srs")},
-		}
+	// Always bundle the geo rule-sets: routing uses them when geoNeeded, and the
+	// split-DNS below needs geosite-cn regardless.
+	_ = geoNeeded
+	route["rule_set"] = []M{
+		{"type": "local", "tag": "geosite-cn", "format": "binary", "path": srsPath(geoDir, "geosite-cn.srs")},
+		{"type": "local", "tag": "geoip-cn", "format": "binary", "path": srsPath(geoDir, "geoip-cn.srs")},
+		{"type": "local", "tag": "geosite-ads", "format": "binary", "path": srsPath(geoDir, "geosite-category-ads-all.srs")},
 	}
 
+	// Split DNS: mainland domains resolve via China DNS (dns-direct, DIRECT — no
+	// dependency on the node), foreign domains via dns-remote (through the node).
+	// So a dead/slow node can NEVER break DNS for mainland sites (previously all
+	// DNS went through the node → node down = nothing resolves = "全都打不开").
+	dnsRules := []M{}
+	if dr := clashDNSRules(opts); dr != nil {
+		dnsRules = append(dnsRules, dr...)
+	}
+	dnsRules = append(dnsRules, M{"rule_set": []string{"geosite-cn"}, "server": "dns-direct"})
 	dnsBlock := M{
 		"servers": []M{
-			// Plain UDP DNS tunnelled through the node — robust in TUN mode
-			// (avoids the fragile DoH TLS handshake over gvisor/tunnel).
+			// Foreign resolver through the node (anti-pollution) with a 2nd fallback.
 			{"type": "udp", "tag": "dns-remote", "server": "8.8.8.8", "detour": "proxy"},
+			// China resolver, DIRECT — reachable even when the node is down.
 			{"type": "udp", "tag": "dns-direct", "server": "223.5.5.5"},
 		},
+		"rules": dnsRules,
 		"final": "dns-remote",
-	}
-	if dr := clashDNSRules(opts); dr != nil {
-		dnsBlock["rules"] = dr
 	}
 	tunInbounds := []M{
 		{
