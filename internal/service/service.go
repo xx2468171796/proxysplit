@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -80,6 +81,7 @@ type Config struct {
 
 	ClashMode    string           `json:"clashMode,omitempty"`    // rule|global|direct (persisted across restarts)
 	SysProxyLast string           `json:"sysProxyLast,omitempty"` // exact host:port we last set as OS proxy (crash-recovery marker)
+	APIToken     string           `json:"apiToken,omitempty"`     // stable token for the local AI-control HTTP API
 	CustomRules  []core.RouteRule `json:"customRules,omitempty"`  // global user rules (域名/IP → 代理/直连/拦截), highest priority
 
 	Apps []string `json:"apps,omitempty"` // legacy; migrated to Rules on load
@@ -164,8 +166,13 @@ func (s *Service) log(line string) {
 	s.mu.Lock()
 	fn := s.onLog
 	s.mu.Unlock()
-	fn(line)
+	if fn != nil {
+		fn(line)
+	}
 }
+
+// LogLine emits a line to the UI log (public wrapper around log).
+func (s *Service) LogLine(line string) { s.log(line) }
 
 func (s *Service) configPath() string { return filepath.Join(s.dataDir, "config.json") }
 
@@ -411,6 +418,70 @@ func (s *Service) TestAllLatency() {
 }
 
 // --- App rules ---
+
+// APIToken returns the stable local-API token, generating + persisting one the
+// first time it is requested.
+func (s *Service) APIToken() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.cfg.APIToken == "" {
+		s.cfg.APIToken = genSecret() + genSecret()
+		s.save()
+	}
+	return s.cfg.APIToken
+}
+
+// UpsertAppRule adds or updates a single app rule (used by the control API).
+// line is one of rule/global/direct/block; anything else defaults to rule.
+func (s *Service) UpsertAppRule(match, path, line string, enabled bool) {
+	match = strings.TrimSpace(match)
+	if match == "" {
+		return
+	}
+	switch line {
+	case LineGlobal, LineDirect, LineBlock:
+	default:
+		line = LineRule
+	}
+	s.mu.Lock()
+	found := false
+	for i := range s.cfg.Rules {
+		if strings.EqualFold(s.cfg.Rules[i].Match, match) {
+			s.cfg.Rules[i].Line = line
+			if path != "" {
+				s.cfg.Rules[i].Path = path
+			}
+			s.cfg.Rules[i].Enabled = enabled
+			found = true
+			break
+		}
+	}
+	if !found {
+		p := path
+		if p == "" {
+			p = match
+		}
+		s.cfg.Rules = append(s.cfg.Rules, AppRule{Match: match, Path: p, Line: line, Enabled: enabled})
+	}
+	s.save()
+	s.mu.Unlock()
+	s.applyLive()
+}
+
+// RemoveAppRule deletes the rule whose Match equals the given name.
+func (s *Service) RemoveAppRule(match string) {
+	s.mu.Lock()
+	out := s.cfg.Rules[:0]
+	for _, r := range s.cfg.Rules {
+		if !strings.EqualFold(r.Match, match) {
+			out = append(out, r)
+		}
+	}
+	s.cfg.Rules = out
+	s.save()
+	s.mu.Unlock()
+	s.applyLive()
+}
 
 // GetAppRules returns the app -> line rule set.
 func (s *Service) GetAppRules() []AppRule {

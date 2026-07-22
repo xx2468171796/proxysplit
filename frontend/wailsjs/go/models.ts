@@ -48,6 +48,26 @@ export namespace engine {
 
 export namespace main {
 	
+	export class AIControlInfo {
+	    url: string;
+	    token: string;
+	    prompt: string;
+	    mcpConfig: string;
+	    running: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new AIControlInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.url = source["url"];
+	        this.token = source["token"];
+	        this.prompt = source["prompt"];
+	        this.mcpConfig = source["mcpConfig"];
+	        this.running = source["running"];
+	    }
+	}
 	export class AddResult {
 	    added: number;
 	    skipped: number;

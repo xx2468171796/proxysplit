@@ -22,6 +22,10 @@ export function ExportConfig() {
   return window['go']['main']['App']['ExportConfig']();
 }
 
+export function GetAIControlInfo() {
+  return window['go']['main']['App']['GetAIControlInfo']();
+}
+
 export function GetAppIcon(arg1) {
   return window['go']['main']['App']['GetAppIcon'](arg1);
 }

@@ -45,6 +45,7 @@
     ExportAppRules as WExportAppRules,
     ImportAppRules as WImportAppRules,
     GetLanIP as WGetLanIP,
+    GetAIControlInfo as WGetAIControlInfo,
     PickExeFiles as WPickExeFiles,
     TestApp as WTestApp,
     ExportConfig as WExportConfig,
@@ -423,6 +424,19 @@
 
   function toast(t: string) { addMsg = t; setTimeout(() => (addMsg = ''), 3500) }
 
+  // --- AI 控制 API ---
+  let aiInfo = { url: 'http://127.0.0.1:18088', token: '', prompt: '', mcpConfig: '', running: false }
+  let aiMsg = ''
+  let aiTokenShown = false
+  async function refreshAIInfo() { aiInfo = await safe(() => WGetAIControlInfo() as Promise<typeof aiInfo>, aiInfo) }
+  async function copyText(t: string, label: string) {
+    if (!t) { aiMsg = '暂无内容'; setTimeout(() => (aiMsg = ''), 2000); return }
+    try { await navigator.clipboard.writeText(t); aiMsg = label + '已复制到剪贴板 ✓' }
+    catch { aiMsg = '复制失败，请手动选中复制' }
+    setTimeout(() => (aiMsg = ''), 2800)
+  }
+  $: aiTokenMasked = aiInfo.token ? aiInfo.token.slice(0, 6) + '••••••••' + aiInfo.token.slice(-4) : ''
+
   async function addNodes() {
     if (!linkText.trim()) return
     const r: any = await safe(() => WAddNodes(linkText), { added: 0, skipped: 0 })
@@ -779,7 +793,7 @@
     await refreshCoreVersion(); await refreshClashMode(); await refreshSysProxy()
     await refreshAutostart(); await refreshLogLevel()
     lanIP = await safe<string>(() => WGetLanIP(), '192.168.1.100')
-    await refreshRunning(); await refreshHealth(); await refreshRuleSets()
+    await refreshRunning(); await refreshHealth(); await refreshRuleSets(); await refreshAIInfo()
     themePref = settings.theme || 'light'; applyTheme(themePref)
     const m = await safe<string>(() => WGetRuleMode(), ruleMode)
     ruleMode = m === 'blacklist' ? 'blacklist' : 'whitelist'
@@ -1387,6 +1401,20 @@
 
       {:else}
         <div class="settings-grid">
+          <section class="card ai-card">
+            <div class="card-head sm">
+              <div><h3>🤖 AI 控制（MCP / API）</h3><p class="sub">让 AI（Claude Code / Codex 等）直接控制本机代理：把某程序设为走代理 / 直连 / 全局、启停</p></div>
+              <span class="ai-dot" class:on={aiInfo.running}>{aiInfo.running ? '● 已就绪' : '○ 未启动'}</span>
+            </div>
+            <div class="ai-row"><span class="ai-k">接口地址</span><code class="ai-v">{aiInfo.url}</code><button class="mini" on:click={() => copyText(aiInfo.url, '地址')}>复制</button></div>
+            <div class="ai-row"><span class="ai-k">Token</span><code class="ai-v">{aiTokenShown ? aiInfo.token : aiTokenMasked}</code><button class="mini" on:click={() => (aiTokenShown = !aiTokenShown)}>{aiTokenShown ? '隐藏' : '显示'}</button><button class="mini" on:click={() => copyText(aiInfo.token, 'Token')}>复制</button></div>
+            <div class="ai-actions">
+              <button class="primary ai-big" on:click={() => copyText(aiInfo.prompt, 'AI 提示词')}>{@html I.exp} 一键复制 AI 提示词</button>
+              <button class="ghost-btn" on:click={() => copyText(aiInfo.mcpConfig, 'MCP 配置')}>复制 MCP 配置</button>
+              {#if aiMsg}<span class="rs-msg">{aiMsg}</span>{/if}
+            </div>
+            <p class="ai-hint">用法：点「一键复制 AI 提示词」→ 粘贴给你的 AI（Claude Code / Codex）→ 直接说「让 Chrome 走代理」即可。提示词已内置接口地址与 Token，AI 用 curl 就能控制。Token 等于本机代理控制权，别外发。</p>
+          </section>
           <section class="card">
             <h3>内核 &amp; 诊断</h3>
             <div class="setting"><span>sing-box 版本</span><strong>{coreVersion || '1.13.14'}</strong></div>
@@ -1914,6 +1942,15 @@
   .lf-field input, .lf-field select { min-width: 0; border: 1px solid #e2e8f0; border-radius: 9px; padding: 9px 11px; background: var(--card); font-size: 13px; font-weight: 500; color: var(--ink-2); }
   .lf-foot { display: flex; gap: 8px; margin-top: 14px; flex-wrap: wrap; }
   .settings-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: var(--s4); }
+  .ai-card { grid-column: 1 / -1; border: 1.5px solid var(--brand); background: linear-gradient(180deg, rgba(37,99,235,0.05), transparent 60%); }
+  .ai-dot { font-size: 12px; font-weight: 700; color: var(--muted-2); white-space: nowrap; }
+  .ai-dot.on { color: var(--ok-600, #16a34a); }
+  .ai-row { display: flex; align-items: center; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+  .ai-k { width: 68px; flex: none; font-size: 12.5px; color: var(--muted); }
+  .ai-v { flex: 1; min-width: 120px; background: var(--soft); border: 1px solid var(--line); border-radius: 7px; padding: 5px 9px; font-family: ui-monospace, Consolas, monospace; font-size: 12px; color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ai-actions { display: flex; align-items: center; gap: 10px; margin-top: 14px; flex-wrap: wrap; }
+  .ai-big { font-size: 14px; padding: 10px 18px; }
+  .ai-hint { margin-top: 12px; font-size: 12px; line-height: 1.6; color: var(--muted); }
   .settings-grid h3 { margin: 0 0 8px; font-size: 15px; color: var(--ink); }
   .setting { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--line-3); font-size: 13.5px; color: var(--muted); }
   .setting:last-child { border-bottom: 0; } .setting strong { color: var(--ink); text-align: right; }

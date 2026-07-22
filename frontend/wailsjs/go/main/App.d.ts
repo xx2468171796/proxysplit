@@ -16,6 +16,8 @@ export function ExportAppRules():Promise<string>;
 
 export function ExportConfig():Promise<string>;
 
+export function GetAIControlInfo():Promise<main.AIControlInfo>;
+
 export function GetAppIcon(arg1:string):Promise<string>;
 
 export function GetAppRules():Promise<Array<service.AppRule>>;

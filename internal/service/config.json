@@ -1,0 +1,41 @@
+{
+  "nodes": null,
+  "selectedId": "",
+  "rules": [
+    {
+      "match": "Chrome.exe",
+      "path": "C:/x/chrome.exe",
+      "line": "global",
+      "enabled": true
+    }
+  ],
+  "lines": null,
+  "ruleMode": "",
+  "defaultLine": "",
+  "routing": {
+    "enabled": false,
+    "mode": "",
+    "rules": null
+  },
+  "subs": null,
+  "settings": {
+    "mixedPort": 0,
+    "tunMode": false,
+    "lanShare": false,
+    "lanPort": 0,
+    "lanType": "",
+    "lanUser": "",
+    "lanPass": "",
+    "excludeSelf": false,
+    "privateDirect": false,
+    "blockQUIC": false,
+    "remoteDNS": false,
+    "fakeIP": false,
+    "autostart": false,
+    "trayClose": false,
+    "theme": "",
+    "autoUpdateRules": false
+  },
+  "logLevel": "",
+  "corePort": 0
+}

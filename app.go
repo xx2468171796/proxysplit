@@ -29,6 +29,7 @@ type App struct {
 	svc       *service.Service
 	forceQuit bool // set when the user picks 退出 from the tray (allow real close)
 	trayUp    bool // the tray icon initialized OK (only then may we hide to it)
+	apiUp     bool // the local AI-control HTTP API is listening
 }
 
 // NewApp creates the App.
@@ -51,7 +52,8 @@ func (a *App) startup(ctx context.Context) {
 	svc.SetLogSink(func(line string) {
 		runtime.EventsEmit(ctx, "log", line)
 	})
-	go a.initTray() // system-tray icon (minimise-to-tray, quick start/stop)
+	go a.initTray()       // system-tray icon (minimise-to-tray, quick start/stop)
+	a.startAPIServer()    // local AI-control HTTP API (127.0.0.1)
 }
 
 // shutdown runs when the app window closes. It tears the core down and clears any
