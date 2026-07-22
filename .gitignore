@@ -26,3 +26,4 @@ node_modules/
 
 # editor
 .idea/
+internal/service/config.json
