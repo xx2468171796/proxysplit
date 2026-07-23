@@ -9,6 +9,16 @@ class FakeStore {
   device!: DeviceRecord
   sessions = new Map<string, SessionRecord>()
   revokedFamilies: string[] = []
+  async recordLoginFailure() {
+    this.user.failedLoginCount += 1
+    if (this.user.failedLoginCount >= 5) {
+      this.user.failedLoginCount = 0
+      this.user.lockoutLevel += 1
+      this.user.lockedUntil = new Date(Date.now() + this.user.lockoutLevel * 5 * 60000)
+    }
+    return { failedLoginCount: this.user.failedLoginCount, lockoutLevel: this.user.lockoutLevel, lockedUntil: this.user.lockedUntil }
+  }
+  async recordLoginSuccess() { this.user.failedLoginCount = 0; this.user.lockedUntil = null }
   async findUser(username: string) { return username === this.user.username ? this.user : null }
   async findUserById(id: string) { return id === this.user.id ? this.user : null }
   async entitlement() { return this.entitlementValue }
@@ -26,7 +36,7 @@ class FakeStore {
 
 async function fixture() {
   const store = new FakeStore()
-  store.user = { id: '11111111-1111-4111-8111-111111111111', username: 'alice', passwordHash: await hashPassword('correct horse battery staple'), role: 'user', status: 'active', createdAt: new Date() }
+  store.user = { id: '11111111-1111-4111-8111-111111111111', username: 'alice', passwordHash: await hashPassword('correct horse battery staple'), role: 'user', status: 'active', createdAt: new Date(), failedLoginCount: 0, lockoutLevel: 0, lockedUntil: null }
   store.entitlementValue = { licenseId: '33333333-3333-4333-8333-333333333333', planId: '44444444-4444-4444-8444-444444444444', planCode:'premium-test', planName: 'Professional', tier:'premium', maxDevices: 3, features: ['proxy', 'custom-lines'], expiresAt: new Date(Date.now() + 7 * 86400000), lifetime:false, status: 'active' }
   const auth = await AuthService.create(store as unknown as PgStore, { accessSecret: 'test-secret-must-be-at-least-32-bytes-long', refreshDays: 30 })
   const device = { fingerprint: 'f'.repeat(64), name: 'Windows PC', platform: 'windows' as const, appVersion: '1.9.0' }
@@ -34,6 +44,13 @@ async function fixture() {
 }
 
 describe('commercial auth', () => {
+  it('locks an account for five minutes after five wrong passwords', async () => {
+    const { auth, device } = await fixture()
+    for (let i = 0; i < 4; i++) await expect(auth.login({ username: 'alice', password: 'wrong password', device })).rejects.toMatchObject({ code: 'AUTH_INVALID' })
+    await expect(auth.login({ username: 'alice', password: 'wrong password', device })).rejects.toMatchObject({ code: 'AUTH_LOCKED', status: 429 })
+    await expect(auth.login({ username: 'alice', password: 'correct horse battery staple', device })).rejects.toMatchObject({ code: 'AUTH_LOCKED' })
+  })
+
   it('rotates refresh tokens and revokes the family on replay', async () => {
     const { store, auth, device } = await fixture()
     const login = await auth.login({ username: 'Alice', password: 'correct horse battery staple', device })

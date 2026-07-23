@@ -54,8 +54,32 @@ function UsersPage(){
   async function create(e:React.FormEvent){e.preventDefault();await api('/v1/admin/users',{method:'POST',body:JSON.stringify(form)});setShow(false);setForm(x=>({...x,username:'',password:''}));load()}
   async function status(id:string,value:string){await api(`/v1/admin/users/${id}/status`,{method:'PATCH',body:JSON.stringify({status:value})});load()}
   async function extend(id:string){await api(`/v1/admin/users/${id}/extend`,{method:'POST',body:JSON.stringify({days:30})});load()}
+  async function changePassword(row:AnyRow){
+    const password=prompt(`为 ${row.username} 设置新密码（至少 8 位）。保存后该用户的所有已登录设备将需要重新登录。`)
+    if(password===null)return
+    if(password.length<8){alert('密码至少需要 8 位');return}
+    await api(`/v1/admin/users/${row.id}/password`,{method:'PATCH',body:JSON.stringify({password})})
+    alert(`已更新 ${row.username} 的密码，并已使原会话失效。`)
+  }
   async function openDetail(id:string){setDetailError('');try{setDetail(await api(`/v1/admin/users/${id}`))}catch(e){setDetailError((e as Error).message)}}
   return <><section className="card"><div className="card-head"><div><b>用户列表</b><small>共 {rows.length} 个账号；点击“详情”可查看完整会员、设备、订单与操作记录</small></div><button className="primary" onClick={()=>setShow(!show)}>+ 创建用户</button></div>{show&&<form className="inline-form wide" onSubmit={create}><input placeholder="用户名" value={form.username} onChange={e=>setForm({...form,username:e.target.value})}/><input placeholder="初始密码（至少10位）" type="password" value={form.password} onChange={e=>setForm({...form,password:e.target.value})}/><select value={form.planId} onChange={e=>setForm({...form,planId:e.target.value})}>{plans.map(p=><option value={p.id} key={p.id}>{p.name}</option>)}</select><input type="number" min="1" value={form.days} onChange={e=>setForm({...form,days:Number(e.target.value)})}/><button>创建并开通</button></form>}{detailError&&<div className="error">{detailError}</div>}<Table heads={['用户','会员 / 到期','设备','状态','操作']}>{rows.map(r=><tr key={r.id}><td><b>{r.username}</b><small>{dt(r.createdAt)}</small></td><td>{r.planName||'未开通'}<small>{r.lifetime?'永久有效':dt(r.expiresAt)}</small></td><td>{r.devices}</td><td><Pill value={r.status}/></td><td className="actions"><button onClick={()=>openDetail(r.id)}>详情</button><button onClick={()=>extend(r.id)}>续费30天</button><button onClick={()=>status(r.id,r.status==='active'?'suspended':'active')}>{r.status==='active'?'暂停':'恢复'}</button></td></tr>)}</Table></section>{detail&&<UserDetail data={detail} onClose={()=>setDetail(null)}/>}</>
+}
+
+function PasswordQuickReset(){
+  const [rows,setRows]=useState<AnyRow[]>([])
+  useEffect(()=>{api<{items:AnyRow[]}>('/v1/admin/users').then(x=>setRows(x.items))},[])
+  async function reset(){
+    const username=prompt('输入要修改密码的用户名')
+    if(username===null)return
+    const user=rows.find(x=>x.username===username.trim())
+    if(!user){alert('未找到该用户，请从上方用户列表复制用户名后重试');return}
+    const password=prompt(`为 ${user.username} 设置新密码（至少 8 位）。保存后该用户的所有已登录设备将需要重新登录。`)
+    if(password===null)return
+    if(password.length<8){alert('密码至少需要 8 位');return}
+    await api(`/v1/admin/users/${user.id}/password`,{method:'PATCH',body:JSON.stringify({password})})
+    alert(`已更新 ${user.username} 的密码，并已使原会话失效。`)
+  }
+  return <section className="card"><div className="card-head"><div><b>账号安全</b><small>修改密码后会立即撤销该账号所有已登录会话。</small></div><button className="primary" onClick={()=>void reset()}>修改用户密码</button></div></section>
 }
 
 function DevicesPage(){
@@ -121,6 +145,6 @@ export function App(){
     ['plans',Layers3,'套餐'],['orders',ShoppingCart,'订单'],['payments',CreditCard,'支付通道'],
     ['announcements',Megaphone,'公告'],['releases',PackageOpen,'版本'],['settings',Settings2,'商业设置'],['audit',Activity,'审计'],
   ] as const
-  const pages:Record<Page,React.ReactNode>={dashboard:<Dashboard/>,users:<UsersPage/>,devices:<DevicesPage/>,plans:<PlansPage/>,orders:<OrdersPage/>,payments:<PaymentsPage/>,announcements:<AnnouncementsPage/>,releases:<ReleasesPage/>,settings:<SettingsPage/>,audit:<AuditPage/>}
+  const pages:Record<Page,React.ReactNode>={dashboard:<Dashboard/>,users:<><UsersPage/><PasswordQuickReset/></>,devices:<DevicesPage/>,plans:<PlansPage/>,orders:<OrdersPage/>,payments:<PaymentsPage/>,announcements:<AnnouncementsPage/>,releases:<ReleasesPage/>,settings:<SettingsPage/>,audit:<AuditPage/>}
   return <div className="shell"><aside><div className="brand"><span><Boxes/></span><div><b>ProxySplit</b><small>COMMERCIAL CONSOLE</small></div></div><nav>{nav.map(([id,Icon,label])=><button className={page===id?'active':''} onClick={()=>setPage(id)} key={id}><Icon/>{label}</button>)}</nav><div className="side-foot"><div><ShieldCheck/>安全运营模式</div><button onClick={()=>{setToken('');setSigned(false)}}><LogOut/>退出登录</button></div></aside><main><header><div><h1>{pageMeta[page][0]}</h1><p>{pageMeta[page][1]}</p></div><div className="header-actions"><label><Search/><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="搜索当前模块…"/></label><button title="刷新页面" onClick={()=>location.reload()}><RefreshCw/></button><span className="admin">AD</span></div></header><div className="content">{pages[page]}</div></main></div>
 }

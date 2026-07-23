@@ -20,6 +20,8 @@ export const activateDeviceSchema = z.object({ device: deviceSchema })
 export const leaseSchema = z.object({ deviceFingerprint: z.string().min(32).max(128), appVersion: z.string().min(5).max(40) })
 export const userCreateSchema = z.object({ username: z.string().trim().min(3).max(64), password: z.string().min(10).max(256), role: z.enum(['user','admin']).default('user'), planId: z.string().uuid().optional(), days: z.number().int().min(1).max(3650).default(30) })
 export const userStatusSchema = z.object({ status: z.enum(['active','suspended','banned']) })
+// 管理端重置密码：与客户端注册保持一致，密码最低 8 位。
+export const userPasswordSchema = z.object({ password: z.string().min(8).max(256) })
 export const licenseExtendSchema = z.object({ days: z.number().int().min(1).max(3650) })
 export const releaseCreateSchema = z.object({
   version: z.string().regex(/^\d+\.\d+\.\d+$/), minimumVersion: z.string().regex(/^\d+\.\d+\.\d+$/),
@@ -91,6 +93,7 @@ export type RegisterInput = z.infer<typeof registerSchema>
 export type DeviceInput = z.infer<typeof deviceSchema>
 export type RefreshInput = z.infer<typeof refreshSchema>
 export type ActivateDeviceInput = z.infer<typeof activateDeviceSchema>
+export type UserPasswordInput = z.infer<typeof userPasswordSchema>
 export type LeaseInput = z.infer<typeof leaseSchema>
 export type PlanUpsertInput = z.infer<typeof planUpsertSchema>
 export type PlanPatchInput = z.infer<typeof planPatchSchema>

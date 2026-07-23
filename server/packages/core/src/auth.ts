@@ -54,8 +54,26 @@ export class AuthService{
     return this.login(input,ip)
   }
   async login(input:LoginInput,ip=''){
-    const user=await this.store.findUser(normalizeUsername(input.username)); const valid=user?await verify(user.passwordHash,input.password).catch(()=>false):false
-    if(!user||!valid){await this.store.audit(null,'auth.login','user','unknown',ip,'denied');throw new AppError('AUTH_INVALID','Invalid username or password',401)}
+    const user=await this.store.findUser(normalizeUsername(input.username))
+    const lockedUntil=user?.lockedUntil?new Date(user.lockedUntil):null
+    if(user&&lockedUntil&&lockedUntil.getTime()>Date.now()){
+      const remainingMinutes=Math.max(1,Math.ceil((lockedUntil.getTime()-Date.now())/60000))
+      await this.store.audit(user.id,'auth.login','user',user.id,ip,'locked',{remainingMinutes,lockoutLevel:user.lockoutLevel})
+      throw new AppError('AUTH_LOCKED',`登录已锁定，请 ${remainingMinutes} 分钟后再试`,429)
+    }
+    const valid=user?await verify(user.passwordHash,input.password).catch(()=>false):false
+    if(!user||!valid){
+      const failure=user?await this.store.recordLoginFailure(user.id):null
+      const failureUntil=failure?.lockedUntil?new Date(failure.lockedUntil):null
+      if(user&&failureUntil&&failureUntil.getTime()>Date.now()){
+        const remainingMinutes=Math.max(1,Math.ceil((failureUntil.getTime()-Date.now())/60000))
+        await this.store.audit(user.id,'auth.login','user',user.id,ip,'locked',{remainingMinutes,lockoutLevel:failure.lockoutLevel})
+        throw new AppError('AUTH_LOCKED',`登录已锁定，请 ${remainingMinutes} 分钟后再试`,429)
+      }
+      await this.store.audit(user?.id??null,'auth.login','user',user?.id??'unknown',ip,'denied')
+      throw new AppError('AUTH_INVALID','Invalid username or password',401)
+    }
+    await this.store.recordLoginSuccess(user.id)
     if(user.status!=='active')throw new AppError('ACCOUNT_UNAVAILABLE','Account is unavailable',403)
     const entitlement=await this.store.entitlement(user.id)
     const license=this.license(entitlement,user)
