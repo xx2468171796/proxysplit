@@ -3,6 +3,13 @@
 版本号以发布构建为准（`scripts/build-commercial.ps1 -Version <x.y.z>`，注入 `main.appVersion`），
 每个发布产物的 SHA256 见 `output/proxysplit-v<版本>.manifest.json`。
 
+## v1.9.16
+
+- 重新统一运行时版本、文件名版本、更新清单版本以及 Windows
+  `FileVersion/ProductVersion`，解决安装包属性和客户端标题版本不对应的问题。
+- 发布清单新增源码 Git 提交号与工作区状态，确保每个正式 EXE 可以准确追溯到对应代码。
+- 包含 v1.9.15 的支付主动查单、客户端到账轮询及 sing-box 原生应用分流清理。
+
 ## v1.9.15
 
 - 支付到账新增「主动查单兜底 + 客户端自动轮询」，不再仅依赖异步回调：

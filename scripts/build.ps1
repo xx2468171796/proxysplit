@@ -21,7 +21,8 @@ param(
     [string]$DownloadBaseURL = "",
     [string]$TLSSPKISHA256 = "",
     [string]$SignToolPath = "",
-    [string]$SigningThumbprint = ""
+    [string]$SigningThumbprint = "",
+    [switch]$AllowDirty
 )
 
 $ErrorActionPreference = "Stop"
@@ -39,6 +40,11 @@ if ($Version -notmatch '^\d+\.\d+\.\d+$') { throw "Version must look like 1.8.0 
 $ldflags = @('-s', '-w', "-X main.appVersion=$Version")
 $commercialEnabled = $Commercial.IsPresent -or -not [string]::IsNullOrWhiteSpace($CommercialAPIURL)
 $obfuscateEnabled = $Obfuscate.IsPresent
+$sourceCommit = (git rev-parse HEAD).Trim()
+$sourceDirty = -not [string]::IsNullOrWhiteSpace((git status --porcelain))
+if ($commercialEnabled -and $sourceDirty -and -not $AllowDirty.IsPresent) {
+    throw 'Commercial releases require a clean Git worktree so the EXE can be mapped to one exact commit. Commit changes first, or explicitly use -AllowDirty for a non-publishable diagnostic build.'
+}
 if ($commercialEnabled) {
     if ($CommercialAPIURL -notmatch '^https://') { throw 'CommercialAPIURL must use HTTPS' }
     if (-not (Test-Path -LiteralPath $LicensePublicKeyFile -PathType Leaf)) { throw 'LicensePublicKeyFile is required for a commercial build' }
@@ -78,6 +84,14 @@ if ($obfuscateEnabled -and -not (Get-Command garble -ErrorAction SilentlyContinu
 # dispatchers. Preserve the normal development bindings and restore them after
 # the binary/frontend bundle has been compiled.
 $bindingBackups = @{}
+$wailsConfigPath = Join-Path $root 'wails.json'
+$wailsConfigBackup = [IO.File]::ReadAllBytes($wailsConfigPath)
+$distGitkeepPath = Join-Path $root 'frontend\dist\gitkeep'
+$distGitkeepBackup = if (Test-Path -LiteralPath $distGitkeepPath) {
+    [IO.File]::ReadAllBytes($distGitkeepPath)
+} else {
+    $null
+}
 if ($obfuscateEnabled) {
     foreach ($relative in @('frontend\wailsjs\go\main\App.js', 'frontend\wailsjs\go\main\App.d.ts', 'frontend\wailsjs\go\models.ts')) {
         $path = Join-Path $root $relative
@@ -85,9 +99,31 @@ if ($obfuscateEnabled) {
     }
 }
 
+# Wails takes the Windows FileVersion/ProductVersion resource from
+# wails.json -> info.productVersion, independently from Go ldflags. Set it to
+# the same release version for the duration of the build, then restore the
+# repository file byte-for-byte.
+$wailsConfig = [IO.File]::ReadAllText($wailsConfigPath) | ConvertFrom-Json
+if (-not $wailsConfig.info) {
+    $wailsConfig | Add-Member -NotePropertyName info -NotePropertyValue ([pscustomobject]@{})
+}
+$wailsConfig.info | Add-Member -NotePropertyName companyName -NotePropertyValue 'ProxySplit' -Force
+$wailsConfig.info | Add-Member -NotePropertyName productName -NotePropertyValue 'ProxySplit' -Force
+$wailsConfig.info | Add-Member -NotePropertyName productVersion -NotePropertyValue $Version -Force
+$wailsConfig.info | Add-Member -NotePropertyName copyright -NotePropertyValue 'Copyright © ProxySplit' -Force
+$wailsConfig.info | Add-Member -NotePropertyName comments -NotePropertyValue "ProxySplit v$Version ($sourceCommit)" -Force
+[IO.File]::WriteAllText($wailsConfigPath, ($wailsConfig | ConvertTo-Json -Depth 20), [Text.UTF8Encoding]::new($false))
+
 Write-Host "==> Wails release build (strip + trimpath; obfuscated=$obfuscateEnabled)" -ForegroundColor Cyan
 try { & $wails @buildArgs }
-finally { foreach ($entry in $bindingBackups.GetEnumerator()) { [IO.File]::WriteAllBytes($entry.Key, $entry.Value) } }
+finally {
+    [IO.File]::WriteAllBytes($wailsConfigPath, $wailsConfigBackup)
+    if ($null -ne $distGitkeepBackup) {
+        New-Item -ItemType Directory -Force -Path (Split-Path -Parent $distGitkeepPath) | Out-Null
+        [IO.File]::WriteAllBytes($distGitkeepPath, $distGitkeepBackup)
+    }
+    foreach ($entry in $bindingBackups.GetEnumerator()) { [IO.File]::WriteAllBytes($entry.Key, $entry.Value) }
+}
 if ($LASTEXITCODE -ne 0) { throw 'wails build failed' }
 
 $exe = Join-Path $root 'build\bin\proxysplit.exe'
@@ -124,6 +160,9 @@ $manifest = [ordered]@{
     url = $downloadURL; signature = $releaseSignature
     commercial = $commercialEnabled; obfuscated = $obfuscateEnabled
     authenticodeSigned = -not [string]::IsNullOrWhiteSpace($SigningThumbprint)
+    windowsProductVersion = $Version
+    sourceCommit = $sourceCommit
+    sourceDirty = $sourceDirty
     builtAt = [DateTime]::UtcNow.ToString('o')
 }
 $manifest | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $out "proxysplit-v$Version.manifest.json") -Encoding utf8
