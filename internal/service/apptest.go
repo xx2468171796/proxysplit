@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"proxysplit/internal/engine"
 	"proxysplit/internal/latency"
 	"proxysplit/internal/nodes"
 )
@@ -33,9 +34,9 @@ func (s *Service) TestApp(match string) int {
 	}
 	switch line.Node {
 	case LineDirect:
-		return 0 // 直连 — no proxy path to test
+		return 0
 	case LineBlock:
-		return -2 // 拦截
+		return -2
 	}
 	node, err := resolveLineNode(line, selected, nodeList)
 	if err != nil || node == nil {
@@ -45,7 +46,7 @@ func (s *Service) TestApp(match string) int {
 	return latency.Measure(&snap, "", 5*time.Second).Latency
 }
 
-// ExportAll returns the entire config as pretty JSON (for backup/migration).
+// ExportAll returns the entire config as pretty JSON for backup/migration.
 func (s *Service) ExportAll() (string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -56,21 +57,97 @@ func (s *Service) ExportAll() (string, error) {
 	return string(data), nil
 }
 
-// ImportAll replaces the entire config from a JSON backup and re-applies it.
+// validateImportedConfigLocked preflights all cross references before a backup
+// can replace live state. Caller holds s.mu.
+func (s *Service) validateImportedConfigLocked(cfg *Config) error {
+	if cfg.RuleMode == "" {
+		cfg.RuleMode = engine.ModeBlacklist
+	}
+	if cfg.RuleMode != engine.ModeBlacklist && cfg.RuleMode != engine.ModeWhitelist {
+		return fmt.Errorf("invalid app split mode: %s", cfg.RuleMode)
+	}
+	if cfg.DefaultLine == "" {
+		cfg.DefaultLine = LineRule
+	}
+	if cfg.Settings.Theme == "" {
+		cfg.Settings = defaultSettings()
+	}
+	cfg.RuleSets = normalizeRuleSetConfig(cfg.RuleSets)
+
+	seenNodes := make(map[string]bool, len(cfg.Nodes))
+	for i, n := range cfg.Nodes {
+		if n == nil || strings.TrimSpace(n.ID) == "" {
+			return fmt.Errorf("node %d is missing an ID", i+1)
+		}
+		if seenNodes[n.ID] {
+			return fmt.Errorf("duplicate node ID: %s", n.ID)
+		}
+		seenNodes[n.ID] = true
+	}
+	if cfg.SelectedID != "" && !seenNodes[cfg.SelectedID] {
+		cfg.SelectedID = ""
+	}
+	if cfg.SelectedID == "" && len(cfg.Nodes) > 0 {
+		cfg.SelectedID = cfg.Nodes[0].ID
+	}
+
+	// Existing validators resolve references through s.cfg. Install the candidate
+	// briefly, then always restore the current configuration.
+	previous := s.cfg
+	s.cfg = *cfg
+	defer func() { s.cfg = previous }()
+	lines, err := s.normalizeCustomLinesLocked(s.cfg.Lines)
+	if err != nil {
+		return fmt.Errorf("invalid custom lines: %w", err)
+	}
+	s.cfg.Lines = lines
+	rules, err := s.normalizeAppRulesLocked(s.cfg.Rules)
+	if err != nil {
+		return fmt.Errorf("invalid app rules: %w", err)
+	}
+	s.cfg.Rules = rules
+	custom, err := normalizeRouteRules(s.cfg.CustomRules)
+	if err != nil {
+		return fmt.Errorf("invalid global rules: %w", err)
+	}
+	s.cfg.CustomRules = custom
+	if lineByID(s.allLinesLocked(), s.cfg.DefaultLine) == nil {
+		return fmt.Errorf("default line does not exist: %s", s.cfg.DefaultLine)
+	}
+	*cfg = s.cfg
+	return nil
+}
+
+// ImportAll restores the full user snapshot transactionally. It rejects the
+// generated sing-box runtime file, validates before touching live memory, and
+// writes a recovery copy before reporting success.
 func (s *Service) ImportAll(data string) error {
+	if isCoreConfig([]byte(data)) {
+		return fmt.Errorf("the selected file is a sing-box runtime config, not a ProxySplit backup")
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(data), &raw); err != nil || len(raw) == 0 {
+		return fmt.Errorf("backup must be a non-empty ProxySplit JSON object")
+	}
 	var cfg Config
 	if err := json.Unmarshal([]byte(data), &cfg); err != nil {
-		return fmt.Errorf("配置格式无法识别: %w", err)
+		return fmt.Errorf("backup format cannot be read: %w", err)
 	}
-	if len(cfg.Nodes) == 0 && len(cfg.Rules) == 0 && len(cfg.Lines) == 0 {
-		return fmt.Errorf("备份里没有可导入的内容")
-	}
+
 	s.mu.Lock()
+	if err := s.validateImportedConfigLocked(&cfg); err != nil {
+		s.mu.Unlock()
+		return err
+	}
+	old := s.cfg
 	s.cfg = cfg
-	s.save() // persist the imported config to disk first...
-	s.load() // ...then read it back so defaults + migrations are applied
+	if err := s.persistLocked(); err != nil {
+		s.cfg = old
+		s.mu.Unlock()
+		return fmt.Errorf("backup could not be saved: %w", err)
+	}
 	s.mu.Unlock()
-	s.log("[store] 已从备份导入配置")
+	s.log("[store] imported configuration backup")
 	s.applyLive()
 	return nil
 }

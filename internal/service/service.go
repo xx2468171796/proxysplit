@@ -365,6 +365,34 @@ func (s *Service) save() {
 	}
 }
 
+// persistLocked is the error-returning variant used by configuration restore.
+// Most legacy mutators use save() as best effort, but an import must never claim
+// success unless the new snapshot is already durable on disk. Caller holds s.mu.
+func (s *Service) persistLocked() error {
+	data, err := json.MarshalIndent(&s.cfg, "", "  ")
+	if err != nil {
+		return fmt.Errorf("serialize config: %w", err)
+	}
+	path := s.configPath()
+	if cur, rerr := os.ReadFile(path); rerr == nil && json.Valid(cur) && !isCoreConfig(cur) {
+		if err := os.WriteFile(path+".bak", cur, 0o600); err != nil {
+			return fmt.Errorf("write recovery backup: %w", err)
+		}
+	}
+	tmp := path + ".import.tmp"
+	if err := os.WriteFile(tmp, data, 0o600); err != nil {
+		return fmt.Errorf("write imported config: %w", err)
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		_ = os.Remove(tmp)
+		return fmt.Errorf("activate imported config: %w", err)
+	}
+	if alt := s.altConfigPath(); alt != "" {
+		_ = os.WriteFile(alt, data, 0o600)
+	}
+	return nil
+}
+
 // --- Nodes ---
 
 // AddNodes parses share links from text and appends new (non-duplicate) nodes.
