@@ -38,3 +38,6 @@ node_modules/
 # editor
 .idea/
 internal/service/config.json
+
+# Wails-generated frontend hash (regenerated each build)
+/frontend/package.json.md5

@@ -1,1 +1,15 @@
+# Normalize text line endings; keep platform-specific scripts explicit.
+* text=auto eol=lf
 *.sh text eol=lf
+*.ps1 text eol=crlf
+*.bat text eol=crlf
+
+# Committed binary assets — never EOL-normalize or diff as text.
+*.srs binary
+*.woff2 binary
+*.png binary
+*.webp binary
+*.ico binary
+*.icns binary
+*.exe binary
+*.pem -text

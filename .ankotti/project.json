@@ -7,7 +7,7 @@
     "ecosystemHub": "http://192.168.110.246:8771"
   },
   "mcp": "ecosystem",
-  "stack": "Go + Wails + Svelte + sing-box + WinDivert",
+  "stack": "Go + Wails + Svelte + sing-box (TUN + process_name)",
   "dependsOn": [],
   "provides": [
     "Windows 单文件应用分流代理",

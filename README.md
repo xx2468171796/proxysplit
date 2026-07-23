@@ -7,7 +7,7 @@
 为不同应用设置规则、直连、拦截或指定线路；所有匹配与路由由 sing-box
 在本机完成，节点、订阅和应用规则优先保存在本机。
 
-[![下载](https://img.shields.io/badge/⬇_下载_v1.9.2-2563eb?style=for-the-badge)](https://proxysplit.zygskins.cn/download/proxysplit-v1.9.2.exe)
+[![下载](https://img.shields.io/badge/⬇_下载_v1.9.15-2563eb?style=for-the-badge)](https://proxysplit.zygskins.cn/download/proxysplit-v1.9.15.exe)
 &nbsp;
 ![平台](https://img.shields.io/badge/Windows_10/11-x64-334155?style=for-the-badge)
 ![内核](https://img.shields.io/badge/core-sing--box-16a34a?style=for-the-badge)
@@ -47,7 +47,7 @@ ProxySplit **不提供任何翻墙、VPN、代理节点、订阅或网络线路�
 ## 下载与使用
 
 前往 **[ProxySplit 官网](https://proxysplit.zygskins.cn)** 下载
-`proxysplit-v1.9.2.exe`。这是便携式单文件版本：
+`proxysplit-v1.9.15.exe`。这是便携式单文件版本：
 
 1. 在「节点」页添加你有权使用的合法网络配置。
 2. 在「应用分流」页选择应用并分配规则或线路。
@@ -121,10 +121,10 @@ sing-box outbound，并按进程名分别路由。
 wails dev
 
 # 普通便携版
-.\scripts\build.ps1 -Version 1.9.2
+.\scripts\build.ps1 -Version 1.9.15
 
 # 商业版示例
-.\scripts\build.ps1 -Version 1.9.2 -Commercial `
+.\scripts\build.ps1 -Version 1.9.15 -Commercial `
   -CommercialAPIURL https://proxysplit.example.com `
   -LicensePublicKeyFile .\server\secrets\license-public.pem `
   -ReleasePublicKeyFile .\server\secrets\release-public.pem `
