@@ -71,6 +71,7 @@
     ActivateCurrentDevice as WActivateCurrentDevice,
     GetMyOrders as WGetMyOrders,
     CreateMembershipOrder as WCreateMembershipOrder,
+    GetPaymentQR as WGetPaymentQR,
     GetAnnouncements as WGetAnnouncements,
     RefreshEntitlement as WRefreshEntitlement,
   } from '../wailsjs/go/main/App.js'
@@ -215,6 +216,7 @@
   let commerceTimer: ReturnType<typeof setInterval> | null = null
   let appUpdateTimer: ReturnType<typeof setInterval> | null = null
   let activeOrder: MemberOrder | null = null
+  let paymentQR = ''
   let ruleMode: 'blacklist' | 'whitelist' = 'whitelist' // 只代理列出的（默认/推荐）
   let linkText = ''
   let addMsg = ''
@@ -456,6 +458,23 @@
     await Promise.all([refreshStatus(), refreshHealth(), refreshNodes(), refreshRules(), refreshLines(), refreshSubs()])
   }
   function nodeName(id: string): string { return nodes.find((n) => n.id === id)?.name || id }
+  function remainingLabel(expiresAt: string, planCode = '') {
+    if (planCode.includes('lifetime') || planCode === 'admin') return '永久有效'
+    if (!expiresAt) return '未开通'
+    const ms = new Date(expiresAt).getTime() - Date.now()
+    if (!Number.isFinite(ms) || ms <= 0) return '已到期'
+    const days = Math.floor(ms / 86_400_000)
+    const hours = Math.max(1, Math.ceil((ms % 86_400_000) / 3_600_000))
+    return days > 0 ? `剩余 ${days} 天 ${hours} 小时` : `剩余 ${hours} 小时`
+  }
+  function featureLabel(feature: string) {
+    return ({ proxy: '代理服务', rules: '应用分流规则', http: 'HTTP', https: 'HTTPS', socks: 'SOCKS5', 'custom-lines': '自定义线路', 'priority-support': '优先技术支持', 'all-protocols': '全部主流协议' } as Record<string, string>)[feature] || feature
+  }
+  function tierPlan(tier: string) { return memberPlans.find(plan => plan.tier === tier) }
+  $: membershipRemaining = remainingLabel(license.expiresAt, license.planCode)
+  $: membershipIdentity = license.plan || (license.signedIn ? '未开通会员' : '未登录')
+  $: standardReference = tierPlan('standard')
+  $: premiumReference = tierPlan('premium')
   async function refreshLicense() {
     if (!isWailsReady()) return
     license = await safe<LicenseStatus>(() => WGetLicenseStatus(), license)
@@ -523,11 +542,18 @@
   async function buyPlan(plan: MemberPlan) {
     commerceBusy = true; commerceError = ''
     const result = await WCreateMembershipOrder(plan.id) as any
-    commerceBusy = false
-    if (result.err) { commerceError = result.err; return }
-    activeOrder = result.order
+    if (result.err) { commerceBusy = false; commerceError = result.err; return }
+    await showPayment(result.order)
     await loadCommerce()
-    if (activeOrder?.payUrl && /^https?:\/\//i.test(activeOrder.payUrl)) BrowserOpenURL(activeOrder.payUrl)
+    commerceBusy = false
+  }
+  async function showPayment(order: MemberOrder) {
+    activeOrder = order
+    paymentQR = ''
+    if (!order?.payUrl) { commerceError = '支付服务未返回支付宝付款链接，请重新创建订单'; return }
+    const qr = await WGetPaymentQR(order.payUrl) as any
+    if (qr?.err || !qr?.data) { commerceError = qr?.err || '支付宝二维码生成失败'; return }
+    paymentQR = qr.data
   }
   async function refreshPayment() {
     commerceBusy = true; commerceError = ''
@@ -536,7 +562,7 @@
     if (order?.status === 'paid') {
       const err = await WRefreshEntitlement()
       if (err) commerceError = err
-      else { activeOrder = null; showMembership = false; await refreshLicense() }
+      else { activeOrder = null; paymentQR = ''; showMembership = false; await refreshLicense() }
     } else commerceError = '暂未查询到支付成功，请完成支付后重试'
     commerceBusy = false
   }
@@ -558,7 +584,7 @@
     if (!confirm('退出当前账号后代理会停止，是否继续？')) return
     const err = await WLogout()
     if (err) { toast('退出失败：' + err); return }
-    activeOrder = null; showMembership = false
+    activeOrder = null; paymentQR = ''; showMembership = false
     await refreshLicense(); await refreshStatus(); await loadCommerce()
   }
   const demoHealth: Health = { running: true, capturing: true, capturedPkts: 12873, warning: '',
@@ -1290,6 +1316,17 @@
         <header class="member-hero"><div><span class="member-eyebrow">MEMBERSHIP CENTER</span><h1>{license.deviceLimitReached ? '设备名额已满，请先解绑旧设备' : '选择适合你的会员套餐'}</h1><p>{license.deviceLimitReached ? '本机已安全登录，但尚未激活，代理无法启动。解绑下方任意一台旧设备后，本机会自动激活。' : `你好，${license.username}。当前账号暂无有效会员，完成支付后将在几秒内自动到账。`}</p></div><button class="ghost" on:click={logoutAccount}>退出账号</button></header>
         {#if license.deviceLimitReached}<div class="member-alert"><b>本机待激活</b>：已达到 {license.maxDevices} 台设备上限。请在此页面解绑一台旧设备；解绑成功后系统会自动绑定本机并恢复启动权限。</div>{/if}
         {#if commerceError}<div class="member-alert">{commerceError}</div>{/if}
+        <section class="benefit-comparison">
+          <div class="benefit-title"><div><b>会员权益对比</b><small>套餐价格按周期选择，核心权益按会员等级区分</small></div><span>后台实时配置</span></div>
+          <div class="benefit-grid">
+            <div class="benefit-corner">权益项目</div><div class="benefit-tier">普通会员</div><div class="benefit-tier premium">超级会员</div>
+            <div>同时在线设备</div><b>{standardReference?.maxDevices || 3} 台</b><b>{premiumReference?.maxDevices || 8} 台</b>
+            <div>代理协议</div><b>HTTP / HTTPS / SOCKS5</b><b>全部主流协议</b>
+            <div>应用分流规则</div><b>支持</b><b>支持</b>
+            <div>自定义线路</div><b class="muted-benefit">基础线路</b><b>支持</b>
+            <div>技术支持</div><b class="muted-benefit">标准支持</b><b>优先支持</b>
+          </div>
+        </section>
         <div class="member-plan-grid">
           {#each memberPlans as plan}
             <article class:premium={plan.tier === 'premium'}>
@@ -1297,7 +1334,7 @@
               <h2>{plan.name}</h2><p>{plan.description}</p>
               <strong><small>¥</small>{(plan.priceCents / 100).toFixed(2)}{#if plan.originalPriceCents && plan.originalPriceCents > plan.priceCents}<del>¥{(plan.originalPriceCents / 100).toFixed(2)}</del>{/if}</strong>
               <ul><li>{plan.lifetime ? '永久有效' : `${plan.durationDays || 0} 天有效`}</li><li>{plan.tier === 'premium' ? '全部主流协议与高级线路' : 'HTTP / HTTPS / SOCKS 与基础规则'}</li><li>服务端签名授权、设备自助解绑</li></ul>
-              <button class="primary" disabled={commerceBusy} on:click={() => buyPlan(plan)}>{commerceBusy ? '处理中…' : '支付宝立即开通'}</button>
+              <button class="primary" disabled={commerceBusy} on:click={() => buyPlan(plan)}>{commerceBusy ? '正在生成…' : '生成支付宝二维码'}</button>
             </article>
           {/each}
         </div>
@@ -1306,7 +1343,7 @@
           <section class="member-panel"><div class="panel-title"><b>充值记录</b><span>{memberOrders.length} 笔</span></div>{#each memberOrders.slice(0, 5) as order}<div class="member-row"><div><b>{order.planName}</b><small>{order.orderNo}</small></div><div><span class:paid={order.status === 'paid'}>{order.status === 'paid' ? '已支付' : order.status === 'pending' ? '待支付' : order.status}</span><b>¥{(order.amountCents / 100).toFixed(2)}</b></div></div>{:else}<p class="member-empty">暂无充值记录</p>{/each}</section>
         </div>
         {#if announcements.length}<section class="member-panel announcements"><div class="panel-title"><b>公告与更新</b><span>{announcements.length} 条</span></div>{#each announcements.slice(0, 4) as item}<div class="member-row"><div><b>{item.title}</b><small>{item.summary || item.content}</small></div><time>{new Date(item.publishedAt).toLocaleDateString()}</time></div>{/each}</section>{/if}
-        {#if activeOrder}<div class="payment-sheet"><div><span>支付宝订单 {activeOrder.orderNo}</span><h3>{activeOrder.planName} · ¥{(activeOrder.amountCents / 100).toFixed(2)}</h3><p>请使用支付宝完成付款；完成后点击刷新，会员将在几秒内自动到账。</p></div><div><button class="ghost" on:click={() => activeOrder?.payUrl && BrowserOpenURL(activeOrder.payUrl)}>重新打开支付宝</button><button class="primary" disabled={commerceBusy} on:click={refreshPayment}>我已支付，刷新状态</button></div></div>{/if}
+        {#if activeOrder}<div class="payment-sheet qr-payment">{#if paymentQR}<div class="payment-qr-box"><img src={paymentQR} alt="支付宝付款二维码" /><span>请使用支付宝扫码</span></div>{/if}<div class="payment-order-info"><span>支付宝订单 {activeOrder.orderNo}</span><h3>{activeOrder.planName} · ¥{(activeOrder.amountCents / 100).toFixed(2)}</h3><p>打开手机支付宝扫描二维码完成付款，支付成功后点击刷新到账状态。</p><small>订单有效期至 {new Date(activeOrder.expiresAt).toLocaleString()}</small></div><div class="payment-actions"><button class="ghost" on:click={() => activeOrder?.payUrl && BrowserOpenURL(activeOrder.payUrl)}>本机打开支付宝</button><button class="primary" disabled={commerceBusy} on:click={refreshPayment}>我已支付，刷新状态</button></div></div>{/if}
       </section>
     {/if}
   </main>
@@ -1365,9 +1402,9 @@
 
       <div class="tb-right top-metrics">
         {#if license.enabled}
-          <button class="account-chip" title="账户与授权" on:click={() => (tab = 'settings')}>
+          <button class="account-chip" title={`${membershipIdentity} · ${membershipRemaining}`} on:click={() => (tab = 'settings')}>
             <span>{license.username.slice(0, 1).toUpperCase()}</span>
-            <div><b>{license.username}</b><small>{license.plan || '已授权'}</small></div>
+            <div><b>{license.username}</b><small>{membershipIdentity} · {membershipRemaining}</small></div>
           </button>
         {/if}
         <div class="metric-mini"><small>下载</small><strong class="down">↓ {dn.v} {dn.u}</strong></div>
@@ -1907,6 +1944,17 @@
                 <div><span>授权到期</span><b>{license.expiresAt ? new Date(license.expiresAt).toLocaleString() : '以服务端为准'}</b></div>
                 <div><span>离线可用至</span><b>{license.offlineUntil ? new Date(license.offlineUntil).toLocaleString() : '需在线校验'}</b></div>
               </div>
+              <div class="settings-devices">
+                <div class="settings-devices-head"><div><b>设备管理</b><small>{accountDevices.length} / {license.maxDevices || '—'} 台，旧设备可在这里直接解绑</small></div><button class="mini" on:click={loadCommerce} disabled={commerceLoading}>{commerceLoading ? '刷新中…' : '刷新设备'}</button></div>
+                {#each accountDevices as device}
+                  <div class="settings-device-row">
+                    <div><b>{device.name}</b><small>{device.platform || 'Windows'} · v{device.appVersion || '未知'} · 最近在线 {new Date(device.lastSeenAt).toLocaleString()}</small></div>
+                    <div>{#if device.current}<span class="current-device-light">本机</span>{/if}<button class="mini danger" disabled={device.current} title={device.current ? '当前正在使用的本机不能解绑' : '解绑此旧设备'} on:click={() => unbindDevice(device.id)}>解绑</button></div>
+                  </div>
+                {:else}
+                  <div class="settings-device-empty">暂无已绑定设备，点击“刷新设备”重新读取服务端状态。</div>
+                {/each}
+              </div>
               <div class="account-actions">
                 <button class="primary" on:click={openMembership}>续费 / 升级套餐</button>
                 <button class="ghost" on:click={async () => { const err = await WRefreshEntitlement(); if (err) toast(err); await refreshLicense() }}>刷新授权</button>
@@ -2001,10 +2049,21 @@
         </section>
         {#if commerceError}<div class="member-alert">{commerceError}</div>{/if}
         {#if planLoadError}<div class="member-alert plan-load-alert"><span>{planLoadError}</span><button class="member-refresh" on:click={loadCommerce}>重新读取</button></div>{/if}
+        <section class="benefit-comparison compact">
+          <div class="benefit-title"><div><b>普通会员和超级会员怎么选</b><small>先比较权益，再选择月卡、季卡、年卡或活动买断</small></div><span>权益实时读取后台</span></div>
+          <div class="benefit-grid">
+            <div class="benefit-corner">权益项目</div><div class="benefit-tier">普通会员</div><div class="benefit-tier premium">超级会员</div>
+            <div>同时在线设备</div><b>{standardReference?.maxDevices || 3} 台</b><b>{premiumReference?.maxDevices || 8} 台</b>
+            <div>代理协议</div><b>HTTP / HTTPS / SOCKS5</b><b>全部主流协议</b>
+            <div>应用分流规则</div><b>支持</b><b>支持</b>
+            <div>自定义线路</div><b class="muted-benefit">基础线路</b><b>支持</b>
+            <div>技术支持</div><b class="muted-benefit">标准支持</b><b>优先支持</b>
+          </div>
+        </section>
         <div class="member-plan-grid compact">
           {#each memberPlans as plan (plan.id)}
             <article class:premium={plan.tier === 'premium'}>
-              <div class="member-plan-top"><span>{plan.badge || plan.name}</span><em>{plan.maxDevices} 台设备</em></div><h2>{plan.name}</h2><p>{plan.description || '套餐权益以后台最新配置为准。'}</p><strong><small>¥</small>{(plan.priceCents / 100).toFixed(2)}{#if plan.originalPriceCents && plan.originalPriceCents > plan.priceCents}<del>¥{(plan.originalPriceCents / 100).toFixed(2)}</del>{/if}</strong><ul><li>{plan.lifetime ? '永久有效' : `${plan.durationDays || 0} 天有效`}</li><li>最多同时使用 {plan.maxDevices} 台设备</li>{#each (plan.features || []).slice(0, 2) as feature}<li>{feature}</li>{/each}</ul><button class="primary" disabled={commerceBusy} on:click={() => buyPlan(plan)}>{commerceBusy ? '正在创建订单…' : '支付宝购买'}</button>
+              <div class="member-plan-top"><span>{plan.badge || plan.name}</span><em>{plan.maxDevices} 台设备</em></div><h2>{plan.name}</h2><p>{plan.description || '套餐权益以后台最新配置为准。'}</p><strong><small>¥</small>{(plan.priceCents / 100).toFixed(2)}{#if plan.originalPriceCents && plan.originalPriceCents > plan.priceCents}<del>¥{(plan.originalPriceCents / 100).toFixed(2)}</del>{/if}</strong><ul><li>{plan.lifetime ? '永久有效' : `${plan.durationDays || 0} 天有效`}</li><li>最多同时使用 {plan.maxDevices} 台设备</li>{#each (plan.features || []).slice(0, 3) as feature}<li>{featureLabel(feature)}</li>{/each}</ul><button class="primary" disabled={commerceBusy} on:click={() => buyPlan(plan)}>{commerceBusy ? '正在创建订单…' : '生成支付宝二维码'}</button>
             </article>
           {:else}
             <div class="member-plans-empty"><b>{commerceLoading ? '正在读取后台套餐…' : '暂无可购买套餐'}</b><span>{commerceLoading ? '请稍候，套餐列表会自动显示。' : '请点击“刷新套餐”重新读取后台配置。'}</span>{#if !commerceLoading}<button class="primary" on:click={loadCommerce}>刷新套餐</button>{/if}</div>
@@ -2015,7 +2074,7 @@
           <section class="member-panel"><div class="panel-title"><b>我的设备</b><span>{accountDevices.length}/{license.maxDevices || '—'} 台</span></div>{#each accountDevices as device}<div class="member-row"><div><b>{device.name}</b><small>{device.platform || 'Windows'} · {device.appVersion || '客户端版本未知'} · 最近在线 {new Date(device.lastSeenAt).toLocaleString()}</small></div><div>{#if device.current}<span class="current-device">本机</span>{/if}<button disabled={device.current} title={device.current ? '当前正在使用的本机不能解绑' : '解绑此旧设备'} on:click={() => unbindDevice(device.id)}>解绑</button></div></div>{:else}<p class="member-empty">暂无已绑定设备</p>{/each}</section>
           <section class="member-panel"><div class="panel-title"><b>最近订单</b><span>{memberOrders.length} 笔</span></div>{#each memberOrders.slice(0, 4) as order}<div class="member-row"><div><b>{order.planName}</b><small>{order.orderNo} · {new Date(order.createdAt).toLocaleString()}</small></div><div><span class:paid={order.status === 'paid'}>{order.status === 'paid' ? '已支付' : order.status === 'pending' ? '待支付' : order.status}</span><b>¥{(order.amountCents / 100).toFixed(2)}</b></div></div>{:else}<p class="member-empty">暂无订单；选择上方套餐即可创建支付宝订单。</p>{/each}</section>
         </div>
-        {#if activeOrder}<div class="payment-sheet"><div><span>支付宝 · {activeOrder.orderNo}</span><h3>{activeOrder.planName} · ¥{(activeOrder.amountCents / 100).toFixed(2)}</h3></div><div><button class="ghost" on:click={() => activeOrder?.payUrl && BrowserOpenURL(activeOrder.payUrl)}>打开支付宝</button><button class="primary" on:click={refreshPayment}>刷新到账状态</button></div></div>{/if}
+        {#if activeOrder}<div class="payment-sheet qr-payment">{#if paymentQR}<div class="payment-qr-box"><img src={paymentQR} alt="支付宝付款二维码" /><span>支付宝扫码支付</span></div>{/if}<div class="payment-order-info"><span>支付宝订单 · {activeOrder.orderNo}</span><h3>{activeOrder.planName} · ¥{(activeOrder.amountCents / 100).toFixed(2)}</h3><p>打开手机支付宝扫描左侧二维码，付款完成后刷新到账状态。</p><small>订单有效期至 {new Date(activeOrder.expiresAt).toLocaleString()}</small></div><div class="payment-actions"><button class="ghost" on:click={() => activeOrder?.payUrl && BrowserOpenURL(activeOrder.payUrl)}>本机打开支付宝</button><button class="primary" disabled={commerceBusy} on:click={refreshPayment}>我已支付，刷新到账</button></div></div>{/if}
       </section>
     </div>
   {/if}
@@ -2587,7 +2646,7 @@
   .license-submit { width: 100%; min-height: 44px; justify-content: center; }
   .license-error { padding: 9px 11px; border: 1px solid #fecaca; border-radius: 9px; background: #fef2f2; color: #b91c1c; font-size: 12.5px; line-height: 1.5; }
   .license-tip { margin: -3px 0 0; color: var(--muted-2); font-size: 11.5px; line-height: 1.6; text-align: center; }
-  .account-chip { display: flex; align-items: center; gap: 8px; max-width: 150px; padding: 5px 9px 5px 6px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); color: var(--ink); cursor: pointer; font-family: inherit; }
+  .account-chip { display: flex; align-items: center; gap: 8px; max-width: 230px; padding: 5px 10px 5px 6px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); color: var(--ink); cursor: pointer; font-family: inherit; }
   .account-chip > span { width: 28px; height: 28px; flex: none; display: grid; place-items: center; border-radius: 8px; background: var(--brand-tint); color: var(--brand-600); font-size: 12px; font-weight: 850; }
   .account-chip div { min-width: 0; display: grid; text-align: left; }
   .account-chip b, .account-chip small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -2597,6 +2656,16 @@
   .account-grid > div { min-width: 0; display: grid; gap: 4px; padding: 12px; border-radius: 10px; background: var(--soft); }
   .account-grid span { color: var(--muted-2); font-size: 11px; }
   .account-grid b { overflow: hidden; color: var(--ink-2); font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+  .settings-devices { margin-top: 14px; overflow: hidden; border: 1px solid var(--line); border-radius: 12px; }
+  .settings-devices-head,.settings-device-row { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 11px 13px; border-bottom: 1px solid var(--line); }
+  .settings-devices-head { background: var(--soft); }
+  .settings-devices-head>div,.settings-device-row>div:first-child { min-width: 0; display: grid; gap: 3px; }
+  .settings-devices-head b,.settings-device-row b { color: var(--ink-2); font-size: 12px; }
+  .settings-devices-head small,.settings-device-row small { overflow: hidden; color: var(--muted-2); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+  .settings-device-row:last-child { border-bottom: 0; }
+  .settings-device-row>div:last-child { display: flex; flex: none; align-items: center; gap: 8px; }
+  .current-device-light { padding: 4px 7px; border-radius: 999px; color: var(--ok-600); background: var(--ok-tint); font-size: 10px; font-weight: 700; }
+  .settings-device-empty { padding: 18px; color: var(--muted-2); font-size: 11px; text-align: center; }
   .account-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
 
   /* ---------- line manager ---------- */
@@ -2703,6 +2772,18 @@
   .member-hero p,.member-modal-head p { margin: 0; color: #9aacca; font-size: 13px; }
   .member-hero>.ghost { color: #dbe7ff; border-color: rgba(255,255,255,.18); background: rgba(255,255,255,.06); }
   .member-alert { margin: 0 0 16px; padding: 11px 13px; border: 1px solid rgba(248,113,113,.35); border-radius: 10px; color: #fecaca; background: rgba(127,29,29,.2); font-size: 12px; }
+  .benefit-comparison { margin: 0 0 18px; overflow: hidden; border: 1px solid rgba(143,182,255,.25); border-radius: 16px; background: rgba(255,255,255,.045); }
+  .benefit-title { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 14px 17px; border-bottom: 1px solid rgba(255,255,255,.09); }
+  .benefit-title>div { display: grid; gap: 3px; }.benefit-title b { font-size: 14px; }.benefit-title small,.benefit-title>span { color: #8fa0bd; font-size: 10px; }
+  .benefit-title>span { padding: 5px 8px; border-radius: 999px; background: rgba(96,165,250,.12); color: #93c5fd; }
+  .benefit-grid { display: grid; grid-template-columns: minmax(130px,1.1fr) repeat(2,minmax(150px,1fr)); }
+  .benefit-grid>* { min-width: 0; padding: 10px 14px; border-right: 1px solid rgba(255,255,255,.07); border-bottom: 1px solid rgba(255,255,255,.07); font-size: 11px; }
+  .benefit-grid>*:nth-child(3n) { border-right: 0; }.benefit-grid>*:nth-last-child(-n+3) { border-bottom: 0; }
+  .benefit-grid>div { color: #9aacca; }.benefit-grid>b { color: #dbeafe; text-align: center; }
+  .benefit-grid .benefit-tier { color: #dbeafe; background: rgba(255,255,255,.035); font-weight: 800; text-align: center; }
+  .benefit-grid .benefit-tier.premium { color: #93c5fd; background: rgba(37,99,235,.15); }
+  .benefit-grid .muted-benefit { color: #8392ac; font-weight: 600; }
+  .benefit-comparison.compact .benefit-grid>* { padding: 8px 12px; }
   .member-plan-grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(220px,1fr)); gap: 15px; }
   .member-plan-grid article { display: flex; flex-direction: column; min-height: 335px; padding: 21px; border: 1px solid rgba(255,255,255,.11); border-radius: 18px; background: rgba(255,255,255,.065); box-shadow: 0 18px 45px rgba(0,0,0,.14); backdrop-filter: blur(14px); }
   .member-plan-grid article.premium { border-color: rgba(96,165,250,.58); background: linear-gradient(155deg,rgba(37,99,235,.27),rgba(255,255,255,.07)); }
@@ -2731,11 +2812,18 @@
   .member-empty { padding: 20px; color: #8fa0bd; font-size: 11px; text-align: center; }
   .announcements { margin-top: 16px; }
   .announcements time { color: #8fa0bd; font-size: 10px; }
-  .payment-sheet { position: sticky; bottom: 18px; display: flex; justify-content: space-between; gap: 18px; align-items: center; margin-top: 16px; padding: 15px 17px; border: 1px solid rgba(96,165,250,.45); border-radius: 15px; background: rgba(9,20,43,.94); box-shadow: 0 18px 50px rgba(0,0,0,.32); backdrop-filter: blur(16px); }
+  .payment-sheet { position: sticky; bottom: 18px; display: flex; justify-content: space-between; gap: 18px; align-items: center; margin-top: 16px; padding: 15px 17px; border: 1px solid rgba(96,165,250,.45); border-radius: 15px; background: rgba(9,20,43,.96); box-shadow: 0 18px 50px rgba(0,0,0,.32); backdrop-filter: blur(16px); }
   .payment-sheet span { color: #8fa0bd; font-size: 10px; }
   .payment-sheet h3 { margin: 4px 0; font-size: 15px; }
   .payment-sheet p { margin: 0; color: #9aacca; font-size: 11px; }
   .payment-sheet>div:last-child { display: flex; gap: 9px; }
+  .qr-payment { justify-content: flex-start; }
+  .payment-qr-box { flex: none; display: grid; justify-items: center; gap: 5px; padding: 8px; border-radius: 12px; color: #dbeafe; background: #fff; }
+  .payment-qr-box img { width: 138px; height: 138px; object-fit: contain; }
+  .payment-qr-box span { color: #1e3a8a; font-size: 10px; font-weight: 800; }
+  .payment-order-info { min-width: 0; flex: 1; }
+  .payment-order-info small { display: block; margin-top: 7px; color: #71819e; font-size: 10px; }
+  .payment-actions { flex: none; display: grid!important; align-self: stretch; align-content: center; gap: 8px!important; }
   .member-modal-mask { z-index: 180; overflow: auto; padding: 28px; align-items: flex-start; }
   .member-modal { width: min(1120px,96vw); margin: auto; padding: 24px; border: 1px solid #243655; border-radius: 20px; color: #eaf1ff; background: linear-gradient(150deg,#0b1730,#111f3d); box-shadow: 0 30px 90px rgba(0,0,0,.45); }
   .member-modal-head { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 18px; }
@@ -2765,6 +2853,11 @@
     .member-modal { width: 100%; padding: 16px; }
     .member-account-summary { grid-template-columns: repeat(2,minmax(0,1fr)); }
     .member-lower { grid-template-columns: 1fr; }
+    .benefit-grid { grid-template-columns: minmax(95px,.8fr) repeat(2,minmax(105px,1fr)); }
+    .benefit-grid>* { padding: 8px; font-size: 9px; }
+    .qr-payment { position: static; flex-direction: column; align-items: stretch; }
+    .payment-qr-box { justify-self: center; }
+    .payment-actions { grid-template-columns: 1fr 1fr; }
   }
   .member-lower.compact { margin-top: 15px; }
 

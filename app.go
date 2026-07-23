@@ -618,6 +618,17 @@ func (a *App) CreateMembershipOrder(planID string) OrderResult {
 	return OrderResult{Order: order, Err: errStr(err)}
 }
 
+// GetPaymentQR locally encodes the payment provider URL as a scannable PNG.
+// The URL never leaves the client except when the user explicitly opens it.
+func (a *App) GetPaymentQR(payURL string) QRResult {
+	payURL = strings.TrimSpace(payURL)
+	if !strings.HasPrefix(payURL, "https://") && !strings.HasPrefix(payURL, "http://") && !strings.HasPrefix(payURL, "alipays://") {
+		return QRResult{Err: "支付链接格式无效"}
+	}
+	data, err := service.EncodeQRDataURI(payURL, 360)
+	return QRResult{Data: data, Err: errStr(err)}
+}
+
 func (a *App) GetAnnouncements() AnnouncementsResult {
 	items, err := a.lic.Announcements()
 	return AnnouncementsResult{Items: items, Err: errStr(err)}

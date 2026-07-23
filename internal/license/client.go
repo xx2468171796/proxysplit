@@ -594,7 +594,10 @@ func (c *Client) Status() Status {
 	if entitlementUntil.Before(offlineUntil) {
 		offlineUntil = entitlementUntil
 	}
-	status.ExpiresAt, status.OfflineUntil = expires.Format(time.RFC3339), offlineUntil.Format(time.RFC3339)
+	// ExpiresAt is the membership entitlement expiry shown to the user. The
+	// short lease expiry is an implementation detail and must not make a
+	// yearly membership look as if it only has one hour remaining.
+	status.ExpiresAt, status.OfflineUntil = entitlementUntil.Format(time.RFC3339), offlineUntil.Format(time.RFC3339)
 	status.Authenticated = time.Now().Before(offlineUntil)
 	if !status.Authenticated {
 		status.Error = "授权已过期，请联网重新登录"

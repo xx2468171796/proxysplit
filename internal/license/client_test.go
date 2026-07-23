@@ -41,12 +41,16 @@ func testClient(t *testing.T) (*Client, ed25519.PrivateKey) {
 func TestLeaseVerificationAndOfflineGrace(t *testing.T) {
 	c, private := testClient(t)
 	exp := time.Now().Add(-time.Hour).Unix()
+	entitlementExp := time.Now().Add(2 * time.Hour).Unix()
 	fp := sha256.Sum256([]byte("proxysplit-device-v1:" + c.fingerprint))
 	c.state.DeviceID = "device"
-	c.state.Lease = signedLease(t, private, map[string]any{"sub": "user", "did": "device", "fph": hex.EncodeToString(fp[:]), "plan": "Professional", "features": []string{"proxy"}, "minVersion": "1.8.0", "exp": exp, "entitlementExp": time.Now().Add(2 * time.Hour).Unix(), "grace": 6})
+	c.state.Lease = signedLease(t, private, map[string]any{"sub": "user", "did": "device", "fph": hex.EncodeToString(fp[:]), "plan": "Professional", "features": []string{"proxy"}, "minVersion": "1.8.0", "exp": exp, "entitlementExp": entitlementExp, "grace": 6})
 	status := c.Status()
 	if !status.Authenticated || status.Plan != "Professional" {
 		t.Fatalf("valid offline lease rejected: %+v", status)
+	}
+	if got, want := status.ExpiresAt, time.Unix(entitlementExp, 0).Format(time.RFC3339); got != want {
+		t.Fatalf("membership expiry mismatch: got %q want %q", got, want)
 	}
 	c.state.Lease = signedLease(t, private, map[string]any{"sub": "user", "did": "device", "fph": hex.EncodeToString(fp[:]), "minVersion": "2.0.0", "exp": time.Now().Add(time.Hour).Unix(), "entitlementExp": time.Now().Add(2 * time.Hour).Unix(), "grace": 6})
 	if _, err := c.verifyLease(c.state.Lease); err == nil {

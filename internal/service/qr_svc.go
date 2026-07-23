@@ -28,7 +28,19 @@ func (s *Service) GetNodeQR(id string) (string, error) {
 		return "", fmt.Errorf("该节点无法生成分享链接")
 	}
 
-	png, err := qrcode.Encode(link, qrcode.Medium, 320)
+	return EncodeQRDataURI(link, 320)
+}
+
+// EncodeQRDataURI creates a local PNG QR code without sending its payload to
+// any third-party QR service. It is shared by node export and Alipay checkout.
+func EncodeQRDataURI(value string, size int) (string, error) {
+	if value == "" {
+		return "", fmt.Errorf("二维码内容为空")
+	}
+	if size < 160 || size > 1024 {
+		size = 320
+	}
+	png, err := qrcode.Encode(value, qrcode.Medium, size)
 	if err != nil {
 		return "", err
 	}

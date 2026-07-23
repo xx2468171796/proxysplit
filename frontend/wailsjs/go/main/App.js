@@ -38,6 +38,10 @@ export function GetAnnouncements() {
   return window['go']['main']['App']['GetAnnouncements']();
 }
 
+export function GetPaymentQR(arg1) {
+  return window['go']['main']['App']['GetPaymentQR'](arg1);
+}
+
 export function GetAppIcon(arg1) {
   return window['go']['main']['App']['GetAppIcon'](arg1);
 }
