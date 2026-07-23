@@ -3,7 +3,7 @@ import cors from '@fastify/cors'
 import rateLimit from '@fastify/rate-limit'
 import { Redis } from 'ioredis'
 import { AppError } from '@proxysplit/shared'
-import { announcementUpsertSchema, leaseSchema, licenseExtendSchema, loginSchema, orderCreateSchema, planPatchSchema, planUpsertSchema, providerUpsertSchema, refreshSchema, registerSchema, releaseCreateSchema, settingPatchSchema, userCreateSchema, userStatusSchema } from '@proxysplit/contracts'
+import { activateDeviceSchema, announcementUpsertSchema, leaseSchema, licenseExtendSchema, loginSchema, orderCreateSchema, planPatchSchema, planUpsertSchema, providerUpsertSchema, refreshSchema, registerSchema, releaseCreateSchema, settingPatchSchema, userCreateSchema, userStatusSchema } from '@proxysplit/contracts'
 import { createCommercialCore, hashPassword, PaymentService, type AuthService, type PgStore } from '@proxysplit/core'
 import type { ApiConfig } from './config.js'
 
@@ -25,6 +25,7 @@ export async function buildApp(config:ApiConfig,provided?:Core){
   app.post('/v1/auth/register',{config:{rateLimit:{max:3,timeWindow:'1 hour'}}},async(req)=>core.auth.register(registerSchema.parse(req.body),req.ip))
   app.post('/v1/auth/login',{config:{rateLimit:{max:5,timeWindow:'1 minute'}}},async(req)=>core.auth.login(loginSchema.parse(req.body),req.ip))
   app.post('/v1/auth/refresh',{config:{rateLimit:{max:10,timeWindow:'1 minute'}}},async(req)=>core.auth.rotate(refreshSchema.parse(req.body),req.ip))
+  app.post('/v1/me/device/activate',{config:{rateLimit:{max:10,timeWindow:'1 minute'}}},async(req)=>{const p=await auth(req);if(p.deviceId!=='pending')throw new AppError('DEVICE_ALREADY_ACTIVE','当前设备已激活',409);return core.auth.activateDevice(p.userId,activateDeviceSchema.parse(req.body).device,req.ip)})
   app.post('/v1/auth/logout',async(req)=>core.auth.logout(refreshSchema.parse(req.body),req.ip))
   app.post('/v1/license/lease',async(req)=>{const p=await auth(req);const input=leaseSchema.parse(req.body);return core.auth.lease(p.userId,p.deviceId,input.deviceFingerprint,input.appVersion)})
   const payments=new PaymentService(core.store,config.PUBLIC_BASE_URL.replace(/\/$/,''))

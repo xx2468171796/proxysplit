@@ -68,6 +68,7 @@
     GetMembershipPlans as WGetMembershipPlans,
     GetMyDevices as WGetMyDevices,
     UnbindMyDevice as WUnbindMyDevice,
+    ActivateCurrentDevice as WActivateCurrentDevice,
     GetMyOrders as WGetMyOrders,
     CreateMembershipOrder as WCreateMembershipOrder,
     GetAnnouncements as WGetAnnouncements,
@@ -136,7 +137,7 @@
   type RouteRule = { type: string; value: string; action: string }
   type RuleImportPreview = { schemaVersion: number; ruleCount: number; lineAdded: number; lineSkipped: number; customRules: number; summary: string; error?: string }
   type Routing = { enabled: boolean; mode: string; rules: RouteRule[] }
-  type LicenseStatus = { enabled: boolean; signedIn: boolean; authenticated: boolean; username: string; plan: string; planCode: string; tier: string; maxDevices: number; features: string[]; expiresAt: string; offlineUntil: string; error?: string }
+  type LicenseStatus = { enabled: boolean; signedIn: boolean; authenticated: boolean; deviceLimitReached: boolean; username: string; plan: string; planCode: string; tier: string; maxDevices: number; features: string[]; expiresAt: string; offlineUntil: string; error?: string }
   type MemberPlan = { id: string; code: string; name: string; description: string; tier: string; billingCycle: string; durationDays?: number; lifetime: boolean; priceCents: number; originalPriceCents?: number; currency: string; maxDevices: number; features: string[]; badge: string; saleEndsAt?: string }
   type AccountDevice = { id: string; name: string; platform: string; appVersion: string; firstSeenAt: string; lastSeenAt: string; current: boolean }
   type MemberOrder = { orderNo: string; planName: string; amountCents: number; currency: string; status: string; payUrl: string; paidAt: string; expiresAt: string; createdAt: string }
@@ -206,7 +207,7 @@
   let logs: string[] = []
   let recent: LogItem[] = []
   let status: Status | null = null
-  let license: LicenseStatus = { enabled: false, signedIn: false, authenticated: true, username: '', plan: '', planCode: '', tier: '', maxDevices: 0, features: [], expiresAt: '', offlineUntil: '' }
+  let license: LicenseStatus = { enabled: false, signedIn: false, authenticated: true, deviceLimitReached: false, username: '', plan: '', planCode: '', tier: '', maxDevices: 0, features: [], expiresAt: '', offlineUntil: '' }
   let loginForm = { username: '', password: '' }
   let authMode: 'login' | 'register' = 'login'
   let loginBusy = false
@@ -498,6 +499,14 @@
     if (!confirm('确认解绑这台设备并立即撤销会话？')) return
     const err = await WUnbindMyDevice(id)
     if (err) { commerceError = err; return }
+    if (license.deviceLimitReached) {
+      commerceBusy = true
+      const activateErr = await WActivateCurrentDevice()
+      commerceBusy = false
+      if (activateErr) { commerceError = '旧设备已解绑，但本机激活失败：' + activateErr; await loadCommerce(); return }
+      commerceError = ''
+      toast('旧设备已解绑，本机已自动激活，可以启动代理')
+    }
     await refreshLicense(); await loadCommerce()
   }
   async function logoutAccount() {
@@ -1216,7 +1225,8 @@
       </form>
     {:else}
       <section class="member-center">
-        <header class="member-hero"><div><span class="member-eyebrow">MEMBERSHIP CENTER</span><h1>选择适合你的会员套餐</h1><p>你好，{license.username}。当前账号暂无有效会员，完成支付后将在几秒内自动到账。</p></div><button class="ghost" on:click={logoutAccount}>退出账号</button></header>
+        <header class="member-hero"><div><span class="member-eyebrow">MEMBERSHIP CENTER</span><h1>{license.deviceLimitReached ? '设备名额已满，请先解绑旧设备' : '选择适合你的会员套餐'}</h1><p>{license.deviceLimitReached ? '本机已安全登录，但尚未激活，代理无法启动。解绑下方任意一台旧设备后，本机会自动激活。' : `你好，${license.username}。当前账号暂无有效会员，完成支付后将在几秒内自动到账。`}</p></div><button class="ghost" on:click={logoutAccount}>退出账号</button></header>
+        {#if license.deviceLimitReached}<div class="member-alert"><b>本机待激活</b>：已达到 {license.maxDevices} 台设备上限。请在此页面解绑一台旧设备；解绑成功后系统会自动绑定本机并恢复启动权限。</div>{/if}
         {#if commerceError}<div class="member-alert">{commerceError}</div>{/if}
         <div class="member-plan-grid">
           {#each memberPlans as plan}
@@ -1230,7 +1240,7 @@
           {/each}
         </div>
         <div class="member-lower">
-          <section class="member-panel"><div class="panel-title"><b>已绑定设备</b><span>{accountDevices.length} 台</span></div>{#each accountDevices as device}<div class="member-row"><div><b>{device.name}</b><small>{device.appVersion} · 最近在线 {new Date(device.lastSeenAt).toLocaleString()}</small></div><div>{#if device.current}<span class="current-device">当前设备</span>{/if}<button on:click={() => unbindDevice(device.id)}>解绑</button></div></div>{:else}<p class="member-empty">暂无设备</p>{/each}</section>
+          <section class="member-panel"><div class="panel-title"><b>已绑定设备</b><span>{accountDevices.length} / {license.maxDevices || '—'} 台</span></div>{#each accountDevices as device}<div class="member-row"><div><b>{device.name}</b><small>{device.appVersion} · 最近在线 {new Date(device.lastSeenAt).toLocaleString()}</small></div><div>{#if device.current}<span class="current-device">当前设备</span>{/if}<button disabled={device.current} title={device.current ? '请勿解绑当前正在使用的设备' : '解绑此旧设备'} on:click={() => unbindDevice(device.id)}>解绑</button></div></div>{:else}<p class="member-empty">暂无设备</p>{/each}</section>
           <section class="member-panel"><div class="panel-title"><b>充值记录</b><span>{memberOrders.length} 笔</span></div>{#each memberOrders.slice(0, 5) as order}<div class="member-row"><div><b>{order.planName}</b><small>{order.orderNo}</small></div><div><span class:paid={order.status === 'paid'}>{order.status === 'paid' ? '已支付' : order.status === 'pending' ? '待支付' : order.status}</span><b>¥{(order.amountCents / 100).toFixed(2)}</b></div></div>{:else}<p class="member-empty">暂无充值记录</p>{/each}</section>
         </div>
         {#if announcements.length}<section class="member-panel announcements"><div class="panel-title"><b>公告与更新</b><span>{announcements.length} 条</span></div>{#each announcements.slice(0, 4) as item}<div class="member-row"><div><b>{item.title}</b><small>{item.summary || item.content}</small></div><time>{new Date(item.publishedAt).toLocaleDateString()}</time></div>{/each}</section>{/if}

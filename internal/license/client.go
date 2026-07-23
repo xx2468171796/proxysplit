@@ -31,18 +31,19 @@ var PublicKeyBase64 string
 var TLSSPKISHA256 string
 
 type Status struct {
-	Enabled       bool     `json:"enabled"`
-	SignedIn      bool     `json:"signedIn"`
-	Authenticated bool     `json:"authenticated"`
-	Username      string   `json:"username"`
-	Plan          string   `json:"plan"`
-	PlanCode      string   `json:"planCode"`
-	Tier          string   `json:"tier"`
-	MaxDevices    int      `json:"maxDevices"`
-	Features      []string `json:"features"`
-	ExpiresAt     string   `json:"expiresAt"`
-	OfflineUntil  string   `json:"offlineUntil"`
-	Error         string   `json:"error,omitempty"`
+	Enabled            bool     `json:"enabled"`
+	SignedIn           bool     `json:"signedIn"`
+	Authenticated      bool     `json:"authenticated"`
+	Username           string   `json:"username"`
+	Plan               string   `json:"plan"`
+	PlanCode           string   `json:"planCode"`
+	Tier               string   `json:"tier"`
+	MaxDevices         int      `json:"maxDevices"`
+	Features           []string `json:"features"`
+	ExpiresAt          string   `json:"expiresAt"`
+	OfflineUntil       string   `json:"offlineUntil"`
+	DeviceLimitReached bool     `json:"deviceLimitReached"`
+	Error              string   `json:"error,omitempty"`
 }
 
 type Plan struct {
@@ -97,16 +98,17 @@ type Announcement struct {
 }
 
 type state struct {
-	Username     string   `json:"username"`
-	RefreshToken string   `json:"refreshToken"`
-	AccessToken  string   `json:"accessToken"`
-	Lease        string   `json:"lease"`
-	DeviceID     string   `json:"deviceId"`
-	Plan         string   `json:"plan"`
-	PlanCode     string   `json:"planCode"`
-	Tier         string   `json:"tier"`
-	MaxDevices   int      `json:"maxDevices"`
-	Features     []string `json:"features"`
+	Username      string   `json:"username"`
+	RefreshToken  string   `json:"refreshToken"`
+	AccessToken   string   `json:"accessToken"`
+	Lease         string   `json:"lease"`
+	DeviceID      string   `json:"deviceId"`
+	Plan          string   `json:"plan"`
+	PlanCode      string   `json:"planCode"`
+	Tier          string   `json:"tier"`
+	MaxDevices    int      `json:"maxDevices"`
+	Features      []string `json:"features"`
+	PendingDevice bool     `json:"pendingDevice"`
 }
 
 type leaseClaims struct {
@@ -289,10 +291,11 @@ func (c *Client) request(ctx context.Context, method, path string, input any, ou
 }
 
 type authResult struct {
-	AccessToken  string `json:"accessToken"`
-	RefreshToken string `json:"refreshToken"`
-	DeviceID     string `json:"deviceId"`
-	License      *struct {
+	AccessToken        string `json:"accessToken"`
+	RefreshToken       string `json:"refreshToken"`
+	DeviceID           string `json:"deviceId"`
+	DeviceLimitReached bool   `json:"deviceLimitReached"`
+	License            *struct {
 		Plan       string   `json:"plan"`
 		PlanCode   string   `json:"planCode"`
 		Tier       string   `json:"tier"`
@@ -314,12 +317,14 @@ func (c *Client) authenticate(path, username, password string) error {
 	if err != nil {
 		return err
 	}
-	c.state = state{Username: strings.TrimSpace(username), AccessToken: result.AccessToken, RefreshToken: result.RefreshToken, DeviceID: result.DeviceID}
+	c.state = state{Username: strings.TrimSpace(username), AccessToken: result.AccessToken, RefreshToken: result.RefreshToken, DeviceID: result.DeviceID, PendingDevice: result.DeviceLimitReached}
 	if result.License != nil {
 		c.state.Plan, c.state.PlanCode, c.state.Tier, c.state.MaxDevices, c.state.Features = result.License.Plan, result.License.PlanCode, result.License.Tier, result.License.MaxDevices, result.License.Features
-		if err := c.acquireLeaseLocked(ctx); err != nil {
-			c.state = state{}
-			return err
+		if !result.DeviceLimitReached {
+			if err := c.acquireLeaseLocked(ctx); err != nil {
+				c.state = state{}
+				return err
+			}
 		}
 	}
 	return c.saveLocked()
@@ -404,6 +409,32 @@ func (c *Client) UnbindDevice(id string) error {
 		_ = os.Remove(c.path)
 	}
 	return nil
+}
+
+// ActivateCurrentDevice converts the short-lived "名额已满" login into a real
+// device binding after the user removes an old device. Until this succeeds no
+// lease is held, therefore Service.Start remains blocked.
+func (c *Client) ActivateCurrentDevice() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if !c.state.PendingDevice || c.state.AccessToken == "" {
+		return errors.New("当前设备无需激活或请重新登录")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	var result authResult
+	err := c.request(ctx, http.MethodPost, "/v1/me/device/activate", map[string]any{"device": map[string]any{"fingerprint": c.fingerprint, "hardwareHash": c.hardwareHash, "name": c.deviceName, "platform": "windows", "appVersion": normalizedVersion(c.version)}}, &result, c.state.AccessToken)
+	if err != nil {
+		return err
+	}
+	c.state.AccessToken, c.state.RefreshToken, c.state.DeviceID, c.state.PendingDevice = result.AccessToken, result.RefreshToken, result.DeviceID, false
+	if result.License != nil {
+		c.state.Plan, c.state.PlanCode, c.state.Tier, c.state.MaxDevices, c.state.Features = result.License.Plan, result.License.PlanCode, result.License.Tier, result.License.MaxDevices, result.License.Features
+	}
+	if err := c.acquireLeaseLocked(ctx); err != nil {
+		return err
+	}
+	return c.saveLocked()
 }
 
 func (c *Client) Orders() ([]Order, error) {
@@ -526,14 +557,16 @@ func compareVersion(a, b string) int {
 func (c *Client) Status() Status {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	status := Status{Enabled: c.Enabled(), SignedIn: c.state.RefreshToken != "", Username: c.state.Username, Plan: c.state.Plan, PlanCode: c.state.PlanCode, Tier: c.state.Tier, MaxDevices: c.state.MaxDevices, Features: append([]string{}, c.state.Features...)}
+	status := Status{Enabled: c.Enabled(), SignedIn: c.state.AccessToken != "", Username: c.state.Username, Plan: c.state.Plan, PlanCode: c.state.PlanCode, Tier: c.state.Tier, MaxDevices: c.state.MaxDevices, Features: append([]string{}, c.state.Features...), DeviceLimitReached: c.state.PendingDevice}
 	if !status.Enabled {
 		status.Authenticated = true
 		return status
 	}
 	claims, err := c.verifyLease(c.state.Lease)
 	if err != nil {
-		if status.SignedIn && c.state.Lease == "" {
+		if status.DeviceLimitReached {
+			status.Error = "本机尚未激活：设备数量已达上限，请解绑一台旧设备"
+		} else if status.SignedIn && c.state.Lease == "" {
 			status.Error = "当前账号暂无有效会员，请选择套餐开通"
 		} else {
 			status.Error = err.Error()

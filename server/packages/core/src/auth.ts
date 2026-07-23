@@ -2,7 +2,7 @@ import { createHash, createPublicKey, randomUUID } from 'node:crypto'
 import { argon2id, hash, verify } from 'argon2'
 import { exportSPKI, generateKeyPair, importPKCS8, jwtVerify, SignJWT } from 'jose'
 import { AppError, normalizeUsername } from '@proxysplit/shared'
-import type { DeviceInput, LoginInput, RefreshInput, RegisterInput } from '@proxysplit/contracts'
+import type { ActivateDeviceInput, DeviceInput, LoginInput, RefreshInput, RegisterInput } from '@proxysplit/contracts'
 import type { PgStore, UserRecord } from './store.js'
 
 const encoder=new TextEncoder()
@@ -31,6 +31,10 @@ export class AuthService{
     await this.store.createSession({userId:user.id,deviceId,familyId,jti,tokenHash:sha256(refreshToken),expiresAt})
     return {accessToken:await this.access(user,deviceId),refreshToken,expiresIn:900,deviceId,user:{id:user.id,username:user.username,role:user.role}}
   }
+  private license(ent:Awaited<ReturnType<PgStore['entitlement']>>|null,user:UserRecord){
+    const value=ent??(user.role==='admin'?{licenseId:'admin',planId:'admin',planCode:'admin',planName:'Administrator',tier:'premium' as const,maxDevices:10,features:['admin'],expiresAt:new Date('2999-12-31'),lifetime:true,status:'active'}:null)
+    return value?{plan:value.planName,planCode:value.planCode,tier:value.tier,expiresAt:value.expiresAt,features:value.features,maxDevices:value.maxDevices,lifetime:value.lifetime}:null
+  }
   async register(input:RegisterInput,ip=''){
     const passwordHash=await hashPassword(input.password)
     try{
@@ -54,11 +58,30 @@ export class AuthService{
     if(!user||!valid){await this.store.audit(null,'auth.login','user','unknown',ip,'denied');throw new AppError('AUTH_INVALID','Invalid username or password',401)}
     if(user.status!=='active')throw new AppError('ACCOUNT_UNAVAILABLE','Account is unavailable',403)
     const entitlement=await this.store.entitlement(user.id)
-    const ent=entitlement??(user.role==='admin'?{licenseId:'admin',planId:'admin',planCode:'admin',planName:'Administrator',tier:'premium' as const,maxDevices:10,features:['admin'],expiresAt:new Date('2999-12-31'),lifetime:true,status:'active'}:null)
+    const license=this.license(entitlement,user)
     const settings=await this.store.getCommerceSettings()
-    let device;try{device=await this.store.bindDevice(user.id,hashFingerprint(input.device.fingerprint),hashFingerprint(input.device.hardwareHash??input.device.fingerprint),input.device.name,input.device.platform,input.device.appVersion,ent?.maxDevices??settings.defaultDeviceLimit)}catch(e){if((e as Error).message==='DEVICE_LIMIT')throw new AppError('DEVICE_LIMIT','设备数量已达到当前套餐上限，请先解绑旧设备或升级套餐',403);throw e}
+    let device;try{device=await this.store.bindDevice(user.id,hashFingerprint(input.device.fingerprint),hashFingerprint(input.device.hardwareHash??input.device.fingerprint),input.device.name,input.device.platform,input.device.appVersion,license?.maxDevices??settings.defaultDeviceLimit)}catch(e){
+      if((e as Error).message==='DEVICE_LIMIT'){
+        // 不签发租约和刷新令牌：此令牌仅能在 15 分钟内查看/解绑本账号设备，不能启动代理。
+        await this.store.audit(user.id,'auth.login.device_limit','device','pending',ip,'success')
+        return {accessToken:await this.access(user,'pending'),refreshToken:'',expiresIn:900,deviceId:'',deviceLimitReached:true,license}
+      }
+      throw e
+    }
     await this.store.audit(user.id,'auth.login','device',device.id,ip,'success')
-    return {...await this.issue(user,device.id),license:ent?{plan:ent.planName,planCode:ent.planCode,tier:ent.tier,expiresAt:ent.expiresAt,features:ent.features,maxDevices:ent.maxDevices,lifetime:ent.lifetime}:null}
+    return {...await this.issue(user,device.id),license}
+  }
+  async activateDevice(userId:string,device:ActivateDeviceInput['device'],ip=''){
+    const user=await this.store.findUserById(userId);if(!user||user.status!=='active')throw new AppError('ACCOUNT_UNAVAILABLE','Account is unavailable',403)
+    const entitlement=await this.store.entitlement(userId),license=this.license(entitlement,user),settings=await this.store.getCommerceSettings()
+    try{
+      const bound=await this.store.bindDevice(userId,hashFingerprint(device.fingerprint),hashFingerprint(device.hardwareHash??device.fingerprint),device.name,device.platform,device.appVersion,license?.maxDevices??settings.defaultDeviceLimit)
+      await this.store.audit(userId,'auth.device.activate','device',bound.id,ip,'success')
+      return {...await this.issue(user,bound.id),license}
+    }catch(error){
+      if((error as Error).message==='DEVICE_LIMIT')throw new AppError('DEVICE_LIMIT','设备名额仍已满，请先解绑一台旧设备',409)
+      throw error
+    }
   }
   async rotate(input:RefreshInput,ip=''){
     let payload;try{({payload}=await jwtVerify(input.refreshToken,encoder.encode(this.cfg.accessSecret),{algorithms:['HS256']}))}catch{throw new AppError('REFRESH_INVALID','Session expired; sign in again',401)}

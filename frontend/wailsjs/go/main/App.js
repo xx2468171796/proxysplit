@@ -294,6 +294,10 @@ export function UnbindMyDevice(arg1) {
   return window['go']['main']['App']['UnbindMyDevice'](arg1);
 }
 
+export function ActivateCurrentDevice() {
+  return window['go']['main']['App']['ActivateCurrentDevice']();
+}
+
 export function UpdateCore() {
   return window['go']['main']['App']['UpdateCore']();
 }

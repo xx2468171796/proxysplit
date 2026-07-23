@@ -15,6 +15,8 @@ export const registerSchema = z.object({
   device: deviceSchema,
 })
 export const refreshSchema = z.object({ refreshToken: z.string().min(40), deviceFingerprint: z.string().min(32).max(128) })
+// 已登录但设备名额满时，允许仅使用短期访问令牌在新电脑上腾出一个名额。
+export const activateDeviceSchema = z.object({ device: deviceSchema })
 export const leaseSchema = z.object({ deviceFingerprint: z.string().min(32).max(128), appVersion: z.string().min(5).max(40) })
 export const userCreateSchema = z.object({ username: z.string().trim().min(3).max(64), password: z.string().min(10).max(256), role: z.enum(['user','admin']).default('user'), planId: z.string().uuid().optional(), days: z.number().int().min(1).max(3650).default(30) })
 export const userStatusSchema = z.object({ status: z.enum(['active','suspended','banned']) })
@@ -88,6 +90,7 @@ export type LoginInput = z.infer<typeof loginSchema>
 export type RegisterInput = z.infer<typeof registerSchema>
 export type DeviceInput = z.infer<typeof deviceSchema>
 export type RefreshInput = z.infer<typeof refreshSchema>
+export type ActivateDeviceInput = z.infer<typeof activateDeviceSchema>
 export type LeaseInput = z.infer<typeof leaseSchema>
 export type PlanUpsertInput = z.infer<typeof planUpsertSchema>
 export type PlanPatchInput = z.infer<typeof planPatchSchema>

@@ -604,6 +604,10 @@ func (a *App) UnbindMyDevice(id string) string {
 	return ""
 }
 
+func (a *App) ActivateCurrentDevice() string {
+	return errStr(a.lic.ActivateCurrentDevice())
+}
+
 func (a *App) GetMyOrders() OrdersResult {
 	items, err := a.lic.Orders()
 	return OrdersResult{Items: items, Err: errStr(err)}

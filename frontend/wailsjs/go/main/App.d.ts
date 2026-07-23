@@ -152,7 +152,8 @@ export function TestApp(arg1:string):Promise<number>;
 
 export function TestLatency(arg1:string):Promise<number>;
 
-export function UnbindMyDevice(arg1:string):Promise<string>;
+  export function UnbindMyDevice(arg1:string):Promise<string>;
+  export function ActivateCurrentDevice():Promise<string>;
 
 export function UpdateCore():Promise<string>;
 

@@ -178,6 +178,7 @@ export namespace license {
 	    features: string[];
 	    expiresAt: string;
 	    offlineUntil: string;
+	    deviceLimitReached: boolean;
 	    error?: string;
 	
 	    static createFrom(source: any = {}) {
@@ -197,6 +198,7 @@ export namespace license {
 	        this.features = source["features"];
 	        this.expiresAt = source["expiresAt"];
 	        this.offlineUntil = source["offlineUntil"];
+	        this.deviceLimitReached = source["deviceLimitReached"];
 	        this.error = source["error"];
 	    }
 	}
@@ -957,4 +959,3 @@ export namespace updater {
 	}
 
 }
-
