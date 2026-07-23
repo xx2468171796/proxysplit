@@ -42,3 +42,29 @@ pnpm dev
 - API 放在 TLS 反向代理后，Redis 用于多实例限流，PostgreSQL/Redis 开启备份与访问控制。
 - 发布记录的 SHA256 与 signature 必须来自独立发布签名流程，后台不会替操作者伪造签名。
 - 客户端节点、订阅和代理密码不上传到本服务。
+
+## 深圳生产部署
+
+生产编排位于 `docker-compose.prod.yml`，部署目录固定为
+`/opt/proxysplit/current`，机密文件放在 `/opt/proxysplit/secrets`：
+
+```text
+/opt/proxysplit/secrets/runtime.env
+/opt/proxysplit/secrets/license-private.pem
+/opt/proxysplit/secrets/license-public.pem
+```
+
+`runtime.env` 至少包含 `NODE_ENV`、`DATABASE_URL`、`REDIS_URL`、
+`POSTGRES_PASSWORD`、`REDIS_PASSWORD`、`ACCESS_TOKEN_SECRET` 与
+`ADMIN_ORIGIN`。首次启动可临时加入 `BOOTSTRAP_ADMIN_USERNAME/PASSWORD`，
+管理员创建成功后必须删除这两项并重建 API 容器。
+
+```bash
+cd /opt/proxysplit/current
+docker compose -f docker-compose.prod.yml --profile tools run --rm migrate
+docker compose -f docker-compose.prod.yml up -d api
+```
+
+宿主机 Nginx 使用 `deploy/proxysplit.nginx.conf`，对外统一入口为
+`https://proxysplit.zygskins.cn`；管理台与 API 同源，`/v1/*` 和
+`/health` 反向代理到仅监听 `127.0.0.1:18780` 的 API 容器。

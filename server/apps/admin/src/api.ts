@@ -1,4 +1,6 @@
-const BASE=import.meta.env.VITE_API_URL||'http://127.0.0.1:18780'
+// Production serves the admin SPA and API from the same HTTPS origin.  Local
+// development still injects VITE_API_URL from server/.env.
+const BASE=import.meta.env.VITE_API_URL??''
 let token=sessionStorage.getItem('ps-admin-token')||''
 export const setToken=(v:string)=>{token=v;v?sessionStorage.setItem('ps-admin-token',v):sessionStorage.removeItem('ps-admin-token')}
 export const hasToken=()=>!!token
