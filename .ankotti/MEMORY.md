@@ -9,3 +9,4 @@
 - 验证截图：`output/v1.7.2-e2e-node-after-clean-restart.png`、`output/v1.7.2-e2e-app-after-clean-restart.png`。
 - 自动验证：`go test ./...`；`npm run check` 为 0 errors（15 个既有无障碍/CSS warnings、3 hints）；Wails production build `Devtools=false`。
 - 发布脚本：`scripts/build.ps1 -Version x.y.z`，会注入窗口/API 版本号并同时生成带版本号产物及 `proxysplit.exe` 便捷副本。
+- UI 重排原型待用户确认：`docs/prototypes/ProxySplit-UI-Prototype-v2.html`，便捷预览副本为 `output/ProxySplit-UI-Prototype-v2.html`。原型含概览、节点、应用分流、分流规则、订阅、日志、设置 7 个可点击页面；用户确认前不要改正式前端。
