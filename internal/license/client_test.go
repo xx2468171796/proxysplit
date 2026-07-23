@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"encoding/pem"
 	"testing"
 	"time"
 )
@@ -60,6 +61,26 @@ func TestLeaseTamperRejected(t *testing.T) {
 	parts[len(parts)-1] ^= 1
 	if _, err := c.verifyLease(string(parts)); err == nil {
 		t.Fatal("tampered lease signature accepted")
+	}
+}
+
+func TestPublicKeyParserAcceptsDERAndPEM(t *testing.T) {
+	public, _, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	der, err := x509.MarshalPKIXPublicKey(public)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pemBytes := pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: der})
+	for name, raw := range map[string][]byte{"der": der, "pem": pemBytes} {
+		t.Run(name, func(t *testing.T) {
+			got := parsePublicKey(base64.StdEncoding.EncodeToString(raw))
+			if !got.Equal(public) {
+				t.Fatalf("%s public key was not parsed", name)
+			}
+		})
 	}
 }
 

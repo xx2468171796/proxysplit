@@ -10,6 +10,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"io"
@@ -191,6 +192,11 @@ func parsePublicKey(encoded string) ed25519.PublicKey {
 	der, err := base64.StdEncoding.DecodeString(strings.TrimSpace(encoded))
 	if err != nil || len(der) == 0 {
 		return nil
+	}
+	// Release tooling may inject either base64(DER) or base64(PEM). Accept both
+	// so a correctly provisioned production key cannot silently become nil.
+	if block, _ := pem.Decode(der); block != nil {
+		der = block.Bytes
 	}
 	parsed, err := x509.ParsePKIXPublicKey(der)
 	if err != nil {
