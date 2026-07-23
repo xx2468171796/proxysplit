@@ -151,20 +151,9 @@
   }
 
   // --- demo data (matches the design mockup 1:1, shown in browser preview) ---
-  const demoNodes: Node[] = [
-    { id: 'jp', name: 'JP | Tokyo - 01', type: 'vless', server: 'jp01.example.net', port: 443, latency: 48, speed: 12.45, region: 'jp' },
-    { id: 'us', name: 'US | Los Angeles - 02', type: 'vless', server: 'us02.example.net', port: 443, latency: 126, speed: 8.73, region: 'us' },
-    { id: 'sg', name: 'SG | Singapore - 01', type: 'trojan', server: 'sg01.example.net', port: 443, latency: 60, speed: 9.12, region: 'sg' },
-    { id: 'hk', name: 'HK | Hong Kong - 01', type: 'vless', server: 'hk01.example.net', port: 443, latency: 72, speed: 7.45, region: 'hk' },
-    { id: 'de', name: 'DE | Frankfurt - 01', type: 'vmess', server: 'de01.example.net', port: 443, latency: 162, speed: 6.21, region: 'de' },
-  ]
-  const demoRules: AppRule[] = [
-    { match: 'Code.exe', path: 'C:\\Program Files\\Microsoft VS Code\\Code.exe', line: 'rule', enabled: true },
-    { match: 'chrome.exe', path: 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe', line: 'rule', enabled: true },
-    { match: 'Telegram.exe', path: 'C:\\Users\\%USERNAME%\\AppData\\Roaming\\Telegram Desktop\\Telegram.exe', line: 'global', enabled: true },
-    { match: 'msedge.exe', path: 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe', line: 'direct', enabled: false },
-    { match: 'Steam.exe', path: 'C:\\Program Files (x86)\\Steam\\steam.exe', line: 'us', enabled: true },
-  ]
+  // 正式端未就绪时保持空态，绝不把样例节点当作真实代理展示。
+  const demoNodes: Node[] = []
+  const demoRules: AppRule[] = []
   const demoLines: Line[] = [
     { id: 'direct', name: '直连', node: 'direct', routing: { mode: 'global', rules: [] }, builtin: true },
     { id: 'global', name: '全局', node: 'active', routing: { mode: 'global', rules: [] }, builtin: true },
@@ -182,9 +171,9 @@
     { time: '12:34:48', level: 'INFO', msg: '代理服务已停止' },
   ]
   const demoStatus: Status = {
-    coreRunning: true, engineRunning: true, corePort: 10808,
-    nodeName: 'JP | Tokyo - 01', selectedId: 'jp', ruleMode: 'blacklist', uptimeSec: 12 * 60 + 34,
-    stats: { activeConns: 24, totalConns: 1826, tracked: 5, upBytes: 0, downBytes: 0 },
+    coreRunning: false, engineRunning: false, corePort: 10808,
+    nodeName: '', selectedId: '', ruleMode: 'whitelist', uptimeSec: 0,
+    stats: { activeConns: 0, totalConns: 0, tracked: 0, upBytes: 0, downBytes: 0 },
   }
   const demoSubs: Sub[] = [
     { id: 'a', name: '机场订阅 A', url: 'https://sub.example.com/a', autoUpdate: true, lastUpdate: '2 小时前', nodeCount: 36 },
