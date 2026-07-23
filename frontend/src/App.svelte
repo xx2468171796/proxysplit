@@ -398,6 +398,10 @@
     }
     if (s) { prevDown = s.downBytes; prevUp = s.upBytes; prevT = now }
   }
+  async function refreshAll() {
+    await Promise.all([refreshStatus(), refreshHealth(), refreshNodes(), refreshRules(), refreshLines(), refreshSubs()])
+  }
+  function nodeName(id: string): string { return nodes.find((n) => n.id === id)?.name || id }
   async function refreshLicense() {
     if (!isWailsReady()) return
     license = await safe<LicenseStatus>(() => WGetLicenseStatus(), license)
@@ -794,22 +798,8 @@
     : health.warning ? { t: '分流异常', c: 'bad' }
     : health.capturing ? { t: '分流运行中', c: 'ok' }
     : { t: '等待流量…', c: 'wait' }
-  function lhLat(l: LineHealth): string {
-    if (l.node === '直连' || l.node === '拦截') return l.node
-    if (l.latency < 0) return '不通'
-    if (l.latency === 0) return '—'
-    return l.latency + ' ms'
-  }
-
   // --- overview derived state (reactive so it updates when nodes/status/mode change) ---
   $: activeNodeObj = nodes.find((n) => n.id === status?.selectedId)
-  $: clashHintText =
-    clashMode === 'global' ? '全局：所有被接管的流量都走活动节点。'
-    : clashMode === 'direct' ? '直连：所有流量直连，相当于暂停代理（不断线）。'
-    : '规则：按你的应用/线路规则智能分流（大陆直连、境外走代理）。'
-  $: statusText = `${settings.tunMode ? '整机全局' : '应用分流'} · 策略「${
-    clashMode === 'global' ? '全局' : clashMode === 'direct' ? '直连' : '规则'
-  }」· 节点 ${activeNodeObj?.name || '未选'}`
   async function submitSub() {
     const n = subName.trim(), u = subUrl.trim()
     if (!n || !u) return
@@ -1082,8 +1072,8 @@
     <div class="nav-label">MAIN</div>
     <nav class="side-nav">
       <button class:active={tab === 'overview'} on:click={() => (tab = 'overview')}><i>{@html I.dash}</i><span>概览</span></button>
-      <button class:active={tab === 'nodes'} on:click={() => (tab = 'nodes')}><i>{@html I.nodes}</i><span>节点</span></button>
-      <button class:active={tab === 'apps'} on:click={() => { tab = 'apps'; refreshRunning() }}><i>{@html I.apps}</i><span>应用分流</span></button>
+      <button class:active={tab === 'nodes'} on:click={() => (tab = 'nodes')}><i>{@html I.nodes}</i><span>节点</span>{#if nodes.length}<em class="nav-count">{nodes.length}</em>{/if}</button>
+      <button class:active={tab === 'apps'} on:click={() => { tab = 'apps'; refreshRunning() }}><i>{@html I.apps}</i><span>应用分流</span>{#if ruleCount}<em class="nav-count">{ruleCount}</em>{/if}</button>
       <button class:active={tab === 'rules'} on:click={() => { tab = 'rules'; refreshRuleSets(); refreshCustomRules() }}><i>{@html I.shield}</i><span>分流规则</span></button>
       <button class:active={tab === 'subs'} on:click={() => (tab = 'subs')}><i>{@html I.subs}</i><span>订阅</span></button>
       <button class:active={tab === 'logs'} on:click={() => (tab = 'logs')}><i>{@html I.logs}</i><span>日志</span></button>
@@ -1124,20 +1114,16 @@
         </div>
       </div>
 
-      <div class="tb-right">
+      <div class="tb-right top-metrics">
         {#if license.enabled}
           <button class="account-chip" title="账户与授权" on:click={() => (tab = 'settings')}>
             <span>{license.username.slice(0, 1).toUpperCase()}</span>
             <div><b>{license.username}</b><small>{license.plan || '已授权'}</small></div>
           </button>
         {/if}
-        <div class="metric"><span class="mi down">{@html I.down}</span><b>{dn.v}</b> {dn.u}</div>
-        <div class="metric"><span class="mi up">{@html I.up}</span><b>{up.v}</b> {up.u}</div>
-        <div class="metric col"><span class="mi">{@html I.users}</span><div><small>活动连接</small><b>{activeConns}</b></div></div>
-        <div class="conn" class:on={running}>
-          <span class="mi">{@html I.wifi}</span>
-          <div><small>{running ? '已连接' : '未连接'}</small><b>{uptime}</b></div>
-        </div>
+        <div class="metric-mini"><small>下载</small><strong class="down">↓ {dn.v} {dn.u}</strong></div>
+        <div class="metric-mini"><small>上传</small><strong class="up">↑ {up.v} {up.u}</strong></div>
+        <div class="metric-mini"><small>连接 / 状态</small><strong>{activeConns} · {running ? uptime : '未连接'}</strong></div>
         <button class="power-btn" class:running on:click={toggleRun} disabled={busy}>
           {@html running ? I.stop : I.power}<span>{busy ? '…' : running ? '停止' : '启动'}</span>
         </button>
@@ -1155,107 +1141,68 @@
     <div class="scroll">
       <div class="wrap">
       {#if tab === 'overview'}
-        <div class="ov">
-          {#if !useDemo && nodes.length === 0}
-            <section class="card firstrun">
-              <div class="fr-head"><h2>三步开始使用</h2><p>配置会自动保存在本地，下次打开直接用，不用重设。</p></div>
-              <div class="fr-steps">
-                <div class="fr-step"><span class="fr-n">1</span><div class="fr-txt"><strong>添加节点</strong><small>粘贴机场链接，或手动填 SOCKS5 / HTTP</small></div><button class="btn pri" on:click={() => (tab = 'nodes')}>去添加</button></div>
-                <div class="fr-step"><span class="fr-n">2</span><div class="fr-txt"><strong>选择应用</strong><small>指定哪些程序走代理（默认智能分流：境外走代理、大陆直连）</small></div><button class="btn" on:click={() => (tab = 'apps')}>去选择</button></div>
-                <div class="fr-step"><span class="fr-n">3</span><div class="fr-txt"><strong>启动</strong><small>点右上角「启动」，之后就按应用自动分流</small></div></div>
-              </div>
-            </section>
-          {/if}
-          <section class="card ov-hero" class:live={running}>
-            <div class="ov-hero-main">
-              <div class="ov-status">
-                <span class="ov-dot" class:on={running}></span>
-                <div><h2>{running ? '正在运行' : '已停止'}</h2><p>{running ? statusText : '点「启动」开始代理'}</p></div>
-              </div>
-              <div class="ov-ctrl">
-                {#if running}
-                  <button class="restart-btn" on:click={restartCore} disabled={busy} title="停止并重新启动内核">{@html I.refresh}<span>重启</span></button>
-                {/if}
-                <button class="power-btn lg" class:running on:click={toggleRun} disabled={busy}>
-                  {@html running ? I.stop : I.power}<span>{busy ? '…' : running ? '停止' : '启动'}</span>
-                </button>
-              </div>
-            </div>
-            <div class="ov-stats">
-              <div class="ov-stat"><small>下行</small><b>{dn.v}</b><em>{dn.u}</em></div>
-              <div class="ov-stat"><small>上行</small><b>{up.v}</b><em>{up.u}</em></div>
-              <div class="ov-stat"><small>活动连接</small><b>{activeConns}</b></div>
-              <div class="ov-stat"><small>运行时长</small><b>{uptime}</b></div>
-            </div>
-          </section>
+        <div class="page-head">
+          <div><h1>概览</h1><p>核心状态、分流链路与常用操作集中在一个页面。</p></div>
+          <div class="head-actions">{#if running}<button class="btn" on:click={restartCore} disabled={busy}>⟳ 重启核心</button>{/if}<button class="btn" on:click={refreshAll}>刷新状态</button><button class="btn primary" on:click={toggleRun} disabled={busy}>{running ? '停止服务' : '启动服务'}</button></div>
+        </div>
 
-          <div class="ov-grid">
-            <section class="card">
-              <div class="card-head sm"><div><h3>代理范围</h3><p class="sub">哪些流量被代理接管</p></div></div>
-              <div class="mode-choice">
-                <button class="mc" class:on={!settings.tunMode} on:click={() => setCaptureMode(false)} disabled={switchingMode}>
-                  <strong>只代理指定应用</strong><small>只有你在「应用分流」里选的程序走代理,其余直连。招牌能力。</small>
-                </button>
-                <button class="mc" class:on={settings.tunMode} on:click={() => setCaptureMode(true)} disabled={switchingMode}>
-                  <strong>整机全局</strong><small>整台电脑都走代理(像 v2rayN),不用加应用。老程序、游戏也覆盖。</small>
-                </button>
-              </div>
-              {#if settings.tunMode}
-                <div class="glob-seg">
-                  <button class:on={clashMode === 'rule'} on:click={() => setClash('rule')}><b>全局规则</b><em>大陆直连、境外走节点(默认)</em></button>
-                  <button class:on={clashMode === 'global'} on:click={() => setClash('global')}><b>全局代理</b><em>含大陆,全部走节点</em></button>
-                </div>
-              {/if}
-              {#if switchingMode}<p class="mode-hint">切换中，正在重启内核…</p>{/if}
-            </section>
+        <div class="grid kpis">
+          <section class="card kpi"><span class="kpi-icon">{@html I.wifi}</span><div><div class="kpi-label">核心状态</div><div class="kpi-value">{running ? '运行中' : '已停止'}</div></div></section>
+          <section class="card kpi"><span class="kpi-icon green">{@html I.server}</span><div><div class="kpi-label">活动节点</div><div class="kpi-value ellipsis">{activeNodeObj?.name || '未选择'} {#if activeNodeObj?.latency}<small>{activeNodeObj.latency} ms</small>{/if}</div></div></section>
+          <section class="card kpi"><span class="kpi-icon orange">{@html I.apps}</span><div><div class="kpi-label">应用规则</div><div class="kpi-value">{ruleCount}<small>{proxyCount} 条代理</small></div></div></section>
+          <section class="card kpi"><span class="kpi-icon">{@html I.users}</span><div><div class="kpi-label">活动连接</div><div class="kpi-value">{activeConns}<small>{running ? uptime : '未运行'}</small></div></div></section>
+        </div>
 
+        <div class="grid main-grid">
+          <div class="grid">
             <section class="card">
-              <div class="card-head sm"><div><h3>代理策略</h3><p class="sub">接管后流量往哪走,随时切、不重启</p></div></div>
-              <div class="mode-seg lg full">
-                <button class:on={clashMode === 'rule'} on:click={() => setClash('rule')}>规则</button>
-                <button class:on={clashMode === 'global'} on:click={() => setClash('global')}>全局</button>
-                <button class:on={clashMode === 'direct'} on:click={() => setClash('direct')}>直连</button>
-              </div>
-              <p class="mode-hint">{clashHintText}</p>
-            </section>
-
-            <section class="card">
-              <div class="card-head sm"><div><h3>活动节点</h3></div><button class="link" on:click={() => (tab = 'nodes')}>管理节点 {@html I.chevron}</button></div>
-              <div class="ov-node">
-                <span class="flag {activeNodeObj?.region || 'x'}"></span>
-                <div class="grow"><strong>{activeNodeObj?.name || '未选择节点'}</strong><small>{activeNodeObj ? activeNodeObj.server + ':' + activeNodeObj.port : '去「节点」页添加并选择一个'}</small></div>
-                {#if activeNodeObj?.latency}<span class="lat" data-q={qual(activeNodeObj?.latency)}>{activeNodeObj?.latency} ms</span>{/if}
+              <div class="card-head"><div><div class="card-title">分流链路</div><div class="card-sub">从应用到目标节点的实时路径</div></div><span class="status-pill" class:gray={!running}>{capB.t}</span></div>
+              <div class="route-flow">
+                <div class="flow-step" class:active={running}><span class="flow-node">{@html I.monitor}</span><b>应用程序</b><small>{ruleCount} 条规则</small></div>
+                <div class="flow-step" class:active={running}><span class="flow-node">{@html I.shield}</span><b>分流规则</b><small>{ruleMode === 'whitelist' ? '仅列出的' : '默认代理'}</small></div>
+                <div class="flow-step" class:active={running}><span class="flow-node">{@html I.box}</span><b>代理核心</b><small>sing-box {coreVersion || '1.13.14'}</small></div>
+                <div class="flow-step good" class:active={running}><span class="flow-node">{@html I.server}</span><b>活动节点</b><small>{activeNodeObj?.name || '未选择'}</small></div>
               </div>
             </section>
 
             <section class="card">
-              <div class="card-head sm"><div><h3>系统代理 <span class="opt-tag">可选</span></h3><p class="sub">给「不被应用分流抓到、但认系统代理」的老程序补充用</p></div>
-                <label class="switch"><input type="checkbox" checked={sysProxy} on:change={toggleSysProxy} /><i></i></label></div>
-              <p class="mode-hint">{sysProxy ? '已开启：系统 HTTP 代理指向本机' : '一般不用开 —— 点上面「启动」就已按应用分流。只有个别老程序抓不到时才需要它。'}</p>
+              <div class="card-head"><div><div class="card-title">应用流量</div><div class="card-sub">最近使用与分流状态</div></div><button class="btn sm" on:click={() => (tab = 'apps')}>管理应用</button></div>
+              <div class="table-wrap"><table class="table"><thead><tr><th style="width:42%">应用</th><th>策略</th><th>节点</th><th>状态</th></tr></thead><tbody>
+                {#each rules.slice(0, 4) as r}
+                  <tr><td><div class="entity"><span class="entity-icon app">{firstChar(ruleName(r)).toUpperCase()}</span><div class="entity-text"><b>{ruleName(r)}</b><small>{r.path}</small></div></div></td><td><span class="tag">{r.line === 'direct' ? '直连' : r.line === 'block' ? '拦截' : r.line === 'global' ? '全局' : '规则'}</span></td><td>{r.node ? nodeName(r.node) : '活动节点'}</td><td><span class="status-pill" class:gray={!r.enabled}>{r.enabled ? '已启用' : '已停用'}</span></td></tr>
+                {/each}
+                {#if rules.length === 0}<tr><td colspan="4"><div class="empty sm">暂无应用规则</div></td></tr>{/if}
+              </tbody></table></div>
             </section>
           </div>
 
-          <section class="card">
-            <div class="card-head sm">
-              <div><h3>实时状态 · 线路检测</h3><p class="sub">内核按进程分流 · 各节点连通性（每 10 秒刷新）</p></div>
-              <span class="cap-badge {capB.c}">{capB.t}{#if health.capturing && health.capturedPkts} · {health.capturedPkts} 包{/if}</span>
-            </div>
-            <div class="lh-list">
-              <div class="lh-head"><span></span><span>线路</span><span>出口节点</span><span class="r">延迟</span></div>
-              {#each (health.lines || []) as l}
-                <div class="lh-row">
-                  <span class="lh-dot" class:ok={l.ok && l.latency !== -1} class:bad={l.latency === -1}></span>
-                  <span class="lh-name">{l.name}</span>
-                  <span class="lh-node">{l.node}</span>
-                  <span class="lh-lat r" data-q={qual(l.latency > 0 ? l.latency : undefined)} class:err={l.latency === -1}>{lhLat(l)}</span>
-                </div>
+          <div class="grid">
+            <section class="card"><div class="card-head"><div><div class="card-title">快速操作</div><div class="card-sub">常用功能一步到达</div></div></div><div class="card-body quick-grid">
+              <button class="quick" on:click={() => (tab = 'nodes')}><b>＋ 添加节点</b><small>链接导入或手动添加</small></button>
+              <button class="quick" on:click={() => { tab = 'apps'; openPicker() }}><b>＋ 添加应用</b><small>选择进程或程序文件</small></button>
+              <button class="quick" on:click={testAllLatency}><b>⟳ 全部测速</b><small>检测节点连接延迟</small></button>
+              <button class="quick" on:click={() => (tab = 'logs')}><b>✓ 网络诊断</b><small>检查核心与运行日志</small></button>
+            </div></section>
+            <section class="card"><div class="card-head"><div><div class="card-title">节点健康</div><div class="card-sub">最近一次检测结果</div></div><button class="btn sm" on:click={() => (tab = 'nodes')}>全部节点</button></div><div class="card-body health-list">
+              {#each nodes.slice(0, 4) as n}
+                <button class="health-item" on:click={() => selectNode(n.id)}><div class="health-info"><b>{n.name}</b><small>{n.id === status?.selectedId ? '活动节点' : n.type.toUpperCase()}</small><div class="health-bar"><i style={`width:${n.latency ? Math.max(12, 100 - Math.min(n.latency, 500) / 5) : 8}%`}></i></div></div><span class="latency">{n.latency ?? '—'} ms</span></button>
               {/each}
-              {#if !health.lines || health.lines.length === 0}<div class="empty sm">暂无线路数据</div>{/if}
-            </div>
-          </section>
+              {#if nodes.length === 0}<div class="empty sm">还没有节点</div>{/if}
+            </div></section>
+          </div>
         </div>
       {:else if tab === 'apps'}
-        <div class="cols">
+        <div class="page-head">
+          <div><h1>应用分流</h1><p>规则统计、模式说明和应用列表集中在一个视图内。</p></div>
+          <div class="head-actions"><button class="btn" on:click={importRules}>导入</button><button class="btn" on:click={exportRules}>导出</button><button class="btn primary" on:click={openPicker}>＋ 添加应用</button></div>
+        </div>
+        <div class="summary-strip">
+          <div class="summary-cell"><span>分流模式</span><div class="summary-mode"><button class:active={ruleMode === 'whitelist'} on:click={() => setRuleMode('whitelist')}>只代理列出的</button><button class:active={ruleMode === 'blacklist'} on:click={() => setRuleMode('blacklist')}>默认全代理</button></div></div>
+          <div class="summary-cell"><span>应用规则</span><b>{ruleCount} 条</b></div>
+          <div class="summary-cell"><span>已启用</span><b class="good">{rules.filter((r) => r.enabled).length} 条</b></div>
+          <div class="summary-cell"><span>默认出口</span><b>{activeNodeObj?.name || '活动节点'}</b></div>
+        </div>
+        <div class="cols apps-v2">
           <div class="col-main">
             <section class="card hero">
               <div class="hero-icon">{@html I.apps}</div>
@@ -1414,6 +1361,127 @@
           </aside>
         </div>
 
+      {:else if tab === 'nodes'}
+        <div class="page-head">
+          <div><h1>节点管理</h1><p>导入区域和节点列表左右分栏，减少空白并提升操作效率。</p></div>
+          <div class="head-actions"><button class="btn" on:click={testAllLatency}>⟳ 测延迟</button><button class="btn" on:click={runSpeedTest} disabled={speedTesting}>{speedTesting ? '测速中…' : '测速'}</button><button class="btn primary" on:click={() => (tab = 'subs')}>＋ 添加订阅</button></div>
+        </div>
+        <section class="node-manager-v2">
+          <div class="card node-import-card">
+          <div class="card-head">
+            <div><h3>添加节点</h3><p class="sub">链接导入或手动填写代理信息</p></div>
+            <div class="actions">
+              {#if speedMsg}<span class="speed-msg" class:err={speedMsg.indexOf('失败') === 0}>{speedMsg}</span>{/if}
+              <button class="ghost-btn" on:click={() => (showManual = !showManual)}>{@html I.plus} 手动添加</button>
+            </div>
+          </div>
+          <div class="node-import-body"><div class="tabs"><button class:active={!showManual} on:click={() => (showManual = false)}>链接导入</button><button class:active={showManual} on:click={() => (showManual = true)}>手动添加</button></div>
+          {#if !showManual}<div class="field-label">分享链接</div><textarea class="textarea" bind:value={linkText} placeholder="每行粘贴一个链接&#10;vless://  vmess://  trojan://&#10;ss://  socks://  http://"></textarea><div class="hint">支持一次导入多个节点，重复节点会自动跳过。</div><div class="form-actions"><button class="btn primary grow" on:click={addNodes}>解析并添加</button><button class="btn" on:click={() => (linkText = '')}>清空</button></div>{/if}
+          {#if addMsg}<div class="toast">{addMsg}</div>{/if}
+          {#if showManual}
+            <div class="manual-form">
+              <div class="mf-head">手动添加代理（SOCKS5 / HTTP 常用「地址+端口+账号密码」，没有分享链接时用这里）</div>
+              <div class="mf-row">
+                <select bind:value={manual.type}>
+                  <option value="socks">SOCKS5</option>
+                  <option value="http">HTTP</option>
+                </select>
+                <input bind:value={manual.name} placeholder="名称（可选）" />
+                <input class="grow" bind:value={manual.server} placeholder="地址 / 域名" />
+                <input class="mf-port" type="number" bind:value={manual.port} placeholder="端口" />
+              </div>
+              <div class="mf-row">
+                <input bind:value={manual.username} placeholder="用户名（可选）" />
+                <input bind:value={manual.password} placeholder="密码（可选）" />
+                <button class="primary" on:click={submitManual}>添加</button>
+                <button class="ghost-btn" on:click={() => { showManual = false; manualMsg = '' }}>取消</button>
+              </div>
+              {#if manualMsg}<div class="toast err">{manualMsg}</div>{/if}
+            </div>
+          {/if}
+          </div></div>
+          <div class="card node-list-card"><div class="card-head"><div><h3>节点列表 <span class="status-pill gray">{nodes.length} 个</span></h3><p class="sub">活动节点会优先用于规则与全局代理</p></div><div class="searchbar"><span>⌕</span><input bind:value={query} placeholder="搜索节点名称、地址或类型" /></div></div>
+          <div class="tscroll">
+            <div class="ntable">
+              <div class="nhead"><span>节点</span><span>延迟</span><span>速度</span><span class="ctr">操作</span></div>
+              {#each nodes.filter((n) => !query || `${n.name}${n.server}${n.type}`.toLowerCase().includes(query.toLowerCase())) as n}
+                <div class="nrow" class:sel={n.id === status?.selectedId} on:dblclick={() => selectNode(n.id)}>
+                  <div class="ncell">
+                    <span class="badge">{n.type}</span>
+                    <div class="nmeta"><strong>{n.name}</strong><small class="muted">{n.server}:{n.port}</small></div>
+                  </div>
+                  <span class="lat" data-q={qual(n.latency)}>{n.latency ?? '—'} ms</span>
+                  <span class="nspd">{n.speed?.toFixed(2) ?? '—'} MB/s</span>
+                  <div class="row-actions ctr"><button class="mini" on:click={() => selectNode(n.id)}>设为活动</button><button class="icon-btn" on:click={() => showQR(n)} title="分享二维码">{@html I.qr}</button><button class="icon-btn danger" on:click={() => removeNode(n.id)} title="删除节点">{@html I.trash}</button></div>
+                </div>
+              {/each}
+              {#if nodes.length === 0}<div class="empty">还没有节点。粘贴分享链接点「从链接添加」，或点「手动添加」填 SOCKS5 / HTTP 代理。</div>{/if}
+            </div>
+          </div>
+          <div class="node-list-foot"><span class="hint">提示：点击“设为活动”即可切换当前节点</span></div></div>
+        </section>
+
+      {:else if tab === 'rules'}
+        <div class="page-head">
+          <div><h1>分流规则</h1><p>预置规则库、自定义规则与自定义线路分区展示。</p></div>
+          <div class="head-actions"><button class="btn" on:click={updateRuleSets}>检查更新</button><button class="btn primary" on:click={newLine}>＋ 新建线路</button></div>
+        </div>
+        <section class="card page rules-library-v2">
+          <div class="card-head">
+            <div><h3>分流规则库</h3><p class="sub">决定「哪些网站/IP 走代理、哪些直连」的地区规则(geosite / geoip)。「代理策略」选「规则」时,靠这套库判断大陆直连、境外走代理。</p></div>
+            <div class="actions">
+              <button class="primary" on:click={updateRuleSets} disabled={ruleSetMsg === '更新中…'}>{@html I.refresh} {ruleSetMsg === '更新中…' ? '更新中…' : '手动更新规则库'}</button>
+              {#if ruleSetMsg && ruleSetMsg !== '更新中…'}<span class="rs-msg" class:err={ruleSetMsg.indexOf('失败') === 0}>{ruleSetMsg}</span>{/if}
+            </div>
+          </div>
+          <div class="rs-list">
+            <div class="rs-head"><span></span><span>规则库</span><span>状态</span><span class="r">大小 / 更新日期</span></div>
+            {#each ruleSets as rs}
+              <div class="rs-row" class:disabled={!rs.enabled}>
+                <span class="lh-dot" class:ok={rs.present} class:bad={!rs.present}></span>
+                <div class="rs-meta"><strong>{rs.display}</strong><small>{rs.desc}</small></div>
+                <label class="switch" title={rs.enabled ? '点击停用' : '点击启用'}><input type="checkbox" checked={rs.enabled} on:change={() => toggleRuleSet(rs)} /><i></i></label>
+                <div class="rs-info r">{#if rs.present}<b>{rs.sizeKB} KB</b><small>更新于 {rs.modified}</small>{:else}<span class="rs-miss">缺失</span>{/if}</div>
+              </div>
+            {/each}
+            {#if ruleSets.length === 0}<div class="empty sm">暂无规则库信息</div>{/if}
+          </div>
+          <div class="setting"><span>添加节点后自动更新规则库<small class="setting-hint">勾上后:每次加完节点自动更新一次。需代理运行中(规则库源在墙外,走节点下载)。默认关,手动更新更可控。</small></span><label class="switch"><input type="checkbox" bind:checked={settings.autoUpdateRules} on:change={saveSettings} /><i></i></label></div>
+          <p class="rs-note">📦 规则库来自 sing-box 官方(SagerNet),已内置最新版。更新走<b>当前节点</b>下载(直连被墙),所以更新前请先「启动」并连上节点。</p>
+        </section>
+
+        <section class="card page custom-rules-v2">
+          <div class="card-head">
+            <div><h3>自定义规则</h3><p class="sub">你自己填的规则,<b>优先级最高</b>,盖过上面的国内外分流。「代理策略」为「规则」时生效。</p></div>
+            <div class="actions">
+              <button class="ghost-btn" on:click={addCustomRule}>{@html I.plus} 加一条</button>
+              <button class="primary" on:click={saveCustomRules} disabled={custRuleMsg === '应用中…'}>{custRuleMsg === '应用中…' ? '应用中…' : '保存并应用'}</button>
+              {#if custRuleMsg && custRuleMsg !== '应用中…'}<span class="rs-msg">{custRuleMsg}</span>{/if}
+            </div>
+          </div>
+          <div class="cr-list">
+            {#if customRules.length > 0}<div class="cr-head"><span>匹配方式</span><span>内容</span><span>动作</span><span></span></div>{/if}
+            {#each customRules as r, i}
+              <div class="cr-row">
+                <select bind:value={r.type}>
+                  <option value="suffix">域名后缀</option>
+                  <option value="domain">完整域名</option>
+                  <option value="keyword">关键字</option>
+                  <option value="ip">IP 段(CIDR)</option>
+                </select>
+                <input bind:value={r.value} placeholder={r.type === 'ip' ? '如 1.1.1.1/32、10.0.0.0/8' : r.type === 'keyword' ? '如 google' : '如 github.com'} />
+                <select bind:value={r.action}>
+                  <option value="proxy">走代理</option>
+                  <option value="direct">直连</option>
+                  <option value="block">拦截</option>
+                </select>
+                <button class="icon-btn danger" on:click={() => removeCustomRule(i)} title="删除">{@html I.trash}</button>
+              </div>
+            {/each}
+            {#if customRules.length === 0}<div class="empty sm">还没有自定义规则。点「加一条」添加 —— 比如「github.com → 走代理」、「某国内网站 → 直连」、「广告域名 → 拦截」。填完点「保存并应用」。</div>{/if}
+          </div>
+        </section>
+
         <section class="card route-card">
           <div class="route-top">
             <div class="route-title">
@@ -1497,120 +1565,12 @@
           {/if}
         </section>
 
-      {:else if tab === 'nodes'}
-        <section class="card">
-          <div class="card-head">
-            <div><h3>节点</h3><p class="sub">导入、选择活动节点、测延迟与速度</p></div>
-            <div class="actions">
-              <button class="ghost-btn" on:click={testAllLatency}>{@html I.refresh} 测延迟</button>
-              <button class="ghost-btn" on:click={runSpeedTest} disabled={speedTesting}>{@html I.gauge} {speedTesting ? '测速中…' : '测速'}</button>
-              {#if speedMsg}<span class="speed-msg" class:err={speedMsg.indexOf('失败') === 0}>{speedMsg}</span>{/if}
-              <button class="ghost-btn" on:click={() => (showManual = !showManual)}>{@html I.plus} 手动添加</button>
-              <button class="primary" on:click={addNodes}>{@html I.plus} 从链接添加</button>
-            </div>
-          </div>
-          <textarea bind:value={linkText} placeholder="粘贴分享链接，每行一个：vless:// vmess:// trojan:// ss:// socks:// http:// hysteria2:// tuic://"></textarea>
-          {#if addMsg}<div class="toast">{addMsg}</div>{/if}
-          {#if showManual}
-            <div class="manual-form">
-              <div class="mf-head">手动添加代理（SOCKS5 / HTTP 常用「地址+端口+账号密码」，没有分享链接时用这里）</div>
-              <div class="mf-row">
-                <select bind:value={manual.type}>
-                  <option value="socks">SOCKS5</option>
-                  <option value="http">HTTP</option>
-                </select>
-                <input bind:value={manual.name} placeholder="名称（可选）" />
-                <input class="grow" bind:value={manual.server} placeholder="地址 / 域名" />
-                <input class="mf-port" type="number" bind:value={manual.port} placeholder="端口" />
-              </div>
-              <div class="mf-row">
-                <input bind:value={manual.username} placeholder="用户名（可选）" />
-                <input bind:value={manual.password} placeholder="密码（可选）" />
-                <button class="primary" on:click={submitManual}>添加</button>
-                <button class="ghost-btn" on:click={() => { showManual = false; manualMsg = '' }}>取消</button>
-              </div>
-              {#if manualMsg}<div class="toast err">{manualMsg}</div>{/if}
-            </div>
-          {/if}
-          <div class="toolbar"><input bind:value={query} placeholder="过滤别名 / 地址 / 类型" /></div>
-          <div class="tscroll">
-            <div class="ntable">
-              <div class="nhead"><span>节点</span><span>延迟</span><span>速度</span><span class="ctr">操作</span></div>
-              {#each nodes.filter((n) => !query || `${n.name}${n.server}${n.type}`.toLowerCase().includes(query.toLowerCase())) as n}
-                <div class="nrow" class:sel={n.id === status?.selectedId} on:dblclick={() => selectNode(n.id)}>
-                  <div class="ncell">
-                    <span class="badge">{n.type}</span>
-                    <div class="nmeta"><strong>{n.name}</strong><small class="muted">{n.server}:{n.port}</small></div>
-                  </div>
-                  <span class="lat" data-q={qual(n.latency)}>{n.latency ?? '—'} ms</span>
-                  <span class="nspd">{n.speed?.toFixed(2) ?? '—'} MB/s</span>
-                  <div class="row-actions ctr"><button class="mini" on:click={() => selectNode(n.id)}>设为活动</button><button class="icon-btn" on:click={() => showQR(n)} title="分享二维码">{@html I.qr}</button><button class="icon-btn danger" on:click={() => removeNode(n.id)} title="删除节点">{@html I.trash}</button></div>
-                </div>
-              {/each}
-              {#if nodes.length === 0}<div class="empty">还没有节点。粘贴分享链接点「从链接添加」，或点「手动添加」填 SOCKS5 / HTTP 代理。</div>{/if}
-            </div>
-          </div>
-        </section>
-
-      {:else if tab === 'rules'}
-        <section class="card page">
-          <div class="card-head">
-            <div><h3>分流规则库</h3><p class="sub">决定「哪些网站/IP 走代理、哪些直连」的地区规则(geosite / geoip)。「代理策略」选「规则」时,靠这套库判断大陆直连、境外走代理。</p></div>
-            <div class="actions">
-              <button class="primary" on:click={updateRuleSets} disabled={ruleSetMsg === '更新中…'}>{@html I.refresh} {ruleSetMsg === '更新中…' ? '更新中…' : '手动更新规则库'}</button>
-              {#if ruleSetMsg && ruleSetMsg !== '更新中…'}<span class="rs-msg" class:err={ruleSetMsg.indexOf('失败') === 0}>{ruleSetMsg}</span>{/if}
-            </div>
-          </div>
-          <div class="rs-list">
-            <div class="rs-head"><span></span><span>规则库</span><span>状态</span><span class="r">大小 / 更新日期</span></div>
-            {#each ruleSets as rs}
-              <div class="rs-row" class:disabled={!rs.enabled}>
-                <span class="lh-dot" class:ok={rs.present} class:bad={!rs.present}></span>
-                <div class="rs-meta"><strong>{rs.display}</strong><small>{rs.desc}</small></div>
-                <label class="switch" title={rs.enabled ? '点击停用' : '点击启用'}><input type="checkbox" checked={rs.enabled} on:change={() => toggleRuleSet(rs)} /><i></i></label>
-                <div class="rs-info r">{#if rs.present}<b>{rs.sizeKB} KB</b><small>更新于 {rs.modified}</small>{:else}<span class="rs-miss">缺失</span>{/if}</div>
-              </div>
-            {/each}
-            {#if ruleSets.length === 0}<div class="empty sm">暂无规则库信息</div>{/if}
-          </div>
-          <div class="setting"><span>添加节点后自动更新规则库<small class="setting-hint">勾上后:每次加完节点自动更新一次。需代理运行中(规则库源在墙外,走节点下载)。默认关,手动更新更可控。</small></span><label class="switch"><input type="checkbox" bind:checked={settings.autoUpdateRules} on:change={saveSettings} /><i></i></label></div>
-          <p class="rs-note">📦 规则库来自 sing-box 官方(SagerNet),已内置最新版。更新走<b>当前节点</b>下载(直连被墙),所以更新前请先「启动」并连上节点。</p>
-        </section>
-
-        <section class="card page">
-          <div class="card-head">
-            <div><h3>自定义规则</h3><p class="sub">你自己填的规则,<b>优先级最高</b>,盖过上面的国内外分流。「代理策略」为「规则」时生效。</p></div>
-            <div class="actions">
-              <button class="ghost-btn" on:click={addCustomRule}>{@html I.plus} 加一条</button>
-              <button class="primary" on:click={saveCustomRules} disabled={custRuleMsg === '应用中…'}>{custRuleMsg === '应用中…' ? '应用中…' : '保存并应用'}</button>
-              {#if custRuleMsg && custRuleMsg !== '应用中…'}<span class="rs-msg">{custRuleMsg}</span>{/if}
-            </div>
-          </div>
-          <div class="cr-list">
-            {#if customRules.length > 0}<div class="cr-head"><span>匹配方式</span><span>内容</span><span>动作</span><span></span></div>{/if}
-            {#each customRules as r, i}
-              <div class="cr-row">
-                <select bind:value={r.type}>
-                  <option value="suffix">域名后缀</option>
-                  <option value="domain">完整域名</option>
-                  <option value="keyword">关键字</option>
-                  <option value="ip">IP 段(CIDR)</option>
-                </select>
-                <input bind:value={r.value} placeholder={r.type === 'ip' ? '如 1.1.1.1/32、10.0.0.0/8' : r.type === 'keyword' ? '如 google' : '如 github.com'} />
-                <select bind:value={r.action}>
-                  <option value="proxy">走代理</option>
-                  <option value="direct">直连</option>
-                  <option value="block">拦截</option>
-                </select>
-                <button class="icon-btn danger" on:click={() => removeCustomRule(i)} title="删除">{@html I.trash}</button>
-              </div>
-            {/each}
-            {#if customRules.length === 0}<div class="empty sm">还没有自定义规则。点「加一条」添加 —— 比如「github.com → 走代理」、「某国内网站 → 直连」、「广告域名 → 拦截」。填完点「保存并应用」。</div>{/if}
-          </div>
-        </section>
-
       {:else if tab === 'subs'}
-        <section class="card page">
+        <div class="page-head">
+          <div><h1>订阅管理</h1><p>订阅状态、节点数量和更新时间一目了然。</p></div>
+          <div class="head-actions"><button class="btn" on:click={refreshSubs}>全部刷新</button><button class="btn primary" on:click={() => (showSubForm = true)}>＋ 添加订阅</button></div>
+        </div>
+        <section class="card page subs-page-v2">
           <div class="card-head"><div><h3>订阅</h3><p class="sub">名称、URL、节点数、上次更新、自动更新</p></div><button class="primary" on:click={() => (showSubForm = !showSubForm)}>{@html I.plus} 添加订阅</button></div>
           {#if showSubForm}
             <div class="picker">
@@ -1644,6 +1604,10 @@
         </section>
 
       {:else if tab === 'logs'}
+        <div class="page-head">
+          <div><h1>运行日志</h1><p>查看核心、分流引擎和连接运行记录。</p></div>
+          <div class="head-actions"><button class="btn" on:click={() => (logs = [])}>清空日志</button></div>
+        </div>
         <section class="card log-full">
           <div class="card-head"><div><h3>实时日志</h3><p class="sub">核心 + 分流引擎 + 每条连接</p></div><div class="actions"><input bind:value={logFilter} placeholder="过滤（支持关键字）" /><button class="ghost-btn" on:click={() => (logs = [])}>清空</button></div></div>
           <div class="logbox">
@@ -1660,6 +1624,10 @@
         </section>
 
       {:else}
+        <div class="page-head">
+          <div><h1>设置</h1><p>网络、内核、系统集成和维护选项。</p></div>
+          <div class="head-actions"><button class="btn" on:click={exportConfig}>导出配置</button><button class="btn" on:click={importConfig}>导入配置</button></div>
+        </div>
         <div class="settings-grid">
           {#if license.enabled}
             <section class="card account-card">
@@ -1711,6 +1679,8 @@
           </section>
           <section class="card">
             <h3>系统集成</h3>
+            <div class="setting"><span>代理范围<small class="setting-hint">指定应用分流，或接管整台电脑</small></span><div class="mode-seg sm"><button class:on={!settings.tunMode} on:click={() => setCaptureMode(false)}>应用分流</button><button class:on={settings.tunMode} on:click={() => setCaptureMode(true)}>整机全局</button></div></div>
+            <div class="setting"><span>系统代理<small class="setting-hint">给只识别 Windows 系统代理的程序使用</small></span><label class="switch"><input type="checkbox" checked={sysProxy} on:change={toggleSysProxy} /><i></i></label></div>
             <div class="setting"><span>对局域网开放<small class="setting-hint">手机/平板也能连本机代理（重启内核生效）</small></span><label class="switch"><input type="checkbox" bind:checked={settings.lanShare} on:change={saveSettings} /><i></i></label></div>
             {#if settings.lanShare}
               <div class="lan-cfg">
@@ -1821,56 +1791,9 @@
     --sh-float: 0 18px 40px -14px rgba(0,0,0,.6), 0 6px 14px -6px rgba(0,0,0,.5);
   }
 
-  /* ---------- overview page ---------- */
-  .ov { display: grid; gap: var(--s4); }
-  .firstrun { padding: 22px 24px; border: 1.5px solid color-mix(in srgb, var(--brand) 30%, var(--line)); }
-  .fr-head h2 { font-size: 18px; font-weight: 760; color: var(--ink); }
-  .fr-head p { margin: 4px 0 0; font-size: 13px; color: var(--muted); }
-  .fr-steps { display: grid; gap: 10px; margin-top: 16px; }
-  .fr-step { display: flex; align-items: center; gap: 14px; background: var(--soft); border: 1px solid var(--line-2); border-radius: 12px; padding: 12px 16px; }
-  .fr-n { width: 26px; height: 26px; flex: none; border-radius: 50%; background: var(--brand); color: #fff; font-weight: 800; font-size: 14px; display: grid; place-items: center; }
-  .fr-txt { flex: 1; min-width: 0; } .fr-txt strong { font-size: 14px; color: var(--ink); } .fr-txt small { display: block; font-size: 12px; color: var(--muted); margin-top: 1px; }
-  .ov-hero { padding: 22px 24px; }
-  .ov-hero-main { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
-  .ov-status { display: flex; align-items: center; gap: 14px; }
-  .ov-dot { width: 12px; height: 12px; border-radius: 50%; background: var(--muted-2); box-shadow: 0 0 0 4px var(--line-3); flex: none; }
-  .ov-dot.on { background: var(--ok); box-shadow: 0 0 0 4px var(--ok-tint); }
-  .ov-status h2 { font-size: 20px; font-weight: 750; color: var(--ink); }
-  .ov-status p { margin: 2px 0 0; font-size: 13px; color: var(--muted); }
-  .ov-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-top: 20px; }
-  .ov-stat { background: var(--soft); border: 1px solid var(--line-2); border-radius: 12px; padding: 12px 14px; }
-  .ov-stat small { display: block; font-size: 11.5px; color: var(--muted-2); font-weight: 600; }
-  .ov-stat b { font-size: 22px; font-weight: 770; color: var(--ink); font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
-  .ov-stat em { font-style: normal; font-size: 11px; color: var(--muted); margin-left: 3px; }
-  .ov-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: var(--s4); }
-  .mode-choice { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-  .glob-seg { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px; }
-  .glob-seg button { text-align: left; border: 1.5px solid var(--line); background: var(--soft); border-radius: 10px; padding: 8px 12px; cursor: pointer; font-family: inherit; transition: all var(--tr); }
-  .glob-seg button b { display: block; font-size: 13px; color: var(--ink-2); font-weight: 700; }
-  .glob-seg button em { display: block; font-size: 11px; color: var(--muted-2); font-style: normal; margin-top: 2px; }
-  .glob-seg button.on { border-color: var(--brand); background: var(--brand-50, rgba(37,99,235,0.07)); }
-  .glob-seg button.on b { color: var(--brand-600); }
-  .mc { text-align: left; border: 1.5px solid var(--line); background: var(--soft); border-radius: 12px; padding: 12px 14px; cursor: pointer; transition: all var(--tr); font-family: inherit; }
-  .mc:hover { border-color: var(--brand); }
-  .mc.on { border-color: var(--brand); background: var(--brand-tint); }
-  .mc strong { display: block; font-size: 14px; color: var(--ink); font-weight: 700; margin-bottom: 3px; }
-  .mc.on strong { color: var(--brand-600); }
-  .mc small { font-size: 11.5px; color: var(--muted); line-height: 1.45; }
-  .mc:disabled { opacity: .55; cursor: default; }
-  .ov-node { display: flex; align-items: center; gap: 12px; padding: 6px 0; }
-  .ov-node .grow { flex: 1; min-width: 0; }
-  .ov-node .grow strong { font-size: 14px; color: var(--ink); }
-  .ov-node .grow small { display: block; color: var(--muted-2); font-size: 12px; }
-  .power-btn.lg { height: 48px; padding: 0 26px; font-size: 15px; }
-  .ov-ctrl { display: flex; align-items: center; gap: 10px; }
-  .restart-btn { display: flex; align-items: center; gap: 6px; height: 48px; padding: 0 18px; border-radius: var(--r2); font-weight: 700; font-size: 14px; font-family: inherit; cursor: pointer; border: 1.5px solid var(--line); background: var(--soft); color: var(--ink-2); transition: all var(--tr); }
-  .restart-btn:hover:not(:disabled) { border-color: var(--brand); color: var(--brand-600); }
-  .restart-btn:disabled { opacity: .5; cursor: not-allowed; }
-  .restart-btn :global(svg) { width: 17px; height: 17px; }
+  /* Overview v2 styles are defined in the approved prototype layout block below. */
   .saved-tag { font-size: 12px; font-weight: 700; color: var(--ok-600, #16a34a); white-space: nowrap; align-self: center; }
   .autosave { font-size: 11.5px; font-weight: 500; color: var(--muted-2); margin-left: 6px; }
-  .mode-seg.lg { height: 42px; } .mode-seg.lg button { font-size: 14px; padding: 0 18px; }
-  .mode-seg.full { display: flex; } .mode-seg.full button { flex: 1; }
   .mode-seg.sm { height: 30px; align-self: center; } .mode-seg.sm button { font-size: 12px; padding: 0 10px; }
   .sel { border: 1px solid var(--line); background: var(--soft); color: var(--ink-2); border-radius: 8px; padding: 6px 10px; font-size: 12.5px; font-weight: 600; font-family: inherit; cursor: pointer; }
   .mode-explain { font-size: 13px; color: var(--ink-2); background: var(--soft); border: 1px solid var(--line-2); border-radius: 10px; padding: 11px 14px; line-height: 1.55; margin-top: 4px; }
@@ -2021,16 +1944,6 @@
   .speed-msg.err { color: #dc2626; }
 
   .tb-right { display: flex; align-items: center; gap: var(--s3) var(--s4); flex-wrap: wrap; justify-content: flex-end; }
-  .metric { display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--muted); white-space: nowrap; }
-  .metric b { font-size: 15px; color: var(--ink); font-weight: 750; font-variant-numeric: tabular-nums; }
-  .metric .mi { font-size: 17px; }
-  .mi.down { color: #3b82f6; } .mi.up { color: var(--ok); }
-  .metric.col { gap: 8px; } .metric.col .mi { color: var(--muted-2); }
-  .metric.col small, .conn small { display: block; font-size: 10.5px; color: var(--muted-2); }
-  .metric.col b, .conn b { font-size: 14px; }
-  .conn { display: flex; align-items: center; gap: 8px; color: var(--muted-2); white-space: nowrap; }
-  .conn.on { color: var(--ok-600); } .conn.on b { color: var(--ok-600); } .conn .mi { font-size: 18px; }
-  .conn b { font-variant-numeric: tabular-nums; }
   .power-btn { display: flex; align-items: center; gap: 7px; height: 40px; padding: 0 18px; border-radius: var(--r2); font-weight: 750; font-size: 14px;
     color: #fff; background: var(--ok); box-shadow: 0 8px 18px -6px rgba(34,197,94,.5); }
   .power-btn:hover { transform: translateY(-1px); box-shadow: 0 12px 22px -8px rgba(34,197,94,.55); }
@@ -2176,7 +2089,6 @@
   textarea { width: 100%; min-height: 96px; resize: vertical; border: 1px solid #e2e8f0; border-radius: 11px; padding: 12px; background: var(--soft); font-family: ui-monospace, Consolas, monospace; font-size: 12.5px; outline: none; transition: border-color var(--tr), box-shadow var(--tr); }
   textarea:focus, input:focus { border-color: #93c5fd; box-shadow: 0 0 0 3px rgba(59,130,246,.12); }
   input { border: 1px solid #e2e8f0; border-radius: var(--r2); padding: 9px 12px; background: var(--soft); outline: none; font-size: 13px; transition: border-color var(--tr), box-shadow var(--tr); }
-  .toolbar { margin: 12px 0; } .toolbar input { width: 100%; }
   .toast { color: var(--ok-600); font-size: 13px; margin-top: 8px; }
   .ntable { display: grid; gap: 2px; min-width: 500px; }
   .nhead, .nrow { display: grid; grid-template-columns: minmax(0, 2fr) 90px 108px auto; gap: 12px; align-items: center; }
@@ -2217,6 +2129,122 @@
   .route-rule { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
   .route-rule select { flex: 0 1 auto; min-width: 118px; border: 1px solid #e2e8f0; border-radius: 9px; padding: 8px 10px; background: var(--soft); font-size: 13px; color: var(--ink-2); }
   .route-rule input { flex: 1 1 200px; min-width: 0; padding: 8px 11px; }
+
+  /* ---------- approved UI prototype v2 layout ---------- */
+  .nav-count { margin-left: auto; min-width: 20px; height: 20px; padding: 0 6px; display: grid; place-items: center; border-radius: 10px; background: var(--brand); color: #fff; font-size: 10px; font-style: normal; }
+  .top-metrics { gap: 20px; flex-wrap: nowrap; }
+  .metric-mini { min-width: 72px; white-space: nowrap; }
+  .metric-mini small { display: block; margin-bottom: 2px; color: var(--muted-2); font-size: 9px; }
+  .metric-mini strong { color: var(--ink); font-size: 13px; font-variant-numeric: tabular-nums; }
+  .metric-mini .down { color: var(--brand); } .metric-mini .up { color: var(--ok); }
+  .page-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; margin-bottom: -3px; }
+  .page-head h1 { margin: 0; color: var(--ink); font-size: 22px; font-weight: 820; letter-spacing: -.45px; }
+  .page-head p { margin: 6px 0 0; color: var(--muted-2); font-size: 12px; }
+  .head-actions { display: flex; gap: 9px; flex-wrap: wrap; }
+  .btn { min-height: 36px; padding: 0 14px; display: inline-flex; align-items: center; justify-content: center; gap: 7px; border: 1px solid #d9e1ec; border-radius: 9px; background: var(--card); color: var(--ink-2); font-size: 13px; font-weight: 700; }
+  .btn:hover { border-color: #b7c6dc; background: var(--soft); }
+  .btn.primary { border-color: var(--brand); background: var(--brand); color: #fff; box-shadow: 0 5px 13px rgba(40,100,232,.18); }
+  .btn.sm { min-height: 30px; padding: 0 10px; border-radius: 8px; font-size: 12px; }
+  .btn.grow { flex: 1; }
+
+  .grid { display: grid; gap: 16px; }
+  .grid.kpis { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .grid.main-grid { grid-template-columns: minmax(0, 1.75fr) minmax(300px, .8fr); align-items: start; }
+  .grid.kpis > .card, .grid.main-grid .card { padding: 0; overflow: hidden; }
+  .kpi { min-height: 82px; padding: 15px 16px !important; display: flex; align-items: center; gap: 13px; }
+  .kpi-icon { width: 42px; height: 42px; flex: none; display: grid; place-items: center; border-radius: 12px; background: var(--brand-tint); color: var(--brand); font-size: 20px; }
+  .kpi-icon.green { background: var(--ok-tint); color: var(--ok); } .kpi-icon.orange { background: #fff6e8; color: #df8a19; }
+  .kpi-label { color: var(--muted-2); font-size: 10px; font-weight: 700; }
+  .kpi-value { max-width: 220px; margin-top: 3px; color: var(--ink); font-size: 20px; font-weight: 850; letter-spacing: -.3px; }
+  .kpi-value.ellipsis { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .kpi-value small { margin-left: 3px; color: var(--muted-2); font-size: 10px; font-weight: 650; }
+  .grid.main-grid .card-head, .node-manager-v2 .card-head, .apps-v2 .card-head, .page.card > .card-head { min-height: 55px; margin: 0; padding: 14px 17px; align-items: center; border-bottom: 1px solid var(--line); }
+  .card-title { color: var(--ink); font-size: 14px; font-weight: 800; }
+  .card-sub { margin-top: 3px; color: var(--muted-2); font-size: 11px; }
+  .card-body { padding: 17px; }
+  .route-flow { padding: 20px 18px; display: grid; grid-template-columns: repeat(4, 1fr); align-items: center; gap: 20px; }
+  .flow-step { position: relative; min-width: 0; text-align: center; }
+  .flow-step:not(:last-child)::after { content: ''; position: absolute; top: 21px; right: -22px; width: 24px; height: 1px; background: #ccd6e5; }
+  .flow-node { width: 44px; height: 44px; margin: 0 auto 8px; display: grid; place-items: center; border: 1px solid var(--line); border-radius: 12px; background: var(--soft); color: var(--muted); font-size: 20px; }
+  .flow-step.active .flow-node { border-color: #d9e5ff; background: var(--brand-tint); color: var(--brand); }
+  .flow-step.good .flow-node { border-color: #d4f0e1; background: var(--ok-tint); color: var(--ok); }
+  .flow-step b { display: block; color: var(--ink); font-size: 12px; } .flow-step small { color: var(--muted-2); font-size: 9px; }
+  .status-pill { min-height: 23px; padding: 0 8px; display: inline-flex; align-items: center; border-radius: 12px; background: var(--ok-tint); color: var(--ok-600); font-size: 10px; font-weight: 800; white-space: nowrap; }
+  .status-pill.gray { background: #f0f3f7; color: #748197; }
+  .quick-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .quick { min-height: 76px; padding: 12px; border: 1px solid var(--line); border-radius: 11px; background: var(--card); text-align: left; }
+  .quick:hover { border-color: #c9d7ed; transform: translateY(-1px); box-shadow: var(--sh-1); }
+  .quick b { display: block; margin-bottom: 4px; color: var(--ink); } .quick small { color: var(--muted-2); font-size: 10px; }
+  .health-list { display: grid; gap: 11px; }
+  .health-item { width: 100%; display: grid; grid-template-columns: 1fr auto; gap: 12px; align-items: center; text-align: left; }
+  .health-info b { color: var(--ink); font-size: 12px; } .health-info small { display: block; margin-top: 3px; color: var(--muted-2); font-size: 9px; }
+  .health-bar { height: 5px; margin-top: 7px; overflow: hidden; border-radius: 4px; background: #edf1f6; }
+  .health-bar i { display: block; height: 100%; border-radius: inherit; background: var(--ok); }
+  .latency { color: var(--ok-600); font-size: 11px; font-weight: 800; }
+  .table-wrap { overflow: hidden; }
+  .table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+  .table th { height: 39px; padding: 0 13px; border-bottom: 1px solid var(--line); background: var(--soft); color: var(--muted-2); text-align: left; font-size: 10px; font-weight: 800; }
+  .table td { height: 58px; padding: 0 13px; border-bottom: 1px solid var(--line-2); color: var(--ink-2); vertical-align: middle; font-size: 12px; }
+  .table tr:last-child td { border-bottom: 0; }
+  .entity { display: flex; align-items: center; gap: 10px; min-width: 0; }
+  .entity-icon { width: 32px; height: 32px; flex: none; display: grid; place-items: center; border-radius: 9px; background: var(--brand-tint); color: var(--brand); font-size: 10px; font-weight: 900; }
+  .entity-icon.app { background: linear-gradient(145deg, #4c7ff1, #285ed9); color: #fff; }
+  .entity-text { min-width: 0; } .entity-text b, .entity-text small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .entity-text b { color: var(--ink); font-size: 12px; } .entity-text small { margin-top: 3px; color: var(--muted-2); font-size: 9px; }
+  .tag { min-height: 22px; padding: 0 8px; display: inline-flex; align-items: center; border-radius: 6px; background: var(--brand-tint); color: var(--brand); font-size: 9px; font-weight: 850; }
+
+  .summary-strip { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; overflow: hidden; margin-bottom: -4px; border: 1px solid var(--line); border-radius: 13px; background: var(--line); }
+  .summary-cell { min-height: 66px; padding: 13px 15px; background: var(--card); }
+  .summary-cell > span { display: block; color: var(--muted-2); font-size: 10px; }
+  .summary-cell > b { display: block; max-width: 240px; margin-top: 5px; overflow: hidden; color: var(--ink); font-size: 17px; text-overflow: ellipsis; white-space: nowrap; }
+  .summary-cell > b.good { color: var(--ok-600); }
+  .summary-mode { display: flex; gap: 4px; margin-top: 5px; }
+  .summary-mode button { padding: 4px 8px; border-radius: 7px; color: var(--muted); font-size: 11px; font-weight: 700; }
+  .summary-mode button.active { background: var(--brand-tint); color: var(--brand); }
+  .apps-v2 { display: block; }
+  .apps-v2 .col-main { display: block; }
+  .apps-v2 .hero, .apps-v2 .col-main > section:nth-child(2), .apps-v2 .col-rail { display: none; }
+  .apps-v2 .col-main > section.card { padding: 0; overflow: hidden; }
+  .apps-v2 .col-main > section.card > .card-head { flex-wrap: nowrap; }
+  .apps-v2 .tscroll { margin: 0; padding: 0 17px; }
+  .apps-v2 .rhead { min-height: 39px; padding: 0 6px; background: var(--soft); }
+  .apps-v2 .rrow { min-height: 58px; border-radius: 0; }
+  .apps-v2 .rfoot { margin: 0; padding: 13px 17px; border-top: 1px solid var(--line); }
+
+  .node-manager-v2 { display: grid; grid-template-columns: minmax(310px, .72fr) minmax(0, 1.65fr); gap: 16px; align-items: start; }
+  .node-manager-v2 > .card { padding: 0; overflow: hidden; }
+  .node-import-body { padding: 17px; }
+  .node-import-body .hint { margin-top: 8px; }
+  .tabs { display: flex; gap: 3px; padding: 4px; border-radius: 10px; background: #f1f4f8; }
+  .tabs button { height: 31px; flex: 1; border-radius: 8px; color: #6c798f; font-size: 12px; font-weight: 700; }
+  .tabs button.active { background: var(--card); color: var(--brand); box-shadow: 0 2px 8px rgba(30,47,75,.08); }
+  .field-label { display: block; margin: 15px 0 7px; color: #67748a; font-size: 11px; font-weight: 750; }
+  .textarea { width: 100%; min-height: 150px; padding: 10px 11px; resize: vertical; border: 1px solid #d9e1ec; border-radius: 9px; background: var(--card); line-height: 1.6; outline: none; }
+  .textarea:focus { border-color: #8cacf5; box-shadow: 0 0 0 3px rgba(40,100,232,.09); }
+  .form-actions { display: flex; gap: 8px; margin-top: 13px; }
+  .searchbar { width: min(290px, 34vw); min-height: 37px; padding: 0 11px; display: flex; align-items: center; gap: 8px; border: 1px solid #d9e1ec; border-radius: 9px; background: var(--card); }
+  .searchbar input { width: 100%; min-width: 0; border: 0; outline: 0; background: transparent; }
+  .node-list-card .tscroll { margin: 0; padding: 0 17px; }
+  .node-list-card .nhead { min-height: 39px; padding: 0 6px; background: var(--soft); }
+  .node-list-card .nrow { min-height: 58px; border-radius: 0; }
+  .node-list-foot { padding: 13px 17px; border-top: 1px solid var(--line); }
+  .manual-form { margin: 14px 0 0; }
+
+  .rules-library-v2, .custom-rules-v2, .subs-page-v2 { padding: 0; overflow: hidden; }
+  .rules-library-v2 .rs-list, .custom-rules-v2 .cr-list { padding: 0 17px 14px; }
+  .rules-library-v2 > .setting, .rules-library-v2 > .rs-note { margin: 0 17px 14px; }
+  .route-card { padding: 20px; }
+  .subs-page-v2 > .card-head { display: none; }
+  .subs-page-v2 .picker { margin: 17px; }
+  .subs-page-v2 .sub-list { padding: 17px; display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 16px; }
+  .subs-page-v2 .sub-row { min-height: 145px; padding: 17px; display: flex; flex-direction: column; align-items: stretch; border: 1px solid var(--line); border-radius: 13px; box-shadow: var(--sh-1); }
+  .subs-page-v2 .sub-meta { width: 100%; } .subs-page-v2 .sub-count { margin-top: 12px; color: var(--brand); font-weight: 750; }
+  .subs-page-v2 .row-actions { width: 100%; margin-top: auto; padding-top: 12px; border-top: 1px solid var(--line); }
+  .log-full { padding: 0; overflow: hidden; }
+  .log-full .card-head { margin: 0; padding: 14px 17px; border-bottom: 1px solid rgba(255,255,255,.08); background: #182234; }
+  .log-full .card-head h3 { color: #d5dbea; } .log-full .card-head .sub { color: #8996aa; }
+  .log-full .logbox { margin: 0; min-height: 470px; border: 0; border-radius: 0; }
+  .settings-grid > .card { padding: 20px; }
 
   /* ---------- account / license ---------- */
   .license-login { min-height: 100vh; display: grid; place-items: center; padding: 28px; background: radial-gradient(circle at 50% -10%, #dbeafe 0, transparent 42%), var(--page); }
