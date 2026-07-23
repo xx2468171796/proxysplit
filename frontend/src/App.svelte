@@ -940,7 +940,7 @@
         const err = await WStart()
         if (err) {
           pushLog('[error] ' + err)
-          const adminish = /admin|windivert|管理员|driver/i.test(err)
+          const adminish = /admin|管理员|tun|wintun/i.test(err)
           toast(adminish ? '启动失败：请关闭后「右键 → 以管理员身份运行」' : '启动失败：' + err)
         }
       }

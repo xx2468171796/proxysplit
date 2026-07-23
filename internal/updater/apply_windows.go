@@ -69,7 +69,10 @@ exit 1
 		return err
 	}
 	cmd := exec.Command("powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-WindowStyle", "Hidden", "-File", script, strconv.Itoa(os.Getpid()), downloaded, target)
-	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: 0x00000008}
+	// A new process group survives the Wails parent shutdown. DETACHED_PROCESS
+	// is intentionally avoided here because Windows PowerShell may terminate
+	// before executing a -File script when launched without standard handles.
+	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: syscall.CREATE_NEW_PROCESS_GROUP}
 	if err := cmd.Start(); err != nil {
 		_ = os.Remove(script)
 		return fmt.Errorf("启动升级助手失败：%w", err)

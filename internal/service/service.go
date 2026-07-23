@@ -1,5 +1,5 @@
-// Package service orchestrates the node manager, the bundled sing-box core and
-// the WinDivert redirect engine behind a small API the UI layer binds to.
+// Package service orchestrates the node manager and the bundled sing-box TUN
+// core behind the API bound to the Wails UI.
 package service
 
 import (
@@ -38,7 +38,7 @@ type Sub struct {
 // Settings holds user-tunable options.
 type Settings struct {
 	MixedPort       int    `json:"mixedPort"`
-	TunMode         bool   `json:"tunMode"` // true = system-wide TUN (global); false = per-app WinDivert
+	TunMode         bool   `json:"tunMode"` // true = system-wide TUN; false = sing-box process_name application split
 	LanShare        bool   `json:"lanShare"`
 	LanPort         int    `json:"lanPort"` // fixed port for the LAN proxy inbound (0 => 7890)
 	LanType         string `json:"lanType"` // mixed | socks | http
@@ -980,7 +980,7 @@ func (s *Service) Start() error {
 			CustomRules: custom, RuleSets: &ruleSets}
 	}
 
-	// TUN mode: system-wide via sing-box TUN; no per-app WinDivert engine.
+	// System-wide mode: sing-box TUN routes the whole machine.
 	if set.TunMode {
 		if node == nil {
 			return fmt.Errorf("no node selected")
@@ -1003,7 +1003,7 @@ func (s *Service) Start() error {
 		return nil
 	}
 
-	// App-split mode: sing-box TUN + per-app process_name routing (no WinDivert).
+	// App-split mode: sing-box TUN + per-app process_name routing.
 	// Only the listed programs use the node; every other program is direct.
 	if node == nil {
 		return fmt.Errorf("no node selected")
@@ -1121,7 +1121,7 @@ func (s *Service) Start() error {
 	}
 
 	s.mu.Lock()
-	s.eng = nil // no WinDivert engine in the sing-box-native split model
+	s.eng = nil // legacy engine remains nil in the sing-box-native split model
 	s.startedAt = time.Now()
 	s.activeFP = nil
 	s.mu.Unlock()

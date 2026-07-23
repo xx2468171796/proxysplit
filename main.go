@@ -44,7 +44,7 @@ func main() {
 		OnBeforeClose:    app.beforeClose,
 		// Single-instance: a 2nd launch just focuses the running window instead of
 		// starting a rival instance (two instances = clobbered config / lost data +
-		// WinDivert/TUN conflicts).
+		// competing sing-box TUN routes).
 		SingleInstanceLock: &options.SingleInstanceLock{
 			UniqueId:               "proxysplit-single-instance-lock",
 			OnSecondInstanceLaunch: app.onSecondInstance,

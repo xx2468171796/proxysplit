@@ -23,11 +23,9 @@ import (
 	"proxysplit/internal/updater"
 )
 
-// payloadFS bundles the runtime binaries into the executable so the shipped
-// product is a single self-contained proxysplit.exe. They are extracted next to
-// each other on first run (WinDivert.dll loads WinDivert64.sys from its dir).
+// payloadFS bundles sing-box and its rule sets into the portable executable.
 //
-//go:embed bin/sing-box.exe bin/WinDivert.dll bin/WinDivert64.sys bin/geoip-cn.srs bin/geosite-cn.srs bin/geosite-category-ads-all.srs
+//go:embed bin/sing-box.exe bin/geoip-cn.srs bin/geosite-cn.srs bin/geosite-category-ads-all.srs
 var payloadFS embed.FS
 
 // App is the Wails-bound application object.
@@ -183,7 +181,13 @@ func ensurePayload() (string, error) {
 	// locked while the previous core was running).
 	_ = os.Remove(filepath.Join(dir, "sing-box.exe.old"))
 
-	for _, name := range []string{"sing-box.exe", "WinDivert.dll", "WinDivert64.sys", "geoip-cn.srs", "geosite-cn.srs", "geosite-category-ads-all.srs"} {
+	// v1.8.x moved application matching to sing-box TUN process_name rules.
+	// Remove legacy portable WinDivert payloads left by older versions; no
+	// driver is loaded or installed by the current application.
+	_ = os.Remove(filepath.Join(dir, "WinDivert.dll"))
+	_ = os.Remove(filepath.Join(dir, "WinDivert64.sys"))
+
+	for _, name := range []string{"sing-box.exe", "geoip-cn.srs", "geosite-cn.srs", "geosite-category-ads-all.srs"} {
 		dst := filepath.Join(dir, name)
 		// Extract only when missing — never overwrite, so a GitHub-updated
 		// sing-box.exe / rule-set is preserved across restarts.
@@ -296,6 +300,9 @@ func (a *App) InstallAppUpdate(release updater.Release) string {
 	if err := updater.ScheduleInstall(path); err != nil {
 		return err.Error()
 	}
+	// runtime.Quit would otherwise be intercepted by the user's
+	// "close to tray" preference, leaving the old executable locked forever.
+	a.forceQuit = true
 	go func() {
 		time.Sleep(800 * time.Millisecond)
 		if a.ctx != nil {
@@ -517,7 +524,7 @@ func (a *App) GetStatus() service.Status { return a.svc.Status() }
 // GetHealth returns live engine-capture + per-line reachability for the status panel.
 func (a *App) GetHealth() service.Health { return a.svc.Health() }
 
-// binDir resolves the directory holding sing-box.exe / WinDivert.dll. It prefers
+// binDir resolves the directory holding the extracted sing-box runtime. It prefers
 // a bin/ next to the executable and falls back to ./bin for `wails dev`.
 func binDir() string {
 	if exe, err := os.Executable(); err == nil {

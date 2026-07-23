@@ -19,8 +19,8 @@ type LineHealth struct {
 // Health is the real-time engine + line status the UI polls and displays.
 type Health struct {
 	Running      bool         `json:"running"`
-	Capturing    bool         `json:"capturing"`    // WinDivert is actually pulling packets
-	CapturedPkts int64        `json:"capturedPkts"` // packets seen since start
+	Capturing    bool         `json:"capturing"`    // sing-box TUN is running
+	CapturedPkts int64        `json:"capturedPkts"` // retained for frontend schema compatibility
 	Warning      string       `json:"warning"`      // prominent banner text ("" = none)
 	Lines        []LineHealth `json:"lines"`
 }
@@ -38,8 +38,8 @@ func (s *Service) Health() Health {
 		h.Capturing = h.CapturedPkts > 0
 		h.Warning = eng.CaptureWarn()
 	} else if running {
-		// sing-box TUN captures at the virtual adapter in BOTH 应用分流 (per-app
-		// process routing) and 整机全局 modes — no WinDivert engine involved.
+		// sing-box TUN captures at the virtual adapter in both 应用分流
+		// (process_name routing) and 整机全局 modes.
 		h.Capturing = true
 	}
 	if v, ok := s.healthCache.Load().([]LineHealth); ok {
