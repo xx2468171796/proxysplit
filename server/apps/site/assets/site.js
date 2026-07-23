@@ -30,3 +30,34 @@ document.querySelectorAll('[data-download]').forEach((link) => {
     try { localStorage.setItem('proxysplit:last-download', new Date().toISOString()) } catch {}
   })
 })
+
+const planGrid = document.querySelector('[data-plan-grid]')
+if (planGrid) {
+  fetch('/v1/catalog/plans', { headers: { accept: 'application/json' } })
+    .then((response) => response.ok ? response.json() : Promise.reject(new Error('catalog unavailable')))
+    .then(({ items = [] }) => {
+      if (!items.length) {
+        planGrid.innerHTML = '<article class="pricing-placeholder"><span>套餐配置中</span><p>运营后台启用套餐后会自动展示；当前可下载客户端领取免费试用。</p></article>'
+        return
+      }
+      planGrid.innerHTML = items.map((plan) => {
+        const period = plan.lifetime ? '永久有效' : `${plan.durationDays || 0} 天`
+        const tier = plan.tier === 'premium' ? '超级会员' : '普通会员'
+        return `<article class="pricing-card ${plan.tier === 'premium' ? 'premium' : ''}">
+          <div><span>${escapeHTML(plan.badge || tier)}</span><em>${plan.maxDevices} 台设备</em></div>
+          <h3>${escapeHTML(plan.name)}</h3>
+          <strong><small>¥</small>${(Number(plan.priceCents) / 100).toFixed(2)}</strong>
+          <p>${escapeHTML(plan.description || '')}</p>
+          <ul><li>${period}</li><li>${tier}</li><li>服务端签名授权</li></ul>
+          <a href="/download/proxysplit-v1.9.0.exe" data-download>在客户端开通</a>
+        </article>`
+      }).join('')
+    })
+    .catch(() => {
+      planGrid.innerHTML = '<article class="pricing-placeholder"><span>套餐暂不可用</span><p>请稍后重试，或在客户端会员中心查看。</p></article>'
+    })
+}
+
+function escapeHTML(value) {
+  return String(value).replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char])
+}

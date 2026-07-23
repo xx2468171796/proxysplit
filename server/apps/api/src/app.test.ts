@@ -5,7 +5,7 @@ import type { ApiConfig } from './config.js'
 describe('commercial API shell', () => {
   it('exposes health and the lease verification public key without authentication', async () => {
     const config: ApiConfig = {
-      NODE_ENV: 'test', HOST: '127.0.0.1', PORT: 18780,
+      NODE_ENV: 'test', HOST: '127.0.0.1', PORT: 18780, PUBLIC_BASE_URL:'http://127.0.0.1:18780',
       DATABASE_URL: 'postgres://unused', ACCESS_TOKEN_SECRET: 'test-secret-must-be-at-least-32-bytes-long',
       REFRESH_TOKEN_TTL_DAYS: 30, ADMIN_ORIGIN: 'http://127.0.0.1:18781',
     }

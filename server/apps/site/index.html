@@ -11,6 +11,7 @@
   <link rel="manifest" href="/site.webmanifest">
   <link rel="preload" href="/assets/proxysplit-hero.webp" as="image" type="image/webp">
   <link rel="stylesheet" href="/assets/site.css">
+  <link rel="stylesheet" href="/assets/commerce.css">
 </head>
 <body>
   <header class="site-header" data-header>
@@ -21,18 +22,19 @@
       </a>
       <nav class="desktop-nav" aria-label="主导航">
         <a href="#features">核心功能</a>
+        <a href="#membership">会员套餐</a>
         <a href="#workflow">工作方式</a>
         <a href="#security">安全与隐私</a>
         <a href="#faq">常见问题</a>
       </nav>
       <div class="nav-actions">
         <a class="text-link" href="/admin/">管理端</a>
-        <a class="btn btn-small" href="/download/proxysplit-v1.8.4.exe" data-download>下载 Windows 版</a>
+        <a class="btn btn-small" href="/download/proxysplit-v1.9.0.exe" data-download>下载 Windows 版</a>
         <button class="menu-button" aria-label="打开菜单" aria-expanded="false" data-menu-button><span></span><span></span></button>
       </div>
     </div>
     <nav class="mobile-nav" data-mobile-nav>
-      <a href="#features">核心功能</a><a href="#workflow">工作方式</a><a href="#security">安全与隐私</a><a href="#faq">常见问题</a><a href="/admin/">管理端</a>
+      <a href="#features">核心功能</a><a href="#membership">会员套餐</a><a href="#workflow">工作方式</a><a href="#security">安全与隐私</a><a href="#faq">常见问题</a><a href="/admin/">管理端</a>
     </nav>
   </header>
 
@@ -45,16 +47,17 @@
           <h1>让每个应用，走它<br><em>该走的网络路径</em></h1>
           <p class="hero-lead">ProxySplit 把应用识别、规则分流、线路选择、运行诊断集中到一个清晰界面。所有配置优先保存在本机，规则可视、状态可查、切换可控。</p>
           <div class="hero-actions">
-            <a class="btn btn-primary" href="/download/proxysplit-v1.8.4.exe" data-download>
+            <a class="btn btn-primary" href="/download/proxysplit-v1.9.0.exe" data-download>
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0 5-5m-5 5-5-5M4 19h16"/></svg>
               下载 Windows 版
             </a>
             <a class="btn btn-ghost" href="#workflow">了解工作方式 <span>→</span></a>
           </div>
           <div class="hero-meta">
-            <span><i class="check">✓</i> 当前版本 v1.8.4</span>
+            <span><i class="check">✓</i> 当前版本 v1.9.0</span>
             <span><i class="check">✓</i> Windows 10 / 11</span>
             <span><i class="check">✓</i> 签名自动更新</span>
+            <span><i class="check">✓</i> 新用户默认免费试用 3 天</span>
           </div>
         </div>
         <div class="hero-visual reveal delay">
@@ -69,6 +72,19 @@
         <span>专注本地流量管理</span>
         <div><b>应用识别</b><i></i><b>规则匹配</b><i></i><b>路径分配</b><i></i><b>状态诊断</b></div>
       </div>
+      <div class="protocol-strip reveal"><span>常用协议支持</span><div><b>HTTP</b><b>HTTPS</b><b>SOCKS5</b><b>VLESS</b><b>VMess</b><b>Trojan</b><b>Shadowsocks</b><b>Hysteria2</b><b>TUIC</b><b>AnyTLS</b></div><small>具体权益以套餐配置与客户端实际兼容范围为准</small></div>
+    </section>
+
+    <section class="section membership" id="membership">
+      <div class="section-head reveal">
+        <div><span class="kicker">MEMBERSHIP</span><h2>普通会员与超级会员，套餐由后台灵活配置</h2></div>
+        <p>支持月卡、季卡、年卡、永久版和活动套餐。价格、有效期、设备数量和功能权益均由运营后台设置。</p>
+      </div>
+      <div class="membership-note reveal"><div><b>注册即享免费试用</b><span>当前默认 3 天，实际天数以客户端注册时后台配置为准；同一硬件仅可领取一次。</span></div><a href="/download/proxysplit-v1.9.0.exe" data-download>下载客户端注册 →</a></div>
+      <div class="pricing-grid" data-plan-grid>
+        <article class="pricing-placeholder"><span>套餐正在加载</span><p>请稍候，或下载客户端进入会员中心查看。</p></article>
+      </div>
+      <p class="pricing-foot reveal">支付成功后由服务器验签并自动开通会员。支付密钥不会保存在客户端；设备名额可在客户端或运营后台解绑。</p>
     </section>
 
     <section class="section features" id="features">
@@ -113,7 +129,7 @@
           <span class="kicker">HOW IT WORKS</span>
           <h2>清晰的四步链路<br>每一步都可见、可控</h2>
           <p>ProxySplit 是客户端流量管理工具。它读取你主动添加的合法网络配置，在本机完成应用匹配和路径选择。</p>
-          <a href="/download/proxysplit-v1.8.4.exe" class="inline-link" data-download>下载并开始配置 <span>→</span></a>
+          <a href="/download/proxysplit-v1.9.0.exe" class="inline-link" data-download>下载并开始配置 <span>→</span></a>
         </div>
         <ol class="steps">
           <li class="reveal"><span>01</span><div><b>添加应用</b><p>选择正在运行的进程或本地 EXE 文件。</p></div></li>
@@ -163,7 +179,7 @@
         <span class="kicker">PROXYSPLIT FOR WINDOWS</span>
         <h2>把网络路径的决定权，交还给每个应用</h2>
         <p>从清晰的应用分流开始，建立可观察、可维护的本地网络工作流。</p>
-        <div><a class="btn btn-white" href="/download/proxysplit-v1.8.4.exe" data-download>下载 v1.8.4</a><a class="btn btn-darkghost" href="#security">阅读合规声明</a></div>
+        <div><a class="btn btn-white" href="/download/proxysplit-v1.9.0.exe" data-download>下载 v1.9.0</a><a class="btn btn-darkghost" href="#security">阅读合规声明</a></div>
       </div>
     </section>
   </main>

@@ -1,0 +1,29 @@
+.protocol-strip{position:relative;z-index:2;max-width:1240px;margin:22px auto 0;padding:18px 20px;border:1px solid rgba(255,255,255,.1);border-radius:16px;background:rgba(255,255,255,.035);display:flex;align-items:center;gap:18px}
+.protocol-strip>span{flex:none;color:#758ba6;font-size:10px;font-weight:800;letter-spacing:.12em;text-transform:uppercase}
+.protocol-strip>div{display:flex;flex-wrap:wrap;gap:7px;flex:1}
+.protocol-strip b{padding:5px 8px;border-radius:8px;color:#c8d8ef;background:rgba(255,255,255,.055);font-size:9px}
+.protocol-strip small{color:#60758e;font-size:9px}
+.membership{background:linear-gradient(180deg,#081523,#0b1728)}
+.membership .section-head>p{color:#9fb0c7}
+.membership-note{max-width:1200px;margin:-22px auto 22px;padding:15px 18px;border:1px solid rgba(79,124,255,.28);border-radius:14px;background:rgba(79,124,255,.08);display:flex;align-items:center;justify-content:space-between;gap:20px}
+.membership-note b,.membership-note span{display:block}
+.membership-note b{font-size:13px}
+.membership-note span{margin-top:4px;color:#91a4bc;font-size:10px}
+.membership-note a{flex:none;color:#8fb0ff;font-size:11px;font-weight:750}
+.pricing-grid{max-width:1200px;margin:auto;display:grid;grid-template-columns:repeat(auto-fit,minmax(225px,1fr));gap:15px}
+.pricing-card,.pricing-placeholder{min-height:320px;padding:24px;border:1px solid rgba(255,255,255,.11);border-radius:19px;background:rgba(255,255,255,.045);box-shadow:0 18px 50px rgba(0,0,0,.12)}
+.pricing-card.premium{border-color:rgba(93,139,255,.55);background:linear-gradient(145deg,rgba(44,91,208,.22),rgba(255,255,255,.04))}
+.pricing-card>div{display:flex;align-items:center;justify-content:space-between}
+.pricing-card>div span{color:#8eafff;font-size:10px;font-weight:800}
+.pricing-card>div em{padding:4px 7px;border-radius:8px;background:rgba(255,255,255,.07);color:#9fb0c7;font-size:9px;font-style:normal}
+.pricing-card h3{margin:21px 0 6px;font-size:19px}
+.pricing-card strong{display:block;margin:14px 0;font-size:31px}
+.pricing-card strong small{margin-right:3px;font-size:13px}
+.pricing-card p{min-height:43px;color:#91a4bc;font-size:11px;line-height:1.65}
+.pricing-card ul{padding-left:17px;color:#bdc9d8;font-size:11px;line-height:1.9}
+.pricing-card>a{display:flex;height:40px;margin-top:18px;align-items:center;justify-content:center;border-radius:10px;background:#fff;color:#102248;font-size:11px;font-weight:800}
+.pricing-placeholder{grid-column:1/-1;min-height:140px;display:grid;place-content:center;text-align:center}
+.pricing-placeholder span{font-size:16px;font-weight:800}
+.pricing-placeholder p{color:#8297b0;font-size:11px}
+.pricing-foot{max-width:1200px;margin:20px auto 0;color:#71869f;font-size:10px;text-align:center}
+@media(max-width:700px){.protocol-strip{align-items:flex-start;flex-direction:column}.membership-note{align-items:flex-start;flex-direction:column}.pricing-grid{grid-template-columns:1fr}}

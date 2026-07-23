@@ -3,8 +3,10 @@ package license
 import (
 	"crypto/ed25519"
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/x509"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"testing"
 	"time"
@@ -38,12 +40,14 @@ func testClient(t *testing.T) (*Client, ed25519.PrivateKey) {
 func TestLeaseVerificationAndOfflineGrace(t *testing.T) {
 	c, private := testClient(t)
 	exp := time.Now().Add(-time.Hour).Unix()
-	c.state.Lease = signedLease(t, private, map[string]any{"sub": "user", "did": "device", "plan": "Professional", "features": []string{"proxy"}, "minVersion": "1.8.0", "exp": exp, "grace": 72})
+	fp := sha256.Sum256([]byte("proxysplit-device-v1:" + c.fingerprint))
+	c.state.DeviceID = "device"
+	c.state.Lease = signedLease(t, private, map[string]any{"sub": "user", "did": "device", "fph": hex.EncodeToString(fp[:]), "plan": "Professional", "features": []string{"proxy"}, "minVersion": "1.8.0", "exp": exp, "entitlementExp": time.Now().Add(2 * time.Hour).Unix(), "grace": 6})
 	status := c.Status()
 	if !status.Authenticated || status.Plan != "Professional" {
 		t.Fatalf("valid offline lease rejected: %+v", status)
 	}
-	c.state.Lease = signedLease(t, private, map[string]any{"minVersion": "2.0.0", "exp": time.Now().Add(time.Hour).Unix(), "grace": 72})
+	c.state.Lease = signedLease(t, private, map[string]any{"sub": "user", "did": "device", "fph": hex.EncodeToString(fp[:]), "minVersion": "2.0.0", "exp": time.Now().Add(time.Hour).Unix(), "entitlementExp": time.Now().Add(2 * time.Hour).Unix(), "grace": 6})
 	if _, err := c.verifyLease(c.state.Lease); err == nil {
 		t.Fatal("minimum-version policy was not enforced")
 	}

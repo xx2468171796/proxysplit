@@ -64,8 +64,16 @@
     CheckAppUpdate as WCheckAppUpdate,
     InstallAppUpdate as WInstallAppUpdate,
     GetAppVersion as WGetAppVersion,
+    Register as WRegister,
+    GetMembershipPlans as WGetMembershipPlans,
+    GetMyDevices as WGetMyDevices,
+    UnbindMyDevice as WUnbindMyDevice,
+    GetMyOrders as WGetMyOrders,
+    CreateMembershipOrder as WCreateMembershipOrder,
+    GetAnnouncements as WGetAnnouncements,
+    RefreshEntitlement as WRefreshEntitlement,
   } from '../wailsjs/go/main/App.js'
-  import { EventsOn } from '../wailsjs/runtime/runtime.js'
+  import { BrowserOpenURL, EventsOn } from '../wailsjs/runtime/runtime.js'
   import donateQR from './assets/images/donate.png'
 
   type Tab = 'overview' | 'nodes' | 'apps' | 'rules' | 'subs' | 'logs' | 'settings'
@@ -128,7 +136,11 @@
   type RouteRule = { type: string; value: string; action: string }
   type RuleImportPreview = { schemaVersion: number; ruleCount: number; lineAdded: number; lineSkipped: number; customRules: number; summary: string; error?: string }
   type Routing = { enabled: boolean; mode: string; rules: RouteRule[] }
-  type LicenseStatus = { enabled: boolean; authenticated: boolean; username: string; plan: string; features: string[]; expiresAt: string; offlineUntil: string; error?: string }
+  type LicenseStatus = { enabled: boolean; signedIn: boolean; authenticated: boolean; username: string; plan: string; planCode: string; tier: string; maxDevices: number; features: string[]; expiresAt: string; offlineUntil: string; error?: string }
+  type MemberPlan = { id: string; code: string; name: string; description: string; tier: string; billingCycle: string; durationDays?: number; lifetime: boolean; priceCents: number; currency: string; maxDevices: number; features: string[]; badge: string }
+  type AccountDevice = { id: string; name: string; platform: string; appVersion: string; firstSeenAt: string; lastSeenAt: string; current: boolean }
+  type MemberOrder = { orderNo: string; planName: string; amountCents: number; currency: string; status: string; payUrl: string; paidAt: string; expiresAt: string; createdAt: string }
+  type Announcement = { id: string; type: string; title: string; summary: string; content: string; version: string; pinned: boolean; publishedAt: string }
   type AppRelease = { version: string; minimumVersion: string; url: string; sha256: string; signature: string; mandatory: boolean; publishedAt: string }
   type AppUpdateStatus = { enabled: boolean; current: string; available: boolean; release?: AppRelease; error?: string }
   type Settings = {
@@ -194,10 +206,19 @@
   let logs: string[] = []
   let recent: LogItem[] = []
   let status: Status | null = null
-  let license: LicenseStatus = { enabled: false, authenticated: true, username: '', plan: '', features: [], expiresAt: '', offlineUntil: '' }
+  let license: LicenseStatus = { enabled: false, signedIn: false, authenticated: true, username: '', plan: '', planCode: '', tier: '', maxDevices: 0, features: [], expiresAt: '', offlineUntil: '' }
   let loginForm = { username: '', password: '' }
+  let authMode: 'login' | 'register' = 'login'
   let loginBusy = false
   let loginError = ''
+  let memberPlans: MemberPlan[] = []
+  let accountDevices: AccountDevice[] = []
+  let memberOrders: MemberOrder[] = []
+  let announcements: Announcement[] = []
+  let commerceBusy = false
+  let commerceError = ''
+  let showMembership = false
+  let activeOrder: MemberOrder | null = null
   let ruleMode: 'blacklist' | 'whitelist' = 'whitelist' // 只代理列出的（默认/推荐）
   let linkText = ''
   let addMsg = ''
@@ -420,6 +441,18 @@
     if (!isWailsReady()) return
     license = await safe<LicenseStatus>(() => WGetLicenseStatus(), license)
   }
+  async function loadCommerce() {
+    if (!isWailsReady() || !license.enabled) return
+    const plansResult = await WGetMembershipPlans() as any
+    if (plansResult.err) commerceError = plansResult.err
+    else memberPlans = plansResult.items || []
+    const announcementResult = await WGetAnnouncements() as any
+    if (!announcementResult.err) announcements = announcementResult.items || []
+    if (!license.signedIn) { accountDevices = []; memberOrders = []; return }
+    const [deviceResult, orderResult] = await Promise.all([WGetMyDevices(), WGetMyOrders()]) as any[]
+    if (!deviceResult.err) accountDevices = deviceResult.items || []
+    if (!orderResult.err) memberOrders = orderResult.items || []
+  }
   async function submitLogin() {
     if (!loginForm.username.trim() || !loginForm.password) { loginError = '请输入用户名和密码'; return }
     loginBusy = true; loginError = ''
@@ -428,12 +461,50 @@
     if (err) { loginError = err; return }
     loginForm.password = ''
     await refreshLicense()
+    await loadCommerce()
+  }
+  async function submitRegister() {
+    if (!loginForm.username.trim() || loginForm.password.length < 10) { loginError = '用户名至少 3 位，密码至少 10 位'; return }
+    loginBusy = true; loginError = ''
+    const err = await WRegister(loginForm.username.trim(), loginForm.password)
+    loginBusy = false
+    if (err) { loginError = err; return }
+    loginForm.password = ''
+    await refreshLicense()
+    await loadCommerce()
+  }
+  async function buyPlan(plan: MemberPlan) {
+    commerceBusy = true; commerceError = ''
+    const result = await WCreateMembershipOrder(plan.id) as any
+    commerceBusy = false
+    if (result.err) { commerceError = result.err; return }
+    activeOrder = result.order
+    await loadCommerce()
+    if (activeOrder?.payUrl && /^https?:\/\//i.test(activeOrder.payUrl)) BrowserOpenURL(activeOrder.payUrl)
+  }
+  async function refreshPayment() {
+    commerceBusy = true; commerceError = ''
+    await loadCommerce()
+    const order = activeOrder && memberOrders.find(o => o.orderNo === activeOrder?.orderNo)
+    if (order?.status === 'paid') {
+      const err = await WRefreshEntitlement()
+      if (err) commerceError = err
+      else { activeOrder = null; showMembership = false; await refreshLicense() }
+    } else commerceError = '暂未查询到支付成功，请完成支付后重试'
+    commerceBusy = false
+  }
+  async function unbindDevice(id: string) {
+    if (!confirm('确认解绑这台设备并立即撤销会话？')) return
+    const err = await WUnbindMyDevice(id)
+    if (err) { commerceError = err; return }
+    await refreshLicense(); await loadCommerce()
   }
   async function logoutAccount() {
     if (!confirm('退出当前账号后代理会停止，是否继续？')) return
     const err = await WLogout()
     if (err) { toast('退出失败：' + err); return }
-    await refreshLicense(); await refreshStatus()
+    activeOrder = null; showMembership = false
+    await refreshLicense(); await refreshStatus(); await loadCommerce()
   }
   const demoHealth: Health = { running: true, capturing: true, capturedPkts: 12873, warning: '',
     lines: [ { id: 'rule', name: '规则', node: 'JP | Tokyo - 01', latency: 48, ok: true },
@@ -1033,6 +1104,10 @@
     if (isWailsReady()) {
       EventsOn('log', (line: string) => pushLog(line))
       EventsOn('app-update', receiveAppUpdate)
+      EventsOn('license-expired', async (message: string) => {
+        toast('会员授权已停止：' + message)
+        await refreshLicense(); await refreshStatus(); await loadCommerce()
+      })
     }
     if (!loaded && !bootstrapLoaded) useDemo = true
     await refreshRouting()
@@ -1042,6 +1117,7 @@
     await refreshAutostart(); await refreshLogLevel()
     lanIP = await safe<string>(() => WGetLanIP(), '192.168.1.100')
     await refreshRunning(); await refreshHealth(); await refreshRuleSets(); await refreshAIInfo()
+    await loadCommerce()
     themePref = settings.theme || 'light'; applyTheme(themePref)
     if (useDemo && recent.length === 0) recent = demoLogs
     window.addEventListener('focus', reloadData)
@@ -1106,27 +1182,52 @@
 <svelte:head><title>ProxySplit</title></svelte:head>
 
 {#if license.enabled && !license.authenticated}
-  <main class="license-login">
-    <form class="license-login-card" on:submit|preventDefault={submitLogin}>
-      <div class="license-mark">◑</div>
-      <div class="license-login-title">
-        <span>ProxySplit</span>
-        <small>登录后使用你的授权设备</small>
-      </div>
-      <label>
-        <span>用户名</span>
-        <input bind:value={loginForm.username} autocomplete="username" placeholder="请输入用户名" disabled={loginBusy} />
-      </label>
-      <label>
-        <span>密码</span>
-        <input type="password" bind:value={loginForm.password} autocomplete="current-password" placeholder="请输入密码" disabled={loginBusy} />
-      </label>
-      {#if loginError}<div class="license-error">{loginError}</div>{/if}
-      <button class="primary license-submit" type="submit" disabled={loginBusy || !loginForm.username.trim() || !loginForm.password}>
-        {loginBusy ? '正在验证…' : '登录并绑定本机'}
-      </button>
-      <p class="license-tip">账号授权由服务端校验。凭据和授权票据仅加密保存在本机。</p>
-    </form>
+  <main class:license-login={!license.signedIn} class:member-gate={license.signedIn}>
+    {#if !license.signedIn}
+      <form class="license-login-card" on:submit|preventDefault={authMode === 'login' ? submitLogin : submitRegister}>
+        <div class="license-mark">◑</div>
+        <div class="license-login-title">
+          <span>ProxySplit</span>
+          <small>{authMode === 'login' ? '登录后使用你的授权设备' : '注册即享后台配置的免费试用'}</small>
+        </div>
+        <div class="auth-tabs"><button type="button" class:active={authMode === 'login'} on:click={() => { authMode = 'login'; loginError = '' }}>登录</button><button type="button" class:active={authMode === 'register'} on:click={() => { authMode = 'register'; loginError = '' }}>免费注册</button></div>
+        <label>
+          <span>用户名</span>
+          <input bind:value={loginForm.username} autocomplete="username" placeholder="字母、数字或邮箱" disabled={loginBusy} />
+        </label>
+        <label>
+          <span>密码</span>
+          <input type="password" bind:value={loginForm.password} autocomplete={authMode === 'register' ? 'new-password' : 'current-password'} placeholder={authMode === 'register' ? '至少 10 位' : '请输入密码'} disabled={loginBusy} />
+        </label>
+        {#if loginError}<div class="license-error">{loginError}</div>{/if}
+        <button class="primary license-submit" type="submit" disabled={loginBusy || !loginForm.username.trim() || !loginForm.password}>
+          {loginBusy ? '正在验证…' : authMode === 'login' ? '登录并绑定本机' : '注册并领取试用'}
+        </button>
+        <p class="license-tip">账号、设备名额与会员状态由服务端校验；主板等硬件信息只生成摘要，不上传原始序列号。</p>
+      </form>
+    {:else}
+      <section class="member-center">
+        <header class="member-hero"><div><span class="member-eyebrow">MEMBERSHIP CENTER</span><h1>选择适合你的会员套餐</h1><p>你好，{license.username}。当前账号暂无有效会员，完成支付后将在几秒内自动到账。</p></div><button class="ghost" on:click={logoutAccount}>退出账号</button></header>
+        {#if commerceError}<div class="member-alert">{commerceError}</div>{/if}
+        <div class="member-plan-grid">
+          {#each memberPlans as plan}
+            <article class:premium={plan.tier === 'premium'}>
+              <div class="member-plan-top"><span>{plan.badge || (plan.tier === 'premium' ? '超级会员' : '普通会员')}</span><em>{plan.maxDevices} 台设备</em></div>
+              <h2>{plan.name}</h2><p>{plan.description}</p>
+              <strong><small>¥</small>{(plan.priceCents / 100).toFixed(2)}</strong>
+              <ul><li>{plan.lifetime ? '永久有效' : `${plan.durationDays || 0} 天有效`}</li><li>{plan.tier === 'premium' ? '全部主流协议与高级线路' : 'HTTP / HTTPS / SOCKS 与基础规则'}</li><li>服务端签名授权、设备自助解绑</li></ul>
+              <button class="primary" disabled={commerceBusy} on:click={() => buyPlan(plan)}>{commerceBusy ? '处理中…' : '立即开通'}</button>
+            </article>
+          {/each}
+        </div>
+        <div class="member-lower">
+          <section class="member-panel"><div class="panel-title"><b>已绑定设备</b><span>{accountDevices.length} 台</span></div>{#each accountDevices as device}<div class="member-row"><div><b>{device.name}</b><small>{device.appVersion} · 最近在线 {new Date(device.lastSeenAt).toLocaleString()}</small></div><div>{#if device.current}<span class="current-device">当前设备</span>{/if}<button on:click={() => unbindDevice(device.id)}>解绑</button></div></div>{:else}<p class="member-empty">暂无设备</p>{/each}</section>
+          <section class="member-panel"><div class="panel-title"><b>充值记录</b><span>{memberOrders.length} 笔</span></div>{#each memberOrders.slice(0, 5) as order}<div class="member-row"><div><b>{order.planName}</b><small>{order.orderNo}</small></div><div><span class:paid={order.status === 'paid'}>{order.status === 'paid' ? '已支付' : order.status === 'pending' ? '待支付' : order.status}</span><b>¥{(order.amountCents / 100).toFixed(2)}</b></div></div>{:else}<p class="member-empty">暂无充值记录</p>{/each}</section>
+        </div>
+        {#if announcements.length}<section class="member-panel announcements"><div class="panel-title"><b>公告与更新</b><span>{announcements.length} 条</span></div>{#each announcements.slice(0, 4) as item}<div class="member-row"><div><b>{item.title}</b><small>{item.summary || item.content}</small></div><time>{new Date(item.publishedAt).toLocaleDateString()}</time></div>{/each}</section>{/if}
+        {#if activeOrder}<div class="payment-sheet"><div><span>订单 {activeOrder.orderNo}</span><h3>{activeOrder.planName} · ¥{(activeOrder.amountCents / 100).toFixed(2)}</h3><p>支付页已打开；完成支付后点击刷新，会员将自动到账。</p></div><div><button class="ghost" on:click={() => activeOrder?.payUrl && BrowserOpenURL(activeOrder.payUrl)}>重新打开支付页</button><button class="primary" disabled={commerceBusy} on:click={refreshPayment}>我已支付，刷新状态</button></div></div>{/if}
+      </section>
+    {/if}
   </main>
 {:else}
 <div class="shell">
@@ -1726,7 +1827,8 @@
                 <div><span>离线可用至</span><b>{license.offlineUntil ? new Date(license.offlineUntil).toLocaleString() : '需在线校验'}</b></div>
               </div>
               <div class="account-actions">
-                <button class="ghost" on:click={refreshLicense}>刷新授权</button>
+                <button class="primary" on:click={() => { showMembership = true; loadCommerce() }}>续费 / 升级套餐</button>
+                <button class="ghost" on:click={async () => { const err = await WRefreshEntitlement(); if (err) toast(err); await refreshLicense() }}>刷新授权</button>
                 <button class="danger-soft" on:click={logoutAccount}>退出账号</button>
               </div>
             </section>
@@ -1805,6 +1907,27 @@
       <div class="sb-right">系统代理：<b class:on={sysProxy}>{sysProxy ? '已开启' : '已关闭'}</b><span class="ok" class:on={running}>✓</span></div>
     </footer>
   </section>
+
+  {#if showMembership}
+    <div class="modal-mask member-modal-mask" role="button" tabindex="0" aria-label="关闭会员中心" on:click|self={() => (showMembership = false)} on:keydown={(e) => e.key === 'Escape' && (showMembership = false)}>
+      <section class="member-modal">
+        <div class="member-modal-head"><div><span class="member-eyebrow">MEMBERSHIP</span><h2>续费或升级会员</h2><p>{license.plan} · 最多 {license.maxDevices} 台设备</p></div><button class="icon-btn" on:click={() => (showMembership = false)}>✕</button></div>
+        {#if commerceError}<div class="member-alert">{commerceError}</div>{/if}
+        <div class="member-plan-grid compact">
+          {#each memberPlans as plan}
+            <article class:premium={plan.tier === 'premium'}>
+              <div class="member-plan-top"><span>{plan.badge || plan.name}</span><em>{plan.maxDevices} 台</em></div><h2>{plan.name}</h2><p>{plan.description}</p><strong><small>¥</small>{(plan.priceCents / 100).toFixed(2)}</strong><button class="primary" disabled={commerceBusy} on:click={() => buyPlan(plan)}>购买</button>
+            </article>
+          {/each}
+        </div>
+        <div class="member-lower compact">
+          <section class="member-panel"><div class="panel-title"><b>我的设备</b><span>{accountDevices.length}/{license.maxDevices}</span></div>{#each accountDevices as device}<div class="member-row"><div><b>{device.name}</b><small>{device.appVersion} · {new Date(device.lastSeenAt).toLocaleString()}</small></div><div>{#if device.current}<span class="current-device">本机</span>{/if}<button on:click={() => unbindDevice(device.id)}>解绑</button></div></div>{/each}</section>
+          <section class="member-panel"><div class="panel-title"><b>最近订单</b><span>{memberOrders.length}</span></div>{#each memberOrders.slice(0, 4) as order}<div class="member-row"><div><b>{order.planName}</b><small>{order.orderNo}</small></div><div><span class:paid={order.status === 'paid'}>{order.status === 'paid' ? '已支付' : '待支付'}</span><b>¥{(order.amountCents / 100).toFixed(2)}</b></div></div>{/each}</section>
+        </div>
+        {#if activeOrder}<div class="payment-sheet"><div><span>{activeOrder.orderNo}</span><h3>{activeOrder.planName} · ¥{(activeOrder.amountCents / 100).toFixed(2)}</h3></div><div><button class="ghost" on:click={() => activeOrder?.payUrl && BrowserOpenURL(activeOrder.payUrl)}>打开支付页</button><button class="primary" on:click={refreshPayment}>刷新到账状态</button></div></div>{/if}
+      </section>
+    </div>
+  {/if}
 
   {#if qrData}
     <div class="modal-mask" role="button" tabindex="0" aria-label="关闭二维码" on:click={closeQRBackdrop} on:keydown={(e) => (e.key === 'Escape' || e.key === 'Enter') && closeQR()}>
@@ -2464,6 +2587,60 @@
   .donate-close:active { transform: translateY(1px); }
   .donate-close.waiting { background: var(--soft); color: var(--muted-2); box-shadow: none; cursor: not-allowed; font-variant-numeric: tabular-nums; }
   @keyframes donatePop { from { opacity: 0; transform: scale(0.9) translateY(8px); } to { opacity: 1; transform: scale(1) translateY(0); } }
+
+  /* ---------- membership / commerce ---------- */
+  .auth-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 4px; border-radius: 10px; background: var(--soft); }
+  .auth-tabs button { height: 34px; border: 0; border-radius: 8px; background: transparent; color: var(--muted); font-weight: 700; }
+  .auth-tabs button.active { color: var(--brand); background: var(--card); box-shadow: 0 2px 8px rgba(15,23,42,.08); }
+  .member-gate { min-height: 100vh; overflow: auto; padding: 38px; background: radial-gradient(circle at 85% -5%, rgba(37,99,235,.22), transparent 34%), linear-gradient(145deg,#081329,#101d3c 62%,#07111f); }
+  .member-center { width: min(1240px,100%); margin: 0 auto; color: #eaf1ff; }
+  .member-hero { display: flex; justify-content: space-between; align-items: flex-start; gap: 20px; margin-bottom: 26px; }
+  .member-eyebrow { color: #72a4ff; font-size: 11px; font-weight: 800; letter-spacing: .16em; }
+  .member-hero h1 { margin: 7px 0 8px; font-size: clamp(28px,3vw,42px); letter-spacing: -.03em; }
+  .member-hero p,.member-modal-head p { margin: 0; color: #9aacca; font-size: 13px; }
+  .member-hero>.ghost { color: #dbe7ff; border-color: rgba(255,255,255,.18); background: rgba(255,255,255,.06); }
+  .member-alert { margin: 0 0 16px; padding: 11px 13px; border: 1px solid rgba(248,113,113,.35); border-radius: 10px; color: #fecaca; background: rgba(127,29,29,.2); font-size: 12px; }
+  .member-plan-grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(220px,1fr)); gap: 15px; }
+  .member-plan-grid article { display: flex; flex-direction: column; min-height: 335px; padding: 21px; border: 1px solid rgba(255,255,255,.11); border-radius: 18px; background: rgba(255,255,255,.065); box-shadow: 0 18px 45px rgba(0,0,0,.14); backdrop-filter: blur(14px); }
+  .member-plan-grid article.premium { border-color: rgba(96,165,250,.58); background: linear-gradient(155deg,rgba(37,99,235,.27),rgba(255,255,255,.07)); }
+  .member-plan-top { display: flex; justify-content: space-between; gap: 8px; align-items: center; }
+  .member-plan-top span { color: #8fb6ff; font-size: 10px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+  .member-plan-top em { padding: 4px 7px; border-radius: 9px; color: #b8c8e5; background: rgba(255,255,255,.08); font-size: 10px; font-style: normal; }
+  .member-plan-grid h2 { margin: 20px 0 7px; font-size: 19px; }
+  .member-plan-grid article>p { min-height: 38px; margin: 0; color: #a8b8d2; font-size: 11.5px; line-height: 1.6; }
+  .member-plan-grid strong { display: block; margin: 17px 0 12px; font-size: 31px; letter-spacing: -.03em; }
+  .member-plan-grid strong small { margin-right: 3px; font-size: 14px; }
+  .member-plan-grid ul { flex: 1; margin: 0 0 18px; padding-left: 17px; color: #c2cfe3; font-size: 11px; line-height: 1.9; }
+  .member-plan-grid article>.primary { width: 100%; justify-content: center; }
+  .member-lower { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-top: 16px; }
+  .member-panel { overflow: hidden; border: 1px solid rgba(255,255,255,.11); border-radius: 16px; background: rgba(255,255,255,.055); }
+  .panel-title { display: flex; justify-content: space-between; padding: 15px 17px; border-bottom: 1px solid rgba(255,255,255,.09); }
+  .panel-title span { color: #8fa0bd; font-size: 11px; }
+  .member-row { display: flex; justify-content: space-between; gap: 16px; align-items: center; min-height: 60px; padding: 10px 17px; border-bottom: 1px solid rgba(255,255,255,.07); }
+  .member-row:last-child { border-bottom: 0; }
+  .member-row b { display: block; font-size: 12px; }
+  .member-row small { display: block; max-width: 500px; margin-top: 4px; overflow: hidden; color: #8fa0bd; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+  .member-row>div:last-child { display: flex; gap: 8px; align-items: center; }
+  .member-row button { border: 0; background: transparent; color: #8fb6ff; font-size: 11px; }
+  .member-row span { color: #fbbf24; font-size: 10px; }
+  .member-row span.paid,.current-device { color: #4ade80!important; }
+  .member-empty { padding: 20px; color: #8fa0bd; font-size: 11px; text-align: center; }
+  .announcements { margin-top: 16px; }
+  .announcements time { color: #8fa0bd; font-size: 10px; }
+  .payment-sheet { position: sticky; bottom: 18px; display: flex; justify-content: space-between; gap: 18px; align-items: center; margin-top: 16px; padding: 15px 17px; border: 1px solid rgba(96,165,250,.45); border-radius: 15px; background: rgba(9,20,43,.94); box-shadow: 0 18px 50px rgba(0,0,0,.32); backdrop-filter: blur(16px); }
+  .payment-sheet span { color: #8fa0bd; font-size: 10px; }
+  .payment-sheet h3 { margin: 4px 0; font-size: 15px; }
+  .payment-sheet p { margin: 0; color: #9aacca; font-size: 11px; }
+  .payment-sheet>div:last-child { display: flex; gap: 9px; }
+  .member-modal-mask { z-index: 180; overflow: auto; padding: 28px; align-items: flex-start; }
+  .member-modal { width: min(1120px,96vw); margin: auto; padding: 24px; border: 1px solid #243655; border-radius: 20px; color: #eaf1ff; background: linear-gradient(150deg,#0b1730,#111f3d); box-shadow: 0 30px 90px rgba(0,0,0,.45); }
+  .member-modal-head { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 18px; }
+  .member-modal-head h2 { margin: 5px 0; }
+  .member-modal .icon-btn { color: #dbe7ff; border-color: rgba(255,255,255,.15); }
+  .member-plan-grid.compact { grid-template-columns: repeat(auto-fit,minmax(190px,1fr)); }
+  .member-plan-grid.compact article { min-height: 250px; padding: 17px; }
+  .member-plan-grid.compact article>p { min-height: 52px; }
+  .member-lower.compact { margin-top: 15px; }
 
   /* ---------- responsive breakpoints ---------- */
   @media (max-width: 1180px) {

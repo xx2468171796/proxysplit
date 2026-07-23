@@ -18,6 +18,10 @@ export function CheckAppUpdate() {
   return window['go']['main']['App']['CheckAppUpdate']();
 }
 
+export function CreateMembershipOrder(arg1) {
+  return window['go']['main']['App']['CreateMembershipOrder'](arg1);
+}
+
 export function ExportAppRules() {
   return window['go']['main']['App']['ExportAppRules']();
 }
@@ -28,6 +32,10 @@ export function ExportConfig() {
 
 export function GetAIControlInfo() {
   return window['go']['main']['App']['GetAIControlInfo']();
+}
+
+export function GetAnnouncements() {
+  return window['go']['main']['App']['GetAnnouncements']();
 }
 
 export function GetAppIcon(arg1) {
@@ -88,6 +96,18 @@ export function GetLines() {
 
 export function GetLogLevel() {
   return window['go']['main']['App']['GetLogLevel']();
+}
+
+export function GetMembershipPlans() {
+  return window['go']['main']['App']['GetMembershipPlans']();
+}
+
+export function GetMyDevices() {
+  return window['go']['main']['App']['GetMyDevices']();
+}
+
+export function GetMyOrders() {
+  return window['go']['main']['App']['GetMyOrders']();
 }
 
 export function GetNodeQR(arg1) {
@@ -160,6 +180,14 @@ export function PickExeFiles() {
 
 export function PreviewAppRulesImport(arg1) {
   return window['go']['main']['App']['PreviewAppRulesImport'](arg1);
+}
+
+export function RefreshEntitlement() {
+  return window['go']['main']['App']['RefreshEntitlement']();
+}
+
+export function Register(arg1, arg2) {
+  return window['go']['main']['App']['Register'](arg1, arg2);
 }
 
 export function RemoveNode(arg1) {
@@ -260,6 +288,10 @@ export function TestApp(arg1) {
 
 export function TestLatency(arg1) {
   return window['go']['main']['App']['TestLatency'](arg1);
+}
+
+export function UnbindMyDevice(arg1) {
+  return window['go']['main']['App']['UnbindMyDevice'](arg1);
 }
 
 export function UpdateCore() {

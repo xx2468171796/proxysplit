@@ -42,6 +42,9 @@ $obfuscateEnabled = $Obfuscate.IsPresent
 if ($commercialEnabled) {
     if ($CommercialAPIURL -notmatch '^https://') { throw 'CommercialAPIURL must use HTTPS' }
     if (-not (Test-Path -LiteralPath $LicensePublicKeyFile -PathType Leaf)) { throw 'LicensePublicKeyFile is required for a commercial build' }
+    if ([string]::IsNullOrWhiteSpace($TLSSPKISHA256)) { throw 'TLSSPKISHA256 is required for a commercial build (fail-closed TLS pinning)' }
+    if (-not (Test-Path -LiteralPath $ReleasePublicKeyFile -PathType Leaf)) { throw 'ReleasePublicKeyFile is required for signed automatic updates' }
+    if (-not (Test-Path -LiteralPath $ReleaseSigningPrivateKeyFile -PathType Leaf)) { throw 'ReleaseSigningPrivateKeyFile is required for a commercial release' }
     $pem = [IO.File]::ReadAllText((Resolve-Path -LiteralPath $LicensePublicKeyFile))
     $publicKeyBase64 = ($pem -replace '-----BEGIN PUBLIC KEY-----', '' -replace '-----END PUBLIC KEY-----', '' -replace '\s', '')
     try { $null = [Convert]::FromBase64String($publicKeyBase64) } catch { throw 'LicensePublicKeyFile is not a valid PEM public key' }
@@ -50,7 +53,6 @@ if ($commercialEnabled) {
     $ldflags += "-X proxysplit/internal/license.PublicKeyBase64=$publicKeyBase64"
     if ($TLSSPKISHA256) { $ldflags += "-X proxysplit/internal/license.TLSSPKISHA256=$TLSSPKISHA256" }
     if ($ReleasePublicKeyFile) {
-        if (-not (Test-Path -LiteralPath $ReleasePublicKeyFile -PathType Leaf)) { throw 'ReleasePublicKeyFile does not exist' }
         $releasePem = [IO.File]::ReadAllText((Resolve-Path -LiteralPath $ReleasePublicKeyFile))
         $releasePublicKeyBase64 = ($releasePem -replace '-----BEGIN PUBLIC KEY-----', '' -replace '-----END PUBLIC KEY-----', '' -replace '\s', '')
         try { $null = [Convert]::FromBase64String($releasePublicKeyBase64) } catch { throw 'ReleasePublicKeyFile is not a valid PEM public key' }

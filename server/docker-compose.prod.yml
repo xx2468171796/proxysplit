@@ -54,10 +54,13 @@ services:
       target: api
     restart: unless-stopped
     init: true
-    env_file: /opt/proxysplit/secrets/runtime.env
+    env_file:
+      - /opt/proxysplit/secrets/runtime.env
+      - /opt/proxysplit/secrets/payment-zhongzhuan.env
     environment:
       HOST: 0.0.0.0
       PORT: 18780
+      PUBLIC_BASE_URL: https://proxysplit.zygskins.cn
     volumes:
       - /opt/proxysplit/secrets/license-private.pem:/run/secrets/license-private.pem:ro
       - /opt/proxysplit/secrets/license-public.pem:/run/secrets/license-public.pem:ro

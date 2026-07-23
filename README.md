@@ -7,7 +7,7 @@
 为不同应用设置规则、直连、拦截或指定线路；所有匹配与路由由 sing-box
 在本机完成，节点、订阅和应用规则优先保存在本机。
 
-[![下载](https://img.shields.io/badge/⬇_下载_v1.8.4-2563eb?style=for-the-badge)](https://proxysplit.zygskins.cn/download/proxysplit-v1.8.4.exe)
+[![下载](https://img.shields.io/badge/⬇_下载_v1.9.0-2563eb?style=for-the-badge)](https://proxysplit.zygskins.cn/download/proxysplit-v1.9.0.exe)
 &nbsp;
 ![平台](https://img.shields.io/badge/Windows_10/11-x64-334155?style=for-the-badge)
 ![内核](https://img.shields.io/badge/core-sing--box-16a34a?style=for-the-badge)
@@ -47,7 +47,7 @@ ProxySplit **不提供任何翻墙、VPN、代理节点、订阅或网络线路�
 ## 下载与使用
 
 前往 **[ProxySplit 官网](https://proxysplit.zygskins.cn)** 下载
-`proxysplit-v1.8.4.exe`。这是便携式单文件版本：
+`proxysplit-v1.9.0.exe`。这是便携式单文件版本：
 
 1. 在「节点」页添加你有权使用的合法网络配置。
 2. 在「应用分流」页选择应用并分配规则或线路。
@@ -90,6 +90,23 @@ sing-box outbound，并按进程名分别路由。
 - 节点、订阅、应用路径与规则默认不上传商业服务
 - 更新服务只发布 HTTPS 地址、版本号、SHA256 与独立 Ed25519 签名
 
+## 会员、试用与支付
+
+- 普通用户注册后按后台配置领取一次硬件绑定试用，当前默认 3 天。
+- 普通会员、超级会员及月卡、季卡、年卡、永久套餐都由服务端配置；价格、
+  活动时间、购买次数、设备数和功能权限不会由客户端自行决定。
+- 客户端启动服务前必须取得服务端签发的 Ed25519 短租约。租约绑定账号、
+  设备、硬件指纹、套餐能力与会员到期时间，运行中也会周期复查。
+- 同一账号的设备上限按套餐控制；用户和管理员都可解绑，解绑会撤销该设备会话。
+- 支付订单金额始终取服务端套餐快照，支付回调必须通过 HMAC、时间窗、金额、
+  渠道和幂等校验后，才会在同一数据库事务中发放或续期会员。
+- 支付密钥只通过生产环境 secret 注入，后台仅保存凭据引用；运营人员可切换
+  支付渠道而不重新发布桌面客户端。
+
+> 客户端完全运行在用户电脑上，理论上无法做到“绝对不可修改”。ProxySplit
+> 通过服务端订单与权益真源、签名短租约、设备绑定、启动守卫和运行中停服提高
+> 绕过成本；若未来节点或稀缺资源由服务端托管，还应在资源入口再次校验权益。
+
 ---
 
 ## 从源码构建
@@ -101,10 +118,10 @@ sing-box outbound，并按进程名分别路由。
 wails dev
 
 # 普通便携版
-.\scripts\build.ps1 -Version 1.8.4
+.\scripts\build.ps1 -Version 1.9.0
 
 # 商业版示例
-.\scripts\build.ps1 -Version 1.8.4 -Commercial `
+.\scripts\build.ps1 -Version 1.9.0 -Commercial `
   -CommercialAPIURL https://proxysplit.example.com `
   -LicensePublicKeyFile .\server\secrets\license-public.pem `
   -ReleasePublicKeyFile .\server\secrets\release-public.pem `

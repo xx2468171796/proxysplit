@@ -16,11 +16,15 @@ export function AddSub(arg1:string,arg2:string,arg3:boolean):Promise<string>;
 
 export function CheckAppUpdate():Promise<updater.Status>;
 
+export function CreateMembershipOrder(arg1:string):Promise<main.OrderResult>;
+
 export function ExportAppRules():Promise<string>;
 
 export function ExportConfig():Promise<string>;
 
 export function GetAIControlInfo():Promise<main.AIControlInfo>;
+
+export function GetAnnouncements():Promise<main.AnnouncementsResult>;
 
 export function GetAppIcon(arg1:string):Promise<string>;
 
@@ -51,6 +55,12 @@ export function GetLicenseStatus():Promise<license.Status>;
 export function GetLines():Promise<Array<service.Line>>;
 
 export function GetLogLevel():Promise<string>;
+
+export function GetMembershipPlans():Promise<main.PlansResult>;
+
+export function GetMyDevices():Promise<main.DevicesResult>;
+
+export function GetMyOrders():Promise<main.OrdersResult>;
 
 export function GetNodeQR(arg1:string):Promise<main.QRResult>;
 
@@ -87,6 +97,10 @@ export function Logout():Promise<string>;
 export function PickExeFiles():Promise<Array<string>>;
 
 export function PreviewAppRulesImport(arg1:string):Promise<service.RuleImportPreview>;
+
+export function RefreshEntitlement():Promise<string>;
+
+export function Register(arg1:string,arg2:string):Promise<string>;
 
 export function RemoveNode(arg1:string):Promise<void>;
 
@@ -137,6 +151,8 @@ export function TestAllLatency():Promise<void>;
 export function TestApp(arg1:string):Promise<number>;
 
 export function TestLatency(arg1:string):Promise<number>;
+
+export function UnbindMyDevice(arg1:string):Promise<string>;
 
 export function UpdateCore():Promise<string>;
 

@@ -119,6 +119,7 @@ type Service struct {
 	clashMode    string            // last-applied clash mode: rule|global|direct (default rule)
 	sysProxyOn   bool              // the Windows system proxy is currently applied by us
 	sysProxyWant bool              // user wants system proxy on — re-applied (new port) each Start
+	startGuard   func() error      // commercial entitlement gate for every start/restart path
 	healthCache  atomic.Value      // []LineHealth — refreshed by the background health loop
 }
 
@@ -137,6 +138,15 @@ func New(binDir, dataDir string) (*Service, error) {
 	s.startScheduler()
 	go s.healthLoop() // live line/node reachability for the status panel
 	return s, nil
+}
+
+// SetStartGuard installs the single authorization gate used by all lifecycle
+// paths, including internal live-reload restarts. Keeping it inside Service
+// prevents UI, tray, local API or settings changes from bypassing licensing.
+func (s *Service) SetStartGuard(guard func() error) {
+	s.mu.Lock()
+	s.startGuard = guard
+	s.mu.Unlock()
 }
 
 // startScheduler periodically auto-updates subscriptions that opt in.
@@ -942,6 +952,14 @@ func (s *Service) SetLogLevel(level string) {
 // Start resolves the config into per-line inbounds, launches the core, then the
 // redirect engine with one upstream dialer per line.
 func (s *Service) Start() error {
+	s.mu.Lock()
+	guard := s.startGuard
+	s.mu.Unlock()
+	if guard != nil {
+		if err := guard(); err != nil {
+			return fmt.Errorf("授权校验失败：%w", err)
+		}
+	}
 	s.mu.Lock()
 	node := s.selectedNode()
 	level := s.cfg.LogLevel

@@ -1,14 +1,14 @@
 export namespace core {
-
+	
 	export class RouteRule {
 	    type: string;
 	    value: string;
 	    action: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new RouteRule(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.type = source["type"];
@@ -20,7 +20,7 @@ export namespace core {
 }
 
 export namespace engine {
-
+	
 	export class Stats {
 	    running: boolean;
 	    activeConns: number;
@@ -28,11 +28,11 @@ export namespace engine {
 	    tracked: number;
 	    upBytes: number;
 	    downBytes: number;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new Stats(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.running = source["running"];
@@ -47,27 +47,149 @@ export namespace engine {
 }
 
 export namespace license {
-
+	
+	export class Announcement {
+	    id: string;
+	    type: string;
+	    title: string;
+	    summary: string;
+	    content: string;
+	    version: string;
+	    pinned: boolean;
+	    publishedAt: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new Announcement(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.type = source["type"];
+	        this.title = source["title"];
+	        this.summary = source["summary"];
+	        this.content = source["content"];
+	        this.version = source["version"];
+	        this.pinned = source["pinned"];
+	        this.publishedAt = source["publishedAt"];
+	    }
+	}
+	export class Device {
+	    id: string;
+	    name: string;
+	    platform: string;
+	    appVersion: string;
+	    firstSeenAt: string;
+	    lastSeenAt: string;
+	    current: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new Device(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.platform = source["platform"];
+	        this.appVersion = source["appVersion"];
+	        this.firstSeenAt = source["firstSeenAt"];
+	        this.lastSeenAt = source["lastSeenAt"];
+	        this.current = source["current"];
+	    }
+	}
+	export class Order {
+	    orderNo: string;
+	    planName: string;
+	    amountCents: number;
+	    currency: string;
+	    status: string;
+	    payUrl: string;
+	    paidAt: string;
+	    expiresAt: string;
+	    createdAt: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new Order(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.orderNo = source["orderNo"];
+	        this.planName = source["planName"];
+	        this.amountCents = source["amountCents"];
+	        this.currency = source["currency"];
+	        this.status = source["status"];
+	        this.payUrl = source["payUrl"];
+	        this.paidAt = source["paidAt"];
+	        this.expiresAt = source["expiresAt"];
+	        this.createdAt = source["createdAt"];
+	    }
+	}
+	export class Plan {
+	    id: string;
+	    code: string;
+	    name: string;
+	    description: string;
+	    tier: string;
+	    billingCycle: string;
+	    durationDays?: number;
+	    lifetime: boolean;
+	    priceCents: number;
+	    currency: string;
+	    maxDevices: number;
+	    features: string[];
+	    badge: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new Plan(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.code = source["code"];
+	        this.name = source["name"];
+	        this.description = source["description"];
+	        this.tier = source["tier"];
+	        this.billingCycle = source["billingCycle"];
+	        this.durationDays = source["durationDays"];
+	        this.lifetime = source["lifetime"];
+	        this.priceCents = source["priceCents"];
+	        this.currency = source["currency"];
+	        this.maxDevices = source["maxDevices"];
+	        this.features = source["features"];
+	        this.badge = source["badge"];
+	    }
+	}
 	export class Status {
 	    enabled: boolean;
+	    signedIn: boolean;
 	    authenticated: boolean;
 	    username: string;
 	    plan: string;
+	    planCode: string;
+	    tier: string;
+	    maxDevices: number;
 	    features: string[];
 	    expiresAt: string;
 	    offlineUntil: string;
 	    error?: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new Status(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.enabled = source["enabled"];
+	        this.signedIn = source["signedIn"];
 	        this.authenticated = source["authenticated"];
 	        this.username = source["username"];
 	        this.plan = source["plan"];
+	        this.planCode = source["planCode"];
+	        this.tier = source["tier"];
+	        this.maxDevices = source["maxDevices"];
 	        this.features = source["features"];
 	        this.expiresAt = source["expiresAt"];
 	        this.offlineUntil = source["offlineUntil"];
@@ -78,18 +200,18 @@ export namespace license {
 }
 
 export namespace main {
-
+	
 	export class AIControlInfo {
 	    url: string;
 	    token: string;
 	    prompt: string;
 	    mcpConfig: string;
 	    running: boolean;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new AIControlInfo(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.url = source["url"];
@@ -102,16 +224,48 @@ export namespace main {
 	export class AddResult {
 	    added: number;
 	    skipped: number;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new AddResult(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.added = source["added"];
 	        this.skipped = source["skipped"];
 	    }
+	}
+	export class AnnouncementsResult {
+	    items: license.Announcement[];
+	    err?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new AnnouncementsResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.items = this.convertValues(source["items"], license.Announcement);
+	        this.err = source["err"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 	export class BootstrapState {
 	    ready: boolean;
@@ -125,11 +279,11 @@ export namespace main {
 	    ruleMode: string;
 	    status: service.Status;
 	    license: license.Status;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new BootstrapState(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.ready = source["ready"];
@@ -144,7 +298,135 @@ export namespace main {
 	        this.status = this.convertValues(source["status"], service.Status);
 	        this.license = this.convertValues(source["license"], license.Status);
 	    }
-
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class DevicesResult {
+	    items: license.Device[];
+	    err?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new DevicesResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.items = this.convertValues(source["items"], license.Device);
+	        this.err = source["err"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class OrderResult {
+	    order: license.Order;
+	    err?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new OrderResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.order = this.convertValues(source["order"], license.Order);
+	        this.err = source["err"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class OrdersResult {
+	    items: license.Order[];
+	    err?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new OrdersResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.items = this.convertValues(source["items"], license.Order);
+	        this.err = source["err"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class PlansResult {
+	    items: license.Plan[];
+	    err?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new PlansResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.items = this.convertValues(source["items"], license.Plan);
+	        this.err = source["err"];
+	    }
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -166,11 +448,11 @@ export namespace main {
 	export class QRResult {
 	    data: string;
 	    err: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new QRResult(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.data = source["data"];
@@ -180,11 +462,11 @@ export namespace main {
 	export class SpeedResult {
 	    mbps: number;
 	    err: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new SpeedResult(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.mbps = source["mbps"];
@@ -195,7 +477,7 @@ export namespace main {
 }
 
 export namespace nodes {
-
+	
 	export class Node {
 	    id: string;
 	    name: string;
@@ -224,11 +506,11 @@ export namespace nodes {
 	    speed: number;
 	    subId?: string;
 	    raw?: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new Node(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
@@ -264,17 +546,17 @@ export namespace nodes {
 }
 
 export namespace proc {
-
+	
 	export class ProcInfo {
 	    name: string;
 	    desc: string;
 	    path: string;
 	    count: number;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new ProcInfo(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.name = source["name"];
@@ -287,7 +569,7 @@ export namespace proc {
 }
 
 export namespace service {
-
+	
 	export class AppRule {
 	    match: string;
 	    path: string;
@@ -296,11 +578,11 @@ export namespace service {
 	    enabled: boolean;
 	    action?: string;
 	    follow?: boolean;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new AppRule(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.match = source["match"];
@@ -318,11 +600,11 @@ export namespace service {
 	    node: string;
 	    latency: number;
 	    ok: boolean;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new LineHealth(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
@@ -338,11 +620,11 @@ export namespace service {
 	    capturedPkts: number;
 	    warning: string;
 	    lines: LineHealth[];
-
+	
 	    static createFrom(source: any = {}) {
 	        return new Health(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.running = source["running"];
@@ -351,7 +633,7 @@ export namespace service {
 	        this.warning = source["warning"];
 	        this.lines = this.convertValues(source["lines"], LineHealth);
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -374,18 +656,18 @@ export namespace service {
 	    enabled: boolean;
 	    mode: string;
 	    rules: core.RouteRule[];
-
+	
 	    static createFrom(source: any = {}) {
 	        return new Routing(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.enabled = source["enabled"];
 	        this.mode = source["mode"];
 	        this.rules = this.convertValues(source["rules"], core.RouteRule);
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -410,11 +692,11 @@ export namespace service {
 	    node: string;
 	    routing: Routing;
 	    builtin: boolean;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new Line(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
@@ -423,7 +705,7 @@ export namespace service {
 	        this.routing = this.convertValues(source["routing"], Routing);
 	        this.builtin = source["builtin"];
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -442,8 +724,8 @@ export namespace service {
 		    return a;
 		}
 	}
-
-
+	
+	
 	export class RuleImportPreview {
 	    schemaVersion: number;
 	    ruleCount: number;
@@ -452,11 +734,11 @@ export namespace service {
 	    customRules: number;
 	    summary: string;
 	    error?: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new RuleImportPreview(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.schemaVersion = source["schemaVersion"];
@@ -476,11 +758,11 @@ export namespace service {
 	    modified: string;
 	    present: boolean;
 	    enabled: boolean;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new RuleSetInfo(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.name = source["name"];
@@ -510,11 +792,11 @@ export namespace service {
 	    theme: string;
 	    autoUpdateRules: boolean;
 	    autoUpdateApp: boolean;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new Settings(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.mixedPort = source["mixedPort"];
@@ -545,11 +827,11 @@ export namespace service {
 	    ruleMode: string;
 	    uptimeSec: number;
 	    stats: engine.Stats;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new Status(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.coreRunning = source["coreRunning"];
@@ -561,7 +843,7 @@ export namespace service {
 	        this.uptimeSec = source["uptimeSec"];
 	        this.stats = this.convertValues(source["stats"], engine.Stats);
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -587,11 +869,11 @@ export namespace service {
 	    autoUpdate: boolean;
 	    lastUpdate: string;
 	    nodeCount: number;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new Sub(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
@@ -606,7 +888,7 @@ export namespace service {
 }
 
 export namespace updater {
-
+	
 	export class Release {
 	    version: string;
 	    minimumVersion: string;
@@ -615,11 +897,11 @@ export namespace updater {
 	    signature: string;
 	    mandatory: boolean;
 	    publishedAt: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new Release(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.version = source["version"];
@@ -637,11 +919,11 @@ export namespace updater {
 	    available: boolean;
 	    release?: Release;
 	    error?: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new Status(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.enabled = source["enabled"];
@@ -650,7 +932,7 @@ export namespace updater {
 	        this.release = this.convertValues(source["release"], Release);
 	        this.error = source["error"];
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;

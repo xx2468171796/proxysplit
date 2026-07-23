@@ -2,7 +2,7 @@ import { createHash, createPublicKey, randomUUID } from 'node:crypto'
 import { argon2id, hash, verify } from 'argon2'
 import { exportSPKI, generateKeyPair, importPKCS8, jwtVerify, SignJWT } from 'jose'
 import { AppError, normalizeUsername } from '@proxysplit/shared'
-import type { DeviceInput, LoginInput, RefreshInput } from '@proxysplit/contracts'
+import type { DeviceInput, LoginInput, RefreshInput, RegisterInput } from '@proxysplit/contracts'
 import type { PgStore, UserRecord } from './store.js'
 
 const encoder=new TextEncoder()
@@ -29,18 +29,36 @@ export class AuthService{
   private async issue(user:UserRecord,deviceId:string,familyId:string=randomUUID()){
     const jti=randomUUID(), refreshToken=await this.refresh(user.id,deviceId,familyId,jti), expiresAt=new Date(Date.now()+this.cfg.refreshDays*86400000)
     await this.store.createSession({userId:user.id,deviceId,familyId,jti,tokenHash:sha256(refreshToken),expiresAt})
-    return {accessToken:await this.access(user,deviceId),refreshToken,expiresIn:900,user:{id:user.id,username:user.username,role:user.role}}
+    return {accessToken:await this.access(user,deviceId),refreshToken,expiresIn:900,deviceId,user:{id:user.id,username:user.username,role:user.role}}
+  }
+  async register(input:RegisterInput,ip=''){
+    const passwordHash=await hashPassword(input.password)
+    try{
+      await this.store.registerTrialUser({
+        username:normalizeUsername(input.username),passwordHash,
+        hardwareHash:hashFingerprint(input.device.hardwareHash??input.device.fingerprint),ip,
+      })
+    }catch(error){
+      const code=(error as {code?:string}).code
+      const message=(error as Error).message
+      if(code==='23505')throw new AppError('USERNAME_TAKEN','用户名已存在',409)
+      if(message==='REGISTRATION_DISABLED')throw new AppError('REGISTRATION_DISABLED','当前暂停开放注册',403)
+      if(message==='TRIAL_ALREADY_CLAIMED')throw new AppError('TRIAL_ALREADY_CLAIMED','本机已经领取过免费试用，请登录原账号或购买套餐',409)
+      if(message==='TRIAL_PLAN_NOT_FOUND')throw new AppError('TRIAL_UNAVAILABLE','试用套餐暂不可用',503)
+      throw error
+    }
+    return this.login(input,ip)
   }
   async login(input:LoginInput,ip=''){
     const user=await this.store.findUser(normalizeUsername(input.username)); const valid=user?await verify(user.passwordHash,input.password).catch(()=>false):false
     if(!user||!valid){await this.store.audit(null,'auth.login','user','unknown',ip,'denied');throw new AppError('AUTH_INVALID','Invalid username or password',401)}
     if(user.status!=='active')throw new AppError('ACCOUNT_UNAVAILABLE','Account is unavailable',403)
     const entitlement=await this.store.entitlement(user.id)
-    const ent=entitlement??(user.role==='admin'?{licenseId:'admin',planId:'admin',planName:'Administrator',maxDevices:10,features:['admin'],expiresAt:new Date('2999-12-31'),status:'active'}:null)
-    if(!ent)throw new AppError('LICENSE_INACTIVE','License is missing or expired',403)
-    let device;try{device=await this.store.bindDevice(user.id,hashFingerprint(input.device.fingerprint),input.device.name,input.device.platform,input.device.appVersion,ent.maxDevices)}catch(e){if((e as Error).message==='DEVICE_LIMIT')throw new AppError('DEVICE_LIMIT','Device limit reached',403);if((e as Error).message==='DEVICE_REVOKED')throw new AppError('DEVICE_REVOKED','Device was revoked',403);throw e}
+    const ent=entitlement??(user.role==='admin'?{licenseId:'admin',planId:'admin',planCode:'admin',planName:'Administrator',tier:'premium' as const,maxDevices:10,features:['admin'],expiresAt:new Date('2999-12-31'),lifetime:true,status:'active'}:null)
+    const settings=await this.store.getCommerceSettings()
+    let device;try{device=await this.store.bindDevice(user.id,hashFingerprint(input.device.fingerprint),hashFingerprint(input.device.hardwareHash??input.device.fingerprint),input.device.name,input.device.platform,input.device.appVersion,ent?.maxDevices??settings.defaultDeviceLimit)}catch(e){if((e as Error).message==='DEVICE_LIMIT')throw new AppError('DEVICE_LIMIT','设备数量已达到当前套餐上限，请先解绑旧设备或升级套餐',403);throw e}
     await this.store.audit(user.id,'auth.login','device',device.id,ip,'success')
-    return {...await this.issue(user,device.id),license:{plan:ent.planName,expiresAt:ent.expiresAt,features:ent.features,maxDevices:ent.maxDevices}}
+    return {...await this.issue(user,device.id),license:ent?{plan:ent.planName,planCode:ent.planCode,tier:ent.tier,expiresAt:ent.expiresAt,features:ent.features,maxDevices:ent.maxDevices,lifetime:ent.lifetime}:null}
   }
   async rotate(input:RefreshInput,ip=''){
     let payload;try{({payload}=await jwtVerify(input.refreshToken,encoder.encode(this.cfg.accessSecret),{algorithms:['HS256']}))}catch{throw new AppError('REFRESH_INVALID','Session expired; sign in again',401)}
@@ -72,8 +90,9 @@ export class AuthService{
     const user=await this.store.findUserById(userId);if(!user||user.status!=='active')throw new AppError('ACCOUNT_UNAVAILABLE','Account is unavailable',403)
     const ent=await this.store.entitlement(userId);if(!ent)throw new AppError('LICENSE_INACTIVE','License is missing or expired',403)
     const device=await this.store.findDevice(deviceId);if(!device||device.userId!==userId||device.revoked||device.fingerprintHash!==hashFingerprint(deviceFingerprint))throw new AppError('DEVICE_MISMATCH','Device verification failed',401)
-    await this.store.touchDevice(deviceId,appVersion);const release=await this.store.latestRelease();const expires=Math.min(Date.now()+24*3600000,ent.expiresAt.getTime())
-    const token=await new SignJWT({typ:'license-lease',lid:ent.licenseId,did:deviceId,plan:ent.planName,features:ent.features,minVersion:release?.minimumVersion??'1.7.2',grace:72}).setProtectedHeader({alg:'EdDSA',kid:'proxysplit-license-v1'}).setSubject(userId).setIssuedAt().setExpirationTime(Math.floor(expires/1000)).sign(this.privateKey)
-    return {lease:token,expiresAt:new Date(expires).toISOString(),offlineGraceHours:72,release}
+    const settings=await this.store.getCommerceSettings()
+    await this.store.touchDevice(deviceId,appVersion);const release=await this.store.latestRelease();const expires=Math.min(Date.now()+settings.licenseLeaseMinutes*60000,ent.expiresAt.getTime())
+    const token=await new SignJWT({typ:'license-lease',lid:ent.licenseId,did:deviceId,fph:device.fingerprintHash,plan:ent.planName,planCode:ent.planCode,tier:ent.tier,maxDevices:ent.maxDevices,features:ent.features,minVersion:release?.minimumVersion??'1.7.2',grace:settings.offlineGraceHours,entitlementExp:Math.floor(ent.expiresAt.getTime()/1000)}).setProtectedHeader({alg:'EdDSA',kid:'proxysplit-license-v1'}).setSubject(userId).setIssuedAt().setExpirationTime(Math.floor(expires/1000)).sign(this.privateKey)
+    return {lease:token,expiresAt:new Date(expires).toISOString(),offlineGraceHours:settings.offlineGraceHours,entitlementExpiresAt:ent.expiresAt.toISOString(),release}
   }
 }

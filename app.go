@@ -8,6 +8,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -74,12 +75,61 @@ func (a *App) startup(ctx context.Context) {
 	}
 	a.svc = svc
 	a.lic = license.New(dataDir(), appVersion)
+	svc.SetStartGuard(a.commercialStartGuard)
 	svc.SetLogSink(func(line string) {
 		runtime.EventsEmit(ctx, "log", line)
 	})
 	a.finishStartup(nil)
+	go a.licenseWatchdog()
 	go a.initTray()    // system-tray icon (minimise-to-tray, quick start/stop)
 	a.startAPIServer() // local AI-control HTTP API (127.0.0.1)
+}
+
+func (a *App) commercialStartGuard() error {
+	if err := a.lic.EnsureEntitled(); err != nil {
+		return err
+	}
+	if !a.lic.Enabled() {
+		return nil
+	}
+	selected := a.svc.Status().SelectedID
+	for _, node := range a.svc.Nodes() {
+		if node.ID != selected {
+			continue
+		}
+		protocol := strings.ToLower(node.Type)
+		if protocol == "socks5" {
+			protocol = "socks"
+		}
+		if a.lic.HasFeature("all-protocols") || a.lic.HasFeature(protocol) {
+			return nil
+		}
+		return fmt.Errorf("当前会员不支持 %s 协议，请升级超级会员", strings.ToUpper(protocol))
+	}
+	return nil
+}
+
+// licenseWatchdog stops a running core shortly after expiry, account
+// suspension, payment revocation or device unbinding. The same validation is
+// also installed directly on Service.Start for every restart path.
+func (a *App) licenseWatchdog() {
+	ticker := time.NewTicker(5 * time.Minute)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ticker.C:
+			if a.svc == nil || a.lic == nil || !a.svc.Status().CoreRunning {
+				continue
+			}
+			if err := a.lic.EnsureEntitled(); err != nil {
+				a.svc.Stop()
+				runtime.EventsEmit(a.ctx, "license-expired", err.Error())
+				runtime.LogWarning(a.ctx, "commercial entitlement stopped the proxy core: "+err.Error())
+			}
+		case <-a.ctx.Done():
+			return
+		}
+	}
 }
 
 // BootstrapState is the complete persisted state needed for the first UI
@@ -240,8 +290,13 @@ func (a *App) GetAppRules() []service.AppRule             { return a.svc.GetAppR
 func (a *App) SetAppRules(rules []service.AppRule) string { return a.svc.SetAppRules(rules) }
 
 // GetLines / SetLines manage routing lines (builtin + custom; SetLines takes custom).
-func (a *App) GetLines() []service.Line             { return a.svc.GetLines() }
-func (a *App) SetLines(lines []service.Line) string { return a.svc.SetLines(lines) }
+func (a *App) GetLines() []service.Line { return a.svc.GetLines() }
+func (a *App) SetLines(lines []service.Line) string {
+	if len(lines) > 0 && a.lic != nil && !a.lic.HasFeature("custom-lines") {
+		return "当前会员不支持自定义线路，请升级超级会员"
+	}
+	return a.svc.SetLines(lines)
+}
 
 // GetRuleMode / SetRuleMode manage blacklist vs whitelist.
 func (a *App) GetRuleMode() string            { return a.svc.GetRuleMode() }
@@ -330,8 +385,13 @@ func (a *App) SetRuleSetEnabled(name string, enabled bool) string {
 }
 
 // Global custom routing rules (域名/IP → 代理/直连/拦截).
-func (a *App) GetCustomRules() []core.RouteRule             { return a.svc.GetCustomRules() }
-func (a *App) SetCustomRules(rules []core.RouteRule) string { return a.svc.SetCustomRules(rules) }
+func (a *App) GetCustomRules() []core.RouteRule { return a.svc.GetCustomRules() }
+func (a *App) SetCustomRules(rules []core.RouteRule) string {
+	if len(rules) > 0 && a.lic != nil && !a.lic.HasFeature("custom-lines") {
+		return "当前会员不支持高级自定义规则，请升级超级会员"
+	}
+	return a.svc.SetCustomRules(rules)
+}
 
 // ResetConfig restores settings/rules/mode to defaults (keeps nodes + subs).
 func (a *App) ResetConfig() { a.svc.ResetConfig() }
@@ -470,15 +530,9 @@ func (a *App) Start() string {
 	return ""
 }
 
-// startService is the single gate into proxy execution. Every UI, tray and
-// local-control entry point must call it so commercial authorization cannot be
-// bypassed by invoking an alternate start/restart route.
+// startService delegates to Service.Start, whose internal guard covers every
+// UI, tray, local-control and live-reload restart route.
 func (a *App) startService() error {
-	if a.lic != nil {
-		if err := a.lic.EnsureEntitled(); err != nil {
-			return fmt.Errorf("授权校验失败：%w", err)
-		}
-	}
 	return a.svc.Start()
 }
 
@@ -496,6 +550,77 @@ func (a *App) Login(username, password string) string {
 		return "授权模块尚未初始化"
 	}
 	return errStr(a.lic.Login(username, password))
+}
+
+func (a *App) Register(username, password string) string {
+	if a.lic == nil {
+		return "授权模块尚未初始化"
+	}
+	return errStr(a.lic.Register(username, password))
+}
+
+type PlansResult struct {
+	Items []license.Plan `json:"items"`
+	Err   string         `json:"err,omitempty"`
+}
+
+type DevicesResult struct {
+	Items []license.Device `json:"items"`
+	Err   string           `json:"err,omitempty"`
+}
+
+type OrdersResult struct {
+	Items []license.Order `json:"items"`
+	Err   string          `json:"err,omitempty"`
+}
+
+type OrderResult struct {
+	Order license.Order `json:"order"`
+	Err   string        `json:"err,omitempty"`
+}
+
+type AnnouncementsResult struct {
+	Items []license.Announcement `json:"items"`
+	Err   string                 `json:"err,omitempty"`
+}
+
+func (a *App) GetMembershipPlans() PlansResult {
+	items, err := a.lic.Plans()
+	return PlansResult{Items: items, Err: errStr(err)}
+}
+
+func (a *App) GetMyDevices() DevicesResult {
+	items, err := a.lic.Devices()
+	return DevicesResult{Items: items, Err: errStr(err)}
+}
+
+func (a *App) UnbindMyDevice(id string) string {
+	if err := a.lic.UnbindDevice(id); err != nil {
+		return err.Error()
+	}
+	if !a.lic.Status().SignedIn {
+		a.svc.Stop()
+	}
+	return ""
+}
+
+func (a *App) GetMyOrders() OrdersResult {
+	items, err := a.lic.Orders()
+	return OrdersResult{Items: items, Err: errStr(err)}
+}
+
+func (a *App) CreateMembershipOrder(planID string) OrderResult {
+	order, err := a.lic.CreateOrder(planID)
+	return OrderResult{Order: order, Err: errStr(err)}
+}
+
+func (a *App) GetAnnouncements() AnnouncementsResult {
+	items, err := a.lic.Announcements()
+	return AnnouncementsResult{Items: items, Err: errStr(err)}
+}
+
+func (a *App) RefreshEntitlement() string {
+	return errStr(a.lic.RefreshEntitlement())
 }
 
 func (a *App) Logout() string {

@@ -12,7 +12,7 @@ class FakeStore {
   async findUser(username: string) { return username === this.user.username ? this.user : null }
   async findUserById(id: string) { return id === this.user.id ? this.user : null }
   async entitlement() { return this.entitlementValue }
-  async bindDevice(userId: string, fingerprintHash: string, name: string, platform: string, appVersion: string) { this.device = { id: '22222222-2222-4222-8222-222222222222', userId, fingerprintHash, name, platform, appVersion, revoked: false }; return this.device }
+  async bindDevice(userId: string, fingerprintHash: string, hardwareHash: string, name: string, platform: string, appVersion: string) { this.device = { id: '22222222-2222-4222-8222-222222222222', userId, fingerprintHash, hardwareHash, name, platform, appVersion, revoked: false }; return this.device }
   async createSession(value: { userId: string; deviceId: string; familyId: string; jti: string; tokenHash: string; expiresAt: Date }) { this.sessions.set(value.jti, { ...value, consumedAt: null, revokedAt: null, fingerprintHash: this.device.fingerprintHash }) }
   async findSession(jti: string) { return this.sessions.get(jti) ?? null }
   async consumeSession(jti: string) { const s = this.sessions.get(jti); if (!s || s.consumedAt) return false; s.consumedAt = new Date(); return true }
@@ -20,13 +20,14 @@ class FakeStore {
   async audit() {}
   async findDevice(id: string) { return id === this.device.id ? this.device : null }
   async touchDevice() {}
-  async latestRelease() { return { version: '2.0.0', minimumVersion: '1.9.0', url: 'https://download.invalid/app.exe', sha256: 'a'.repeat(64), signature: 'signature', mandatory: false, publishedAt: new Date() } }
+  async getCommerceSettings(){return {registrationEnabled:true,trialDays:3,trialPlanCode:'trial',defaultDeviceLimit:3,licenseLeaseMinutes:60,offlineGraceHours:6,activePaymentProvider:'zhongzhuan-prod'}}
+  async latestRelease() { return { version: '2.0.0', minimumVersion: '1.9.0', url: 'https://download.invalid/app.exe', sha256: 'a'.repeat(64), signature: 'signature', mandatory: false, title:'', summary:'', changelog:'', channel:'stable', publishedAt: new Date() } }
 }
 
 async function fixture() {
   const store = new FakeStore()
   store.user = { id: '11111111-1111-4111-8111-111111111111', username: 'alice', passwordHash: await hashPassword('correct horse battery staple'), role: 'user', status: 'active', createdAt: new Date() }
-  store.entitlementValue = { licenseId: '33333333-3333-4333-8333-333333333333', planId: '44444444-4444-4444-8444-444444444444', planName: 'Professional', maxDevices: 3, features: ['proxy', 'custom-lines'], expiresAt: new Date(Date.now() + 7 * 86400000), status: 'active' }
+  store.entitlementValue = { licenseId: '33333333-3333-4333-8333-333333333333', planId: '44444444-4444-4444-8444-444444444444', planCode:'premium-test', planName: 'Professional', tier:'premium', maxDevices: 3, features: ['proxy', 'custom-lines'], expiresAt: new Date(Date.now() + 7 * 86400000), lifetime:false, status: 'active' }
   const auth = await AuthService.create(store as unknown as PgStore, { accessSecret: 'test-secret-must-be-at-least-32-bytes-long', refreshDays: 30 })
   const device = { fingerprint: 'f'.repeat(64), name: 'Windows PC', platform: 'windows' as const, appVersion: '1.9.0' }
   return { store, auth, device }
