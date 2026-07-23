@@ -243,7 +243,7 @@ export class PgStore {
         lifetime,amount_cents AS "amountCents",currency,status,provider_code AS "providerCode",provider_order_no AS "providerOrderNo",
         paid_at AS "paidAt",expires_at AS "expiresAt",created_at AS "createdAt" FROM orders WHERE user_id=$1 ORDER BY created_at DESC LIMIT 100`,[userId]),
       this.pool.query(`SELECT action,target_type AS "targetType",target_id AS "targetId",ip,result,metadata,created_at AS "createdAt"
-        FROM audit_logs WHERE actor_user_id=$1 OR (target_type='user' AND target_id=$1) ORDER BY created_at DESC LIMIT 100`,[userId]),
+        FROM audit_logs WHERE actor_user_id=$1 OR (target_type='user' AND target_id=$1::text) ORDER BY created_at DESC LIMIT 100`,[userId]),
       this.pool.query(`SELECT
         (SELECT count(*)::int FROM devices WHERE user_id=$1 AND revoked=false) AS "activeDevices",
         (SELECT count(*)::int FROM orders WHERE user_id=$1 AND status='paid') AS "paidOrders",
