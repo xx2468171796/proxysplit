@@ -9,8 +9,9 @@ export const deviceSchema = z.object({
 })
 export const loginSchema = z.object({ username: z.string().trim().min(3).max(64), password: z.string().min(8).max(256), device: deviceSchema })
 export const registerSchema = z.object({
-  username: z.string().trim().min(3).max(64).regex(/^[a-zA-Z0-9_\-.@]+$/),
-  password: z.string().min(10).max(256),
+  // 当前以邮箱作为普通用户账号；暂不启用邮箱验证码，提交即注册。
+  username: z.string().trim().email().max(64),
+  password: z.string().min(8).max(256),
   device: deviceSchema,
 })
 export const refreshSchema = z.object({ refreshToken: z.string().min(40), deviceFingerprint: z.string().min(32).max(128) })

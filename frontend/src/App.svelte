@@ -464,9 +464,10 @@
     await loadCommerce()
   }
   async function submitRegister() {
-    if (!loginForm.username.trim() || loginForm.password.length < 10) { loginError = '用户名至少 3 位，密码至少 10 位'; return }
+    const email = loginForm.username.trim()
+    if (!/^\S+@\S+\.\S+$/.test(email) || loginForm.password.length < 8) { loginError = '请填写有效邮箱，密码至少 8 位'; return }
     loginBusy = true; loginError = ''
-    const err = await WRegister(loginForm.username.trim(), loginForm.password)
+    const err = await WRegister(email, loginForm.password)
     loginBusy = false
     if (err) { loginError = err; return }
     loginForm.password = ''
@@ -1200,18 +1201,18 @@
         {/if}
         <div class="auth-tabs"><button type="button" class:active={authMode === 'login'} on:click={() => { authMode = 'login'; loginError = '' }}>登录</button><button type="button" class:active={authMode === 'register'} on:click={() => { authMode = 'register'; loginError = '' }}>免费注册</button></div>
         <label>
-          <span>用户名</span>
-          <input bind:value={loginForm.username} autocomplete="username" placeholder="字母、数字或邮箱" disabled={loginBusy} />
+          <span>{authMode === 'register' ? '邮箱' : '邮箱账号'}</span>
+          <input type="email" bind:value={loginForm.username} autocomplete="username" placeholder="name@example.com" disabled={loginBusy} />
         </label>
         <label>
           <span>密码</span>
-          <input type="password" bind:value={loginForm.password} autocomplete={authMode === 'register' ? 'new-password' : 'current-password'} placeholder={authMode === 'register' ? '至少 10 位' : '请输入密码'} disabled={loginBusy} />
+          <input type="password" bind:value={loginForm.password} autocomplete={authMode === 'register' ? 'new-password' : 'current-password'} placeholder={authMode === 'register' ? '至少 8 位' : '请输入密码'} minlength="8" disabled={loginBusy} />
         </label>
         {#if loginError}<div class="license-error">{loginError}</div>{/if}
         <button class="primary license-submit" type="submit" disabled={loginBusy || !loginForm.username.trim() || !loginForm.password}>
           {loginBusy ? '正在验证…' : authMode === 'login' ? '登录并绑定本机' : '注册并领取试用'}
         </button>
-        <p class="license-tip">{authMode === 'register' ? '同一电脑只能领取一次试用；注册后不要求立即付款。' : '账号、设备名额与会员状态由服务端安全校验。'} 主板等硬件信息只生成摘要，不上传原始序列号。</p>
+        <p class="license-tip">{authMode === 'register' ? '暂不验证邮箱，提交后直接登录并领取试用；同一电脑只能领取一次。' : '账号、设备名额与会员状态由服务端安全校验。'} 主板等硬件信息只生成摘要，不上传原始序列号。</p>
       </form>
     {:else}
       <section class="member-center">
