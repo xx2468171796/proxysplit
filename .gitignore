@@ -6,6 +6,7 @@
 /build/*-v[0-9]*.html
 /build/*-v[0-9]*.json
 /build/*-response.txt
+/build/trial-user-*.txt
 /output/
 *.exe.old
 *.rar
