@@ -1,21 +1,20 @@
 # ProxySplit 项目状态
 
-- 当前桌面版本：`v1.8.4`。
-- 已将确认稿 `output/ProxySplit-UI-Prototype-v2.html` 的布局真正迁移到正式 Wails 界面：统一 218px 侧栏、72px 顶栏、页面标题区、概览 KPI/分流链路/快捷操作/节点健康，以及节点、应用分流、分流规则、订阅、日志、设置等页面的卡片和双栏排版。
-- 概览“应用流量”表已固定四列宽度并统一左对齐，应用图标、名称、路径保持紧凑对齐；真实 EXE 图标通过 Win32 提取显示，路径因升级失效时会按同名运行进程回退查找新路径。
-- 正式产物：`output/proxysplit-v1.8.4.exe`；快捷副本：`output/proxysplit.exe`。
-- 发布清单：`output/proxysplit-v1.8.4.manifest.json`；SHA256：`ec1d712f39ad11c81cf41cfce07dcd85e880544e6b5b75b8084cdaffccb7954f`。
-- UI 原型 `output/ProxySplit-UI-Prototype-v2.html` 和用户示例数据 `output/proxysplit-data.json` 保留，不参与正式程序的数据加载。
-- 数据仍持久化到 `%APPDATA%/proxysplit/config.json`，并保留 `.bak` 与 exe 同目录 `proxysplit-data.json` 兼容迁移；启停与升级回归后节点、应用规则均未丢失。
-- 应用分流当前使用 sing-box 原生 TUN + `process_name` 路由，不使用 WinDivert 抓包重定向；v1.8.4 不再内嵌或释放 WinDivert DLL/驱动，并会清理旧版本遗留的便携文件。
-- v1.8.4 已实现签名自动更新：启动检查 `/v1/releases/latest`，下载后同时校验独立 Ed25519 发布签名、SHA256 与 TLS SPKI，确认后由独立 Windows 助手原地替换并自动重启；节点与规则仍在 `%APPDATA%`，升级不会覆盖。
-- 校验结果：`npm run check` 为 0 errors / 0 warnings / 0 hints；`go test ./...` 全通过；v1.8.4 商业版 Garble 混淆构建成功；Windows 原地替换/重启助手集成回归通过；生产更新清单、签名和 80,090,624 字节 EXE 下载验证通过。
-- 商业化服务端位于 `server/`：Fastify API、React 管理台、PostgreSQL、Redis、Argon2id、短期 access token、refresh 轮换、Ed25519 离线授权与 TLS SPKI 固定能力均已具备。
-- 深圳生产环境已部署到 `https://proxysplit.zygskins.cn`：根路径为现代化官方网站，`/admin/` 为管理端，`/download/proxysplit-v1.8.4.exe` 为正式版下载，`/health` 为健康检查；官网已明确“不提供翻墙、VPN、代理节点或线路服务、仅供学习与合法调试、严格遵守中华人民共和国法律法规”。
-- 远端部署目录为 `/opt/proxysplit/current`（当前版本目录 `/opt/proxysplit/releases/20260723-131000-c6ed9b5`），运行栈为 `server/docker-compose.prod.yml`，API、PostgreSQL、Redis 均已设置 `unless-stopped` 并通过健康检查；主机 Nginx 已启用且配置位于 `/www/conf.d/proxysplit.zygskins.cn.conf`。
-- 深圳机 SSH 别名为 `proxysplit-shenzhen`，本机私钥为 `C:/Users/Administrator/.ssh/proxysplit_shenzhen_ed25519`，公钥指纹为 `SHA256:YEzRm+Ia4ICmcbsjlGeu+W8AaNlJxEyystCVMwiMLG4`；服务器主机指纹为 `SHA256:V4iuR3HqJufZBCtAyCYyDy1UkP+x5AL1QGuCBKKk1+s`，已启用严格主机校验。
-- 生产管理员为 `admin`，随机密码收据仅保存在 `C:/Users/Administrator/.config/proxysplit/shenzhen-admin.txt`；初始化凭据已从远端运行环境删除，并在容器重建后重新登录验证数据库持久化成功。
-- 生产授权公钥副本与 TLS SPKI 分别保存在已忽略的 `server/secrets/shenzhen-license-public.pem`、`server/secrets/shenzhen-tls-spki.txt`；当前 TLS SPKI 为 `uk6CLDgMOcToZW0EsOM869fNi64NssJlno0sQJhs15U=`。
-- 独立发布签名密钥位于已忽略的 `server/secrets/shenzhen-release-private.pem` 与 `server/secrets/shenzhen-release-public.pem`；v1.8.4 已登记到生产发布表，最低版本为 v1.8.3。
-- 服务端生产化校验：`pnpm typecheck`、`pnpm test`、`pnpm build` 全通过；公网 HTTPS、健康检查、管理员登录、仪表盘、授权公钥接口及容器重启后持久化均已验证。
-- 后续待办：补充 Windows Authenticode 代码签名证书，消除系统首次下载运行时的未知发布者提示。
+- 当前正式桌面版本：`v1.9.0`。产物为 `output/proxysplit-v1.9.0.exe`，快捷副本为 `output/proxysplit.exe`；发布清单为 `output/proxysplit-v1.9.0.manifest.json`。
+- v1.9.0 EXE 大小 `79,994,880` 字节，SHA256 为 `5e230c44365e14845db3340cd9a85e1b45725986e0f0ed8b8fcccf5fc19cfefb`；已用独立 Ed25519 发布密钥签名并通过 Garble 混淆构建，暂未做 Windows Authenticode 签名。
+- 桌面端节点、订阅、应用规则继续持久化到 `%APPDATA%/proxysplit/config.json`，保留原子写入、`.bak` 和便携数据迁移；升级不会覆盖节点或规则。
+- 应用分流使用 sing-box 原生 TUN + `process_name` 路由，不使用 WinDivert 抓包重定向。支持 HTTP、HTTPS、SOCKS5、VLESS、VMess、Trojan、Shadowsocks、Hysteria2、TUIC、AnyTLS 的常用分享链接和 sing-box 配置变体。
+- v1.9.0 新增桌面注册/登录、三天试用、会员中心、套餐购买、订单状态、设备列表与解绑、公告、版本日志；未付费但已登录的用户可进入会员中心开通。
+- 商业权益真源在服务端。普通会员/超级会员、月卡/季卡/年卡/永久套餐、价格、原价、活动时间、购买次数、设备上限和功能列表均由运营后台配置。
+- 新账号默认免费试用 3 天，后台可调整；同一硬件只允许领取一次。硬件指纹组合 MachineGuid、主板/BIOS/系统 UUID 后哈希上传，不上传原始序列号。
+- 授权租约采用 Ed25519 签名，当前默认 60 分钟，离线宽限 6 小时且不超过会员硬到期时间；租约绑定账号、设备 ID、硬件指纹、套餐、功能和到期时间。所有 `Service.Start` 路径统一经过权益守卫，运行中每 5 分钟复查，失效即停服。
+- 支付适配器已按 5ff 生产链路接入 `https://zf.zygskins.cn`，当前收款仍进入同一“收钱吧”商户。生产凭据仅在深圳机 `/opt/proxysplit/secrets/payment-zhongzhuan.env`（0600）中保存，后台数据库只存 `PAYMENT_ZHONGZHUAN` 引用，可切换支付渠道。
+- 支付创建金额只取服务端套餐快照；回调校验 HMAC-SHA256、AppID、时间窗、订单号、渠道、金额和事件幂等，会员发放与订单置为已支付在同一事务完成。没有执行真实扣款测试。
+- 数据库迁移 `0002_commerce.sql` 已在生产应用，新增套餐、设置、支付渠道、订单、支付事件、试用硬件领取、公告和扩展版本日志。生产默认 `trial_days=3`、`default_device_limit=3`，`zhongzhuan-prod` 已启用。
+- 预置了普通/超级会员的月卡、季卡、年卡、永久套餐模板，但付费套餐保持禁用且不公开，避免在未确认正式价格前产生真实订单；可在后台填写价格和活动时间后启用。
+- 深圳生产站点：`https://proxysplit.zygskins.cn`；管理端：`/admin/`；健康检查：`/health`；v1.9.0 下载：`/download/proxysplit-v1.9.0.exe`。v1.9.0 发布日志与置顶公告已登记。
+- 当前部署目录：`/opt/proxysplit/releases/20260723-151154-2e0e348`，`/opt/proxysplit/current` 已指向该目录。升级前数据库备份：`/opt/proxysplit/backups/proxysplit-pre-v1.9.0-20260723-151154.dump`。
+- API、PostgreSQL、Redis 均为 healthy；公网 `/health`、官网、后台静态资源、v1.9.0 下载、最新版本接口、支付配置引用和非法回调拒绝均已验证。
+- 验证结果：`go test ./...` 全通过；桌面 `npm run check` 为 0 errors / 0 warnings / 0 hints 且 `npm run build` 通过；服务端 `pnpm typecheck`、`pnpm test`（6 项测试）、`pnpm build` 全通过。
+- 生产管理员为 `admin`，密码收据只保存在 `C:/Users/Administrator/.config/proxysplit/shenzhen-admin.txt`。SSH 别名为 `proxysplit-shenzhen`。
+- 后续待办：由运营方确认各付费套餐正式价格后在后台启用；支付提供方后续可给 ProxySplit 单独创建 AppID 并映射到同一商户；补充 Windows Authenticode 证书。
