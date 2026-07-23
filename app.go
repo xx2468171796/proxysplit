@@ -214,20 +214,20 @@ func (a *App) GetApps() []string     { return a.svc.Apps() }
 func (a *App) SetApps(apps []string) { a.svc.SetApps(apps) }
 
 // GetAppRules / SetAppRules manage the app -> line rules.
-func (a *App) GetAppRules() []service.AppRule      { return a.svc.GetAppRules() }
-func (a *App) SetAppRules(rules []service.AppRule) { a.svc.SetAppRules(rules) }
+func (a *App) GetAppRules() []service.AppRule             { return a.svc.GetAppRules() }
+func (a *App) SetAppRules(rules []service.AppRule) string { return a.svc.SetAppRules(rules) }
 
 // GetLines / SetLines manage routing lines (builtin + custom; SetLines takes custom).
-func (a *App) GetLines() []service.Line      { return a.svc.GetLines() }
-func (a *App) SetLines(lines []service.Line) { a.svc.SetLines(lines) }
+func (a *App) GetLines() []service.Line             { return a.svc.GetLines() }
+func (a *App) SetLines(lines []service.Line) string { return a.svc.SetLines(lines) }
 
 // GetRuleMode / SetRuleMode manage blacklist vs whitelist.
-func (a *App) GetRuleMode() string     { return a.svc.GetRuleMode() }
-func (a *App) SetRuleMode(mode string) { a.svc.SetRuleMode(mode) }
+func (a *App) GetRuleMode() string            { return a.svc.GetRuleMode() }
+func (a *App) SetRuleMode(mode string) string { return a.svc.SetRuleMode(mode) }
 
 // GetDefaultLine / SetDefaultLine: the line for unlisted apps in whitelist mode.
-func (a *App) GetDefaultLine() string   { return a.svc.GetDefaultLine() }
-func (a *App) SetDefaultLine(id string) { a.svc.SetDefaultLine(id) }
+func (a *App) GetDefaultLine() string          { return a.svc.GetDefaultLine() }
+func (a *App) SetDefaultLine(id string) string { return a.svc.SetDefaultLine(id) }
 
 // ListProcesses returns running executables for the picker.
 func (a *App) ListProcesses() ([]proc.ProcInfo, error) { return a.svc.ListProcesses() }
@@ -265,10 +265,13 @@ func (a *App) UpdateRuleSets() string { return a.svc.UpdateRuleSets() }
 
 // GetRuleSets returns the state of the routing rule-sets for the 规则 page.
 func (a *App) GetRuleSets() []service.RuleSetInfo { return a.svc.GetRuleSets() }
+func (a *App) SetRuleSetEnabled(name string, enabled bool) string {
+	return a.svc.SetRuleSetEnabled(name, enabled)
+}
 
 // Global custom routing rules (域名/IP → 代理/直连/拦截).
-func (a *App) GetCustomRules() []core.RouteRule      { return a.svc.GetCustomRules() }
-func (a *App) SetCustomRules(rules []core.RouteRule) { a.svc.SetCustomRules(rules) }
+func (a *App) GetCustomRules() []core.RouteRule             { return a.svc.GetCustomRules() }
+func (a *App) SetCustomRules(rules []core.RouteRule) string { return a.svc.SetCustomRules(rules) }
 
 // ResetConfig restores settings/rules/mode to defaults (keeps nodes + subs).
 func (a *App) ResetConfig() { a.svc.ResetConfig() }
@@ -292,6 +295,13 @@ func (a *App) SetLogLevel(level string) { a.svc.SetLogLevel(level) }
 // App-rule import/export (a JSON bundle of rules + custom lines).
 func (a *App) ExportAppRules() string            { s, _ := a.svc.ExportAppRules(); return s }
 func (a *App) ImportAppRules(data string) string { return errStr(a.svc.ImportAppRules(data)) }
+func (a *App) PreviewAppRulesImport(data string) service.RuleImportPreview {
+	preview, err := a.svc.PreviewAppRulesImport(data)
+	if err != nil {
+		preview.Error = err.Error()
+	}
+	return preview
+}
 
 // PickExeFiles opens a native dialog to choose one or more programs to proxy
 // (so you can add an app that isn't currently running). Returns the full paths.

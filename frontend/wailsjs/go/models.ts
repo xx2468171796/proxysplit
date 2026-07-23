@@ -411,6 +411,30 @@ export namespace service {
 	}
 
 
+	export class RuleImportPreview {
+	    schemaVersion: number;
+	    ruleCount: number;
+	    lineAdded: number;
+	    lineSkipped: number;
+	    customRules: number;
+	    summary: string;
+	    error?: string;
+
+	    static createFrom(source: any = {}) {
+	        return new RuleImportPreview(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.schemaVersion = source["schemaVersion"];
+	        this.ruleCount = source["ruleCount"];
+	        this.lineAdded = source["lineAdded"];
+	        this.lineSkipped = source["lineSkipped"];
+	        this.customRules = source["customRules"];
+	        this.summary = source["summary"];
+	        this.error = source["error"];
+	    }
+	}
 	export class RuleSetInfo {
 	    name: string;
 	    display: string;
@@ -418,6 +442,7 @@ export namespace service {
 	    sizeKB: number;
 	    modified: string;
 	    present: boolean;
+	    enabled: boolean;
 
 	    static createFrom(source: any = {}) {
 	        return new RuleSetInfo(source);
@@ -431,6 +456,7 @@ export namespace service {
 	        this.sizeKB = source["sizeKB"];
 	        this.modified = source["modified"];
 	        this.present = source["present"];
+	        this.enabled = source["enabled"];
 	    }
 	}
 	export class Settings {

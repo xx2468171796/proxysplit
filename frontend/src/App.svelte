@@ -28,7 +28,6 @@
     GetSettings as WGetSettings,
     SetSettings as WSetSettings,
     GetRouting as WGetRouting,
-    SetRouting as WSetRouting,
     UpdateRuleSets as WUpdateRuleSets,
     GetLines as WGetLines,
     SetLines as WSetLines,
@@ -46,6 +45,7 @@
     SetLogLevel as WSetLogLevel,
     ExportAppRules as WExportAppRules,
     ImportAppRules as WImportAppRules,
+    PreviewAppRulesImport as WPreviewAppRulesImport,
     GetLanIP as WGetLanIP,
     GetAIControlInfo as WGetAIControlInfo,
     PickExeFiles as WPickExeFiles,
@@ -54,6 +54,7 @@
     ImportConfig as WImportConfig,
     GetHealth as WGetHealth,
     GetRuleSets as WGetRuleSets,
+    SetRuleSetEnabled as WSetRuleSetEnabled,
     ResetConfig as WResetConfig,
     GetCustomRules as WGetCustomRules,
     SetCustomRules as WSetCustomRules,
@@ -62,7 +63,16 @@
   import donateQR from './assets/images/donate.png'
 
   type Tab = 'overview' | 'nodes' | 'apps' | 'rules' | 'subs' | 'logs' | 'settings'
-  type RuleSet = { name: string; display: string; desc: string; sizeKB: number; modified: string; present: boolean }
+  const tabMeta: Record<Tab, { title: string; desc: string }> = {
+    overview: { title: '概览', desc: '运行状态与快捷控制' },
+    nodes: { title: '节点', desc: '节点导入、测速与选择' },
+    apps: { title: '应用分流', desc: '按程序分配线路与策略' },
+    rules: { title: '分流规则', desc: '规则库、自定义规则与线路' },
+    subs: { title: '订阅', desc: '订阅源与节点同步' },
+    logs: { title: '日志', desc: '内核与连接运行记录' },
+    settings: { title: '设置', desc: '网络、系统集成与维护' },
+  }
+  type RuleSet = { name: string; display: string; desc: string; sizeKB: number; modified: string; present: boolean; enabled: boolean }
   type Node = {
     id: string
     name: string
@@ -110,6 +120,7 @@
   }
   type Sub = { id: string; name: string; url: string; autoUpdate: boolean; lastUpdate: string; nodeCount: number }
   type RouteRule = { type: string; value: string; action: string }
+  type RuleImportPreview = { schemaVersion: number; ruleCount: number; lineAdded: number; lineSkipped: number; customRules: number; summary: string; error?: string }
   type Routing = { enabled: boolean; mode: string; rules: RouteRule[] }
   type Settings = {
     mixedPort: number; tunMode: boolean; lanShare: boolean; excludeSelf: boolean; privateDirect: boolean; blockQUIC: boolean
@@ -282,7 +293,7 @@
   }
 
   $: running = !!status && (status.coreRunning || status.engineRunning)
-  $: selectedNode = nodes.find((n) => n.id === status?.selectedId) || nodes[0]
+  $: currentTabMeta = tabMeta[tab]
   $: ruleCount = rules.length
   $: proxyCount = rules.filter((r) => r.enabled && r.line !== 'direct' && r.line !== 'block').length
   $: filteredProcs = procs.filter((p) => {
@@ -358,7 +369,8 @@
   let savedMsg = ''
   async function pushRules() {
     if (useDemo || !isWailsReady()) return
-    await WSetAppRules(rules)
+    const err = await WSetAppRules(rules)
+    if (err) { savedMsg = '保存失败：' + err; setTimeout(() => (savedMsg = ''), 3500); return }
     savedMsg = '✓ 已自动保存'
     setTimeout(() => (savedMsg = ''), 1800)
   }
@@ -398,17 +410,17 @@
     if (!routing.rules) routing.rules = []
     if (typeof routing.enabled !== 'boolean') routing.enabled = true
   }
-  async function saveRouting() {
-    if (useDemo || !isWailsReady()) return
-    await WSetRouting({ enabled: routing.enabled, mode: routing.mode, rules: routing.rules.filter((r) => r.value.trim()) } as any)
-  }
   // --- lines (routing targets) + default line (whitelist) ---
   async function refreshLines() { lines = await safe(() => WGetLines() as Promise<Line[]>, demoLines) }
   async function refreshDefaultLine() {
     defaultLine = await safe<string>(() => WGetDefaultLine(), 'rule')
     if (!defaultLine) defaultLine = 'rule'
   }
-  async function applyDefaultLine() { if (useDemo || !isWailsReady()) return; await WSetDefaultLine(defaultLine) }
+  async function applyDefaultLine() {
+    if (useDemo || !isWailsReady()) return
+    const err = await WSetDefaultLine(defaultLine)
+    if (err) toast('默认线路保存失败：' + err)
+  }
 
   function lineNodeLabel(node: string): string {
     if (node === 'active') return '跟随活动节点'
@@ -431,13 +443,21 @@
     const entry: Line = { id, name, node: lineForm.node, routing: { mode: lineForm.mode, rules: lineForm.rules.filter((r) => r.value.trim()) }, builtin: false }
     const custom = [...lines.filter((l) => !l.builtin && l.id !== id), entry]
     if (useDemo || !isWailsReady()) { lines = [...lines.filter((l) => l.builtin), ...custom] }
-    else { await WSetLines(custom as any); await refreshLines() }
+    else {
+      const err = await WSetLines(custom as any)
+      if (err) { toast('线路保存失败：' + err); return }
+      await refreshLines()
+    }
     showLineForm = false
   }
   async function deleteLine(l: Line) {
     const custom = lines.filter((x) => !x.builtin && x.id !== l.id)
     if (useDemo || !isWailsReady()) { lines = [...lines.filter((x) => x.builtin), ...custom] }
-    else { await WSetLines(custom as any); await refreshLines() }
+    else {
+      const err = await WSetLines(custom as any)
+      if (err) { toast('线路删除失败：' + err); return }
+      await refreshLines()
+    }
     if (rules.some((r) => r.line === l.id)) { rules = rules.map((r) => (r.line === l.id ? { ...r, line: 'rule' } : r)); await pushRules() }
     if (defaultLine === l.id) { defaultLine = 'rule'; await applyDefaultLine() }
   }
@@ -452,11 +472,19 @@
     setTimeout(() => (ruleSetMsg = ''), 3500)
   }
   const demoRuleSets: RuleSet[] = [
-    { name: 'geosite-cn.srs', display: '国内网站 (geosite-cn)', desc: '识别大陆网站域名 → 直连不走代理', sizeKB: 52, modified: '2026-07-06', present: true },
-    { name: 'geoip-cn.srs', display: '国内 IP (geoip-cn)', desc: '识别大陆 IP 段 → 直连不走代理', sizeKB: 33, modified: '2026-07-06', present: true },
-    { name: 'geosite-category-ads-all.srs', display: '广告域名 (ads)', desc: '广告/追踪域名 → 直接拦截', sizeKB: 8, modified: '2026-07-06', present: true },
+    { name: 'geosite-cn.srs', display: '国内网站 (geosite-cn)', desc: '识别大陆网站域名 → 直连不走代理', sizeKB: 52, modified: '2026-07-06', present: true, enabled: true },
+    { name: 'geoip-cn.srs', display: '国内 IP (geoip-cn)', desc: '识别大陆 IP 段 → 直连不走代理', sizeKB: 33, modified: '2026-07-06', present: true, enabled: true },
+    { name: 'geosite-category-ads-all.srs', display: '广告域名 (ads)', desc: '广告/追踪域名 → 直接拦截', sizeKB: 8, modified: '2026-07-06', present: true, enabled: true },
   ]
   async function refreshRuleSets() { ruleSets = await safe<RuleSet[]>(() => WGetRuleSets() as Promise<RuleSet[]>, demoRuleSets) }
+  async function toggleRuleSet(rs: RuleSet) {
+    if (useDemo || !isWailsReady()) { rs.enabled = !rs.enabled; ruleSets = [...ruleSets]; return }
+    ruleSetMsg = '应用中…'
+    const err = await WSetRuleSetEnabled(rs.name, !rs.enabled)
+    await refreshRuleSets()
+    ruleSetMsg = err ? '失败：' + err : running ? '已保存并重启生效' : '已保存（启动后生效）'
+    setTimeout(() => (ruleSetMsg = ''), 3500)
+  }
   let customRules: RouteRule[] = []
   let custRuleMsg = ''
   async function refreshCustomRules() { customRules = await safe<RouteRule[]>(() => WGetCustomRules() as Promise<RouteRule[]>, []) }
@@ -465,7 +493,8 @@
   async function saveCustomRules() {
     if (useDemo || !isWailsReady()) { custRuleMsg = '演示模式无法保存'; setTimeout(() => (custRuleMsg = ''), 2500); return }
     custRuleMsg = '应用中…'
-    await WSetCustomRules(customRules.filter((r) => (r.value || '').trim()))
+    const err = await WSetCustomRules(customRules.filter((r) => (r.value || '').trim()))
+    if (err) { custRuleMsg = '保存失败：' + err; setTimeout(() => (custRuleMsg = ''), 4500); return }
     await refreshCustomRules()
     custRuleMsg = running ? '已保存并重启生效' : '已保存(启动后生效)'
     setTimeout(() => (custRuleMsg = ''), 3500)
@@ -540,7 +569,8 @@
 
   async function applyRuleMode() {
     if (useDemo || !isWailsReady()) return
-    await WSetRuleMode(ruleMode)
+    const err = await WSetRuleMode(ruleMode)
+    if (err) toast('分流模式保存失败：' + err)
   }
   async function setRuleMode(m: 'blacklist' | 'whitelist') {
     if (ruleMode === m) return
@@ -613,10 +643,6 @@
     const err = await WSetClashMode(mode)
     if (err) { pushLog('[error] 切换模式失败: ' + err); toast('切换失败: ' + err) }
   }
-  function cycleClash() {
-    const order = ['rule', 'global', 'direct']
-    setClash(order[(order.indexOf(clashMode) + 1) % order.length])
-  }
   function clashLabel(m: string): string { return m === 'global' ? '全局' : m === 'direct' ? '直连' : '规则' }
 
   // --- 系统代理开关 ---
@@ -650,6 +676,9 @@
     else qrData = res?.data || ''
   }
   function closeQR() { qrData = ''; qrName = '' }
+  function closeQRBackdrop(event: MouseEvent) {
+    if (event.target === event.currentTarget) closeQR()
+  }
 
   // --- 赞赏码弹窗 ---
   function openDonate() {
@@ -707,9 +736,16 @@
     if (!text) { text = prompt('粘贴规则 JSON：') || '' }
     if (!text.trim()) return
     if (useDemo || !isWailsReady()) { rulesMsg = '演示模式无法导入'; return }
+    const preview = await WPreviewAppRulesImport(text) as RuleImportPreview
+    if (preview.error) { rulesMsg = '预检失败: ' + preview.error; setTimeout(() => (rulesMsg = ''), 4500); return }
+    if (!confirm(`规则导入预检通过\n\n${preview.summary}\n\n导入会原子替换对应规则，是否继续？`)) return
     const err = await WImportAppRules(text)
     if (err) { rulesMsg = '导入失败: ' + err }
-    else { rulesMsg = '导入成功'; await refreshRules(); await refreshLines() }
+    else {
+      rulesMsg = '导入成功'
+      await refreshRules(); await refreshLines(); await refreshCustomRules(); await refreshRuleSets(); await refreshDefaultLine()
+      const mode = await WGetRuleMode(); ruleMode = mode === 'blacklist' ? 'blacklist' : 'whitelist'
+    }
     setTimeout(() => (rulesMsg = ''), 3500)
   }
 
@@ -988,9 +1024,10 @@
   <aside class="sidebar">
     <div class="brand">
       <div class="logo">◑</div>
-      <div class="brand-title">ProxySplit</div>
+      <div class="brand-title">ProxySplit<small>DESKTOP CLIENT</small></div>
     </div>
 
+    <div class="nav-label">MAIN</div>
     <nav class="side-nav">
       <button class:active={tab === 'overview'} on:click={() => (tab = 'overview')}><i>{@html I.dash}</i><span>概览</span></button>
       <button class:active={tab === 'nodes'} on:click={() => (tab = 'nodes')}><i>{@html I.nodes}</i><span>节点</span></button>
@@ -1017,14 +1054,16 @@
   <section class="workspace">
     <header class="topbar">
       <div class="tb-left">
+        <div class="page-identity"><strong>{currentTabMeta.title}</strong><small>{currentTabMeta.desc}</small></div>
+        <span class="top-divider"></span>
         <div class="tb-field">
-          <label>活动节点 <span class="node-dot" class:on={running}></span></label>
+          <span class="tb-label">活动节点 <span class="node-dot" class:on={running}></span></span>
           <select on:change={onNodeChange}>
             {#each nodes as n}<option value={n.id} selected={n.id === status?.selectedId}>{n.name}</option>{/each}
           </select>
         </div>
         <div class="tb-field">
-          <label>代理策略</label>
+          <span class="tb-label">代理策略</span>
           <div class="mode-seg" title="切换代理策略：规则=智能分流 / 全局=全走代理 / 直连=全不走（不重启）">
             <button class:on={clashMode === 'rule'} on:click={() => setClash('rule')}>规则</button>
             <button class:on={clashMode === 'global'} on:click={() => setClash('global')}>全局</button>
@@ -1163,7 +1202,7 @@
             <section class="card hero">
               <div class="hero-icon">{@html I.apps}</div>
               <div class="hero-text">
-                <div class="hero-head"><h2>应用分流</h2><a class="help">{@html I.help} 使用说明</a></div>
+                <div class="hero-head"><h2>应用分流</h2><span class="help">{@html I.help} 使用说明</span></div>
                 <p>仅对选中的应用走代理，未选中的应用直接连接网络。</p>
                 {#if settings.tunMode}
                   <div class="hero-note">当前是「全局 TUN」模式，下面的应用分流规则不生效。到<button class="linkbtn" on:click={() => (tab = 'overview')}>概览</button>切回「应用分流」即可启用。</div>
@@ -1465,11 +1504,12 @@
             </div>
           </div>
           <div class="rs-list">
-            <div class="rs-head"><span></span><span>规则库</span><span class="r">大小 / 更新日期</span></div>
+            <div class="rs-head"><span></span><span>规则库</span><span>状态</span><span class="r">大小 / 更新日期</span></div>
             {#each ruleSets as rs}
-              <div class="rs-row">
+              <div class="rs-row" class:disabled={!rs.enabled}>
                 <span class="lh-dot" class:ok={rs.present} class:bad={!rs.present}></span>
                 <div class="rs-meta"><strong>{rs.display}</strong><small>{rs.desc}</small></div>
+                <label class="switch" title={rs.enabled ? '点击停用' : '点击启用'}><input type="checkbox" checked={rs.enabled} on:change={() => toggleRuleSet(rs)} /><i></i></label>
                 <div class="rs-info r">{#if rs.present}<b>{rs.sizeKB} KB</b><small>更新于 {rs.modified}</small>{:else}<span class="rs-miss">缺失</span>{/if}</div>
               </div>
             {/each}
@@ -1635,8 +1675,8 @@
   </section>
 
   {#if qrData}
-    <div class="modal-mask" on:click={closeQR}>
-      <div class="qr-modal" on:click|stopPropagation>
+    <div class="modal-mask" role="button" tabindex="0" aria-label="关闭二维码" on:click={closeQRBackdrop} on:keydown={(e) => (e.key === 'Escape' || e.key === 'Enter') && closeQR()}>
+      <div class="qr-modal">
         <div class="qr-head"><strong>分享节点</strong><button class="icon-btn" on:click={closeQR} title="关闭">✕</button></div>
         <div class="qr-name">{qrName}</div>
         <img class="qr-img" src={qrData} alt="节点二维码" />
@@ -1663,33 +1703,33 @@
 
 <style>
   :global(:root) {
-    --bg: #eef1f6;
+    --bg: #f4f7fb;
     --card: #ffffff;
     --soft: #f8fafc;
     --line: #e6eaf0;
     --line-2: #eef1f6;
     --line-3: #f1f5f9;
-    --ink: #1e293b;
-    --ink-2: #334155;
-    --muted: #64748b;
-    --muted-2: #94a3b8;
-    --brand: #2563eb;
-    --brand-600: #1d4ed8;
-    --brand-tint: #eff4ff;
-    --ok: #22c55e;
-    --ok-600: #16a34a;
-    --ok-tint: #f0fdf4;
-    --danger: #ef4444;
+    --ink: #172033;
+    --ink-2: #536076;
+    --muted: #7a879b;
+    --muted-2: #9aa6b8;
+    --brand: #2864e8;
+    --brand-600: #2457cf;
+    --brand-tint: #edf3ff;
+    --ok: #18a566;
+    --ok-600: #138755;
+    --ok-tint: #eaf9f1;
+    --danger: #e15361;
 
     --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px; --s5: 20px; --s6: 24px; --s7: 32px;
     --r1: 8px; --r2: 10px; --r3: 12px; --r4: 14px; --r5: 16px; --r6: 20px;
 
-    --sh-1: 0 1px 2px rgba(15,23,42,.05), 0 1px 3px rgba(15,23,42,.04);
-    --sh-2: 0 6px 16px -6px rgba(15,23,42,.14), 0 2px 6px -2px rgba(15,23,42,.06);
+    --sh-1: 0 4px 14px rgba(27,43,75,.06);
+    --sh-2: 0 10px 30px rgba(27,43,75,.07);
     --sh-float: 0 18px 40px -14px rgba(15,23,42,.28), 0 6px 14px -6px rgba(15,23,42,.14);
     --tr: .18s cubic-bezier(.4,0,.2,1);
-    --side-w: 232px;
-    --wrap-max: 1440px;
+    --side-w: 218px;
+    --wrap-max: 1560px;
   }
 
   /* ---------- dark theme (applied via data-theme on <html> by JS) ---------- */
@@ -1790,10 +1830,11 @@
   .lh-lat.r { text-align: right; } .lh-lat.err { color: var(--danger); }
 
   /* rule-set (规则库) list */
-  .rs-head, .rs-row { display: grid; grid-template-columns: 16px minmax(0, 1fr) 150px; gap: 12px; align-items: center; }
+.rs-head, .rs-row { display: grid; grid-template-columns: 16px minmax(0, 1fr) 58px 150px; gap: 12px; align-items: center; }
   .rs-head { font-size: 11px; color: var(--muted-2); font-weight: 600; padding: 0 2px 10px; border-bottom: 1px solid var(--line-2); }
   .rs-head .r { text-align: right; }
   .rs-row { padding: 12px 2px; border-bottom: 1px solid var(--line-3); }
+  .rs-row.disabled .rs-meta, .rs-row.disabled .rs-info { opacity: .52; }
   .rs-row:last-of-type { border-bottom: none; }
   .rs-meta strong { font-size: 13.5px; color: var(--ink); font-weight: 640; } .rs-meta small { display: block; font-size: 12px; color: var(--muted); margin-top: 1px; }
   .rs-info.r { text-align: right; } .rs-info b { font-size: 13px; color: var(--ink-2); font-variant-numeric: tabular-nums; } .rs-info small { display: block; font-size: 11.5px; color: var(--muted-2); }
@@ -1845,12 +1886,14 @@
   .shell { height: 100vh; display: grid; grid-template-columns: var(--side-w) 1fr; background: var(--bg); }
 
   /* ---------- sidebar ---------- */
-  .sidebar { background: var(--card); border-right: 1px solid var(--line); padding: var(--s5) var(--s4); display: flex; flex-direction: column; min-width: 0; }
-  .brand { display: flex; align-items: center; gap: 11px; padding: 2px 6px 26px; }
-  .logo { width: 34px; height: 34px; border-radius: var(--r2); display: grid; place-items: center; font-size: 20px; color: #fff; background: linear-gradient(135deg, #3b82f6, #6366f1); box-shadow: 0 6px 16px -6px rgba(59,130,246,.6); }
-  .brand-title { font-size: 18px; font-weight: 800; color: var(--ink); letter-spacing: -.01em; }
+  .sidebar { background: var(--card); border-right: 1px solid var(--line); padding: 18px 14px 14px; display: flex; flex-direction: column; min-width: 0; }
+  .brand { height: 56px; display: flex; align-items: center; gap: 11px; padding: 0 10px 12px; }
+  .logo { width: 38px; height: 38px; border-radius: 12px; display: grid; place-items: center; font-size: 22px; color: #fff; background: linear-gradient(145deg, #3775f1, #2454d4); box-shadow: 0 8px 18px rgba(40,100,232,.27); }
+  .brand-title { font-size: 20px; font-weight: 800; color: var(--ink); letter-spacing: -.35px; }
+  .brand-title small { display: block; color: var(--muted-2); font-size: 8px; font-weight: 750; letter-spacing: 1.05px; margin-top: 1px; }
+  .nav-label { padding: 18px 12px 7px; color: #a0aabd; font-size: 10px; font-weight: 800; letter-spacing: 1.2px; }
   .side-nav { display: grid; gap: 4px; }
-  .side-nav button { height: 44px; border-radius: 11px; padding: 0 13px; display: flex; align-items: center; gap: 12px; color: var(--muted); font-size: 14.5px; }
+  .side-nav button { height: 43px; border-radius: 11px; padding: 0 13px; display: flex; align-items: center; gap: 12px; color: #66748a; font-size: 14px; font-weight: 650; }
   .side-nav button i { font-size: 20px; color: var(--muted-2); transition: color var(--tr); }
   .side-nav button span { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .side-nav button:hover { background: var(--line-3); color: var(--ink-2); }
@@ -1868,11 +1911,15 @@
 
   /* ---------- workspace ---------- */
   .workspace { min-width: 0; display: flex; flex-direction: column; height: 100vh; }
-  .topbar { min-height: 68px; flex: none; display: flex; align-items: center; justify-content: space-between; gap: var(--s3) var(--s4); flex-wrap: wrap;
-    padding: 10px 22px; background: var(--card); border-bottom: 1px solid var(--line); }
-  .tb-left { display: flex; align-items: flex-end; gap: var(--s3); flex-wrap: wrap; min-width: 0; }
+  .topbar { min-height: 72px; flex: none; display: flex; align-items: center; justify-content: space-between; gap: 20px; flex-wrap: nowrap;
+    padding: 0 24px; background: color-mix(in srgb, var(--card) 96%, transparent); backdrop-filter: blur(12px); border-bottom: 1px solid var(--line); }
+  .tb-left { display: flex; align-items: center; gap: 14px; min-width: 0; }
+  .page-identity { min-width: 128px; }
+  .page-identity strong { display: block; font-size: 16px; font-weight: 800; color: var(--ink); }
+  .page-identity small { display: block; color: var(--muted-2); font-size: 9px; margin-top: 3px; white-space: nowrap; }
+  .top-divider { width: 1px; height: 30px; background: var(--line); flex: none; }
   .tb-field { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
-  .tb-field label { font-size: 11px; color: var(--muted-2); display: flex; align-items: center; gap: 5px; font-weight: 600; letter-spacing: .01em; }
+  .tb-label { font-size: 11px; color: var(--muted-2); display: flex; align-items: center; gap: 5px; font-weight: 600; letter-spacing: .01em; }
   .node-dot { width: 7px; height: 7px; border-radius: 50%; background: #cbd5e1; transition: background var(--tr); }
   .node-dot.on { background: var(--ok); }
   .tb-field select { height: 34px; max-width: 240px; border: 1px solid #e2e8f0; border-radius: 9px; background: var(--soft); padding: 0 28px 0 12px; font-size: 13px; font-weight: 600; color: var(--ink-2);
@@ -1916,13 +1963,13 @@
   .power-btn:not(.running):hover { box-shadow: 0 12px 22px -8px rgba(37,99,235,.55); }
 
   /* ---------- scroll area + columns ---------- */
-  .scroll { flex: 1; overflow-y: auto; overflow-x: hidden; padding: var(--s5); }
+.scroll { flex: 1; overflow-y: auto; overflow-x: hidden; padding: 22px 24px 26px; }
   .wrap { max-width: var(--wrap-max); margin: 0 auto; display: grid; gap: var(--s5); }
   .cols { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: var(--s5); align-items: start; }
   .col-main { display: grid; gap: var(--s5); min-width: 0; }
   .col-rail { display: grid; gap: var(--s5); min-width: 0; }
 
-  .card { background: var(--card); border: 1px solid var(--line); border-radius: var(--r5); padding: var(--s5); box-shadow: var(--sh-1); transition: box-shadow var(--tr), border-color var(--tr); }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 15px; padding: var(--s5); box-shadow: var(--sh-1); transition: box-shadow var(--tr), border-color var(--tr); }
   .card:hover { box-shadow: var(--sh-2); }
 
   .hero { display: flex; gap: var(--s5); }
@@ -1998,19 +2045,10 @@
   .switch i:before { content: ''; position: absolute; width: 16px; height: 16px; left: 3px; top: 3px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.2); transition: transform var(--tr); }
   .switch input:checked + i { background: var(--brand); }
   .switch input:checked + i:before { transform: translateX(18px); }
-  .switch.lg { width: 52px; height: 30px; }
-  .switch.lg i:before { width: 24px; height: 24px; }
-  .switch.lg input:checked + i { background: var(--ok); }
-  .switch.lg input:checked + i:before { transform: translateX(22px); }
-
   .rfoot { display: flex; align-items: center; justify-content: space-between; gap: var(--s3); flex-wrap: wrap; margin-top: var(--s4); padding-top: var(--s4); border-top: 1px solid var(--line-2); }
   .modes { display: flex; align-items: center; gap: 8px 18px; font-size: 13px; color: var(--muted); flex-wrap: wrap; }
   .modes-k { color: var(--muted-2); font-weight: 600; }
-  .modes label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
-  .modes input { accent-color: var(--brand); }
   .dl-field span { color: var(--muted-2); font-weight: 600; }
-  .dl-field select { border: 1px solid #e2e8f0; border-radius: 8px; padding: 6px 26px 6px 9px; background: var(--soft); font-size: 12.5px; font-weight: 600; color: var(--ink-2);
-    appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2.5'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 8px center; }
   .mode-hint { margin: 10px 2px 0; font-size: 12px; color: var(--muted-2); line-height: 1.6; }
 
   /* ---------- picker ---------- */
@@ -2094,8 +2132,6 @@
   .route-master { display: flex; align-items: center; gap: 14px; padding: 12px 16px; border: 1px solid var(--line); border-radius: var(--r3); background: var(--soft); transition: border-color var(--tr), background var(--tr); }
   .route-master.on { border-color: #bbf7d0; background: var(--ok-tint); }
   .rm-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-  .rm-text strong { font-size: 13.5px; color: var(--ink); }
-  .rm-text small { font-size: 11.5px; color: var(--muted); }
   .route-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: var(--s4); }
   .rs-msg { font-size: 12.5px; font-weight: 650; color: var(--ok-600); }
   .rs-msg.err { color: var(--danger); }
@@ -2169,7 +2205,6 @@
   .sb-k { color: var(--muted-2); } .sep { color: #cbd5e1; margin: 0 6px; }
   .sb-mode { display: inline-flex; align-items: center; gap: 4px; border: 1px solid var(--line); background: var(--surface, var(--card)); color: var(--muted); border-radius: 7px; padding: 3px 9px; font-size: 12.5px; font-family: inherit; cursor: pointer; transition: all var(--tr); }
   .sb-mode:hover { border-color: var(--brand); color: var(--brand-600); }
-  .sb-mode b { color: var(--ink-2); font-weight: 700; } .sb-mode:hover b { color: var(--brand-600); }
   .sb-mode :global(svg) { width: 12px; height: 12px; opacity: .6; }
   .sb-right { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; } .sb-right b { color: var(--ink-2); }
   .sb-right b.on { color: var(--brand-600); }

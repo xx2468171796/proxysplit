@@ -26,6 +26,15 @@ type RouteRule struct {
 	Action string `json:"action"` // proxy | direct | block
 }
 
+// RuleSetOptions controls which bundled rule sets participate in smart
+// routing. A nil *RuleSetOptions keeps the historical behaviour (all enabled),
+// so older callers and configs remain fully backward compatible.
+type RuleSetOptions struct {
+	GeoSiteCN bool `json:"geositeCN"`
+	GeoIPCN   bool `json:"geoipCN"`
+	Ads       bool `json:"ads"`
+}
+
 // Options tunes the generated core config.
 type Options struct {
 	// RemoteDNS enables domain sniffing + remote DNS: sing-box recovers the real
@@ -38,6 +47,9 @@ type Options struct {
 	RouteMode string
 	// RouteRules are the user rules used when RouteMode == RouteCustom.
 	RouteRules []RouteRule
+	// RuleSets optionally disables individual bundled smart-routing rule sets.
+	// nil means all enabled for backward compatibility.
+	RuleSets *RuleSetOptions
 	// GeoDir is the directory holding the bundled *.srs rule-sets (bypass_cn).
 	GeoDir string
 
@@ -89,6 +101,7 @@ type SplitGroup struct {
 	Names   []string
 	Mode    string
 	NodeTag string
+	Rules   []RouteRule // used when Mode == RouteCustom
 }
 
 // ExtraNode is an additional node outbound (beyond the primary "proxy").
@@ -128,6 +141,40 @@ func customNeedsDomain(opts Options) bool {
 		}
 	}
 	return false
+}
+
+func selectedRuleSets(opts Options) RuleSetOptions {
+	if opts.RuleSets == nil {
+		return RuleSetOptions{GeoSiteCN: true, GeoIPCN: true, Ads: true}
+	}
+	return *opts.RuleSets
+}
+
+// bypassRules builds the optional ads/CN smart-routing entries and applies the
+// supplied scope (for example inbound or process_name) to every entry.
+func bypassRules(opts Options, scope M) []M {
+	selected := selectedRuleSets(opts)
+	var out []M
+	withScope := func(m M) M {
+		for k, v := range scope {
+			m[k] = v
+		}
+		return m
+	}
+	if selected.Ads {
+		out = append(out, withScope(M{"rule_set": []string{"geosite-ads"}, "action": "reject"}))
+	}
+	var cn []string
+	if selected.GeoSiteCN {
+		cn = append(cn, "geosite-cn")
+	}
+	if selected.GeoIPCN {
+		cn = append(cn, "geoip-cn")
+	}
+	if len(cn) > 0 {
+		out = append(out, withScope(M{"rule_set": cn, "outbound": "direct"}))
+	}
+	return out
 }
 
 // lanInbound builds the dedicated LAN-shared inbound (fixed port, chosen
@@ -318,11 +365,8 @@ func BuildMultiConfig(lines []LineConfig, logLevel string, opts Options) ([]byte
 		tag := nodeTag[ln.Node.ID]
 		switch ln.RouteMode {
 		case RouteBypassCN:
-			rules = append(rules,
-				M{"inbound": in, "rule_set": []string{"geosite-ads"}, "action": "reject"},
-				M{"inbound": in, "rule_set": []string{"geosite-cn", "geoip-cn"}, "outbound": "direct"},
-				M{"inbound": in, "outbound": tag},
-			)
+			rules = append(rules, bypassRules(opts, M{"inbound": in})...)
+			rules = append(rules, M{"inbound": in, "outbound": tag})
 		case RouteCustom:
 			for _, r := range ln.RouteRules {
 				m := ruleMatch(r)
@@ -427,12 +471,27 @@ func BuildTUNConfig(node *nodes.Node, logLevel string, opts Options) ([]byte, er
 				}
 				if g.Mode == "global" {
 					rules = append(rules, M{"process_name": g.Names, "outbound": g.NodeTag})
+				} else if g.Mode == RouteCustom {
+					for _, r := range g.Rules {
+						m := ruleMatch(r)
+						if m == nil {
+							continue
+						}
+						m["process_name"] = g.Names
+						switch r.Action {
+						case "direct":
+							m["outbound"] = "direct"
+						case "block":
+							m["action"] = "reject"
+						default:
+							m["outbound"] = g.NodeTag
+						}
+						rules = append(rules, m)
+					}
+					rules = append(rules, M{"process_name": g.Names, "outbound": g.NodeTag})
 				} else {
-					rules = append(rules,
-						M{"process_name": g.Names, "rule_set": []string{"geosite-ads"}, "action": "reject"},
-						M{"process_name": g.Names, "rule_set": []string{"geosite-cn", "geoip-cn"}, "outbound": "direct"},
-						M{"process_name": g.Names, "outbound": g.NodeTag},
-					)
+					rules = append(rules, bypassRules(opts, M{"process_name": g.Names})...)
+					rules = append(rules, M{"process_name": g.Names, "outbound": g.NodeTag})
 					geoNeeded = true
 				}
 			}
@@ -443,10 +502,7 @@ func BuildTUNConfig(node *nodes.Node, logLevel string, opts Options) ([]byte, er
 			if clashExp != nil {
 				rules = append(rules, clashRules("proxy")...)
 			}
-			rules = append(rules,
-				M{"rule_set": []string{"geosite-ads"}, "action": "reject"},
-				M{"rule_set": []string{"geosite-cn", "geoip-cn"}, "outbound": "direct"},
-			)
+			rules = append(rules, bypassRules(opts, nil)...)
 			geoNeeded = true
 		}
 	} else {
@@ -456,10 +512,7 @@ func BuildTUNConfig(node *nodes.Node, logLevel string, opts Options) ([]byte, er
 		}
 		switch routeMode {
 		case RouteBypassCN:
-			rules = append(rules,
-				M{"rule_set": []string{"geosite-ads"}, "action": "reject"},
-				M{"rule_set": []string{"geosite-cn", "geoip-cn"}, "outbound": "direct"},
-			)
+			rules = append(rules, bypassRules(opts, nil)...)
 			geoNeeded = true
 		case RouteCustom:
 			for _, r := range routeRules {

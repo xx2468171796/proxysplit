@@ -72,6 +72,8 @@ export function ListProcesses():Promise<Array<proc.ProcInfo>>;
 
 export function PickExeFiles():Promise<Array<string>>;
 
+export function PreviewAppRulesImport(arg1:string):Promise<service.RuleImportPreview>;
+
 export function RemoveNode(arg1:string):Promise<void>;
 
 export function RemoveSub(arg1:string):Promise<void>;
@@ -82,7 +84,7 @@ export function Restart():Promise<string>;
 
 export function SelectNode(arg1:string):Promise<void>;
 
-export function SetAppRules(arg1:Array<service.AppRule>):Promise<void>;
+export function SetAppRules(arg1:Array<service.AppRule>):Promise<string>;
 
 export function SetApps(arg1:Array<string>):Promise<void>;
 
@@ -90,17 +92,19 @@ export function SetAutostart(arg1:boolean):Promise<string>;
 
 export function SetClashMode(arg1:string):Promise<string>;
 
-export function SetCustomRules(arg1:Array<core.RouteRule>):Promise<void>;
+export function SetCustomRules(arg1:Array<core.RouteRule>):Promise<string>;
 
-export function SetDefaultLine(arg1:string):Promise<void>;
+export function SetDefaultLine(arg1:string):Promise<string>;
 
-export function SetLines(arg1:Array<service.Line>):Promise<void>;
+export function SetLines(arg1:Array<service.Line>):Promise<string>;
 
 export function SetLogLevel(arg1:string):Promise<void>;
 
 export function SetRouting(arg1:service.Routing):Promise<void>;
 
-export function SetRuleMode(arg1:string):Promise<void>;
+export function SetRuleMode(arg1:string):Promise<string>;
+
+export function SetRuleSetEnabled(arg1:string,arg2:boolean):Promise<string>;
 
 export function SetSettings(arg1:service.Settings):Promise<void>;
 

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -83,6 +84,7 @@ type Config struct {
 	SysProxyLast string           `json:"sysProxyLast,omitempty"` // exact host:port we last set as OS proxy (crash-recovery marker)
 	APIToken     string           `json:"apiToken,omitempty"`     // stable token for the local AI-control HTTP API
 	CustomRules  []core.RouteRule `json:"customRules,omitempty"`  // global user rules (域名/IP → 代理/直连/拦截), highest priority
+	RuleSets     map[string]bool  `json:"ruleSets,omitempty"`     // bundled rule-set file -> enabled
 
 	Apps []string `json:"apps,omitempty"` // legacy; migrated to Rules on load
 }
@@ -246,6 +248,7 @@ func (s *Service) load() {
 	if s.cfg.DefaultLine == "" {
 		s.cfg.DefaultLine = LineRule
 	}
+	s.cfg.RuleSets = normalizeRuleSetConfig(s.cfg.RuleSets)
 	if s.cfg.Settings.Theme == "" {
 		s.cfg.Settings = defaultSettings()
 	}
@@ -471,28 +474,25 @@ func (s *Service) APIToken() string {
 }
 
 // UpsertAppRule adds or updates a single app rule (used by the control API).
-// line is one of rule/global/direct/block; anything else defaults to rule.
-// node is an optional node id ("" = active node).
+// The complete candidate set is passed through the same validation as the UI,
+// so API callers cannot persist dangling line/node references.
 func (s *Service) UpsertAppRule(match, path, line, node string, enabled bool) {
 	match = strings.TrimSpace(match)
 	if match == "" {
 		return
 	}
-	switch line {
-	case LineGlobal, LineDirect, LineBlock:
-	default:
-		line = LineRule
-	}
 	s.mu.Lock()
+	rules := append([]AppRule{}, s.cfg.Rules...)
+	s.mu.Unlock()
 	found := false
-	for i := range s.cfg.Rules {
-		if strings.EqualFold(s.cfg.Rules[i].Match, match) {
-			s.cfg.Rules[i].Line = line
-			s.cfg.Rules[i].Node = node
+	for i := range rules {
+		if strings.EqualFold(rules[i].Match, match) {
+			rules[i].Line = line
+			rules[i].Node = node
 			if path != "" {
-				s.cfg.Rules[i].Path = path
+				rules[i].Path = path
 			}
-			s.cfg.Rules[i].Enabled = enabled
+			rules[i].Enabled = enabled
 			found = true
 			break
 		}
@@ -502,11 +502,11 @@ func (s *Service) UpsertAppRule(match, path, line, node string, enabled bool) {
 		if p == "" {
 			p = match
 		}
-		s.cfg.Rules = append(s.cfg.Rules, AppRule{Match: match, Path: p, Line: line, Node: node, Enabled: enabled})
+		rules = append(rules, AppRule{Match: match, Path: p, Line: line, Node: node, Enabled: enabled})
 	}
-	s.save()
-	s.mu.Unlock()
-	s.applyLive()
+	if msg := s.SetAppRules(rules); msg != "" {
+		s.log("[rules] control API rule rejected: " + msg)
+	}
 }
 
 // RemoveAppRule deletes the rule whose Match equals the given name.
@@ -537,17 +537,18 @@ func (s *Service) GetAppRules() []AppRule {
 
 // SetAppRules replaces the rule set and applies it live (restarting the core if
 // the set of active lines changed, since that requires new inbounds).
-func (s *Service) SetAppRules(rules []AppRule) {
-	for i := range rules {
-		if rules[i].Line == "" {
-			rules[i].Line = LineGlobal
-		}
-	}
+func (s *Service) SetAppRules(rules []AppRule) string {
 	s.mu.Lock()
-	s.cfg.Rules = rules
+	kept, err := s.normalizeAppRulesLocked(rules)
+	if err != nil {
+		s.mu.Unlock()
+		return err.Error()
+	}
+	s.cfg.Rules = kept
 	s.save()
 	s.mu.Unlock()
 	s.applyLive()
+	return ""
 }
 
 // GetLines returns builtin + custom lines. GetLinesCustom returns just custom.
@@ -558,19 +559,32 @@ func (s *Service) GetLines() []Line {
 }
 
 // SetLines replaces the CUSTOM lines (builtins are ignored/kept).
-func (s *Service) SetLines(lines []Line) {
-	custom := make([]Line, 0, len(lines))
-	for _, l := range lines {
-		if l.Builtin || l.ID == "" {
-			continue
-		}
-		custom = append(custom, l)
-	}
+func (s *Service) SetLines(lines []Line) string {
 	s.mu.Lock()
+	custom, err := s.normalizeCustomLinesLocked(lines)
+	if err != nil {
+		s.mu.Unlock()
+		return err.Error()
+	}
 	s.cfg.Lines = custom
+	valid := map[string]bool{LineDirect: true, LineBlock: true, LineGlobal: true, LineRule: true}
+	for _, line := range custom {
+		valid[line.ID] = true
+	}
+	// Deleting a custom line never leaves invisible/dangling app mappings.
+	for i := range s.cfg.Rules {
+		if !valid[s.cfg.Rules[i].Line] {
+			s.cfg.Rules[i].Line = LineRule
+			s.cfg.Rules[i].Node = ""
+		}
+	}
+	if !valid[s.cfg.DefaultLine] {
+		s.cfg.DefaultLine = LineRule
+	}
 	s.save()
 	s.mu.Unlock()
 	s.applyLive()
+	return ""
 }
 
 // GetRuleMode / SetRuleMode manage blacklist vs whitelist.
@@ -580,12 +594,17 @@ func (s *Service) GetRuleMode() string {
 	return s.cfg.RuleMode
 }
 
-func (s *Service) SetRuleMode(mode string) {
+func (s *Service) SetRuleMode(mode string) string {
+	mode = strings.ToLower(strings.TrimSpace(mode))
+	if mode != "blacklist" && mode != "whitelist" {
+		return "应用分流模式无效: " + mode
+	}
 	s.mu.Lock()
 	s.cfg.RuleMode = mode
 	s.save()
 	s.mu.Unlock()
 	s.applyLive()
+	return ""
 }
 
 // GetDefaultLine / SetDefaultLine manage the line for unlisted apps (whitelist).
@@ -595,15 +614,20 @@ func (s *Service) GetDefaultLine() string {
 	return s.cfg.DefaultLine
 }
 
-func (s *Service) SetDefaultLine(id string) {
+func (s *Service) SetDefaultLine(id string) string {
 	s.mu.Lock()
 	if id == "" {
 		id = LineRule
+	}
+	if lineByID(s.allLinesLocked(), id) == nil {
+		s.mu.Unlock()
+		return "默认线路不存在: " + id
 	}
 	s.cfg.DefaultLine = id
 	s.save()
 	s.mu.Unlock()
 	s.applyLive()
+	return ""
 }
 
 // applyLive re-applies rule changes to a running engine. If the set of active
@@ -918,6 +942,11 @@ func (s *Service) Start() error {
 	mode := s.cfg.RuleMode
 	set := s.cfg.Settings
 	custom := append([]core.RouteRule(nil), s.cfg.CustomRules...)
+	ruleSets := core.RuleSetOptions{
+		GeoSiteCN: s.cfg.RuleSets["geosite-cn.srs"],
+		GeoIPCN:   s.cfg.RuleSets["geoip-cn.srs"],
+		Ads:       s.cfg.RuleSets["geosite-category-ads-all.srs"],
+	}
 	// 整机全局 base = 全局规则 (bypass China: 大陆直连、境外走节点) — the DEFAULT.
 	// The clash mode picks the flavor at run time: 规则=全局规则(智能), 全局=全局
 	// 代理(含大陆全走节点), 直连=暂停. So 整机全局 has two sub-modes, default 全局规则.
@@ -942,7 +971,7 @@ func (s *Service) Start() error {
 		}
 		return core.Options{RemoteDNS: set.RemoteDNS, GeoDir: s.binDir, ClashController: ctl, ClashSecret: clashSecret, ClashMode: wantMode,
 			LanShare: set.LanShare, LanPort: set.LanPort, LanType: set.LanType, LanUser: set.LanUser, LanPass: set.LanPass,
-			CustomRules: custom}
+			CustomRules: custom, RuleSets: &ruleSets}
 	}
 
 	// TUN mode: system-wide via sing-box TUN; no per-app WinDivert engine.
@@ -979,8 +1008,13 @@ func (s *Service) Start() error {
 	for _, n := range s.cfg.Nodes {
 		nodeByID[n.ID] = n
 	}
-	type gkey struct{ tag, mode string }
-	groups := map[gkey][]string{}
+	allLines := s.allLinesLocked()
+	type gkey struct{ line, tag, mode string }
+	type groupValue struct {
+		names []string
+		rules []core.RouteRule
+	}
+	groups := map[gkey]groupValue{}
 	extraByTag := map[string]*nodes.Node{}
 	var directApps, blockApps []string
 	for _, r := range s.cfg.Rules {
@@ -994,7 +1028,15 @@ func (s *Service) Start() error {
 		if name == "" || name == "." {
 			continue
 		}
-		switch r.Line {
+		lineID := r.Line
+		if lineID == "" {
+			lineID = LineRule
+		}
+		line := lineByID(allLines, lineID)
+		if line == nil {
+			line = lineByID(allLines, LineRule)
+		}
+		switch line.ID {
 		case LineDirect:
 			directApps = append(directApps, name)
 			continue
@@ -1002,34 +1044,60 @@ func (s *Service) Start() error {
 			blockApps = append(blockApps, name)
 			continue
 		}
-		mode := "rule"
-		if r.Line == LineGlobal {
-			mode = "global"
+		mode := line.Routing.Mode
+		if mode == "" {
+			mode = core.RouteGlobal
 		}
-		// Resolve which node this app uses. "" / "active" / the selected node
-		// all map to the primary "proxy" outbound; any other existing node id
-		// becomes a dedicated extra outbound → per-app 不同节点.
+		// Built-in global/rule lines allow an app-level node override. A custom
+		// line owns its node, mode and rules as one reusable policy.
+		nodeID := r.Node
+		if !line.Builtin {
+			nodeID = line.Node
+		}
 		tag := "proxy"
-		if r.Node != "" && r.Node != "active" && r.Node != activeID {
-			if n, ok := nodeByID[r.Node]; ok {
-				tag = "node-" + r.Node
+		if nodeID != "" && nodeID != "active" && nodeID != activeID {
+			if n, ok := nodeByID[nodeID]; ok {
+				tag = "node-" + nodeID
 				extraByTag[tag] = n
 			}
 		}
-		k := gkey{tag, mode}
-		groups[k] = append(groups[k], name)
+		k := gkey{line: line.ID, tag: tag, mode: mode}
+		value := groups[k]
+		value.names = append(value.names, name)
+		value.rules = append([]core.RouteRule{}, line.Routing.Rules...)
+		groups[k] = value
 	}
 	s.mu.Unlock()
 
 	var splitGroups []core.SplitGroup
 	total := 0
-	for k, names := range groups {
-		splitGroups = append(splitGroups, core.SplitGroup{Names: names, Mode: k.mode, NodeTag: k.tag})
-		total += len(names)
+	keys := make([]gkey, 0, len(groups))
+	for k := range groups {
+		keys = append(keys, k)
+	}
+	sort.Slice(keys, func(i, j int) bool {
+		if keys[i].line != keys[j].line {
+			return keys[i].line < keys[j].line
+		}
+		if keys[i].tag != keys[j].tag {
+			return keys[i].tag < keys[j].tag
+		}
+		return keys[i].mode < keys[j].mode
+	})
+	for _, k := range keys {
+		value := groups[k]
+		sort.Strings(value.names)
+		splitGroups = append(splitGroups, core.SplitGroup{Names: value.names, Mode: k.mode, NodeTag: k.tag, Rules: value.rules})
+		total += len(value.names)
 	}
 	var extraNodes []core.ExtraNode
-	for tag, n := range extraByTag {
-		extraNodes = append(extraNodes, core.ExtraNode{Tag: tag, Node: n})
+	extraTags := make([]string, 0, len(extraByTag))
+	for tag := range extraByTag {
+		extraTags = append(extraTags, tag)
+	}
+	sort.Strings(extraTags)
+	for _, tag := range extraTags {
+		extraNodes = append(extraNodes, core.ExtraNode{Tag: tag, Node: extraByTag[tag]})
 	}
 
 	clashPort, _ := core.FreePort()

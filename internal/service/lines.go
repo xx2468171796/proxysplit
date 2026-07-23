@@ -3,6 +3,7 @@ package service
 import (
 	"fmt"
 	"sort"
+	"strings"
 
 	"proxysplit/internal/core"
 	"proxysplit/internal/engine"
@@ -61,6 +62,133 @@ func lineByID(all []Line, id string) *Line {
 // allLinesLocked returns builtin + custom lines (caller holds the lock).
 func (s *Service) allLinesLocked() []Line {
 	return append(builtinLines(), s.cfg.Lines...)
+}
+
+func validCustomLineID(id string) bool {
+	if id == "" || len(id) > 64 {
+		return false
+	}
+	for _, ch := range id {
+		if !((ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') ||
+			(ch >= '0' && ch <= '9') || ch == '-' || ch == '_' || ch == '.') {
+			return false
+		}
+	}
+	return true
+}
+
+// normalizeCustomLinesLocked validates custom lines as one atomic update.
+// Caller holds s.mu so node and line references cannot change mid-validation.
+func (s *Service) normalizeCustomLinesLocked(lines []Line) ([]Line, error) {
+	nodeIDs := map[string]bool{}
+	for _, node := range s.cfg.Nodes {
+		nodeIDs[node.ID] = true
+	}
+	reserved := map[string]bool{LineDirect: true, LineBlock: true, LineGlobal: true, LineRule: true}
+	seenID, seenName := map[string]bool{}, map[string]bool{}
+	out := make([]Line, 0, len(lines))
+	for i, raw := range lines {
+		if raw.Builtin {
+			continue
+		}
+		line := raw
+		line.ID = strings.TrimSpace(line.ID)
+		line.Name = strings.TrimSpace(line.Name)
+		line.Node = strings.TrimSpace(line.Node)
+		line.Routing.Mode = strings.ToLower(strings.TrimSpace(line.Routing.Mode))
+		if !validCustomLineID(line.ID) || reserved[strings.ToLower(line.ID)] {
+			return nil, fmt.Errorf("第 %d 条线路 ID 无效或为系统保留值: %s", i+1, line.ID)
+		}
+		if line.Name == "" || len([]rune(line.Name)) > 40 {
+			return nil, fmt.Errorf("第 %d 条线路名称不能为空且最多 40 个字符", i+1)
+		}
+		idKey, nameKey := strings.ToLower(line.ID), strings.ToLower(line.Name)
+		if seenID[idKey] {
+			return nil, fmt.Errorf("线路 ID 重复: %s", line.ID)
+		}
+		if seenName[nameKey] {
+			return nil, fmt.Errorf("线路名称重复: %s", line.Name)
+		}
+		seenID[idKey], seenName[nameKey] = true, true
+		if line.Node == "" {
+			line.Node = "active"
+		}
+		if line.Node != "active" && !nodeIDs[line.Node] {
+			return nil, fmt.Errorf("线路“%s”引用了不存在的节点: %s", line.Name, line.Node)
+		}
+		switch line.Routing.Mode {
+		case "":
+			line.Routing.Mode = core.RouteGlobal
+			line.Routing.Rules = nil
+		case core.RouteGlobal, core.RouteBypassCN:
+			line.Routing.Rules = nil
+		case core.RouteCustom:
+			rules, err := normalizeRouteRules(line.Routing.Rules)
+			if err != nil {
+				return nil, fmt.Errorf("线路“%s”: %w", line.Name, err)
+			}
+			line.Routing.Rules = rules
+		default:
+			return nil, fmt.Errorf("线路“%s”的分流模式无效: %s", line.Name, line.Routing.Mode)
+		}
+		line.Builtin = false
+		out = append(out, line)
+	}
+	return out, nil
+}
+
+// normalizeAppRulesLocked validates application mappings against the current
+// custom lines and nodes. Caller holds s.mu.
+func (s *Service) normalizeAppRulesLocked(rules []AppRule) ([]AppRule, error) {
+	allLines := s.allLinesLocked()
+	lineMap := make(map[string]Line, len(allLines))
+	for _, line := range allLines {
+		lineMap[line.ID] = line
+	}
+	nodeIDs := map[string]bool{}
+	for _, node := range s.cfg.Nodes {
+		nodeIDs[node.ID] = true
+	}
+	seen := map[string]bool{}
+	out := make([]AppRule, 0, len(rules))
+	for i, raw := range rules {
+		rule := raw
+		rule.Match = strings.TrimSpace(rule.Match)
+		rule.Path = strings.TrimSpace(rule.Path)
+		rule.Line = strings.TrimSpace(rule.Line)
+		rule.Node = strings.TrimSpace(rule.Node)
+		if rule.Match == "" {
+			return nil, fmt.Errorf("第 %d 条应用规则缺少程序名称", i+1)
+		}
+		if len([]rune(rule.Match)) > 260 {
+			return nil, fmt.Errorf("第 %d 条应用规则名称过长", i+1)
+		}
+		key := strings.ToLower(rule.Match)
+		if seen[key] {
+			return nil, fmt.Errorf("应用规则重复: %s", rule.Match)
+		}
+		seen[key] = true
+		if rule.Path == "" {
+			rule.Path = rule.Match
+		}
+		if rule.Line == "" {
+			rule.Line = LineRule
+		}
+		line, ok := lineMap[rule.Line]
+		if !ok {
+			return nil, fmt.Errorf("应用“%s”引用了不存在的线路: %s", rule.Match, rule.Line)
+		}
+		if line.ID == LineDirect || line.ID == LineBlock || !line.Builtin {
+			// Direct/block do not use a node; custom lines own their node and must
+			// not be silently overridden by an app-level stale selection.
+			rule.Node = ""
+		} else if rule.Node != "" && rule.Node != "active" && !nodeIDs[rule.Node] {
+			return nil, fmt.Errorf("应用“%s”引用了不存在的节点: %s", rule.Match, rule.Node)
+		}
+		rule.Action, rule.Follow = "", nil
+		out = append(out, rule)
+	}
+	return out, nil
 }
 
 // routingPlan is the fully-resolved routing derived from the current config: the

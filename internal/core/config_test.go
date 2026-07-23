@@ -212,6 +212,84 @@ func TestCustomRulesPriority(t *testing.T) {
 	t.Logf("custom rule present at idx %d, before geo rule at idx %d — priority OK", customIdx, geoIdx)
 }
 
+func routeRulesFromConfig(t *testing.T, cfg []byte) []interface{} {
+	t.Helper()
+	var decoded map[string]interface{}
+	if err := json.Unmarshal(cfg, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	return decoded["route"].(map[string]interface{})["rules"].([]interface{})
+}
+
+func TestRuleSetSelectionAffectsGeneratedRules(t *testing.T) {
+	node, err := nodes.ParseLink(sampleLinks["vless-reality"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := BuildTUNConfig(node, "info", Options{
+		RouteMode: RouteBypassCN,
+		RuleSets:  &RuleSetOptions{GeoSiteCN: true, GeoIPCN: false, Ads: false},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen := map[string]bool{}
+	for _, raw := range routeRulesFromConfig(t, cfg) {
+		rule := raw.(map[string]interface{})
+		if sets, ok := rule["rule_set"].([]interface{}); ok {
+			for _, set := range sets {
+				seen[set.(string)] = true
+			}
+		}
+	}
+	if !seen["geosite-cn"] || seen["geoip-cn"] || seen["geosite-ads"] {
+		t.Fatalf("rule-set switches not reflected in route rules: %+v", seen)
+	}
+}
+
+func TestSplitCustomGroupRulesAreProcessScoped(t *testing.T) {
+	node, err := nodes.ParseLink(sampleLinks["vless-reality"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := BuildTUNConfig(node, "info", Options{
+		Split:          true,
+		SplitWhitelist: true,
+		SplitGroups: []SplitGroup{{
+			Names:   []string{"CustomApp.exe"},
+			Mode:    RouteCustom,
+			NodeTag: "proxy",
+			Rules: []RouteRule{
+				{Type: "suffix", Value: "example.cn", Action: "direct"},
+				{Type: "keyword", Value: "tracker", Action: "block"},
+			},
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	direct, block, catchAll := false, false, false
+	for _, raw := range routeRulesFromConfig(t, cfg) {
+		rule := raw.(map[string]interface{})
+		processes, ok := rule["process_name"].([]interface{})
+		if !ok || len(processes) != 1 || processes[0] != "CustomApp.exe" {
+			continue
+		}
+		if suffixes, ok := rule["domain_suffix"].([]interface{}); ok && len(suffixes) == 1 && suffixes[0] == "example.cn" && rule["outbound"] == "direct" {
+			direct = true
+		}
+		if keywords, ok := rule["domain_keyword"].([]interface{}); ok && len(keywords) == 1 && keywords[0] == "tracker" && rule["action"] == "reject" {
+			block = true
+		}
+		if len(rule) == 2 && rule["outbound"] == "proxy" {
+			catchAll = true
+		}
+	}
+	if !direct || !block || !catchAll {
+		t.Fatalf("custom split group incomplete: direct=%v block=%v catchAll=%v\n%s", direct, block, catchAll, cfg)
+	}
+}
+
 func TestLanShareConfig(t *testing.T) {
 	bin := singboxPath(t)
 	dir := t.TempDir()

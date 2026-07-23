@@ -134,6 +134,10 @@ export function PickExeFiles() {
   return window['go']['main']['App']['PickExeFiles']();
 }
 
+export function PreviewAppRulesImport(arg1) {
+  return window['go']['main']['App']['PreviewAppRulesImport'](arg1);
+}
+
 export function RemoveNode(arg1) {
   return window['go']['main']['App']['RemoveNode'](arg1);
 }
@@ -192,6 +196,10 @@ export function SetRouting(arg1) {
 
 export function SetRuleMode(arg1) {
   return window['go']['main']['App']['SetRuleMode'](arg1);
+}
+
+export function SetRuleSetEnabled(arg1, arg2) {
+  return window['go']['main']['App']['SetRuleSetEnabled'](arg1, arg2);
 }
 
 export function SetSettings(arg1) {
