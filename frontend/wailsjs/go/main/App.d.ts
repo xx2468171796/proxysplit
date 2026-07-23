@@ -3,6 +3,7 @@
 import {main} from '../models';
 import {service} from '../models';
 import {core} from '../models';
+import {license} from '../models';
 import {nodes} from '../models';
 import {proc} from '../models';
 
@@ -40,6 +41,8 @@ export function GetHealth():Promise<service.Health>;
 
 export function GetLanIP():Promise<string>;
 
+export function GetLicenseStatus():Promise<license.Status>;
+
 export function GetLines():Promise<Array<service.Line>>;
 
 export function GetLogLevel():Promise<string>;
@@ -69,6 +72,10 @@ export function ImportConfig():Promise<string>;
 export function LegalNotice():Promise<string>;
 
 export function ListProcesses():Promise<Array<proc.ProcInfo>>;
+
+export function Login(arg1:string,arg2:string):Promise<string>;
+
+export function Logout():Promise<string>;
 
 export function PickExeFiles():Promise<Array<string>>;
 

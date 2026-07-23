@@ -46,6 +46,37 @@ export namespace engine {
 
 }
 
+export namespace license {
+
+	export class Status {
+	    enabled: boolean;
+	    authenticated: boolean;
+	    username: string;
+	    plan: string;
+	    features: string[];
+	    expiresAt: string;
+	    offlineUntil: string;
+	    error?: string;
+
+	    static createFrom(source: any = {}) {
+	        return new Status(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.enabled = source["enabled"];
+	        this.authenticated = source["authenticated"];
+	        this.username = source["username"];
+	        this.plan = source["plan"];
+	        this.features = source["features"];
+	        this.expiresAt = source["expiresAt"];
+	        this.offlineUntil = source["offlineUntil"];
+	        this.error = source["error"];
+	    }
+	}
+
+}
+
 export namespace main {
 
 	export class AIControlInfo {
@@ -93,6 +124,7 @@ export namespace main {
 	    defaultLine: string;
 	    ruleMode: string;
 	    status: service.Status;
+	    license: license.Status;
 
 	    static createFrom(source: any = {}) {
 	        return new BootstrapState(source);
@@ -110,6 +142,7 @@ export namespace main {
 	        this.defaultLine = source["defaultLine"];
 	        this.ruleMode = source["ruleMode"];
 	        this.status = this.convertValues(source["status"], service.Status);
+	        this.license = this.convertValues(source["license"], license.Status);
 	    }
 
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

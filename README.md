@@ -34,7 +34,7 @@
 
 ## ⬇ 下载
 
-前往 **[Releases](https://github.com/xx2468171796/daili/releases/latest)** 下载最新的 `proxysplit-v1.4.0.exe`（单文件、自包含、约 55 MB）。
+前往 **[Releases](https://github.com/xx2468171796/daili/releases/latest)** 下载最新的 `proxysplit-v1.8.0.exe`（单文件、自包含、约 55 MB）。
 
 > 首次运行需**管理员权限**（WinDivert 要加载内核驱动），双击会自动弹出 UAC 请求，允许即可。
 > Windows Defender / 杀软可能因“未知发布者 + 网络驱动”提示，属正常，选择“仍要运行 / 允许”。

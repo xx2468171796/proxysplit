@@ -4,6 +4,7 @@ import (
 	"context"
 	"embed"
 	"encoding/json"
+	"fmt"
 	"net"
 	"os"
 	"path/filepath"
@@ -14,6 +15,7 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 
 	"proxysplit/internal/core"
+	"proxysplit/internal/license"
 	"proxysplit/internal/nodes"
 	"proxysplit/internal/proc"
 	"proxysplit/internal/service"
@@ -30,6 +32,7 @@ var payloadFS embed.FS
 type App struct {
 	ctx       context.Context
 	svc       *service.Service
+	lic       *license.Client
 	forceQuit bool // set when the user picks 退出 from the tray (allow real close)
 	trayUp    bool // the tray icon initialized OK (only then may we hide to it)
 	apiUp     bool // the local AI-control HTTP API is listening
@@ -64,6 +67,7 @@ func (a *App) startup(ctx context.Context) {
 		return
 	}
 	a.svc = svc
+	a.lic = license.New(dataDir(), appVersion)
 	svc.SetLogSink(func(line string) {
 		runtime.EventsEmit(ctx, "log", line)
 	})
@@ -87,6 +91,7 @@ type BootstrapState struct {
 	DefaultLine string            `json:"defaultLine"`
 	RuleMode    string            `json:"ruleMode"`
 	Status      service.Status    `json:"status"`
+	License     license.Status    `json:"license"`
 }
 
 func (a *App) GetBootstrapState() BootstrapState {
@@ -111,6 +116,7 @@ func (a *App) GetBootstrapState() BootstrapState {
 		DefaultLine: a.svc.GetDefaultLine(),
 		RuleMode:    a.svc.GetRuleMode(),
 		Status:      a.svc.Status(),
+		License:     a.lic.Status(),
 	}
 }
 
@@ -404,10 +410,46 @@ func errStr(err error) string {
 
 // Start launches the core and redirect engine.
 func (a *App) Start() string {
-	if err := a.svc.Start(); err != nil {
+	if err := a.startService(); err != nil {
 		return err.Error()
 	}
 	return ""
+}
+
+// startService is the single gate into proxy execution. Every UI, tray and
+// local-control entry point must call it so commercial authorization cannot be
+// bypassed by invoking an alternate start/restart route.
+func (a *App) startService() error {
+	if a.lic != nil {
+		if err := a.lic.EnsureEntitled(); err != nil {
+			return fmt.Errorf("授权校验失败：%w", err)
+		}
+	}
+	return a.svc.Start()
+}
+
+// Commercial account/licensing. Development builds have no injected API URL,
+// report Enabled=false and preserve the already-accepted local-only workflow.
+func (a *App) GetLicenseStatus() license.Status {
+	if a.lic == nil {
+		return license.Status{}
+	}
+	return a.lic.Status()
+}
+
+func (a *App) Login(username, password string) string {
+	if a.lic == nil {
+		return "授权模块尚未初始化"
+	}
+	return errStr(a.lic.Login(username, password))
+}
+
+func (a *App) Logout() string {
+	if a.lic == nil {
+		return ""
+	}
+	a.svc.Stop()
+	return errStr(a.lic.Logout())
 }
 
 // Stop stops everything.
@@ -416,7 +458,7 @@ func (a *App) Stop() { a.svc.Stop() }
 // Restart stops then starts the core (one click to reload after config changes).
 func (a *App) Restart() string {
 	a.svc.Stop()
-	if err := a.svc.Start(); err != nil {
+	if err := a.startService(); err != nil {
 		return err.Error()
 	}
 	return ""

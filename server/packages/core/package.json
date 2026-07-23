@@ -1,0 +1,6 @@
+{
+  "name":"@proxysplit/core","version":"0.1.0","type":"module","exports":"./src/index.ts",
+  "scripts":{"typecheck":"tsc --noEmit","build":"tsc -p tsconfig.json","test":"vitest run"},
+  "dependencies":{"@proxysplit/contracts":"workspace:*","@proxysplit/db":"workspace:*","@proxysplit/shared":"workspace:*","argon2":"^0.44.0","jose":"^6.0.12"},
+  "devDependencies":{"typescript":"^5.8.3","vitest":"^3.2.4"}
+}

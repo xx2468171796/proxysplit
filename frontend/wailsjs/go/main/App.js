@@ -70,6 +70,10 @@ export function GetLanIP() {
   return window['go']['main']['App']['GetLanIP']();
 }
 
+export function GetLicenseStatus() {
+  return window['go']['main']['App']['GetLicenseStatus']();
+}
+
 export function GetLines() {
   return window['go']['main']['App']['GetLines']();
 }
@@ -128,6 +132,14 @@ export function LegalNotice() {
 
 export function ListProcesses() {
   return window['go']['main']['App']['ListProcesses']();
+}
+
+export function Login(arg1, arg2) {
+  return window['go']['main']['App']['Login'](arg1, arg2);
+}
+
+export function Logout() {
+  return window['go']['main']['App']['Logout']();
 }
 
 export function PickExeFiles() {

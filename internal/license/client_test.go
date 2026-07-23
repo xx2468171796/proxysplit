@@ -1,0 +1,75 @@
+package license
+
+import (
+	"crypto/ed25519"
+	"crypto/rand"
+	"crypto/x509"
+	"encoding/base64"
+	"encoding/json"
+	"testing"
+	"time"
+)
+
+func signedLease(t *testing.T, private ed25519.PrivateKey, claims map[string]any) string {
+	t.Helper()
+	header, _ := json.Marshal(map[string]any{"alg": "EdDSA", "kid": "proxysplit-license-v1"})
+	payload, _ := json.Marshal(claims)
+	message := base64.RawURLEncoding.EncodeToString(header) + "." + base64.RawURLEncoding.EncodeToString(payload)
+	signature := ed25519.Sign(private, []byte(message))
+	return message + "." + base64.RawURLEncoding.EncodeToString(signature)
+}
+
+func testClient(t *testing.T) (*Client, ed25519.PrivateKey) {
+	t.Helper()
+	public, private, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	der, err := x509.MarshalPKIXPublicKey(public)
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldURL, oldKey := APIURL, PublicKeyBase64
+	APIURL, PublicKeyBase64 = "https://license.invalid", base64.StdEncoding.EncodeToString(der)
+	t.Cleanup(func() { APIURL, PublicKeyBase64 = oldURL, oldKey })
+	return New(t.TempDir(), "1.9.0"), private
+}
+
+func TestLeaseVerificationAndOfflineGrace(t *testing.T) {
+	c, private := testClient(t)
+	exp := time.Now().Add(-time.Hour).Unix()
+	c.state.Lease = signedLease(t, private, map[string]any{"sub": "user", "did": "device", "plan": "Professional", "features": []string{"proxy"}, "minVersion": "1.8.0", "exp": exp, "grace": 72})
+	status := c.Status()
+	if !status.Authenticated || status.Plan != "Professional" {
+		t.Fatalf("valid offline lease rejected: %+v", status)
+	}
+	c.state.Lease = signedLease(t, private, map[string]any{"minVersion": "2.0.0", "exp": time.Now().Add(time.Hour).Unix(), "grace": 72})
+	if _, err := c.verifyLease(c.state.Lease); err == nil {
+		t.Fatal("minimum-version policy was not enforced")
+	}
+}
+
+func TestLeaseTamperRejected(t *testing.T) {
+	c, private := testClient(t)
+	token := signedLease(t, private, map[string]any{"minVersion": "1.8.0", "exp": time.Now().Add(time.Hour).Unix(), "grace": 72})
+	parts := []byte(token)
+	parts[len(parts)-1] ^= 1
+	if _, err := c.verifyLease(string(parts)); err == nil {
+		t.Fatal("tampered lease signature accepted")
+	}
+}
+
+func TestProtectedStateRoundTrip(t *testing.T) {
+	raw := []byte(`{"refreshToken":"secret"}`)
+	sealed, err := protect(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plain, err := unprotect(sealed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(plain) != string(raw) {
+		t.Fatalf("round-trip mismatch: %q", plain)
+	}
+}

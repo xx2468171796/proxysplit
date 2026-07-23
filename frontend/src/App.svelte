@@ -58,6 +58,9 @@
     ResetConfig as WResetConfig,
     GetCustomRules as WGetCustomRules,
     SetCustomRules as WSetCustomRules,
+    GetLicenseStatus as WGetLicenseStatus,
+    Login as WLogin,
+    Logout as WLogout,
   } from '../wailsjs/go/main/App.js'
   import { EventsOn } from '../wailsjs/runtime/runtime.js'
   import donateQR from './assets/images/donate.png'
@@ -116,12 +119,13 @@
   type BootstrapState = {
     ready?: boolean; error?: string
     nodes?: Node[]; rules?: AppRule[]; lines?: Line[]; subs?: Sub[]; settings?: Settings
-    defaultLine?: string; ruleMode?: string; status?: Status
+    defaultLine?: string; ruleMode?: string; status?: Status; license?: LicenseStatus
   }
   type Sub = { id: string; name: string; url: string; autoUpdate: boolean; lastUpdate: string; nodeCount: number }
   type RouteRule = { type: string; value: string; action: string }
   type RuleImportPreview = { schemaVersion: number; ruleCount: number; lineAdded: number; lineSkipped: number; customRules: number; summary: string; error?: string }
   type Routing = { enabled: boolean; mode: string; rules: RouteRule[] }
+  type LicenseStatus = { enabled: boolean; authenticated: boolean; username: string; plan: string; features: string[]; expiresAt: string; offlineUntil: string; error?: string }
   type Settings = {
     mixedPort: number; tunMode: boolean; lanShare: boolean; excludeSelf: boolean; privateDirect: boolean; blockQUIC: boolean
     remoteDNS: boolean; fakeIP: boolean; autostart: boolean; trayClose: boolean; theme: string
@@ -185,6 +189,10 @@
   let logs: string[] = []
   let recent: LogItem[] = []
   let status: Status | null = null
+  let license: LicenseStatus = { enabled: false, authenticated: true, username: '', plan: '', features: [], expiresAt: '', offlineUntil: '' }
+  let loginForm = { username: '', password: '' }
+  let loginBusy = false
+  let loginError = ''
   let ruleMode: 'blacklist' | 'whitelist' = 'whitelist' // 只代理列出的（默认/推荐）
   let linkText = ''
   let addMsg = ''
@@ -271,6 +279,7 @@
     if (s.settings) settings = s.settings
     defaultLine = s.defaultLine || 'rule'
     if (s.status) status = s.status
+    if (s.license) license = s.license
     ruleMode = s.ruleMode === 'blacklist' ? 'blacklist' : 'whitelist'
     bootstrapLoaded = true
     useDemo = false
@@ -388,6 +397,25 @@
       }
     }
     if (s) { prevDown = s.downBytes; prevUp = s.upBytes; prevT = now }
+  }
+  async function refreshLicense() {
+    if (!isWailsReady()) return
+    license = await safe<LicenseStatus>(() => WGetLicenseStatus(), license)
+  }
+  async function submitLogin() {
+    if (!loginForm.username.trim() || !loginForm.password) { loginError = '请输入用户名和密码'; return }
+    loginBusy = true; loginError = ''
+    const err = await WLogin(loginForm.username.trim(), loginForm.password)
+    loginBusy = false
+    if (err) { loginError = err; return }
+    loginForm.password = ''
+    await refreshLicense()
+  }
+  async function logoutAccount() {
+    if (!confirm('退出当前账号后代理会停止，是否继续？')) return
+    const err = await WLogout()
+    if (err) { toast('退出失败：' + err); return }
+    await refreshLicense(); await refreshStatus()
   }
   const demoHealth: Health = { running: true, capturing: true, capturedPkts: 12873, warning: '',
     lines: [ { id: 'rule', name: '规则', node: 'JP | Tokyo - 01', latency: 48, ok: true },
@@ -973,7 +1001,7 @@
       }, 2000)
     }
     timer = setInterval(() => { refreshStatus(); refreshHealth() }, 1000)
-    openDonate() // 每次启动强制弹出赞赏码
+    if (!license.enabled || license.authenticated) openDonate()
   })
   onDestroy(() => {
     if (timer) clearInterval(timer)
@@ -1020,6 +1048,30 @@
 
 <svelte:head><title>ProxySplit</title></svelte:head>
 
+{#if license.enabled && !license.authenticated}
+  <main class="license-login">
+    <form class="license-login-card" on:submit|preventDefault={submitLogin}>
+      <div class="license-mark">◑</div>
+      <div class="license-login-title">
+        <span>ProxySplit</span>
+        <small>登录后使用你的授权设备</small>
+      </div>
+      <label>
+        <span>用户名</span>
+        <input bind:value={loginForm.username} autocomplete="username" placeholder="请输入用户名" disabled={loginBusy} />
+      </label>
+      <label>
+        <span>密码</span>
+        <input type="password" bind:value={loginForm.password} autocomplete="current-password" placeholder="请输入密码" disabled={loginBusy} />
+      </label>
+      {#if loginError}<div class="license-error">{loginError}</div>{/if}
+      <button class="primary license-submit" type="submit" disabled={loginBusy || !loginForm.username.trim() || !loginForm.password}>
+        {loginBusy ? '正在验证…' : '登录并绑定本机'}
+      </button>
+      <p class="license-tip">账号授权由服务端校验。凭据和授权票据仅加密保存在本机。</p>
+    </form>
+  </main>
+{:else}
 <div class="shell">
   <aside class="sidebar">
     <div class="brand">
@@ -1073,6 +1125,12 @@
       </div>
 
       <div class="tb-right">
+        {#if license.enabled}
+          <button class="account-chip" title="账户与授权" on:click={() => (tab = 'settings')}>
+            <span>{license.username.slice(0, 1).toUpperCase()}</span>
+            <div><b>{license.username}</b><small>{license.plan || '已授权'}</small></div>
+          </button>
+        {/if}
         <div class="metric"><span class="mi down">{@html I.down}</span><b>{dn.v}</b> {dn.u}</div>
         <div class="metric"><span class="mi up">{@html I.up}</span><b>{up.v}</b> {up.u}</div>
         <div class="metric col"><span class="mi">{@html I.users}</span><div><small>活动连接</small><b>{activeConns}</b></div></div>
@@ -1603,6 +1661,24 @@
 
       {:else}
         <div class="settings-grid">
+          {#if license.enabled}
+            <section class="card account-card">
+              <div class="card-head sm">
+                <div><h3>账户与设备授权</h3><p class="sub">当前账号已绑定到本机，退出账号会同时停止代理服务。</p></div>
+                <span class="pill good">● 已授权</span>
+              </div>
+              <div class="account-grid">
+                <div><span>用户名</span><b>{license.username}</b></div>
+                <div><span>套餐</span><b>{license.plan || '默认套餐'}</b></div>
+                <div><span>授权到期</span><b>{license.expiresAt ? new Date(license.expiresAt).toLocaleString() : '以服务端为准'}</b></div>
+                <div><span>离线可用至</span><b>{license.offlineUntil ? new Date(license.offlineUntil).toLocaleString() : '需在线校验'}</b></div>
+              </div>
+              <div class="account-actions">
+                <button class="ghost" on:click={refreshLicense}>刷新授权</button>
+                <button class="danger-soft" on:click={logoutAccount}>退出账号</button>
+              </div>
+            </section>
+          {/if}
           <section class="card ai-card">
             <div class="card-head sm">
               <div><h3>🤖 AI 控制（MCP / API）</h3><p class="sub">让 AI（Claude Code / Codex 等）直接控制本机代理：把某程序设为走代理 / 直连 / 全局、启停</p></div>
@@ -1700,6 +1776,7 @@
     </div>
   {/if}
 </div>
+{/if}
 
 <style>
   :global(:root) {
@@ -2141,6 +2218,31 @@
   .route-rule select { flex: 0 1 auto; min-width: 118px; border: 1px solid #e2e8f0; border-radius: 9px; padding: 8px 10px; background: var(--soft); font-size: 13px; color: var(--ink-2); }
   .route-rule input { flex: 1 1 200px; min-width: 0; padding: 8px 11px; }
 
+  /* ---------- account / license ---------- */
+  .license-login { min-height: 100vh; display: grid; place-items: center; padding: 28px; background: radial-gradient(circle at 50% -10%, #dbeafe 0, transparent 42%), var(--page); }
+  .license-login-card { width: min(390px, 100%); display: grid; gap: 17px; padding: 34px; border: 1px solid var(--line); border-radius: 22px; background: rgba(255, 255, 255, .94); box-shadow: 0 24px 70px rgba(15, 23, 42, .13); }
+  .license-mark { width: 54px; height: 54px; display: grid; place-items: center; margin: 0 auto -4px; border-radius: 15px; color: #fff; background: linear-gradient(135deg, var(--brand), #6366f1); box-shadow: 0 10px 24px rgba(37, 99, 235, .27); font-size: 28px; }
+  .license-login-title { display: grid; gap: 5px; text-align: center; }
+  .license-login-title span { font-size: 24px; font-weight: 850; color: var(--ink); letter-spacing: -.02em; }
+  .license-login-title small { font-size: 13px; color: var(--muted); }
+  .license-login-card label { display: grid; gap: 7px; color: var(--ink-2); font-size: 13px; font-weight: 700; }
+  .license-login-card input { width: 100%; padding: 12px 13px; border: 1px solid var(--line); border-radius: 10px; background: var(--soft); color: var(--ink); font: inherit; outline: none; }
+  .license-login-card input:focus { border-color: var(--brand); background: #fff; box-shadow: 0 0 0 3px var(--brand-tint); }
+  .license-submit { width: 100%; min-height: 44px; justify-content: center; }
+  .license-error { padding: 9px 11px; border: 1px solid #fecaca; border-radius: 9px; background: #fef2f2; color: #b91c1c; font-size: 12.5px; line-height: 1.5; }
+  .license-tip { margin: -3px 0 0; color: var(--muted-2); font-size: 11.5px; line-height: 1.6; text-align: center; }
+  .account-chip { display: flex; align-items: center; gap: 8px; max-width: 150px; padding: 5px 9px 5px 6px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); color: var(--ink); cursor: pointer; font-family: inherit; }
+  .account-chip > span { width: 28px; height: 28px; flex: none; display: grid; place-items: center; border-radius: 8px; background: var(--brand-tint); color: var(--brand-600); font-size: 12px; font-weight: 850; }
+  .account-chip div { min-width: 0; display: grid; text-align: left; }
+  .account-chip b, .account-chip small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .account-chip b { font-size: 11.5px; } .account-chip small { color: var(--muted-2); font-size: 10px; }
+  .account-card { grid-column: 1 / -1; }
+  .account-grid { display: grid; grid-template-columns: repeat(4, minmax(120px, 1fr)); gap: 10px; }
+  .account-grid > div { min-width: 0; display: grid; gap: 4px; padding: 12px; border-radius: 10px; background: var(--soft); }
+  .account-grid span { color: var(--muted-2); font-size: 11px; }
+  .account-grid b { overflow: hidden; color: var(--ink-2); font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+  .account-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
+
   /* ---------- line manager ---------- */
   .line-list { display: grid; gap: 2px; margin: var(--s4) 0 var(--s3); }
   .line-list-head, .line-row { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) 96px auto; gap: 12px; align-items: center; }
@@ -2248,6 +2350,9 @@
   @media (max-width: 900px) {
     .proto-field { display: none; }
     .metric.col { display: none; }
+    .account-chip div { display: none; }
+    .account-chip { padding-right: 6px; }
+    .account-grid { grid-template-columns: repeat(2, minmax(120px, 1fr)); }
   }
   /* narrow: reflow the wide tables into stacked cards (no page scroll, nothing clipped) */
   @media (max-width: 820px) {
@@ -2284,6 +2389,7 @@
     .tscroll { margin: 0; padding: 0; }
     .power-btn span { display: inline; }
     .route-master { flex: 1 1 100%; }
+    .account-grid { grid-template-columns: 1fr; }
   }
 
   @media (prefers-reduced-motion: reduce) {

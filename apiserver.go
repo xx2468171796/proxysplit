@@ -165,7 +165,7 @@ func (a *App) startAPIServer() {
 
 	// POST /api/start ; POST /api/stop
 	mux.HandleFunc("/api/start", auth(func(w http.ResponseWriter, r *http.Request) {
-		if err := a.svc.Start(); err != nil {
+		if err := a.startService(); err != nil {
 			writeJSON(w, 500, map[string]string{"error": err.Error()})
 			return
 		}
@@ -177,7 +177,7 @@ func (a *App) startAPIServer() {
 	}))
 	mux.HandleFunc("/api/restart", auth(func(w http.ResponseWriter, r *http.Request) {
 		a.svc.Stop()
-		if err := a.svc.Start(); err != nil {
+		if err := a.startService(); err != nil {
 			writeJSON(w, 500, map[string]string{"error": err.Error()})
 			return
 		}
@@ -298,7 +298,7 @@ func (a *App) mcpCall(name string, args json.RawMessage) string {
 		}
 		return "代理策略已设为 " + str("clash")
 	case "proxysplit_start":
-		if err := a.svc.Start(); err != nil {
+		if err := a.startService(); err != nil {
 			return "启动失败: " + err.Error()
 		}
 		return "代理已启动"

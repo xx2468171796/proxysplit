@@ -48,7 +48,7 @@ func (a *App) trayReady() {
 		if a.svc.Status().CoreRunning {
 			a.svc.Stop()
 		} else {
-			_ = a.svc.Start()
+			_ = a.startService()
 		}
 	})
 	mQuit.Click(func() {
