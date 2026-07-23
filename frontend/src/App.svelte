@@ -217,7 +217,10 @@
   let memberOrders: MemberOrder[] = []
   let announcements: Announcement[] = []
   let commerceBusy = false
+  let commerceLoading = false
   let commerceError = ''
+  let planLoadError = ''
+  let plansLoadedAt = ''
   let showMembership = false
   let membershipPrompted = false
   let commerceTimer: ReturnType<typeof setInterval> | null = null
@@ -316,6 +319,11 @@
     ruleMode = s.ruleMode === 'blacklist' ? 'blacklist' : 'whitelist'
     bootstrapLoaded = true
     useDemo = false
+    // The first reactive icon pass may have run before the Wails bridge was
+    // attached.  Run it again after the real bootstrap snapshot arrives so
+    // application rules always request the Windows shell icon, never a
+    // synthetic client-side icon.
+    queueOriginalIcons()
     return true
   }
   const onBootstrap = (event: Event) => applyBootstrap((event as CustomEvent<BootstrapState>).detail)
@@ -419,6 +427,12 @@
     } catch { iconMap = { ...iconMap, [path]: '' } }
     iconPending.delete(path)
   }
+  function queueOriginalIcons() {
+    if (useDemo || !isWailsReady()) return
+    rules.forEach((r) => loadIcon(ruleIconPath(r)))
+    procs.forEach((p) => loadIcon(p.path))
+    liveProcs.forEach((p) => loadIcon(p.path))
+  }
 
   // Persist the AppRule[] model straight to the backend.
   let savedMsg = ''
@@ -454,15 +468,37 @@
   }
   async function loadCommerce() {
     if (!isWailsReady() || !license.enabled) return
-    const plansResult = await WGetMembershipPlans() as any
-    if (plansResult.err) commerceError = plansResult.err
-    else memberPlans = plansResult.items || []
-    const announcementResult = await WGetAnnouncements() as any
-    if (!announcementResult.err) announcements = announcementResult.items || []
-    if (!license.signedIn) { accountDevices = []; memberOrders = []; return }
-    const [deviceResult, orderResult] = await Promise.all([WGetMyDevices(), WGetMyOrders()]) as any[]
-    if (!deviceResult.err) accountDevices = deviceResult.items || []
-    if (!orderResult.err) memberOrders = orderResult.items || []
+    commerceLoading = true
+    planLoadError = ''
+    try {
+      const plansResult = await WGetMembershipPlans() as any
+      if (plansResult?.err) {
+        memberPlans = []
+        planLoadError = `套餐读取失败：${plansResult.err}`
+      } else if (Array.isArray(plansResult?.items)) {
+        memberPlans = plansResult.items
+        plansLoadedAt = new Date().toLocaleTimeString()
+      } else {
+        memberPlans = []
+        planLoadError = '后台暂未返回可购买套餐，请刷新后重试。'
+      }
+      const announcementResult = await WGetAnnouncements() as any
+      if (!announcementResult?.err) announcements = Array.isArray(announcementResult?.items) ? announcementResult.items : []
+      if (!license.signedIn) { accountDevices = []; memberOrders = []; return }
+      const [deviceResult, orderResult] = await Promise.all([WGetMyDevices(), WGetMyOrders()]) as any[]
+      if (!deviceResult?.err) accountDevices = Array.isArray(deviceResult?.items) ? deviceResult.items : []
+      if (!orderResult?.err) memberOrders = Array.isArray(orderResult?.items) ? orderResult.items : []
+    } catch (e) {
+      memberPlans = []
+      planLoadError = '套餐读取失败，请检查网络后刷新。'
+      console.warn('[ProxySplit] commerce load failed', e)
+    } finally {
+      commerceLoading = false
+    }
+  }
+  async function openMembership() {
+    showMembership = true
+    await loadCommerce()
   }
   async function submitLogin() {
     if (!loginForm.username.trim() || !loginForm.password) { loginError = '请输入用户名和密码'; return }
@@ -1133,6 +1169,10 @@
       })
     }
     if (!loaded && !bootstrapLoaded) useDemo = true
+    // Do not rely only on Svelte's earlier reactive pass: it can occur while
+    // Wails is still attaching. At this point rules/processes are real and the
+    // bridge is ready, so fetch original executable icons explicitly.
+    queueOriginalIcons()
     await refreshRouting()
     await refreshCoreVersion(); await refreshClashMode(); await refreshSysProxy()
     appUpdate.current = await safe<string>(() => WGetAppVersion(), 'dev')
@@ -1142,7 +1182,7 @@
     await refreshRunning(); await refreshHealth(); await refreshRuleSets(); await refreshAIInfo()
     await loadCommerce()
     // 已登录的试用用户首次打开客户端，直接看到试用与购买选择；套餐每分钟重新从后台读取。
-    if (!membershipPrompted && license.signedIn && !license.authenticated) {
+    if (!membershipPrompted && license.signedIn && (!license.authenticated || license.planCode === 'trial')) {
       showMembership = true; membershipPrompted = true
     }
     commerceTimer = setInterval(() => { if (license.enabled) loadCommerce() }, 60_000)
@@ -1868,7 +1908,7 @@
                 <div><span>离线可用至</span><b>{license.offlineUntil ? new Date(license.offlineUntil).toLocaleString() : '需在线校验'}</b></div>
               </div>
               <div class="account-actions">
-                <button class="primary" on:click={() => { showMembership = true; loadCommerce() }}>续费 / 升级套餐</button>
+                <button class="primary" on:click={openMembership}>续费 / 升级套餐</button>
                 <button class="ghost" on:click={async () => { const err = await WRefreshEntitlement(); if (err) toast(err); await refreshLicense() }}>刷新授权</button>
                 <button class="danger-soft" on:click={logoutAccount}>退出账号</button>
               </div>
@@ -1952,18 +1992,28 @@
   {#if showMembership}
     <div class="modal-mask member-modal-mask" role="button" tabindex="0" aria-label="关闭会员中心" on:click|self={() => (showMembership = false)} on:keydown={(e) => e.key === 'Escape' && (showMembership = false)}>
       <section class="member-modal">
-        <div class="member-modal-head"><div><span class="member-eyebrow">MEMBERSHIP · 实时套餐</span><h2>{license.planCode === 'trial' ? '免费试用中，提前选择会员套餐' : license.authenticated ? '续费或升级会员' : '选择套餐后即可启动代理'}</h2><p>{license.planCode === 'trial' ? `试用权益已生效；套餐和价格实时从后台读取，支付成功后自动升级。` : `${license.plan || '当前未开通会员'} · 最多 ${license.maxDevices || '—'} 台设备`}</p></div><button class="icon-btn" title="关闭" on:click={() => (showMembership = false)}>✕</button></div>
+        <div class="member-modal-head"><div><span class="member-eyebrow">MEMBERSHIP · 实时套餐</span><h2>{license.planCode === 'trial' ? '免费试用中，提前选择会员套餐' : license.authenticated ? '续费或升级会员' : '选择套餐后即可启动代理'}</h2><p>套餐、价格和设备数量均实时读取后台；支付成功后自动更新本机授权。</p></div><div class="member-head-actions"><button class="member-refresh" disabled={commerceLoading} on:click={loadCommerce}>{commerceLoading ? '正在读取…' : '刷新套餐'}</button><button class="icon-btn" title="关闭" on:click={() => (showMembership = false)}>✕</button></div></div>
+        <section class="member-account-summary">
+          <div><span>当前账号</span><b>{license.username || '未登录'}</b></div>
+          <div><span>当前套餐</span><b>{license.plan || '免费试用 / 未开通'}</b></div>
+          <div><span>授权到期</span><b>{license.expiresAt ? new Date(license.expiresAt).toLocaleString() : '以支付后授权为准'}</b></div>
+          <div><span>已绑设备</span><b>{accountDevices.length} / {license.maxDevices || '—'} 台</b></div>
+        </section>
         {#if commerceError}<div class="member-alert">{commerceError}</div>{/if}
+        {#if planLoadError}<div class="member-alert plan-load-alert"><span>{planLoadError}</span><button class="member-refresh" on:click={loadCommerce}>重新读取</button></div>{/if}
         <div class="member-plan-grid compact">
-          {#each memberPlans as plan}
+          {#each memberPlans as plan (plan.id)}
             <article class:premium={plan.tier === 'premium'}>
-              <div class="member-plan-top"><span>{plan.badge || plan.name}</span><em>{plan.maxDevices} 台</em></div><h2>{plan.name}</h2><p>{plan.description}</p><strong><small>¥</small>{(plan.priceCents / 100).toFixed(2)}{#if plan.originalPriceCents && plan.originalPriceCents > plan.priceCents}<del>¥{(plan.originalPriceCents / 100).toFixed(2)}</del>{/if}</strong><button class="primary" disabled={commerceBusy} on:click={() => buyPlan(plan)}>支付宝购买</button>
+              <div class="member-plan-top"><span>{plan.badge || plan.name}</span><em>{plan.maxDevices} 台设备</em></div><h2>{plan.name}</h2><p>{plan.description || '套餐权益以后台最新配置为准。'}</p><strong><small>¥</small>{(plan.priceCents / 100).toFixed(2)}{#if plan.originalPriceCents && plan.originalPriceCents > plan.priceCents}<del>¥{(plan.originalPriceCents / 100).toFixed(2)}</del>{/if}</strong><ul><li>{plan.lifetime ? '永久有效' : `${plan.durationDays || 0} 天有效`}</li><li>最多同时使用 {plan.maxDevices} 台设备</li>{#each (plan.features || []).slice(0, 2) as feature}<li>{feature}</li>{/each}</ul><button class="primary" disabled={commerceBusy} on:click={() => buyPlan(plan)}>{commerceBusy ? '正在创建订单…' : '支付宝购买'}</button>
             </article>
+          {:else}
+            <div class="member-plans-empty"><b>{commerceLoading ? '正在读取后台套餐…' : '暂无可购买套餐'}</b><span>{commerceLoading ? '请稍候，套餐列表会自动显示。' : '请点击“刷新套餐”重新读取后台配置。'}</span>{#if !commerceLoading}<button class="primary" on:click={loadCommerce}>刷新套餐</button>{/if}</div>
           {/each}
         </div>
+        <div class="plans-source">{plansLoadedAt ? `后台套餐已于 ${plansLoadedAt} 同步` : '等待后台套餐同步'} · 每分钟自动刷新</div>
         <div class="member-lower compact">
-          <section class="member-panel"><div class="panel-title"><b>我的设备</b><span>{accountDevices.length}/{license.maxDevices}</span></div>{#each accountDevices as device}<div class="member-row"><div><b>{device.name}</b><small>{device.appVersion} · {new Date(device.lastSeenAt).toLocaleString()}</small></div><div>{#if device.current}<span class="current-device">本机</span>{/if}<button on:click={() => unbindDevice(device.id)}>解绑</button></div></div>{/each}</section>
-          <section class="member-panel"><div class="panel-title"><b>最近订单</b><span>{memberOrders.length}</span></div>{#each memberOrders.slice(0, 4) as order}<div class="member-row"><div><b>{order.planName}</b><small>{order.orderNo}</small></div><div><span class:paid={order.status === 'paid'}>{order.status === 'paid' ? '已支付' : '待支付'}</span><b>¥{(order.amountCents / 100).toFixed(2)}</b></div></div>{/each}</section>
+          <section class="member-panel"><div class="panel-title"><b>我的设备</b><span>{accountDevices.length}/{license.maxDevices || '—'} 台</span></div>{#each accountDevices as device}<div class="member-row"><div><b>{device.name}</b><small>{device.platform || 'Windows'} · {device.appVersion || '客户端版本未知'} · 最近在线 {new Date(device.lastSeenAt).toLocaleString()}</small></div><div>{#if device.current}<span class="current-device">本机</span>{/if}<button disabled={device.current} title={device.current ? '当前正在使用的本机不能解绑' : '解绑此旧设备'} on:click={() => unbindDevice(device.id)}>解绑</button></div></div>{:else}<p class="member-empty">暂无已绑定设备</p>{/each}</section>
+          <section class="member-panel"><div class="panel-title"><b>最近订单</b><span>{memberOrders.length} 笔</span></div>{#each memberOrders.slice(0, 4) as order}<div class="member-row"><div><b>{order.planName}</b><small>{order.orderNo} · {new Date(order.createdAt).toLocaleString()}</small></div><div><span class:paid={order.status === 'paid'}>{order.status === 'paid' ? '已支付' : order.status === 'pending' ? '待支付' : order.status}</span><b>¥{(order.amountCents / 100).toFixed(2)}</b></div></div>{:else}<p class="member-empty">暂无订单；选择上方套餐即可创建支付宝订单。</p>{/each}</section>
         </div>
         {#if activeOrder}<div class="payment-sheet"><div><span>支付宝 · {activeOrder.orderNo}</span><h3>{activeOrder.planName} · ¥{(activeOrder.amountCents / 100).toFixed(2)}</h3></div><div><button class="ghost" on:click={() => activeOrder?.payUrl && BrowserOpenURL(activeOrder.payUrl)}>打开支付宝</button><button class="primary" on:click={refreshPayment}>刷新到账状态</button></div></div>{/if}
       </section>
@@ -2692,10 +2742,32 @@
   .member-modal { width: min(1120px,96vw); margin: auto; padding: 24px; border: 1px solid #243655; border-radius: 20px; color: #eaf1ff; background: linear-gradient(150deg,#0b1730,#111f3d); box-shadow: 0 30px 90px rgba(0,0,0,.45); }
   .member-modal-head { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 18px; }
   .member-modal-head h2 { margin: 5px 0; }
+  .member-head-actions { display: flex; align-items: center; gap: 8px; }
+  .member-refresh { min-height: 32px; padding: 0 11px; border: 1px solid rgba(143,182,255,.35); border-radius: 9px; color: #bfdbfe; background: rgba(255,255,255,.06); font: inherit; font-size: 11px; font-weight: 700; cursor: pointer; }
+  .member-refresh:hover:not(:disabled) { background: rgba(59,130,246,.2); }
+  .member-refresh:disabled { cursor: wait; opacity: .65; }
   .member-modal .icon-btn { color: #dbe7ff; border-color: rgba(255,255,255,.15); }
+  .member-account-summary { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 1px; margin: 0 0 16px; overflow: hidden; border: 1px solid rgba(255,255,255,.11); border-radius: 13px; background: rgba(255,255,255,.11); }
+  .member-account-summary>div { min-width: 0; padding: 12px 14px; background: rgba(255,255,255,.045); }
+  .member-account-summary span { display: block; margin-bottom: 5px; color: #8fa0bd; font-size: 10px; }
+  .member-account-summary b { display: block; overflow: hidden; color: #edf4ff; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+  .plan-load-alert { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  .member-plans-empty { display: flex; grid-column: 1 / -1; min-height: 170px; align-items: center; justify-content: center; flex-direction: column; gap: 10px; border: 1px dashed rgba(143,182,255,.35); border-radius: 14px; color: #cbd9ef; text-align: center; }
+  .member-plans-empty b { font-size: 14px; }
+  .member-plans-empty span { color: #8fa0bd; font-size: 11px; }
+  .member-plans-empty .primary { width: auto; padding: 0 15px; }
+  .plans-source { margin: 10px 1px 0; color: #8fa0bd; font-size: 10px; text-align: right; }
   .member-plan-grid.compact { grid-template-columns: repeat(auto-fit,minmax(190px,1fr)); }
   .member-plan-grid.compact article { min-height: 250px; padding: 17px; }
   .member-plan-grid.compact article>p { min-height: 52px; }
+  .member-plan-grid.compact ul { min-height: 58px; margin-bottom: 14px; }
+
+  @media (max-width: 700px) {
+    .member-modal-mask { padding: 12px; }
+    .member-modal { width: 100%; padding: 16px; }
+    .member-account-summary { grid-template-columns: repeat(2,minmax(0,1fr)); }
+    .member-lower { grid-template-columns: 1fr; }
+  }
   .member-lower.compact { margin-top: 15px; }
 
   /* ---------- responsive breakpoints ---------- */
