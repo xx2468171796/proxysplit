@@ -25,11 +25,28 @@ const observer = new IntersectionObserver((entries) => {
 }, { threshold: 0.12 })
 document.querySelectorAll('.reveal').forEach((node) => observer.observe(node))
 
-document.querySelectorAll('[data-download]').forEach((link) => {
-  link.addEventListener('click', () => {
+document.addEventListener('click', (event) => {
+  if (event.target.closest('[data-download]')) {
     try { localStorage.setItem('proxysplit:last-download', new Date().toISOString()) } catch {}
-  })
+  }
 })
+
+const latestRelease = fetch('/v1/releases/latest', { headers: { accept: 'application/json' } })
+  .then((response) => response.ok ? response.json() : Promise.reject(new Error('release unavailable')))
+  .then(({ release }) => {
+    if (!release || !/^\d+\.\d+\.\d+$/.test(release.version)) throw new Error('invalid release')
+    return { version: release.version, url: `/download/proxysplit-v${release.version}.exe` }
+  })
+  .catch(() => null)
+
+function applyLatestDownload(release, root = document) {
+  if (!release) return
+  root.querySelectorAll('[data-download]').forEach((link) => { link.href = release.url })
+  root.querySelectorAll('[data-download-version]').forEach((node) => {
+    node.textContent = `下载 v${release.version}`
+  })
+}
+latestRelease.then((release) => applyLatestDownload(release))
 
 const planGrid = document.querySelector('[data-plan-grid]')
 if (planGrid) {
@@ -49,9 +66,10 @@ if (planGrid) {
           <strong><small>¥</small>${(Number(plan.priceCents) / 100).toFixed(2)}${Number(plan.originalPriceCents) > Number(plan.priceCents) ? `<del>¥${(Number(plan.originalPriceCents) / 100).toFixed(2)}</del>` : ''}</strong>
           <p>${escapeHTML(plan.description || '')}</p>
           <ul><li>${period}</li><li>${tier}</li><li>服务端签名授权</li></ul>
-          <a href="/download/proxysplit-v1.9.2.exe" data-download>支付宝开通</a>
+          <a href="/download/proxysplit-v1.9.19.exe" data-download>支付宝开通</a>
         </article>`
       }).join('')
+      latestRelease.then((release) => applyLatestDownload(release, planGrid))
     })
     .catch(() => {
       planGrid.innerHTML = '<article class="pricing-placeholder"><span>套餐暂不可用</span><p>请稍后重试，或在客户端会员中心查看。</p></article>'

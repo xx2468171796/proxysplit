@@ -46,6 +46,22 @@ export type OrderRecord = {
 
 const sha256=(value:string)=>createHash('sha256').update(value).digest('hex')
 const orderNo=()=>`PS${new Date().toISOString().replace(/\D/g,'').slice(0,14)}${randomBytes(5).toString('hex').toUpperCase()}`
+const permanentLicenseDate=()=>new Date('2999-12-31T23:59:59.000Z')
+
+export function resolvePaidLicenseGrant(
+  existing:{planId:string;expiresAt:Date;lifetime:boolean}|null,
+  order:{planId:string;durationDays:number|null;lifetime:boolean},
+  now=new Date(),
+){
+  // A later fixed-term purchase must never downgrade an existing lifetime
+  // entitlement or replace its lifetime plan metadata.
+  if(existing?.lifetime)return {planId:existing.planId,expiresAt:existing.expiresAt,lifetime:true,changed:false}
+  if(order.lifetime)return {planId:order.planId,expiresAt:permanentLicenseDate(),lifetime:true,changed:true}
+  const days=Number(order.durationDays)
+  if(!Number.isInteger(days)||days<1)throw new Error('ORDER_DURATION_INVALID')
+  const base=existing&&existing.expiresAt>now?existing.expiresAt:now
+  return {planId:order.planId,expiresAt:new Date(base.getTime()+days*86400000),lifetime:false,changed:true}
+}
 const settingMap:Record<keyof CommerceSettings,string>={
   registrationEnabled:'registration_enabled',
   trialDays:'trial_days',
@@ -373,21 +389,30 @@ export class PgStore {
     const configuredTimeout=Number(provider.config.orderTimeoutMinutes)
     const timeoutMinutes=Number.isFinite(configuredTimeout)?Math.min(60,Math.max(5,Math.floor(configuredTimeout))):10
     const expiresAt=new Date(Date.now()+timeoutMinutes*60_000)
-    const plan=(await this.pool.query(`SELECT id,name,tier,billing_cycle,duration_days,lifetime,price_cents,currency,purchase_limit_per_user
-      FROM plans WHERE id=$1 AND active=true AND public=true AND (sale_starts_at IS NULL OR sale_starts_at<=now()) AND (sale_ends_at IS NULL OR sale_ends_at>now())`,[planId])).rows[0]
-    if(!plan)throw new Error('PLAN_NOT_AVAILABLE')
-    if(plan.purchase_limit_per_user){
-      const count=await this.pool.query(`SELECT count(*)::int AS n FROM orders WHERE user_id=$1 AND plan_id=$2 AND status='paid'`,[userId,planId])
-      if(count.rows[0].n>=plan.purchase_limit_per_user)throw new Error('PURCHASE_LIMIT')
-    }
-    const no=orderNo()
-    const r=await this.pool.query(`INSERT INTO orders(order_no,user_id,plan_id,plan_name,tier,billing_cycle,duration_days,lifetime,amount_cents,currency,provider_code,expires_at)
-      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
-      RETURNING id,order_no AS "orderNo",user_id AS "userId",plan_id AS "planId",plan_name AS "planName",tier,billing_cycle AS "billingCycle",
-      duration_days AS "durationDays",lifetime,amount_cents AS "amountCents",currency,status,provider_code AS "providerCode",
-      provider_order_no AS "providerOrderNo",pay_url AS "payUrl",paid_at AS "paidAt",expires_at AS "expiresAt",created_at AS "createdAt"`,
-      [no,userId,plan.id,plan.name,plan.tier,plan.billing_cycle,plan.duration_days,plan.lifetime,plan.price_cents,plan.currency,provider.code,expiresAt])
-    return r.rows[0]
+    const client=await this.pool.connect()
+    try{
+      await client.query('BEGIN')
+      // Serialize purchases of the same plan for one user. Without this lock,
+      // two simultaneous requests can both pass a one-time purchase limit.
+      await client.query('SELECT pg_advisory_xact_lock(hashtext($1))',[`purchase:${userId}:${planId}`])
+      const plan=(await client.query(`SELECT id,name,tier,billing_cycle,duration_days,lifetime,price_cents,currency,purchase_limit_per_user
+        FROM plans WHERE id=$1 AND active=true AND public=true AND (sale_starts_at IS NULL OR sale_starts_at<=now()) AND (sale_ends_at IS NULL OR sale_ends_at>now())`,[planId])).rows[0]
+      if(!plan)throw new Error('PLAN_NOT_AVAILABLE')
+      if(plan.purchase_limit_per_user){
+        const count=await client.query(`SELECT count(*)::int AS n FROM orders
+          WHERE user_id=$1 AND plan_id=$2 AND (status='paid' OR (status='pending' AND expires_at>now()))`,[userId,planId])
+        if(count.rows[0].n>=plan.purchase_limit_per_user)throw new Error('PURCHASE_LIMIT')
+      }
+      const no=orderNo()
+      const r=await client.query(`INSERT INTO orders(order_no,user_id,plan_id,plan_name,tier,billing_cycle,duration_days,lifetime,amount_cents,currency,provider_code,expires_at)
+        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+        RETURNING id,order_no AS "orderNo",user_id AS "userId",plan_id AS "planId",plan_name AS "planName",tier,billing_cycle AS "billingCycle",
+        duration_days AS "durationDays",lifetime,amount_cents AS "amountCents",currency,status,provider_code AS "providerCode",
+        provider_order_no AS "providerOrderNo",pay_url AS "payUrl",paid_at AS "paidAt",expires_at AS "expiresAt",created_at AS "createdAt"`,
+        [no,userId,plan.id,plan.name,plan.tier,plan.billing_cycle,plan.duration_days,plan.lifetime,plan.price_cents,plan.currency,provider.code,expiresAt])
+      await client.query('COMMIT')
+      return r.rows[0]
+    }catch(e){await client.query('ROLLBACK');throw e}finally{client.release()}
   }
   async setOrderPayment(orderNoValue:string,providerOrderNo:string,payUrl:string){
     const r=await this.pool.query(`UPDATE orders SET provider_order_no=$2,pay_url=$3,updated_at=now()
@@ -422,6 +447,9 @@ export class PgStore {
       ORDER BY updated_at ASC LIMIT $1`,[safeLimit])
     return r.rows as Array<{orderNo:string}>
   }
+  async touchPaymentReconciliation(orderNoValue:string){
+    await this.pool.query(`UPDATE orders SET updated_at=now() WHERE order_no=$1 AND status='pending'`,[orderNoValue])
+  }
   async listOrders(){
     const r=await this.pool.query(`SELECT o.id,o.order_no AS "orderNo",u.username,o.plan_name AS "planName",o.tier,
       o.amount_cents AS "amountCents",o.currency,o.status,o.provider_code AS "providerCode",o.provider_order_no AS "providerOrderNo",
@@ -451,19 +479,20 @@ export class PgStore {
       // callback/query must still grant what the customer paid for.
       if(order.status!=='pending'&&order.status!=='failed')throw new Error('ORDER_NOT_PAYABLE')
       if(order.provider_order_no&&order.provider_order_no!==input.providerOrderNo)throw new Error('PROVIDER_ORDER_MISMATCH')
-      const existing=(await client.query(`SELECT l.id,l.expires_at,l.lifetime FROM licenses l JOIN plans p ON p.id=l.plan_id
+      const existing=(await client.query(`SELECT l.id,l.plan_id,l.expires_at,l.lifetime FROM licenses l JOIN plans p ON p.id=l.plan_id
         WHERE l.user_id=$1 AND l.status='active' AND p.tier=$2 ORDER BY l.lifetime DESC,l.expires_at DESC LIMIT 1 FOR UPDATE`,
         [order.user_id,order.tier])).rows[0]
-      const permanentDate=new Date('2999-12-31T23:59:59.000Z')
+      const grant=resolvePaidLicenseGrant(existing?{
+        planId:existing.plan_id,expiresAt:existing.expires_at,lifetime:existing.lifetime,
+      }:null,{
+        planId:order.plan_id,durationDays:order.duration_days,lifetime:order.lifetime,
+      })
       if(existing){
-        const base=existing.expires_at>new Date()?existing.expires_at:new Date()
-        const expires=order.lifetime?permanentDate:new Date(base.getTime()+Number(order.duration_days)*86400000)
-        await client.query(`UPDATE licenses SET plan_id=$2,expires_at=$3,lifetime=$4,status='active',source='order',order_id=$5 WHERE id=$1`,
-          [existing.id,order.plan_id,expires,order.lifetime,order.id])
+        if(grant.changed)await client.query(`UPDATE licenses SET plan_id=$2,expires_at=$3,lifetime=$4,status='active',source='order',order_id=$5 WHERE id=$1`,
+          [existing.id,grant.planId,grant.expiresAt,grant.lifetime,order.id])
       }else{
-        const expires=order.lifetime?permanentDate:new Date(Date.now()+Number(order.duration_days)*86400000)
         await client.query(`INSERT INTO licenses(user_id,plan_id,expires_at,lifetime,source,order_id)
-          VALUES($1,$2,$3,$4,'order',$5)`,[order.user_id,order.plan_id,expires,order.lifetime,order.id])
+          VALUES($1,$2,$3,$4,'order',$5)`,[order.user_id,grant.planId,grant.expiresAt,grant.lifetime,order.id])
       }
       await client.query(`UPDATE orders SET status='paid',provider_order_no=$2,paid_at=now(),updated_at=now() WHERE id=$1`,[order.id,input.providerOrderNo])
       await client.query(`UPDATE payment_events SET result='fulfilled' WHERE id=$1`,[event.rows[0].id])

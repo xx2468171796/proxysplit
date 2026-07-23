@@ -41,6 +41,11 @@ export async function buildApp(config:ApiConfig,provided?:Core){
           if(result.changed)app.log.info({orderNo,status:result.status},'payment reconciliation updated order')
         }catch(error){
           app.log.warn({orderNo,err:error instanceof Error?error.message:'sync failed'},'payment reconciliation failed')
+        }finally{
+          // Move an unchanged/error order to the back of the queue so a burst
+          // larger than the batch size cannot starve later paid orders.
+          await core.store.touchPaymentReconciliation(orderNo).catch(error=>
+            app.log.warn({orderNo,err:error instanceof Error?error.message:'touch failed'},'payment reconciliation touch failed'))
         }
       }))
     }catch(error){
