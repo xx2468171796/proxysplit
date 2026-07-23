@@ -219,6 +219,9 @@
   let commerceBusy = false
   let commerceError = ''
   let showMembership = false
+  let membershipPrompted = false
+  let commerceTimer: ReturnType<typeof setInterval> | null = null
+  let appUpdateTimer: ReturnType<typeof setInterval> | null = null
   let activeOrder: MemberOrder | null = null
   let ruleMode: 'blacklist' | 'whitelist' = 'whitelist' // 只代理列出的（默认/推荐）
   let linkText = ''
@@ -345,7 +348,7 @@
   $: up = useDemo ? { v: '2.34', u: 'MB/s' } : fmtRate(upRate)
   $: activeConns = status?.stats?.activeConns ?? (useDemo ? 24 : 0)
   $: uptime = running ? fmtUptime(status?.uptimeSec ?? 0) : '00:00:00'
-  $: rules.forEach((r) => loadIcon(r.path))
+  $: rules.forEach((r) => loadIcon(ruleIconPath(r)))
   $: filteredProcs.forEach((p) => loadIcon(p.path))
 
   // Adaptive rate formatter so slow traffic reads precisely (KB/s, B/s) instead
@@ -394,10 +397,17 @@
   }
   function firstChar(s: string): string { return s && s.length ? s[0] : '?' }
   function ruleIcon(r: AppRule): string {
-    if (iconMap[r.path]) return iconMap[r.path]
+    const path = ruleIconPath(r)
+    if (path && iconMap[path]) return iconMap[path]
     const exe = baseName(r.match || r.path).toLowerCase()
     const live = liveProcs.find((p) => baseName(p.path || p.name).toLowerCase() === exe)
     return live ? (iconMap[live.path] || '') : ''
+  }
+  // 规则可能只保存 exe 名而没有完整路径；优先用运行中进程的真实路径，才能提取原始 EXE 图标。
+  function ruleIconPath(r: AppRule): string {
+    if (r.path && /\.exe$/i.test(r.path)) return r.path
+    const exe = baseName(r.match || r.path).toLowerCase()
+    return liveProcs.find((p) => baseName(p.path || p.name).toLowerCase() === exe)?.path || r.path || ''
   }
   async function loadIcon(path: string) {
     if (!path || path in iconMap || iconPending.has(path)) return
@@ -463,6 +473,7 @@
     loginForm.password = ''
     await refreshLicense()
     await loadCommerce()
+    if (!license.authenticated || license.planCode === 'trial') { showMembership = true; membershipPrompted = true }
   }
   async function submitRegister() {
     const email = loginForm.username.trim()
@@ -474,6 +485,8 @@
     loginForm.password = ''
     await refreshLicense()
     await loadCommerce()
+    // 注册后直接展示试用说明和实时套餐，用户不必再去找续费入口。
+    showMembership = true; membershipPrompted = true
   }
   async function buyPlan(plan: MemberPlan) {
     commerceBusy = true; commerceError = ''
@@ -1128,6 +1141,13 @@
     lanIP = await safe<string>(() => WGetLanIP(), '192.168.1.100')
     await refreshRunning(); await refreshHealth(); await refreshRuleSets(); await refreshAIInfo()
     await loadCommerce()
+    // 已登录的试用用户首次打开客户端，直接看到试用与购买选择；套餐每分钟重新从后台读取。
+    if (!membershipPrompted && license.signedIn && !license.authenticated) {
+      showMembership = true; membershipPrompted = true
+    }
+    commerceTimer = setInterval(() => { if (license.enabled) loadCommerce() }, 60_000)
+    // 自动更新默认在启动时检查；此处补上运行期间 6 小时一次的静默检查。
+    appUpdateTimer = setInterval(() => { if (settings.autoUpdateApp) checkAppUpdate(true) }, 6 * 60 * 60 * 1000)
     themePref = settings.theme || 'light'; applyTheme(themePref)
     if (useDemo && recent.length === 0) recent = demoLogs
     window.addEventListener('focus', reloadData)
@@ -1150,6 +1170,8 @@
     if (timer) clearInterval(timer)
     if (dataRetryTimer) clearInterval(dataRetryTimer)
     if (donateTimer) clearInterval(donateTimer)
+    if (commerceTimer) clearInterval(commerceTimer)
+    if (appUpdateTimer) clearInterval(appUpdateTimer)
     window.removeEventListener('focus', reloadData)
     window.removeEventListener('proxysplit:bootstrap', onBootstrap)
     document.removeEventListener('visibilitychange', onVisible)
@@ -1499,8 +1521,8 @@
                   {#each rules as r}
                     <div class="rrow" class:off={!r.enabled}>
                       <div class="app-cell">
-                        {#if iconMap[r.path]}
-                          <img class="app-icon-img" src={iconMap[r.path]} alt="" />
+                        {#if ruleIcon(r)}
+                          <img class="app-icon-img" src={ruleIcon(r)} alt="" />
                         {:else}
                           <div class="app-icon" data-k={firstChar(ruleName(r))}>{firstChar(ruleName(r)).toUpperCase()}</div>
                         {/if}
@@ -1930,7 +1952,7 @@
   {#if showMembership}
     <div class="modal-mask member-modal-mask" role="button" tabindex="0" aria-label="关闭会员中心" on:click|self={() => (showMembership = false)} on:keydown={(e) => e.key === 'Escape' && (showMembership = false)}>
       <section class="member-modal">
-        <div class="member-modal-head"><div><span class="member-eyebrow">MEMBERSHIP</span><h2>续费或升级会员</h2><p>{license.plan} · 最多 {license.maxDevices} 台设备</p></div><button class="icon-btn" on:click={() => (showMembership = false)}>✕</button></div>
+        <div class="member-modal-head"><div><span class="member-eyebrow">MEMBERSHIP · 实时套餐</span><h2>{license.planCode === 'trial' ? '免费试用中，提前选择会员套餐' : license.authenticated ? '续费或升级会员' : '选择套餐后即可启动代理'}</h2><p>{license.planCode === 'trial' ? `试用权益已生效；套餐和价格实时从后台读取，支付成功后自动升级。` : `${license.plan || '当前未开通会员'} · 最多 ${license.maxDevices || '—'} 台设备`}</p></div><button class="icon-btn" title="关闭" on:click={() => (showMembership = false)}>✕</button></div>
         {#if commerceError}<div class="member-alert">{commerceError}</div>{/if}
         <div class="member-plan-grid compact">
           {#each memberPlans as plan}
@@ -2146,11 +2168,21 @@
   .foot-icons button { width: 34px; height: 34px; border-radius: 9px; color: var(--muted-2); font-size: 18px; display: grid; place-items: center; }
   .foot-icons button:hover { background: var(--line-3); color: var(--ink-2); }
 
+  /* 窄窗口优先保留标题、活动节点和启动按钮，统计项不再把顶栏挤出窗口。 */
+  @media (max-width: 1480px) {
+    .top-metrics .metric-mini:nth-child(3) { display: none; }
+    .tb-left { gap: 10px; }.page-identity { min-width: 106px; }
+  }
+  @media (max-width: 1240px) {
+    .top-metrics { display: none; }.tb-field select { max-width: 180px; }
+    .account-chip { max-width: 118px; }.account-chip div { display: none; }
+  }
+
   /* ---------- workspace ---------- */
-  .workspace { min-width: 0; display: flex; flex-direction: column; height: 100vh; }
-  .topbar { min-height: 72px; flex: none; display: flex; align-items: center; justify-content: space-between; gap: 20px; flex-wrap: nowrap;
+  .workspace { min-width: 0; width: 100%; overflow: hidden; display: flex; flex-direction: column; height: 100vh; }
+  .topbar { min-height: 72px; flex: none; min-width: 0; overflow: hidden; display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: nowrap;
     padding: 0 24px; background: color-mix(in srgb, var(--card) 96%, transparent); backdrop-filter: blur(12px); border-bottom: 1px solid var(--line); }
-  .tb-left { display: flex; align-items: center; gap: 14px; min-width: 0; }
+  .tb-left { display: flex; flex: 1 1 auto; align-items: center; gap: 14px; min-width: 0; overflow: hidden; }
   .page-identity { min-width: 128px; }
   .page-identity strong { display: block; font-size: 16px; font-weight: 800; color: var(--ink); }
   .page-identity small { display: block; color: var(--muted-2); font-size: 9px; margin-top: 3px; white-space: nowrap; }
@@ -2180,7 +2212,7 @@
   .speed-msg { align-self: center; font-size: 12.5px; font-weight: 600; color: var(--ok-600); }
   .speed-msg.err { color: #dc2626; }
 
-  .tb-right { display: flex; align-items: center; gap: var(--s3) var(--s4); flex-wrap: wrap; justify-content: flex-end; }
+  .tb-right { display: flex; flex: 0 1 auto; min-width: 0; align-items: center; gap: var(--s3) var(--s4); flex-wrap: nowrap; justify-content: flex-end; overflow: hidden; }
   .power-btn { display: flex; align-items: center; gap: 7px; height: 40px; padding: 0 18px; border-radius: var(--r2); font-weight: 750; font-size: 14px;
     color: #fff; background: var(--ok); box-shadow: 0 8px 18px -6px rgba(34,197,94,.5); }
   .power-btn:hover { transform: translateY(-1px); box-shadow: 0 12px 22px -8px rgba(34,197,94,.55); }
@@ -2242,13 +2274,13 @@
 
   /* ---------- rules table ---------- */
   .tscroll { overflow-x: auto; overflow-y: hidden; margin: 0 calc(var(--s5) * -1); padding: 0 var(--s5); }
-  .rtable { display: grid; gap: 2px; min-width: 500px; }
-  .rhead, .rrow { display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(96px, 0.9fr) minmax(96px, 1fr) 52px 96px; gap: 10px; align-items: center; }
+  .rtable { display: grid; gap: 2px; min-width: 860px; width: 100%; }
+  .rhead, .rrow { display: grid; grid-template-columns: minmax(260px, 1.55fr) minmax(130px, .72fr) minmax(160px, .95fr) 60px 92px; gap: 12px; align-items: center; }
   .node-select { font-weight: 500; }
   .node-select:disabled { opacity: .4; cursor: not-allowed; }
-  .rhead { padding: 0 6px 10px; font-size: 11.5px; color: var(--muted-2); border-bottom: 1px solid var(--line-2); font-weight: 600; letter-spacing: .02em; }
+  .rhead { min-height: 40px; padding: 0 10px; font-size: 11.5px; color: var(--muted-2); border-bottom: 1px solid var(--line-2); font-weight: 700; letter-spacing: .02em; }
   .ctr { text-align: center; justify-content: center; }
-  .rrow { padding: 11px 6px; border-bottom: 1px solid var(--line-3); border-radius: 8px; transition: background var(--tr); }
+  .rrow { min-width: 0; min-height: 62px; padding: 10px; border-bottom: 1px solid var(--line-3); border-radius: 8px; transition: background var(--tr); }
   .rrow:hover { background: var(--soft); }
   .rrow.off { opacity: .55; }
   .app-cell { display: flex; align-items: center; gap: 10px; min-width: 0; }
@@ -2256,7 +2288,7 @@
   .app-icon { width: 32px; height: 32px; flex: none; border-radius: 9px; display: grid; place-items: center; font-size: 13px; font-weight: 800; color: #fff; background: #64748b; }
   .app-icon[data-k="C"] { background: var(--brand); } .app-icon[data-k="c"] { background: var(--ok); }
   .app-icon[data-k="T"] { background: #38bdf8; } .app-icon[data-k="m"] { background: #14b8a6; } .app-icon[data-k="S"] { background: #1e293b; }
-  .app-icon-img { width: 32px; height: 32px; flex: none; border-radius: 9px; object-fit: contain; }
+  .app-icon-img { width: 34px; height: 34px; flex: none; padding: 2px; border-radius: 9px; object-fit: contain; background: #fff; border: 1px solid var(--line-2); }
   .app-cell strong { font-size: 14px; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .path { font-size: 11.5px; color: var(--muted-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .node-col { font-size: 13px; color: var(--muted); }
@@ -2450,8 +2482,8 @@
   .apps-v2 .hero, .apps-v2 .col-main > section:nth-child(2), .apps-v2 .col-rail { display: none; }
   .apps-v2 .col-main > section.card { padding: 0; overflow: hidden; }
   .apps-v2 .col-main > section.card > .card-head { flex-wrap: nowrap; }
-  .apps-v2 .tscroll { margin: 0; padding: 0 17px; }
-  .apps-v2 .rhead { min-height: 39px; padding: 0 6px; background: var(--soft); }
+  .apps-v2 .tscroll { margin: 0; padding: 0 17px; max-width: 100%; }
+  .apps-v2 .rhead { min-height: 42px; padding: 0 10px; background: var(--soft); }
   .apps-v2 .rrow { min-height: 58px; border-radius: 0; }
   .apps-v2 .rfoot { margin: 0; padding: 13px 17px; border-top: 1px solid var(--line); }
 

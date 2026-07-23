@@ -76,9 +76,11 @@ func PNGBase64(exePath string) (string, error) {
 		return "", nil
 	}
 
-	hicon := extractIcon(p)
+	// Shell 图标优先：它会解析 EXE 的主图标、快捷方式和多尺寸资源，
+	// 对 Chromium/Electron 等多图标程序比直接取第 0 个资源可靠。
+	hicon := shellIcon(p)
 	if hicon == 0 {
-		hicon = shellIcon(p)
+		hicon = extractIcon(p)
 	}
 	if hicon == 0 {
 		return "", nil
