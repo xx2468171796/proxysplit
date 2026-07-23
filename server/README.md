@@ -66,5 +66,11 @@ docker compose -f docker-compose.prod.yml up -d api
 ```
 
 宿主机 Nginx 使用 `deploy/proxysplit.nginx.conf`，对外统一入口为
-`https://proxysplit.zygskins.cn`；管理台与 API 同源，`/v1/*` 和
+`https://proxysplit.zygskins.cn`；官网静态文件位于 `apps/site`，管理台位于
+`/admin/`，版本下载位于 `/download/`。管理台与 API 同源，`/v1/*` 和
 `/health` 反向代理到仅监听 `127.0.0.1:18780` 的 API 容器。
+
+桌面正式版的自动更新采用独立 Ed25519 发布密钥。`scripts/build.ps1`
+通过 `ReleasePublicKeyFile` 把公钥编入客户端，通过
+`ReleaseSigningPrivateKeyFile` 对“版本号 + SHA256 + 下载 URL”生成签名。
+客户端同时验证发布签名、文件 SHA256 和固定 TLS SPKI 后才会执行原地升级。

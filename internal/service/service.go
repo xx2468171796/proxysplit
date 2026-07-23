@@ -53,10 +53,11 @@ type Settings struct {
 	TrayClose       bool   `json:"trayClose"`
 	Theme           string `json:"theme"`
 	AutoUpdateRules bool   `json:"autoUpdateRules"` // 添加节点后自动更新分流规则集(可选,默认关)
+	AutoUpdateApp   bool   `json:"autoUpdateApp"`   // 启动后自动检查已签名的客户端版本
 }
 
 func defaultSettings() Settings {
-	return Settings{ExcludeSelf: true, PrivateDirect: true, BlockQUIC: true, RemoteDNS: true, TrayClose: true, Theme: "light", LanPort: 7890, LanType: "mixed"}
+	return Settings{ExcludeSelf: true, PrivateDirect: true, BlockQUIC: true, RemoteDNS: true, TrayClose: true, Theme: "light", LanPort: 7890, LanType: "mixed", AutoUpdateApp: true}
 }
 
 // Routing is the in-tunnel traffic-split config (v2rayN-style).
@@ -251,6 +252,11 @@ func (s *Service) load() {
 	s.cfg.RuleSets = normalizeRuleSetConfig(s.cfg.RuleSets)
 	if s.cfg.Settings.Theme == "" {
 		s.cfg.Settings = defaultSettings()
+	}
+	// Existing v1.8.2 configs predate this field. Opt them into startup checks
+	// while still preserving an explicit false saved by newer versions.
+	if len(data) == 0 || !bytes.Contains(data, []byte(`"autoUpdateApp"`)) {
+		s.cfg.Settings.AutoUpdateApp = true
 	}
 	// Legacy string apps -> rules.
 	if len(s.cfg.Rules) == 0 && len(s.cfg.Apps) > 0 {

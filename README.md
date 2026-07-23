@@ -7,7 +7,7 @@
 只让你**指定的程序**（VS Code、Claude Code、Codex、下载器……）走代理，其余程序一律直连——
 **不用开全局、不用开 TUN、不动系统代理**，装好加节点点启动即可。
 
-[![下载](https://img.shields.io/badge/⬇_下载_v1.4.0-2563eb?style=for-the-badge)](https://github.com/xx2468171796/daili/releases/latest)
+[![下载](https://img.shields.io/badge/⬇_下载_v1.8.3-2563eb?style=for-the-badge)](https://proxysplit.zygskins.cn/download/proxysplit-v1.8.3.exe)
 &nbsp;
 ![平台](https://img.shields.io/badge/Windows_10/11-x64-334155?style=for-the-badge)
 ![内核](https://img.shields.io/badge/core-sing--box-16a34a?style=for-the-badge)
@@ -34,7 +34,7 @@
 
 ## ⬇ 下载
 
-前往 **[Releases](https://github.com/xx2468171796/daili/releases/latest)** 下载最新的 `proxysplit-v1.8.0.exe`（单文件、自包含、约 55 MB）。
+前往 **[ProxySplit 官网](https://proxysplit.zygskins.cn)** 下载最新的 `proxysplit-v1.8.3.exe`（单文件、自包含）。正式版会自动检查经过 Ed25519 签名与 SHA256 校验的新版本，确认后自动替换并重启，用户节点和规则不会被覆盖。
 
 > 首次运行需**管理员权限**（WinDivert 要加载内核驱动），双击会自动弹出 UAC 请求，允许即可。
 > Windows Defender / 杀软可能因“未知发布者 + 网络驱动”提示，属正常，选择“仍要运行 / 允许”。

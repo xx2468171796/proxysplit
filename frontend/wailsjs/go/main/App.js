@@ -14,6 +14,10 @@ export function AddSub(arg1, arg2, arg3) {
   return window['go']['main']['App']['AddSub'](arg1, arg2, arg3);
 }
 
+export function CheckAppUpdate() {
+  return window['go']['main']['App']['CheckAppUpdate']();
+}
+
 export function ExportAppRules() {
   return window['go']['main']['App']['ExportAppRules']();
 }
@@ -32,6 +36,10 @@ export function GetAppIcon(arg1) {
 
 export function GetAppRules() {
   return window['go']['main']['App']['GetAppRules']();
+}
+
+export function GetAppVersion() {
+  return window['go']['main']['App']['GetAppVersion']();
 }
 
 export function GetApps() {
@@ -124,6 +132,10 @@ export function ImportAppRules(arg1) {
 
 export function ImportConfig() {
   return window['go']['main']['App']['ImportConfig']();
+}
+
+export function InstallAppUpdate(arg1) {
+  return window['go']['main']['App']['InstallAppUpdate'](arg1);
 }
 
 export function LegalNotice() {

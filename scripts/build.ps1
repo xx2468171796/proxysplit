@@ -6,6 +6,9 @@
 #   .\scripts\build.ps1 -Version 1.8.0 -Commercial `
 #     -CommercialAPIURL https://api.example.com `
 #     -LicensePublicKeyFile .\secrets\license-public.pem `
+#     -ReleasePublicKeyFile .\secrets\release-public.pem `
+#     -ReleaseSigningPrivateKeyFile .\secrets\release-private.pem `
+#     -DownloadBaseURL https://api.example.com/download `
 #     -TLSSPKISHA256 <sha256-hex>
 param(
     [string]$Version = "",
@@ -13,6 +16,9 @@ param(
     [switch]$Obfuscate,
     [string]$CommercialAPIURL = "",
     [string]$LicensePublicKeyFile = "",
+    [string]$ReleasePublicKeyFile = "",
+    [string]$ReleaseSigningPrivateKeyFile = "",
+    [string]$DownloadBaseURL = "",
     [string]$TLSSPKISHA256 = "",
     [string]$SignToolPath = "",
     [string]$SigningThumbprint = ""
@@ -32,6 +38,7 @@ if ($Version -notmatch '^\d+\.\d+\.\d+$') { throw "Version must look like 1.8.0 
 
 $ldflags = @('-s', '-w', "-X main.appVersion=$Version")
 $commercialEnabled = $Commercial.IsPresent -or -not [string]::IsNullOrWhiteSpace($CommercialAPIURL)
+$obfuscateEnabled = $Obfuscate.IsPresent
 if ($commercialEnabled) {
     if ($CommercialAPIURL -notmatch '^https://') { throw 'CommercialAPIURL must use HTTPS' }
     if (-not (Test-Path -LiteralPath $LicensePublicKeyFile -PathType Leaf)) { throw 'LicensePublicKeyFile is required for a commercial build' }
@@ -42,7 +49,17 @@ if ($commercialEnabled) {
     $ldflags += "-X proxysplit/internal/license.APIURL=$CommercialAPIURL"
     $ldflags += "-X proxysplit/internal/license.PublicKeyBase64=$publicKeyBase64"
     if ($TLSSPKISHA256) { $ldflags += "-X proxysplit/internal/license.TLSSPKISHA256=$TLSSPKISHA256" }
-    $Obfuscate = $true
+    if ($ReleasePublicKeyFile) {
+        if (-not (Test-Path -LiteralPath $ReleasePublicKeyFile -PathType Leaf)) { throw 'ReleasePublicKeyFile does not exist' }
+        $releasePem = [IO.File]::ReadAllText((Resolve-Path -LiteralPath $ReleasePublicKeyFile))
+        $releasePublicKeyBase64 = ($releasePem -replace '-----BEGIN PUBLIC KEY-----', '' -replace '-----END PUBLIC KEY-----', '' -replace '\s', '')
+        try { $null = [Convert]::FromBase64String($releasePublicKeyBase64) } catch { throw 'ReleasePublicKeyFile is not a valid PEM public key' }
+        $ldflags += "-X main.updateAPIURL=$CommercialAPIURL"
+        $ldflags += "-X main.updatePublicKeyBase64=$releasePublicKeyBase64"
+        if ($TLSSPKISHA256) { $ldflags += "-X main.updateTLSSPKISHA256=$TLSSPKISHA256" }
+    }
+    if ($ReleaseSigningPrivateKeyFile -and -not $ReleasePublicKeyFile) { throw 'ReleasePublicKeyFile is required when signing releases' }
+    $obfuscateEnabled = $true
 }
 
 $env:Path = "C:\Program Files\Go\bin;$env:USERPROFILE\go\bin;$env:Path"
@@ -50,8 +67,8 @@ $env:CGO_ENABLED = "0"
 $wails = Join-Path $env:USERPROFILE 'go\bin\wails.exe'
 if (-not (Test-Path -LiteralPath $wails)) { $wails = (Get-Command wails -ErrorAction Stop).Source }
 $buildArgs = @('build', '-clean', '-trimpath', '-ldflags', ($ldflags -join ' '))
-if ($Obfuscate) { $buildArgs += '-obfuscated' }
-if ($Obfuscate -and -not (Get-Command garble -ErrorAction SilentlyContinue)) {
+if ($obfuscateEnabled) { $buildArgs += '-obfuscated' }
+if ($obfuscateEnabled -and -not (Get-Command garble -ErrorAction SilentlyContinue)) {
     throw 'Garble is required for an obfuscated release. Run: go install mvdan.cc/garble@latest'
 }
 
@@ -59,14 +76,14 @@ if ($Obfuscate -and -not (Get-Command garble -ErrorAction SilentlyContinue)) {
 # dispatchers. Preserve the normal development bindings and restore them after
 # the binary/frontend bundle has been compiled.
 $bindingBackups = @{}
-if ($Obfuscate) {
+if ($obfuscateEnabled) {
     foreach ($relative in @('frontend\wailsjs\go\main\App.js', 'frontend\wailsjs\go\main\App.d.ts', 'frontend\wailsjs\go\models.ts')) {
         $path = Join-Path $root $relative
         if (Test-Path -LiteralPath $path) { $bindingBackups[$path] = [IO.File]::ReadAllBytes($path) }
     }
 }
 
-Write-Host "==> Wails release build (strip + trimpath; obfuscated=$($Obfuscate.IsPresent))" -ForegroundColor Cyan
+Write-Host "==> Wails release build (strip + trimpath; obfuscated=$obfuscateEnabled)" -ForegroundColor Cyan
 try { & $wails @buildArgs }
 finally { foreach ($entry in $bindingBackups.GetEnumerator()) { [IO.File]::WriteAllBytes($entry.Key, $entry.Value) } }
 if ($LASTEXITCODE -ne 0) { throw 'wails build failed' }
@@ -89,10 +106,21 @@ if ($SigningThumbprint) {
 Copy-Item -LiteralPath $versionedExe -Destination (Join-Path $out 'proxysplit.exe') -Force
 Copy-Item -LiteralPath (Join-Path $root 'scripts\dist-readme.txt') -Destination (Join-Path $out 'README.txt') -Force
 $hash = (Get-FileHash -LiteralPath $versionedExe -Algorithm SHA256).Hash.ToLowerInvariant()
+$downloadURL = ""
+$releaseSignature = ""
+if ($ReleaseSigningPrivateKeyFile) {
+    if (-not (Test-Path -LiteralPath $ReleaseSigningPrivateKeyFile -PathType Leaf)) { throw 'ReleaseSigningPrivateKeyFile does not exist' }
+    if ([string]::IsNullOrWhiteSpace($DownloadBaseURL)) { $DownloadBaseURL = "$CommercialAPIURL/download" }
+    if ($DownloadBaseURL -notmatch '^https://') { throw 'DownloadBaseURL must use HTTPS' }
+    $downloadURL = "$($DownloadBaseURL.TrimEnd('/'))/proxysplit-v$Version.exe"
+    $releaseSignature = (& go run ./cmd/releasesign --private-key $ReleaseSigningPrivateKeyFile --version $Version --sha256 $hash --url $downloadURL)
+    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($releaseSignature)) { throw 'release signing failed' }
+}
 $manifest = [ordered]@{
     product = 'ProxySplit'; version = $Version; file = (Split-Path -Leaf $versionedExe)
     sha256 = $hash; size = (Get-Item -LiteralPath $versionedExe).Length
-    commercial = $commercialEnabled; obfuscated = $Obfuscate.IsPresent
+    url = $downloadURL; signature = $releaseSignature
+    commercial = $commercialEnabled; obfuscated = $obfuscateEnabled
     authenticodeSigned = -not [string]::IsNullOrWhiteSpace($SigningThumbprint)
     builtAt = [DateTime]::UtcNow.ToString('o')
 }

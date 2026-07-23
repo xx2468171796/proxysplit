@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 
 	"github.com/energye/systray"
 	"github.com/wailsapp/wails/v2/pkg/options"
@@ -19,6 +20,7 @@ import (
 	"proxysplit/internal/nodes"
 	"proxysplit/internal/proc"
 	"proxysplit/internal/service"
+	"proxysplit/internal/updater"
 )
 
 // payloadFS bundles the runtime binaries into the executable so the shipped
@@ -33,6 +35,7 @@ type App struct {
 	ctx       context.Context
 	svc       *service.Service
 	lic       *license.Client
+	upd       *updater.Client
 	forceQuit bool // set when the user picks 退出 from the tray (allow real close)
 	trayUp    bool // the tray icon initialized OK (only then may we hide to it)
 	apiUp     bool // the local AI-control HTTP API is listening
@@ -42,7 +45,12 @@ type App struct {
 }
 
 // NewApp creates the App.
-func NewApp() *App { return &App{ready: make(chan struct{})} }
+func NewApp() *App {
+	return &App{
+		ready: make(chan struct{}),
+		upd:   updater.New(updateAPIURL, appVersion, dataDir(), updatePublicKeyBase64, updateTLSSPKISHA256),
+	}
+}
 
 // finishStartup releases every startup reader exactly once. Wails may expose
 // bindings and render the page before OnStartup has finished, so bound methods
@@ -136,6 +144,10 @@ func (a *App) domReady(ctx context.Context) {
 		script := "window.__PROXYSPLIT_BOOTSTRAP__=" + string(data) + ";" +
 			"window.dispatchEvent(new CustomEvent('proxysplit:bootstrap',{detail:window.__PROXYSPLIT_BOOTSTRAP__}));"
 		runtime.WindowExecJS(ctx, script)
+		if a.svc.GetSettings().AutoUpdateApp {
+			update := a.CheckAppUpdate()
+			runtime.EventsEmit(ctx, "app-update", update)
+		}
 	}()
 }
 
@@ -257,6 +269,41 @@ func (a *App) SetSubAutoUpdate(id string, on bool) { a.svc.SetSubAutoUpdate(id, 
 // Core (sing-box) version + update.
 func (a *App) GetCoreVersion() string { return a.svc.GetCoreVersion() }
 func (a *App) UpdateCore() string     { return a.svc.UpdateCore() }
+
+// Application updates are signed independently from license leases. The UI
+// checks on startup and calls InstallAppUpdate only after the user confirms.
+func (a *App) GetAppVersion() string { return appVersion }
+
+func (a *App) CheckAppUpdate() updater.Status {
+	if a.upd == nil {
+		return updater.Status{Current: appVersion}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	return a.upd.Check(ctx)
+}
+
+func (a *App) InstallAppUpdate(release updater.Release) string {
+	if a.upd == nil {
+		return "自动更新未配置"
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+	path, err := a.upd.Download(ctx, release)
+	if err != nil {
+		return err.Error()
+	}
+	if err := updater.ScheduleInstall(path); err != nil {
+		return err.Error()
+	}
+	go func() {
+		time.Sleep(800 * time.Millisecond)
+		if a.ctx != nil {
+			runtime.Quit(a.ctx)
+		}
+	}()
+	return ""
+}
 
 // Settings.
 func (a *App) GetSettings() service.Settings  { return a.svc.GetSettings() }

@@ -17,6 +17,12 @@ var assets embed.FS
 // actually running when several builds are present in output\.
 var appVersion = "dev"
 
+// The commercial build pipeline injects these release-verification values.
+// Development builds keep them empty and simply hide automatic updates.
+var updateAPIURL string
+var updatePublicKeyBase64 string
+var updateTLSSPKISHA256 string
+
 func main() {
 	// Create an instance of the app structure
 	app := NewApp()

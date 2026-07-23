@@ -61,6 +61,9 @@
     GetLicenseStatus as WGetLicenseStatus,
     Login as WLogin,
     Logout as WLogout,
+    CheckAppUpdate as WCheckAppUpdate,
+    InstallAppUpdate as WInstallAppUpdate,
+    GetAppVersion as WGetAppVersion,
   } from '../wailsjs/go/main/App.js'
   import { EventsOn } from '../wailsjs/runtime/runtime.js'
   import donateQR from './assets/images/donate.png'
@@ -126,10 +129,12 @@
   type RuleImportPreview = { schemaVersion: number; ruleCount: number; lineAdded: number; lineSkipped: number; customRules: number; summary: string; error?: string }
   type Routing = { enabled: boolean; mode: string; rules: RouteRule[] }
   type LicenseStatus = { enabled: boolean; authenticated: boolean; username: string; plan: string; features: string[]; expiresAt: string; offlineUntil: string; error?: string }
+  type AppRelease = { version: string; minimumVersion: string; url: string; sha256: string; signature: string; mandatory: boolean; publishedAt: string }
+  type AppUpdateStatus = { enabled: boolean; current: string; available: boolean; release?: AppRelease; error?: string }
   type Settings = {
     mixedPort: number; tunMode: boolean; lanShare: boolean; excludeSelf: boolean; privateDirect: boolean; blockQUIC: boolean
     remoteDNS: boolean; fakeIP: boolean; autostart: boolean; trayClose: boolean; theme: string
-    lanPort: number; lanType: string; lanUser: string; lanPass: string; autoUpdateRules: boolean
+    lanPort: number; lanType: string; lanUser: string; lanPass: string; autoUpdateRules: boolean; autoUpdateApp: boolean
   }
 
   // --- demo data (matches the design mockup 1:1, shown in browser preview) ---
@@ -175,7 +180,7 @@
   const demoSettings: Settings = {
     mixedPort: 10808, tunMode: false, lanShare: false, excludeSelf: true, privateDirect: true, blockQUIC: true,
     remoteDNS: true, fakeIP: false, autostart: false, trayClose: true, theme: 'light',
-    lanPort: 7890, lanType: 'mixed', lanUser: '', lanPass: '', autoUpdateRules: false,
+    lanPort: 7890, lanType: 'mixed', lanUser: '', lanPass: '', autoUpdateRules: false, autoUpdateApp: true,
   }
 
   let tab: Tab = 'overview'
@@ -211,6 +216,8 @@
   let subMsg: Record<string, string> = {} // per-row update status keyed by sub id
   let coreVersion = '1.13.14'
   let coreMsg = ''
+  let appUpdate: AppUpdateStatus = { enabled: false, current: 'dev', available: false }
+  let appUpdateBusy = false
   let ruleSetMsg = ''
   let showLineForm = false
   let lineForm: { id: string; name: string; node: string; mode: string; rules: RouteRule[] } = { id: '', name: '', node: 'active', mode: 'global', rules: [] }
@@ -861,6 +868,49 @@
     else { coreVersion = res || coreVersion; coreMsg = '已更新到 v' + coreVersion + '（重启生效）' }
     setTimeout(() => (coreMsg = ''), 4500)
   }
+
+  async function checkAppUpdate(silent = false) {
+    if (useDemo || !isWailsReady()) {
+      if (!silent) toast('演示模式不连接更新服务')
+      return
+    }
+    appUpdateBusy = true
+    try {
+      appUpdate = await WCheckAppUpdate() as AppUpdateStatus
+      if (!silent) {
+        if (appUpdate.error) toast(appUpdate.error)
+        else if (appUpdate.available && appUpdate.release) toast(`发现新版本 v${appUpdate.release.version}`)
+        else if (!appUpdate.enabled) toast('当前构建未启用正式更新服务')
+        else toast(`当前 v${appUpdate.current} 已是最新版本`)
+      }
+    } catch (e) {
+      if (!silent) toast('检查更新失败：' + String(e))
+    } finally {
+      appUpdateBusy = false
+    }
+  }
+
+  async function installAppUpdate() {
+    if (!appUpdate.release || appUpdateBusy || !isWailsReady()) return
+    appUpdateBusy = true
+    const version = appUpdate.release.version
+    try {
+      const err = await WInstallAppUpdate(appUpdate.release as any)
+      if (err) {
+        toast('升级失败：' + err)
+        appUpdateBusy = false
+        return
+      }
+      toast(`v${version} 已验证，软件即将自动重启完成升级`)
+    } catch (e) {
+      toast('升级失败：' + String(e))
+      appUpdateBusy = false
+    }
+  }
+
+  function receiveAppUpdate(value: AppUpdateStatus) {
+    if (value) appUpdate = value
+  }
   async function saveSettings() {
     if (useDemo || !isWailsReady()) return
     await WSetSettings(settings as any)
@@ -980,10 +1030,15 @@
       loaded = await loadBootstrap()
       if (!loaded) await new Promise((r) => setTimeout(r, 100))
     }
-    if (isWailsReady()) EventsOn('log', (line: string) => pushLog(line))
+    if (isWailsReady()) {
+      EventsOn('log', (line: string) => pushLog(line))
+      EventsOn('app-update', receiveAppUpdate)
+    }
     if (!loaded && !bootstrapLoaded) useDemo = true
     await refreshRouting()
     await refreshCoreVersion(); await refreshClashMode(); await refreshSysProxy()
+    appUpdate.current = await safe<string>(() => WGetAppVersion(), 'dev')
+    if (settings.autoUpdateApp) await checkAppUpdate(true)
     await refreshAutostart(); await refreshLogLevel()
     lanIP = await safe<string>(() => WGetLanIP(), '192.168.1.100')
     await refreshRunning(); await refreshHealth(); await refreshRuleSets(); await refreshAIInfo()
@@ -1141,6 +1196,14 @@
         </button>
       </div>
     </header>
+
+    {#if appUpdate.available && appUpdate.release}
+      <div class="updatebar" class:mandatory={appUpdate.release.mandatory}>
+        <span class="updatebar-icon">↗</span>
+        <div><strong>{appUpdate.release.mandatory ? '必须升级' : '发现新版本'} v{appUpdate.release.version}</strong><small>当前 v{appUpdate.current} · 已通过 Ed25519 签名与 SHA256 双重校验</small></div>
+        <button on:click={installAppUpdate} disabled={appUpdateBusy}>{appUpdateBusy ? '下载并验证中…' : '立即安全升级'}</button>
+      </div>
+    {/if}
 
     {#if health.warning && health.warning !== warnDismissed}
       <div class="warnbar">
@@ -1684,6 +1747,8 @@
           </section>
           <section class="card">
             <h3>内核 &amp; 诊断</h3>
+            <div class="setting"><span>ProxySplit 版本<small class="setting-hint">正式版自动检查签名更新，升级后会自动重启且不会改动节点和规则</small></span><div class="core-update"><strong>v{appUpdate.current}</strong><button class="mini" on:click={() => checkAppUpdate(false)} disabled={appUpdateBusy}>{appUpdateBusy ? '检查中…' : '检查软件更新'}</button></div></div>
+            <div class="setting"><span>自动检查软件更新<small class="setting-hint">启动后连接官方更新服务；只有签名和 SHA256 都正确才允许安装</small></span><label class="switch"><input type="checkbox" bind:checked={settings.autoUpdateApp} on:change={saveSettings} /><i></i></label></div>
             <div class="setting"><span>sing-box 版本</span><strong>{coreVersion || '1.13.14'}</strong></div>
             <div class="setting"><span>更新内核<small class="setting-hint">从 GitHub 拉最新版（走当前节点）</small></span><div class="core-update"><button class="mini" on:click={updateCore} disabled={coreMsg === '检查中…'}>{@html I.dl} 更新内核</button>{#if coreMsg}<span class="rs-msg" class:err={coreMsg.indexOf('失败') === 0}>{coreMsg}</span>{/if}</div></div>
             <div class="setting"><span>本地端口<small class="setting-hint">混合入站 SOCKS5 + HTTP，自动分配</small></span><strong>{running ? (status?.corePort || '—') : '未运行'}</strong></div>
@@ -1830,6 +1895,15 @@
   .warnbar-txt { flex: 1; line-height: 1.45; } .warnbar-txt strong { font-weight: 780; }
   .warnbar-x { background: none; border: none; color: var(--danger); cursor: pointer; font-size: 15px; opacity: .7; padding: 4px; flex: none; }
   .warnbar-x:hover { opacity: 1; }
+
+  .updatebar { display: flex; align-items: center; gap: 12px; padding: 11px 22px; background: linear-gradient(90deg, var(--brand-tint), var(--card)); border-bottom: 1px solid rgba(40,100,232,.22); color: var(--ink); flex: none; }
+  .updatebar.mandatory { background: linear-gradient(90deg, #fff1f2, var(--card)); border-bottom-color: rgba(225,83,97,.3); }
+  .updatebar-icon { width: 30px; height: 30px; border-radius: 9px; display: grid; place-items: center; color: #fff; background: var(--brand); font-weight: 900; }
+  .updatebar > div { flex: 1; min-width: 0; }
+  .updatebar strong { display: block; font-size: 13px; }
+  .updatebar small { display: block; color: var(--muted); margin-top: 2px; font-size: 11.5px; }
+  .updatebar button { height: 32px; border: 0; border-radius: 9px; padding: 0 14px; color: #fff; background: var(--brand); font: inherit; font-size: 12px; font-weight: 750; cursor: pointer; }
+  .updatebar button:disabled { opacity: .65; cursor: wait; }
 
   /* capture badge + line health */
   .cap-badge { font-size: 12px; font-weight: 700; padding: 3px 11px; border-radius: 999px; white-space: nowrap; }
