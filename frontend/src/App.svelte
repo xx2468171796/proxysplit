@@ -199,6 +199,7 @@
   let query = ''
   let newApp = ''
   let procs: Proc[] = []
+  let liveProcs: Proc[] = []
   let procFilter = ''
   let showPicker = false
   let busy = false
@@ -363,6 +364,12 @@
     return /[\\/]/.test(m) ? (m.split(/[\\/]/).pop() || m) : m
   }
   function firstChar(s: string): string { return s && s.length ? s[0] : '?' }
+  function ruleIcon(r: AppRule): string {
+    if (iconMap[r.path]) return iconMap[r.path]
+    const exe = baseName(r.match || r.path).toLowerCase()
+    const live = liveProcs.find((p) => baseName(p.path || p.name).toLowerCase() === exe)
+    return live ? (iconMap[live.path] || '') : ''
+  }
   async function loadIcon(path: string) {
     if (!path || path in iconMap || iconPending.has(path)) return
     if (useDemo || !isWailsReady()) return
@@ -640,9 +647,14 @@
 
   // --- 逐应用运行状态（是否正在运行）---
   async function refreshRunning() {
-    const procs = await safe<Proc[]>(() => WListProcesses() as Promise<Proc[]>, [])
+    liveProcs = await safe<Proc[]>(() => WListProcesses() as Promise<Proc[]>, [])
     const set = new Set<string>()
-    for (const p of procs) set.add((p.name || '').toLowerCase())
+    const wanted = new Set(rules.map((r) => baseName(r.match || r.path).toLowerCase()))
+    for (const p of liveProcs) {
+      const exe = baseName(p.path || p.name).toLowerCase()
+      set.add((p.name || '').toLowerCase())
+      if (wanted.has(exe)) loadIcon(p.path)
+    }
     runningExes = set
   }
   function isRunning(r: AppRule): boolean { return runningExes.has(baseName(r.match).toLowerCase()) }
@@ -1167,9 +1179,18 @@
 
             <section class="card">
               <div class="card-head"><div><div class="card-title">应用流量</div><div class="card-sub">最近使用与分流状态</div></div><button class="btn sm" on:click={() => (tab = 'apps')}>管理应用</button></div>
-              <div class="table-wrap"><table class="table"><thead><tr><th style="width:42%">应用</th><th>策略</th><th>节点</th><th>状态</th></tr></thead><tbody>
+              <div class="table-wrap"><table class="table app-traffic-table">
+                <colgroup><col class="app-col" /><col class="policy-col" /><col class="node-col-width" /><col class="state-col" /></colgroup>
+                <thead><tr><th>应用</th><th>策略</th><th>节点</th><th>状态</th></tr></thead><tbody>
                 {#each rules.slice(0, 4) as r}
-                  <tr><td><div class="entity"><span class="entity-icon app">{firstChar(ruleName(r)).toUpperCase()}</span><div class="entity-text"><b>{ruleName(r)}</b><small>{r.path}</small></div></div></td><td><span class="tag">{r.line === 'direct' ? '直连' : r.line === 'block' ? '拦截' : r.line === 'global' ? '全局' : '规则'}</span></td><td>{r.node ? nodeName(r.node) : '活动节点'}</td><td><span class="status-pill" class:gray={!r.enabled}>{r.enabled ? '已启用' : '已停用'}</span></td></tr>
+                  <tr><td><div class="entity">
+                    {#if ruleIcon(r)}
+                      <span class="entity-icon real-app-icon"><img src={ruleIcon(r)} alt="" /></span>
+                    {:else}
+                      <span class="entity-icon app">{firstChar(ruleName(r)).toUpperCase()}</span>
+                    {/if}
+                    <div class="entity-text"><b>{ruleName(r)}</b><small title={r.path}>{r.path}</small></div>
+                  </div></td><td><span class="tag">{r.line === 'direct' ? '直连' : r.line === 'block' ? '拦截' : r.line === 'global' ? '全局' : '规则'}</span></td><td>{r.node ? nodeName(r.node) : '活动节点'}</td><td><span class="status-pill" class:gray={!r.enabled}>{r.enabled ? '已启用' : '已停用'}</span></td></tr>
                 {/each}
                 {#if rules.length === 0}<tr><td colspan="4"><div class="empty sm">暂无应用规则</div></td></tr>{/if}
               </tbody></table></div>
@@ -2184,12 +2205,19 @@
   .table-wrap { overflow: hidden; }
   .table { width: 100%; border-collapse: collapse; table-layout: fixed; }
   .table th { height: 39px; padding: 0 13px; border-bottom: 1px solid var(--line); background: var(--soft); color: var(--muted-2); text-align: left; font-size: 10px; font-weight: 800; }
-  .table td { height: 58px; padding: 0 13px; border-bottom: 1px solid var(--line-2); color: var(--ink-2); vertical-align: middle; font-size: 12px; }
+  .table td { height: 58px; padding: 0 13px; border-bottom: 1px solid var(--line-2); color: var(--ink-2); vertical-align: middle; text-align: left; font-size: 12px; }
   .table tr:last-child td { border-bottom: 0; }
-  .entity { display: flex; align-items: center; gap: 10px; min-width: 0; }
+  .app-traffic-table .app-col { width: 46%; }
+  .app-traffic-table .policy-col { width: 15%; }
+  .app-traffic-table .node-col-width { width: 23%; }
+  .app-traffic-table .state-col { width: 16%; }
+  .app-traffic-table th, .app-traffic-table td { box-sizing: border-box; }
+  .entity { width: 100%; display: grid; grid-template-columns: 32px minmax(0, 1fr); align-items: center; justify-items: start; gap: 10px; min-width: 0; text-align: left; }
   .entity-icon { width: 32px; height: 32px; flex: none; display: grid; place-items: center; border-radius: 9px; background: var(--brand-tint); color: var(--brand); font-size: 10px; font-weight: 900; }
   .entity-icon.app { background: linear-gradient(145deg, #4c7ff1, #285ed9); color: #fff; }
-  .entity-text { min-width: 0; } .entity-text b, .entity-text small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .entity-icon.real-app-icon { overflow: hidden; border: 1px solid var(--line); background: var(--card); }
+  .entity-icon.real-app-icon img { width: 27px; height: 27px; display: block; object-fit: contain; }
+  .entity-text { width: 100%; min-width: 0; text-align: left; } .entity-text b, .entity-text small { display: block; overflow: hidden; text-align: left; text-overflow: ellipsis; white-space: nowrap; }
   .entity-text b { color: var(--ink); font-size: 12px; } .entity-text small { margin-top: 3px; color: var(--muted-2); font-size: 9px; }
   .tag { min-height: 22px; padding: 0 8px; display: inline-flex; align-items: center; border-radius: 6px; background: var(--brand-tint); color: var(--brand); font-size: 9px; font-weight: 850; }
 
