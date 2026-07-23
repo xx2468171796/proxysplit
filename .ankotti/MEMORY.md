@@ -1,4 +1,6 @@
 # ProxySplit 项目状态
+- 2026-07-23：注册凭据已拆分为“用户名 + 邮箱 + 密码”，用户名为唯一主登录凭据，邮箱独立保存且当前不验证；后续开启邮箱验证无需改变用户名密码登录。旧账号允许邮箱为空。生产迁移 `0005_user_email.sql` 已应用，注册、再次登录和邮箱落库已端到端验证，测试账号已清理。
+- 2026-07-23：上述注册改造已部署到 `/opt/proxysplit/releases/20260723-193000-f5e0f5b`。桌面端 `v1.9.11` 已构建到 `output/proxysplit-v1.9.11.exe`，SHA256 `c4ff57f88e80987ad09d861f7d7bac97ce2c071c833536c76404fb8a4680bfc2`，生产下载地址 `/download/proxysplit-v1.9.11.exe`；本机当前已启动该版本。
 - 2026-07-23：账号连续输错密码 5 次后锁定 5 分钟；后续每累计 5 次错误依次增加 5 分钟。管理员可从后台重置任意用户密码，重置后旧会话立即失效；管理员生产密码已按需求轮换，明文不入库、不入仓。
 - 2026-07-23：上述账号安全功能已部署至深圳生产环境 `/opt/proxysplit/releases/20260723-174000-f9eb1e0`；`/health` 与 `/admin/` 已验证正常。生产数据库迁移 `0004_login_lockout.sql` 已应用。
 - 2026-07-23：客户端“刷新套餐”空白根因已确认：生产 TLS 证书更新后，旧客户端（含 v1.9.6）内置的 SPKI 固定值失配，商业 API 请求被 TLS 拒绝；服务端目录 `/v1/catalog/plans` 本身正常返回 7 个已启用套餐。已构建并发布 `output/proxysplit-v1.9.7.exe`（SHA256 `6195c22cabaaa9f2dd0c97e0aa90201b469f5120ace28fe848b7b5ab1ca288f2`），更新为当前证书固定值并上传至 `/download/proxysplit-v1.9.7.exe`。该版本须手工替换旧版；旧发布签名私钥未在当前受控环境中，不能伪造自动更新签名。
@@ -12,7 +14,7 @@
 - v1.9.2 EXE 大小 `81,098,752` 字节，SHA256 为 `b057cfb24224ff4ffab3c1c43384daae6634483a8872c4f0d2e6722fd937b00b`；已用独立 Ed25519 发布密钥签名并通过 Garble 混淆构建，暂未做 Windows Authenticode 签名。
 - 桌面端节点、订阅、应用规则继续持久化到 `%APPDATA%/proxysplit/config.json`，保留原子写入、`.bak` 和便携数据迁移；升级不会覆盖节点或规则。
 - 应用分流使用 sing-box 原生 TUN + `process_name` 路由，不使用 WinDivert 抓包重定向。支持 HTTP、HTTPS、SOCKS5、VLESS、VMess、Trojan、Shadowsocks、Hysteria2、TUIC、AnyTLS 的常用分享链接和 sing-box 配置变体。
-- 客户端支持直接注册/登录；注册以邮箱作为账号、密码最低 8 位，当前不做邮箱验证，注册成功后自动登录、绑定当前电脑并免费试用 3 天；未付费但已登录的用户可进入会员中心开通。
+- 客户端支持直接注册/登录；注册填写用户名、邮箱和至少 8 位密码，邮箱当前不验证，登录使用用户名和密码；注册成功后自动登录、绑定当前电脑并免费试用 3 天，未付费但已登录的用户可进入会员中心开通。
 - 商业权益真源在服务端。普通会员/超级会员、月卡/季卡/年卡/永久套餐、价格、原价、活动时间、购买次数、设备上限和功能列表均由运营后台配置。
 - 新账号默认免费试用 3 天，后台可调整；同一硬件只允许领取一次。硬件指纹组合 MachineGuid、主板/BIOS/系统 UUID 后哈希上传，不上传原始序列号。
 - 授权租约采用 Ed25519 签名，当前默认 60 分钟，离线宽限 6 小时且不超过会员硬到期时间；租约绑定账号、设备 ID、硬件指纹、套餐、功能和到期时间。所有 `Service.Start` 路径统一经过权益守卫，运行中每 5 分钟复查，失效即停服。
@@ -22,9 +24,9 @@
 - 两个月限时买断版已启用：¥299.00、超级会员权益、8 台设备、每个账号限购一次，活动结束时间由生产迁移执行时起算两个月。
 - 当前客户端支付方式配置仅为 `alipay`，支付渠道后台显示为“支付宝”；网关继续使用既有中转和同一收钱吧商户。
 - 深圳生产站点：`https://proxysplit.zygskins.cn`；管理端：`/admin/`；健康检查：`/health`；v1.9.2 下载：`/download/proxysplit-v1.9.2.exe`。v1.9.2 发布日志已登记。
-- 当前部署目录：`/opt/proxysplit/releases/20260723-160443-58a2051`，`/opt/proxysplit/current` 已指向该目录。
+- 当前部署目录：`/opt/proxysplit/releases/20260723-193000-f5e0f5b`，`/opt/proxysplit/current` 已指向该目录。
 - API、PostgreSQL、Redis 均为 healthy；公网 `/health`、官网、后台静态资源、v1.9.2 下载、最新版本接口、支付配置引用和非法回调拒绝均已验证。
 - 验证结果：`go test ./...` 全通过；桌面 `npm run check` 为 0 errors / 0 warnings / 0 hints 且 `npm run build` 通过；服务端 `pnpm typecheck`、`pnpm test`（6 项测试）、`pnpm build` 全通过。
 - 生产管理员为 `admin`，密码收据只保存在 `C:/Users/Administrator/.config/proxysplit/shenzhen-admin.txt`。SSH 别名为 `proxysplit-shenzhen`。
-- 生产已实测使用 `@example.com` 邮箱和 8 位密码注册，注册后立即获得 access token、免费试用、trial 计划和 3 台设备；随后使用同一邮箱密码再次登录成功，测试账号及审计记录已清理。
+- 生产已实测使用独立用户名、`@example.com` 邮箱和 8 位以上密码注册，注册后立即获得 access token、免费试用、trial 计划和设备授权；随后使用同一用户名和密码再次登录成功，邮箱字段也已核对落库，测试账号及审计记录已清理。
 - 后续待办：支付提供方后续可给 ProxySplit 单独创建 AppID 并映射到同一商户；补充 Windows Authenticode 证书。
