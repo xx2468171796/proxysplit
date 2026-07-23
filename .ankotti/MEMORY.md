@@ -1,4 +1,6 @@
 # ProxySplit 项目状态
+- 2026-07-23：试用资格与账号注册已彻底解耦。同一硬件仍只允许领取一次免费试用，但领取过后继续注册其他用户名不会再报错；新账号正常登录、绑定设备但不发放试用授权，客户端立即进入实时套餐购买页，并可退出后继续注册其他账号。生产已用同一硬件连续注册两个账号验证：首账号获得 `trial`，第二账号 access token 正常且 license 为空，数据库无第二份试用记录，测试数据已清理。
+- 2026-07-23：该修复已部署至 `/opt/proxysplit/releases/20260723-194500-851230a`。桌面端 `v1.9.12` 已输出为 `output/proxysplit-v1.9.12.exe`，SHA256 `fd5db5818360384879af697c540b7b282413f3f7bc0634bf1fa2b328853fd072`，已上传 `/download/proxysplit-v1.9.12.exe` 并在本机启动。
 - 2026-07-23：注册凭据已拆分为“用户名 + 邮箱 + 密码”，用户名为唯一主登录凭据，邮箱独立保存且当前不验证；后续开启邮箱验证无需改变用户名密码登录。旧账号允许邮箱为空。生产迁移 `0005_user_email.sql` 已应用，注册、再次登录和邮箱落库已端到端验证，测试账号已清理。
 - 2026-07-23：上述注册改造已部署到 `/opt/proxysplit/releases/20260723-193000-f5e0f5b`。桌面端 `v1.9.11` 已构建到 `output/proxysplit-v1.9.11.exe`，SHA256 `c4ff57f88e80987ad09d861f7d7bac97ce2c071c833536c76404fb8a4680bfc2`，生产下载地址 `/download/proxysplit-v1.9.11.exe`；本机当前已启动该版本。
 - 2026-07-23：账号连续输错密码 5 次后锁定 5 分钟；后续每累计 5 次错误依次增加 5 分钟。管理员可从后台重置任意用户密码，重置后旧会话立即失效；管理员生产密码已按需求轮换，明文不入库、不入仓。
@@ -24,7 +26,7 @@
 - 两个月限时买断版已启用：¥299.00、超级会员权益、8 台设备、每个账号限购一次，活动结束时间由生产迁移执行时起算两个月。
 - 当前客户端支付方式配置仅为 `alipay`，支付渠道后台显示为“支付宝”；网关继续使用既有中转和同一收钱吧商户。
 - 深圳生产站点：`https://proxysplit.zygskins.cn`；管理端：`/admin/`；健康检查：`/health`；v1.9.2 下载：`/download/proxysplit-v1.9.2.exe`。v1.9.2 发布日志已登记。
-- 当前部署目录：`/opt/proxysplit/releases/20260723-193000-f5e0f5b`，`/opt/proxysplit/current` 已指向该目录。
+- 当前部署目录：`/opt/proxysplit/releases/20260723-194500-851230a`，`/opt/proxysplit/current` 已指向该目录。
 - API、PostgreSQL、Redis 均为 healthy；公网 `/health`、官网、后台静态资源、v1.9.2 下载、最新版本接口、支付配置引用和非法回调拒绝均已验证。
 - 验证结果：`go test ./...` 全通过；桌面 `npm run check` 为 0 errors / 0 warnings / 0 hints 且 `npm run build` 通过；服务端 `pnpm typecheck`、`pnpm test`（6 项测试）、`pnpm build` 全通过。
 - 生产管理员为 `admin`，密码收据只保存在 `C:/Users/Administrator/.config/proxysplit/shenzhen-admin.txt`。SSH 别名为 `proxysplit-shenzhen`。
