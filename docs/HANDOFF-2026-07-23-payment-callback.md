@@ -247,6 +247,31 @@ POST /v1/payments/zhongzhuan/notify
 
 ## 8. 测试、发布与交付要求
 
+### 正式客户端一键打包
+
+正式打包所需的公开公钥、TLS 固定值、生产地址和私钥引用均已纳入仓库：
+
+```text
+build/release-kit/
+scripts/build-commercial.ps1
+```
+
+本机发布私钥位于已忽略但实际存在的：
+
+```text
+server/secrets/shenzhen-release-private.pem
+```
+
+其他本机 AI 不需要再拼接构建参数，直接执行：
+
+```powershell
+.\scripts\build-commercial.ps1 -Version 1.9.15 -CheckOnly
+.\scripts\build-commercial.ps1 -Version 1.9.15
+```
+
+私钥不允许明文推送到远程仓库；包装脚本会自动读取并校验本机私钥。完整说明见
+`build/release-kit/README.md`。
+
 修复后至少执行：
 
 ```powershell

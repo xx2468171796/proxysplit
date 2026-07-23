@@ -1,0 +1,10 @@
+{
+  "name": "shenzhen-production",
+  "commercialApiUrl": "https://proxysplit.zygskins.cn",
+  "downloadBaseUrl": "https://proxysplit.zygskins.cn/download",
+  "licensePublicKey": "build/release-kit/license-public.pem",
+  "releasePublicKey": "build/release-kit/release-public.pem",
+  "tlsSpkiFile": "build/release-kit/tls-spki.txt",
+  "localReleasePrivateKey": "server/secrets/shenzhen-release-private.pem",
+  "releasePrivateKeySha256": "783ece89cd6913b223f7007e4add81d40700f70403d6663d60fa38216895c6e0"
+}
