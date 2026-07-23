@@ -118,15 +118,17 @@ export class PgStore {
       if((map.get('registration_enabled')??true)!==true)throw new Error('REGISTRATION_DISABLED')
       const trialDays=Number(map.get('trial_days')??3)
       const trialPlanCode=String(map.get('trial_plan_code')??'trial')
-      if(trialDays>0){
-        const claimed=await client.query('SELECT 1 FROM trial_claims WHERE hardware_hash=$1',[input.hardwareHash])
-        if(claimed.rowCount)throw new Error('TRIAL_ALREADY_CLAIMED')
-      }
+      // 同一硬件只能领取一次试用，但不能因此阻止共享电脑上的其他用户注册。
+      // 已领取过试用时仍创建正常账号，只是不发放试用授权，由客户端引导购买套餐。
+      const claimed=trialDays>0
+        ?await client.query('SELECT 1 FROM trial_claims WHERE hardware_hash=$1',[input.hardwareHash])
+        :null
+      const grantTrial=trialDays>0&&!claimed?.rowCount
       const now=new Date(),trialEnds=new Date(now.getTime()+trialDays*86400000)
       const user=await client.query(`INSERT INTO users(username,email,password_hash,role,status,trial_started_at,trial_ends_at,registration_ip_hash)
         VALUES($1,$2,$3,'user','active',$4,$5,$6) RETURNING id,username,email,role,status`,
-        [input.username,input.email,input.passwordHash,trialDays>0?now:null,trialDays>0?trialEnds:null,sha256('proxysplit-ip-v1:'+input.ip)])
-      if(trialDays>0){
+        [input.username,input.email,input.passwordHash,grantTrial?now:null,grantTrial?trialEnds:null,sha256('proxysplit-ip-v1:'+input.ip)])
+      if(grantTrial){
         const plan=await client.query('SELECT id FROM plans WHERE code=$1 AND active=true',[trialPlanCode])
         if(!plan.rows[0])throw new Error('TRIAL_PLAN_NOT_FOUND')
         await client.query(`INSERT INTO licenses(user_id,plan_id,starts_at,expires_at,source)
@@ -135,7 +137,7 @@ export class PgStore {
           VALUES($1,$2,$3,$4)`,[input.hardwareHash,user.rows[0].id,trialEnds,sha256('proxysplit-ip-v1:'+input.ip)])
       }
       await client.query('COMMIT')
-      return {...user.rows[0],trialDays,trialEndsAt:trialDays>0?trialEnds:null}
+      return {...user.rows[0],trialDays:grantTrial?trialDays:0,trialEndsAt:grantTrial?trialEnds:null,trialGranted:grantTrial}
     }catch(e){await client.query('ROLLBACK');throw e}finally{client.release()}
   }
 

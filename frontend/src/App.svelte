@@ -1256,14 +1256,14 @@
         <div class="license-mark">◑</div>
         <div class="license-login-title">
           <span>ProxySplit</span>
-          <small>{authMode === 'login' ? '登录后使用你的授权设备' : '现在注册，立即免费试用 3 天'}</small>
+          <small>{authMode === 'login' ? '登录后使用你的授权设备' : '注册后即可登录，符合条件自动获得 3 天试用'}</small>
         </div>
         {#if authMode === 'register'}
           <div class="trial-guide">
             <b>注册即可开始</b>
             <span><i>1</i>填写账号密码</span>
             <span><i>2</i>自动绑定当前电脑</span>
-            <span><i>3</i>领取 3 天完整试用</span>
+            <span><i>3</i>符合条件领取试用，否则选择套餐</span>
           </div>
         {/if}
         <div class="auth-tabs"><button type="button" class:active={authMode === 'login'} on:click={() => { authMode = 'login'; loginError = '' }}>登录</button><button type="button" class:active={authMode === 'register'} on:click={() => { authMode = 'register'; loginError = '' }}>免费注册</button></div>
@@ -1281,9 +1281,9 @@
         </label>
         {#if loginError}<div class="license-error">{loginError}</div>{/if}
         <button class="primary license-submit" type="submit" disabled={loginBusy || !loginForm.username.trim() || (authMode === 'register' && !loginForm.email.trim()) || !loginForm.password}>
-          {loginBusy ? '正在验证…' : authMode === 'login' ? '登录并绑定本机' : '注册并领取试用'}
+          {loginBusy ? '正在验证…' : authMode === 'login' ? '登录并绑定本机' : '注册并登录'}
         </button>
-        <p class="license-tip">{authMode === 'register' ? '邮箱当前不做验证；以后开启验证时无需改变用户名登录方式。同一电脑只能领取一次试用。' : '使用用户名和密码登录；设备名额与会员状态由服务端校验。'} 主板等硬件信息只生成摘要，不上传原始序列号。</p>
+        <p class="license-tip">{authMode === 'register' ? '邮箱当前不做验证；同一电脑仅能领取一次试用，但始终可以注册新账号并购买套餐。' : '使用用户名和密码登录；设备名额与会员状态由服务端校验。'} 主板等硬件信息只生成摘要，不上传原始序列号。</p>
       </form>
     {:else}
       <section class="member-center">
