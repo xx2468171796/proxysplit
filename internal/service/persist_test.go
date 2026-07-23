@@ -100,3 +100,37 @@ func TestPersistenceRoundTrip(t *testing.T) {
 	}
 	t.Log("restart round-trip OK: node + auto-selection + rule + mode all persisted")
 }
+
+func TestLoadDropsPrototypePlaceholderNodes(t *testing.T) {
+	dir := t.TempDir()
+	seed := `{
+  "nodes": [
+    {"id":"preview-jp","name":"JP | Tokyo - 01","type":"vless","server":"jp01.example.net","port":443},
+    {"id":"real","name":"我的节点","type":"socks","server":"10.20.30.40","port":1080}
+  ],
+  "selectedId":"preview-jp"
+}`
+	if err := os.WriteFile(filepath.Join(dir, "config.json"), []byte(seed), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s, err := New(dir, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := s.Nodes()
+	if len(got) != 1 || got[0].ID != "real" {
+		t.Fatalf("placeholder node leaked into runtime config: %+v", got)
+	}
+	if s.cfg.SelectedID != "real" {
+		t.Fatalf("selected node not repaired after placeholder removal: %q", s.cfg.SelectedID)
+	}
+	// The cleanup must be persistent, otherwise the fake node would return on
+	// every restart after a user upgraded from a prototype build.
+	s2, err := New(dir, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := s2.Nodes(); len(got) != 1 || got[0].ID != "real" {
+		t.Fatalf("placeholder node returned after reopen: %+v", got)
+	}
+}

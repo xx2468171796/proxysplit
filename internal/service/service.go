@@ -107,7 +107,12 @@ type Service struct {
 	binDir  string
 	dataDir string
 
-	mu           sync.Mutex
+	mu sync.Mutex
+	// lifecycleMu serializes Start/Stop/reload operations.  In particular a
+	// Stop clicked while TUN is still coming up must win over that in-flight
+	// Start; without this lock the late Start could leave sing-box running after
+	// the UI had already changed to the stopped state.
+	lifecycleMu  sync.Mutex
 	cfg          Config
 	core         *core.Manager
 	eng          *engine.Engine
@@ -283,6 +288,50 @@ func (s *Service) load() {
 	for i := range s.cfg.Rules {
 		migrateRuleLocked(&s.cfg.Rules[i], s.cfg.Routing)
 	}
+	// Never resurrect design-preview endpoints from an old/hand-edited backup.
+	// The desktop client has no built-in nodes: every displayed node must have
+	// come from the user's import, subscription, or manual entry.
+	if s.dropPlaceholderNodesLocked() {
+		s.save()
+	}
+}
+
+// dropPlaceholderNodesLocked removes only IANA documentation endpoints. They
+// cannot be real proxy servers and were used solely by historic UI prototypes
+// (for example jp01.example.net). The caller must hold s.mu when the service is
+// already live; load calls it before the service becomes concurrent.
+func (s *Service) dropPlaceholderNodesLocked() bool {
+	kept := s.cfg.Nodes[:0]
+	removed := false
+	selectedStillPresent := false
+	for _, n := range s.cfg.Nodes {
+		if n == nil || isPlaceholderEndpoint(n.Server) {
+			removed = true
+			continue
+		}
+		kept = append(kept, n)
+		if n.ID == s.cfg.SelectedID {
+			selectedStillPresent = true
+		}
+	}
+	s.cfg.Nodes = kept
+	if !selectedStillPresent {
+		s.cfg.SelectedID = ""
+		if len(kept) > 0 {
+			s.cfg.SelectedID = kept[0].ID
+		}
+	}
+	return removed
+}
+
+func isPlaceholderEndpoint(server string) bool {
+	host := strings.TrimSuffix(strings.ToLower(strings.TrimSpace(server)), ".")
+	for _, domain := range []string{"example.com", "example.net", "example.org", "example.edu"} {
+		if host == domain || strings.HasSuffix(host, "."+domain) {
+			return true
+		}
+	}
+	return false
 }
 
 // save writes the config atomically: it snapshots the current good file to
@@ -952,6 +1001,9 @@ func (s *Service) SetLogLevel(level string) {
 // Start resolves the config into per-line inbounds, launches the core, then the
 // redirect engine with one upstream dialer per line.
 func (s *Service) Start() error {
+	s.lifecycleMu.Lock()
+	defer s.lifecycleMu.Unlock()
+
 	s.mu.Lock()
 	guard := s.startGuard
 	s.mu.Unlock()
@@ -1152,6 +1204,9 @@ func (s *Service) Start() error {
 
 // Stop stops the engine and the core.
 func (s *Service) Stop() {
+	s.lifecycleMu.Lock()
+	defer s.lifecycleMu.Unlock()
+
 	s.mu.Lock()
 	eng := s.eng
 	s.eng = nil

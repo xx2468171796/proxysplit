@@ -172,21 +172,31 @@ func (m *Manager) StartLines(lines []LineConfig, logLevel string, opts Options) 
 	go m.pump(stderr)
 
 	primary := lines[0].InboundPort
+	done := make(chan struct{})
 	m.mu.Lock()
 	m.cmd = cmd
 	m.running = true
 	m.port = primary
 	m.node = lines[0].Node
+	m.done = done
 	m.mu.Unlock()
 
 	go func() {
 		_ = cmd.Wait()
 		m.mu.Lock()
-		m.running = false
-		m.port = 0
+		active := m.cmd == cmd
+		if active {
+			m.running = false
+			m.port = 0
+			m.cmd = nil
+		}
 		m.mu.Unlock()
+		close(done)
 		m.onLog("[core] sing-box exited")
-		if m.onExit != nil {
+		// A killed old process can exit after a replacement core has started.
+		// It must not run the service crash handler and clear the new core's
+		// system-proxy setting.
+		if active && m.onExit != nil {
 			m.onExit()
 		}
 	}()
@@ -287,7 +297,8 @@ func (m *Manager) spawn(cfgPath string) error {
 		// Only clear state if this is STILL the active process — otherwise a
 		// stale exit (from a killed old process) would clobber a fresh start
 		// and make it falsely report "启动失败".
-		if m.cmd == cmd {
+		active := m.cmd == cmd
+		if active {
 			m.running = false
 			m.port = 0
 			m.cmd = nil
@@ -295,7 +306,8 @@ func (m *Manager) spawn(cfgPath string) error {
 		m.mu.Unlock()
 		close(done)
 		m.onLog("[core] sing-box exited")
-		if m.onExit != nil {
+		// Do not let a stale exit clear state belonging to a replacement core.
+		if active && m.onExit != nil {
 			m.onExit()
 		}
 	}()
@@ -322,7 +334,7 @@ func (m *Manager) Stop() error {
 		case <-time.After(4 * time.Second):
 		}
 	}
-	m.killStrays() // nuke any orphaned sing-box (else Stop leaves proxying alive)
+	m.killStrays()                     // nuke any orphaned sing-box (else Stop leaves proxying alive)
 	time.Sleep(300 * time.Millisecond) // grace for the wintun driver to release
 	return nil
 }
