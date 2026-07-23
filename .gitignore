@@ -27,8 +27,6 @@ node_modules/
 
 # downloaded/vendored runtime binaries (large; fetched during setup)
 /bin/sing-box.exe
-/bin/WinDivert.dll
-/bin/WinDivert64.sys
 /.download/
 
 # go
