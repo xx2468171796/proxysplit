@@ -7,6 +7,7 @@
 /build/*-v[0-9]*.json
 /build/*-response.txt
 /build/trial-user-*.txt
+/build/email-e2e-*.txt
 /output/
 *.exe.old
 *.rar
