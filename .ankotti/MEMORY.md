@@ -1,4 +1,6 @@
 # ProxySplit 项目状态
+- 当前正式桌面版本：`v1.9.3`，产物为 `output/proxysplit-v1.9.3.exe`，SHA256 `19aae68cf85a2b26698bac1c9192439b20ef7d6180fa620bda870b0cbf3943f1`；生产最新版本接口与下载已更新。
+- v1.9.3 新增满额换机闭环：设备数满时新电脑可短期安全登录，仅可管理本账号旧设备且不能获取授权租约/启动代理；解绑一台旧设备后客户端自动绑定并激活本机。硬件识别继续仅使用 MachineGuid、主板/BIOS/系统 UUID 等组合摘要，不上传原始硬件序列号。
 
 - 当前正式桌面版本：`v1.9.2`。产物为 `output/proxysplit-v1.9.2.exe`，快捷副本为 `output/proxysplit.exe`；发布清单为 `output/proxysplit-v1.9.2.manifest.json`。
 - v1.9.2 EXE 大小 `81,098,752` 字节，SHA256 为 `b057cfb24224ff4ffab3c1c43384daae6634483a8872c4f0d2e6722fd937b00b`；已用独立 Ed25519 发布密钥签名并通过 Garble 混淆构建，暂未做 Windows Authenticode 签名。
