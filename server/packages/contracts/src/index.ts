@@ -58,9 +58,10 @@ export const settingPatchSchema = z.object({
   trialPlanCode:z.string().min(2).max(64).optional(),
   defaultDeviceLimit:z.number().int().min(1).max(100).optional(),
   licenseLeaseMinutes:z.number().int().min(15).max(1440).optional(),
-  offlineGraceHours:z.number().int().min(0).max(72).optional(),
-  activePaymentProvider:z.string().min(2).max(64).optional(),
-})
+    offlineGraceHours:z.number().int().min(0).max(72).optional(),
+    activePaymentProvider:z.string().min(2).max(64).optional(),
+    paymentMethods:z.array(z.enum(['alipay'])).min(1).max(1).optional(),
+  })
 export const providerUpsertSchema = z.object({
   code:z.string().regex(/^[a-z0-9][a-z0-9-]{1,62}$/),
   displayName:z.string().trim().min(2).max(80),

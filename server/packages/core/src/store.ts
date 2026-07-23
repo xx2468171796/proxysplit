@@ -27,7 +27,8 @@ export type ReleaseRecord = {
 export type CommerceSettings = {
   registrationEnabled:boolean; trialDays:number; trialPlanCode:string;
   defaultDeviceLimit:number; licenseLeaseMinutes:number;
-  offlineGraceHours:number; activePaymentProvider:string
+  offlineGraceHours:number; activePaymentProvider:string;
+  paymentMethods:Array<'alipay'>
 }
 export type PaymentProviderRecord = {
   code:string; displayName:string; adapter:string; endpoint:string;
@@ -52,11 +53,12 @@ const settingMap:Record<keyof CommerceSettings,string>={
   licenseLeaseMinutes:'license_lease_minutes',
   offlineGraceHours:'offline_grace_hours',
   activePaymentProvider:'active_payment_provider',
+  paymentMethods:'payment_methods',
 }
 const settingsDefaults:CommerceSettings={
   registrationEnabled:true,trialDays:3,trialPlanCode:'trial',
   defaultDeviceLimit:3,licenseLeaseMinutes:60,offlineGraceHours:6,
-  activePaymentProvider:'zhongzhuan-prod',
+  activePaymentProvider:'zhongzhuan-prod',paymentMethods:['alipay'],
 }
 
 export class PgStore {

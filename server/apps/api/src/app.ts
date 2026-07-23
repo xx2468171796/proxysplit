@@ -30,7 +30,7 @@ export async function buildApp(config:ApiConfig,provided?:Core){
   const payments=new PaymentService(core.store,config.PUBLIC_BASE_URL.replace(/\/$/,''))
   app.get('/v1/releases/latest',async()=>({release:await core.store.latestRelease()}))
   app.get('/v1/releases',async()=>({items:await core.store.listReleases()}))
-  app.get('/v1/catalog/plans',async()=>({items:await core.store.listPlans(true)}))
+  app.get('/v1/catalog/plans',async()=>({items:await core.store.listPlans(true),paymentMethods:(await core.store.getCommerceSettings()).paymentMethods}))
   app.get('/v1/announcements',async()=>({items:await core.store.listAnnouncements(true)}))
   app.get('/v1/me',async(req)=>{const p=await auth(req);const user=await core.store.findUserById(p.userId);return {user:user&&{id:user.id,username:user.username,status:user.status},membership:await core.store.entitlement(p.userId),devices:await core.store.listUserDevices(p.userId)}})
   app.get('/v1/me/devices',async(req)=>{const p=await auth(req);return {items:await core.store.listUserDevices(p.userId)}})

@@ -7,7 +7,7 @@
 为不同应用设置规则、直连、拦截或指定线路；所有匹配与路由由 sing-box
 在本机完成，节点、订阅和应用规则优先保存在本机。
 
-[![下载](https://img.shields.io/badge/⬇_下载_v1.9.0-2563eb?style=for-the-badge)](https://proxysplit.zygskins.cn/download/proxysplit-v1.9.0.exe)
+[![下载](https://img.shields.io/badge/⬇_下载_v1.9.1-2563eb?style=for-the-badge)](https://proxysplit.zygskins.cn/download/proxysplit-v1.9.1.exe)
 &nbsp;
 ![平台](https://img.shields.io/badge/Windows_10/11-x64-334155?style=for-the-badge)
 ![内核](https://img.shields.io/badge/core-sing--box-16a34a?style=for-the-badge)
@@ -47,7 +47,7 @@ ProxySplit **不提供任何翻墙、VPN、代理节点、订阅或网络线路�
 ## 下载与使用
 
 前往 **[ProxySplit 官网](https://proxysplit.zygskins.cn)** 下载
-`proxysplit-v1.9.0.exe`。这是便携式单文件版本：
+`proxysplit-v1.9.1.exe`。这是便携式单文件版本：
 
 1. 在「节点」页添加你有权使用的合法网络配置。
 2. 在「应用分流」页选择应用并分配规则或线路。
@@ -93,6 +93,9 @@ sing-box outbound，并按进程名分别路由。
 ## 会员、试用与支付
 
 - 普通用户注册后按后台配置领取一次硬件绑定试用，当前默认 3 天。
+- 普通会员月卡 ¥15.90，最多 3 台设备；超级会员月卡 ¥25.90，最多
+  8 台设备。季卡按月卡总价优惠 10%，年卡优惠 25%。
+- 当前另有两个月限时永久买断活动；客户端当前只展示支付宝支付。
 - 普通会员、超级会员及月卡、季卡、年卡、永久套餐都由服务端配置；价格、
   活动时间、购买次数、设备数和功能权限不会由客户端自行决定。
 - 客户端启动服务前必须取得服务端签发的 Ed25519 短租约。租约绑定账号、
@@ -118,10 +121,10 @@ sing-box outbound，并按进程名分别路由。
 wails dev
 
 # 普通便携版
-.\scripts\build.ps1 -Version 1.9.0
+.\scripts\build.ps1 -Version 1.9.1
 
 # 商业版示例
-.\scripts\build.ps1 -Version 1.9.0 -Commercial `
+.\scripts\build.ps1 -Version 1.9.1 -Commercial `
   -CommercialAPIURL https://proxysplit.example.com `
   -LicensePublicKeyFile .\server\secrets\license-public.pem `
   -ReleasePublicKeyFile .\server\secrets\release-public.pem `

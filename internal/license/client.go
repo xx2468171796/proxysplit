@@ -46,19 +46,21 @@ type Status struct {
 }
 
 type Plan struct {
-	ID           string   `json:"id"`
-	Code         string   `json:"code"`
-	Name         string   `json:"name"`
-	Description  string   `json:"description"`
-	Tier         string   `json:"tier"`
-	BillingCycle string   `json:"billingCycle"`
-	DurationDays *int     `json:"durationDays"`
-	Lifetime     bool     `json:"lifetime"`
-	PriceCents   int      `json:"priceCents"`
-	Currency     string   `json:"currency"`
-	MaxDevices   int      `json:"maxDevices"`
-	Features     []string `json:"features"`
-	Badge        string   `json:"badge"`
+	ID                 string   `json:"id"`
+	Code               string   `json:"code"`
+	Name               string   `json:"name"`
+	Description        string   `json:"description"`
+	Tier               string   `json:"tier"`
+	BillingCycle       string   `json:"billingCycle"`
+	DurationDays       *int     `json:"durationDays"`
+	Lifetime           bool     `json:"lifetime"`
+	PriceCents         int      `json:"priceCents"`
+	OriginalPriceCents *int     `json:"originalPriceCents"`
+	Currency           string   `json:"currency"`
+	MaxDevices         int      `json:"maxDevices"`
+	Features           []string `json:"features"`
+	Badge              string   `json:"badge"`
+	SaleEndsAt         string   `json:"saleEndsAt"`
 }
 
 type Device struct {

@@ -136,10 +136,12 @@ export namespace license {
 	    durationDays?: number;
 	    lifetime: boolean;
 	    priceCents: number;
+	    originalPriceCents?: number;
 	    currency: string;
 	    maxDevices: number;
 	    features: string[];
 	    badge: string;
+	    saleEndsAt: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new Plan(source);
@@ -156,10 +158,12 @@ export namespace license {
 	        this.durationDays = source["durationDays"];
 	        this.lifetime = source["lifetime"];
 	        this.priceCents = source["priceCents"];
+	        this.originalPriceCents = source["originalPriceCents"];
 	        this.currency = source["currency"];
 	        this.maxDevices = source["maxDevices"];
 	        this.features = source["features"];
 	        this.badge = source["badge"];
+	        this.saleEndsAt = source["saleEndsAt"];
 	    }
 	}
 	export class Status {

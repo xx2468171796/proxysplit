@@ -46,10 +46,10 @@ if (planGrid) {
         return `<article class="pricing-card ${plan.tier === 'premium' ? 'premium' : ''}">
           <div><span>${escapeHTML(plan.badge || tier)}</span><em>${plan.maxDevices} 台设备</em></div>
           <h3>${escapeHTML(plan.name)}</h3>
-          <strong><small>¥</small>${(Number(plan.priceCents) / 100).toFixed(2)}</strong>
+          <strong><small>¥</small>${(Number(plan.priceCents) / 100).toFixed(2)}${Number(plan.originalPriceCents) > Number(plan.priceCents) ? `<del>¥${(Number(plan.originalPriceCents) / 100).toFixed(2)}</del>` : ''}</strong>
           <p>${escapeHTML(plan.description || '')}</p>
           <ul><li>${period}</li><li>${tier}</li><li>服务端签名授权</li></ul>
-          <a href="/download/proxysplit-v1.9.0.exe" data-download>在客户端开通</a>
+          <a href="/download/proxysplit-v1.9.1.exe" data-download>支付宝开通</a>
         </article>`
       }).join('')
     })

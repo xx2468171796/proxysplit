@@ -19,6 +19,7 @@
 .pricing-card h3{margin:21px 0 6px;font-size:19px}
 .pricing-card strong{display:block;margin:14px 0;font-size:31px}
 .pricing-card strong small{margin-right:3px;font-size:13px}
+.pricing-card strong del{margin-left:8px;color:#71869f;font-size:11px;font-weight:500}
 .pricing-card p{min-height:43px;color:#91a4bc;font-size:11px;line-height:1.65}
 .pricing-card ul{padding-left:17px;color:#bdc9d8;font-size:11px;line-height:1.9}
 .pricing-card>a{display:flex;height:40px;margin-top:18px;align-items:center;justify-content:center;border-radius:10px;background:#fff;color:#102248;font-size:11px;font-weight:800}

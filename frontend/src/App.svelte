@@ -137,7 +137,7 @@
   type RuleImportPreview = { schemaVersion: number; ruleCount: number; lineAdded: number; lineSkipped: number; customRules: number; summary: string; error?: string }
   type Routing = { enabled: boolean; mode: string; rules: RouteRule[] }
   type LicenseStatus = { enabled: boolean; signedIn: boolean; authenticated: boolean; username: string; plan: string; planCode: string; tier: string; maxDevices: number; features: string[]; expiresAt: string; offlineUntil: string; error?: string }
-  type MemberPlan = { id: string; code: string; name: string; description: string; tier: string; billingCycle: string; durationDays?: number; lifetime: boolean; priceCents: number; currency: string; maxDevices: number; features: string[]; badge: string }
+  type MemberPlan = { id: string; code: string; name: string; description: string; tier: string; billingCycle: string; durationDays?: number; lifetime: boolean; priceCents: number; originalPriceCents?: number; currency: string; maxDevices: number; features: string[]; badge: string; saleEndsAt?: string }
   type AccountDevice = { id: string; name: string; platform: string; appVersion: string; firstSeenAt: string; lastSeenAt: string; current: boolean }
   type MemberOrder = { orderNo: string; planName: string; amountCents: number; currency: string; status: string; payUrl: string; paidAt: string; expiresAt: string; createdAt: string }
   type Announcement = { id: string; type: string; title: string; summary: string; content: string; version: string; pinned: boolean; publishedAt: string }
@@ -1188,8 +1188,16 @@
         <div class="license-mark">◑</div>
         <div class="license-login-title">
           <span>ProxySplit</span>
-          <small>{authMode === 'login' ? '登录后使用你的授权设备' : '注册即享后台配置的免费试用'}</small>
+          <small>{authMode === 'login' ? '登录后使用你的授权设备' : '现在注册，立即免费试用 3 天'}</small>
         </div>
+        {#if authMode === 'register'}
+          <div class="trial-guide">
+            <b>注册即可开始</b>
+            <span><i>1</i>填写账号密码</span>
+            <span><i>2</i>自动绑定当前电脑</span>
+            <span><i>3</i>领取 3 天完整试用</span>
+          </div>
+        {/if}
         <div class="auth-tabs"><button type="button" class:active={authMode === 'login'} on:click={() => { authMode = 'login'; loginError = '' }}>登录</button><button type="button" class:active={authMode === 'register'} on:click={() => { authMode = 'register'; loginError = '' }}>免费注册</button></div>
         <label>
           <span>用户名</span>
@@ -1203,7 +1211,7 @@
         <button class="primary license-submit" type="submit" disabled={loginBusy || !loginForm.username.trim() || !loginForm.password}>
           {loginBusy ? '正在验证…' : authMode === 'login' ? '登录并绑定本机' : '注册并领取试用'}
         </button>
-        <p class="license-tip">账号、设备名额与会员状态由服务端校验；主板等硬件信息只生成摘要，不上传原始序列号。</p>
+        <p class="license-tip">{authMode === 'register' ? '同一电脑只能领取一次试用；注册后不要求立即付款。' : '账号、设备名额与会员状态由服务端安全校验。'} 主板等硬件信息只生成摘要，不上传原始序列号。</p>
       </form>
     {:else}
       <section class="member-center">
@@ -1214,9 +1222,9 @@
             <article class:premium={plan.tier === 'premium'}>
               <div class="member-plan-top"><span>{plan.badge || (plan.tier === 'premium' ? '超级会员' : '普通会员')}</span><em>{plan.maxDevices} 台设备</em></div>
               <h2>{plan.name}</h2><p>{plan.description}</p>
-              <strong><small>¥</small>{(plan.priceCents / 100).toFixed(2)}</strong>
+              <strong><small>¥</small>{(plan.priceCents / 100).toFixed(2)}{#if plan.originalPriceCents && plan.originalPriceCents > plan.priceCents}<del>¥{(plan.originalPriceCents / 100).toFixed(2)}</del>{/if}</strong>
               <ul><li>{plan.lifetime ? '永久有效' : `${plan.durationDays || 0} 天有效`}</li><li>{plan.tier === 'premium' ? '全部主流协议与高级线路' : 'HTTP / HTTPS / SOCKS 与基础规则'}</li><li>服务端签名授权、设备自助解绑</li></ul>
-              <button class="primary" disabled={commerceBusy} on:click={() => buyPlan(plan)}>{commerceBusy ? '处理中…' : '立即开通'}</button>
+              <button class="primary" disabled={commerceBusy} on:click={() => buyPlan(plan)}>{commerceBusy ? '处理中…' : '支付宝立即开通'}</button>
             </article>
           {/each}
         </div>
@@ -1225,7 +1233,7 @@
           <section class="member-panel"><div class="panel-title"><b>充值记录</b><span>{memberOrders.length} 笔</span></div>{#each memberOrders.slice(0, 5) as order}<div class="member-row"><div><b>{order.planName}</b><small>{order.orderNo}</small></div><div><span class:paid={order.status === 'paid'}>{order.status === 'paid' ? '已支付' : order.status === 'pending' ? '待支付' : order.status}</span><b>¥{(order.amountCents / 100).toFixed(2)}</b></div></div>{:else}<p class="member-empty">暂无充值记录</p>{/each}</section>
         </div>
         {#if announcements.length}<section class="member-panel announcements"><div class="panel-title"><b>公告与更新</b><span>{announcements.length} 条</span></div>{#each announcements.slice(0, 4) as item}<div class="member-row"><div><b>{item.title}</b><small>{item.summary || item.content}</small></div><time>{new Date(item.publishedAt).toLocaleDateString()}</time></div>{/each}</section>{/if}
-        {#if activeOrder}<div class="payment-sheet"><div><span>订单 {activeOrder.orderNo}</span><h3>{activeOrder.planName} · ¥{(activeOrder.amountCents / 100).toFixed(2)}</h3><p>支付页已打开；完成支付后点击刷新，会员将自动到账。</p></div><div><button class="ghost" on:click={() => activeOrder?.payUrl && BrowserOpenURL(activeOrder.payUrl)}>重新打开支付页</button><button class="primary" disabled={commerceBusy} on:click={refreshPayment}>我已支付，刷新状态</button></div></div>{/if}
+        {#if activeOrder}<div class="payment-sheet"><div><span>支付宝订单 {activeOrder.orderNo}</span><h3>{activeOrder.planName} · ¥{(activeOrder.amountCents / 100).toFixed(2)}</h3><p>请使用支付宝完成付款；完成后点击刷新，会员将在几秒内自动到账。</p></div><div><button class="ghost" on:click={() => activeOrder?.payUrl && BrowserOpenURL(activeOrder.payUrl)}>重新打开支付宝</button><button class="primary" disabled={commerceBusy} on:click={refreshPayment}>我已支付，刷新状态</button></div></div>{/if}
       </section>
     {/if}
   </main>
@@ -1916,7 +1924,7 @@
         <div class="member-plan-grid compact">
           {#each memberPlans as plan}
             <article class:premium={plan.tier === 'premium'}>
-              <div class="member-plan-top"><span>{plan.badge || plan.name}</span><em>{plan.maxDevices} 台</em></div><h2>{plan.name}</h2><p>{plan.description}</p><strong><small>¥</small>{(plan.priceCents / 100).toFixed(2)}</strong><button class="primary" disabled={commerceBusy} on:click={() => buyPlan(plan)}>购买</button>
+              <div class="member-plan-top"><span>{plan.badge || plan.name}</span><em>{plan.maxDevices} 台</em></div><h2>{plan.name}</h2><p>{plan.description}</p><strong><small>¥</small>{(plan.priceCents / 100).toFixed(2)}{#if plan.originalPriceCents && plan.originalPriceCents > plan.priceCents}<del>¥{(plan.originalPriceCents / 100).toFixed(2)}</del>{/if}</strong><button class="primary" disabled={commerceBusy} on:click={() => buyPlan(plan)}>支付宝购买</button>
             </article>
           {/each}
         </div>
@@ -1924,7 +1932,7 @@
           <section class="member-panel"><div class="panel-title"><b>我的设备</b><span>{accountDevices.length}/{license.maxDevices}</span></div>{#each accountDevices as device}<div class="member-row"><div><b>{device.name}</b><small>{device.appVersion} · {new Date(device.lastSeenAt).toLocaleString()}</small></div><div>{#if device.current}<span class="current-device">本机</span>{/if}<button on:click={() => unbindDevice(device.id)}>解绑</button></div></div>{/each}</section>
           <section class="member-panel"><div class="panel-title"><b>最近订单</b><span>{memberOrders.length}</span></div>{#each memberOrders.slice(0, 4) as order}<div class="member-row"><div><b>{order.planName}</b><small>{order.orderNo}</small></div><div><span class:paid={order.status === 'paid'}>{order.status === 'paid' ? '已支付' : '待支付'}</span><b>¥{(order.amountCents / 100).toFixed(2)}</b></div></div>{/each}</section>
         </div>
-        {#if activeOrder}<div class="payment-sheet"><div><span>{activeOrder.orderNo}</span><h3>{activeOrder.planName} · ¥{(activeOrder.amountCents / 100).toFixed(2)}</h3></div><div><button class="ghost" on:click={() => activeOrder?.payUrl && BrowserOpenURL(activeOrder.payUrl)}>打开支付页</button><button class="primary" on:click={refreshPayment}>刷新到账状态</button></div></div>{/if}
+        {#if activeOrder}<div class="payment-sheet"><div><span>支付宝 · {activeOrder.orderNo}</span><h3>{activeOrder.planName} · ¥{(activeOrder.amountCents / 100).toFixed(2)}</h3></div><div><button class="ghost" on:click={() => activeOrder?.payUrl && BrowserOpenURL(activeOrder.payUrl)}>打开支付宝</button><button class="primary" on:click={refreshPayment}>刷新到账状态</button></div></div>{/if}
       </section>
     </div>
   {/if}
@@ -2478,6 +2486,10 @@
   .license-login-title { display: grid; gap: 5px; text-align: center; }
   .license-login-title span { font-size: 24px; font-weight: 850; color: var(--ink); letter-spacing: -.02em; }
   .license-login-title small { font-size: 13px; color: var(--muted); }
+  .trial-guide { display: grid; grid-template-columns: repeat(3, 1fr); gap: 7px; padding: 12px; border: 1px solid #bfdbfe; border-radius: 12px; background: #eff6ff; }
+  .trial-guide b { grid-column: 1 / -1; color: #1d4ed8; font-size: 12px; }
+  .trial-guide span { display: grid; justify-items: center; gap: 5px; color: #475569; font-size: 10px; line-height: 1.35; text-align: center; }
+  .trial-guide i { display: grid; width: 22px; height: 22px; place-items: center; border-radius: 50%; color: #fff; background: #2563eb; font-size: 10px; font-style: normal; font-weight: 800; }
   .license-login-card label { display: grid; gap: 7px; color: var(--ink-2); font-size: 13px; font-weight: 700; }
   .license-login-card input { width: 100%; padding: 12px 13px; border: 1px solid var(--line); border-radius: 10px; background: var(--soft); color: var(--ink); font: inherit; outline: none; }
   .license-login-card input:focus { border-color: var(--brand); background: #fff; box-shadow: 0 0 0 3px var(--brand-tint); }
@@ -2608,8 +2620,9 @@
   .member-plan-top em { padding: 4px 7px; border-radius: 9px; color: #b8c8e5; background: rgba(255,255,255,.08); font-size: 10px; font-style: normal; }
   .member-plan-grid h2 { margin: 20px 0 7px; font-size: 19px; }
   .member-plan-grid article>p { min-height: 38px; margin: 0; color: #a8b8d2; font-size: 11.5px; line-height: 1.6; }
-  .member-plan-grid strong { display: block; margin: 17px 0 12px; font-size: 31px; letter-spacing: -.03em; }
+  .member-plan-grid strong { display: flex; align-items: baseline; gap: 7px; margin: 17px 0 12px; font-size: 31px; letter-spacing: -.03em; }
   .member-plan-grid strong small { margin-right: 3px; font-size: 14px; }
+  .member-plan-grid strong del { color: #71819e; font-size: 11px; font-weight: 500; letter-spacing: 0; }
   .member-plan-grid ul { flex: 1; margin: 0 0 18px; padding-left: 17px; color: #c2cfe3; font-size: 11px; line-height: 1.9; }
   .member-plan-grid article>.primary { width: 100%; justify-content: center; }
   .member-lower { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-top: 16px; }

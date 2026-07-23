@@ -2,6 +2,7 @@
 /build/bin/
 /build/proxysplit-server-*.tar
 /build/admin-dist-v*.tar
+/build/migrations-*.tar
 /build/*-v[0-9]*.html
 /build/*-v[0-9]*.json
 /build/*-response.txt
