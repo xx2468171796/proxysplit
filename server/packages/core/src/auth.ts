@@ -39,13 +39,13 @@ export class AuthService{
     const passwordHash=await hashPassword(input.password)
     try{
       await this.store.registerTrialUser({
-        username:normalizeUsername(input.username),passwordHash,
+        username:normalizeUsername(input.username),email:input.email.trim().toLowerCase(),passwordHash,
         hardwareHash:hashFingerprint(input.device.hardwareHash??input.device.fingerprint),ip,
       })
     }catch(error){
       const code=(error as {code?:string}).code
       const message=(error as Error).message
-      if(code==='23505')throw new AppError('USERNAME_TAKEN','用户名已存在',409)
+      if(code==='23505')throw new AppError('IDENTITY_TAKEN','用户名或邮箱已被使用',409)
       if(message==='REGISTRATION_DISABLED')throw new AppError('REGISTRATION_DISABLED','当前暂停开放注册',403)
       if(message==='TRIAL_ALREADY_CLAIMED')throw new AppError('TRIAL_ALREADY_CLAIMED','本机已经领取过免费试用，请登录原账号或购买套餐',409)
       if(message==='TRIAL_PLAN_NOT_FOUND')throw new AppError('TRIAL_UNAVAILABLE','试用套餐暂不可用',503)

@@ -304,16 +304,20 @@ type authResult struct {
 	} `json:"license"`
 }
 
-func (c *Client) authenticate(path, username, password string) error {
+func (c *Client) authenticate(path, username, email, password string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	var result authResult
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
-	err := c.request(ctx, http.MethodPost, path, map[string]any{
+	payload := map[string]any{
 		"username": username, "password": password,
 		"device": map[string]any{"fingerprint": c.fingerprint, "hardwareHash": c.hardwareHash, "name": c.deviceName, "platform": "windows", "appVersion": normalizedVersion(c.version)},
-	}, &result, "")
+	}
+	if email != "" {
+		payload["email"] = email
+	}
+	err := c.request(ctx, http.MethodPost, path, payload, &result, "")
 	if err != nil {
 		return err
 	}
@@ -331,11 +335,11 @@ func (c *Client) authenticate(path, username, password string) error {
 }
 
 func (c *Client) Login(username, password string) error {
-	return c.authenticate("/v1/auth/login", username, password)
+	return c.authenticate("/v1/auth/login", username, "", password)
 }
 
-func (c *Client) Register(username, password string) error {
-	return c.authenticate("/v1/auth/register", username, password)
+func (c *Client) Register(username, email, password string) error {
+	return c.authenticate("/v1/auth/register", username, email, password)
 }
 
 func (c *Client) Plans() ([]Plan, error) {

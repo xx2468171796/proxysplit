@@ -108,7 +108,7 @@ export class PgStore {
     return this.getCommerceSettings()
   }
 
-  async registerTrialUser(input:{username:string;passwordHash:string;hardwareHash:string;ip:string}){
+  async registerTrialUser(input:{username:string;email:string;passwordHash:string;hardwareHash:string;ip:string}){
     const client=await this.pool.connect()
     try{
       await client.query('BEGIN')
@@ -123,9 +123,9 @@ export class PgStore {
         if(claimed.rowCount)throw new Error('TRIAL_ALREADY_CLAIMED')
       }
       const now=new Date(),trialEnds=new Date(now.getTime()+trialDays*86400000)
-      const user=await client.query(`INSERT INTO users(username,password_hash,role,status,trial_started_at,trial_ends_at,registration_ip_hash)
-        VALUES($1,$2,'user','active',$3,$4,$5) RETURNING id,username,role,status`,
-        [input.username,input.passwordHash,trialDays>0?now:null,trialDays>0?trialEnds:null,sha256('proxysplit-ip-v1:'+input.ip)])
+      const user=await client.query(`INSERT INTO users(username,email,password_hash,role,status,trial_started_at,trial_ends_at,registration_ip_hash)
+        VALUES($1,$2,$3,'user','active',$4,$5,$6) RETURNING id,username,email,role,status`,
+        [input.username,input.email,input.passwordHash,trialDays>0?now:null,trialDays>0?trialEnds:null,sha256('proxysplit-ip-v1:'+input.ip)])
       if(trialDays>0){
         const plan=await client.query('SELECT id FROM plans WHERE code=$1 AND active=true',[trialPlanCode])
         if(!plan.rows[0])throw new Error('TRIAL_PLAN_NOT_FOUND')
@@ -231,7 +231,7 @@ export class PgStore {
     return r.rows[0]
   }
   async listUsers(){
-    const r=await this.pool.query(`SELECT u.id,u.username,u.role,u.status,u.note,u.created_at AS "createdAt",
+    const r=await this.pool.query(`SELECT u.id,u.username,u.email,u.role,u.status,u.note,u.created_at AS "createdAt",
       l.expires_at AS "expiresAt",l.lifetime,p.name AS "planName",p.tier,
       (SELECT count(*)::int FROM devices d WHERE d.user_id=u.id AND d.revoked=false) AS devices
       FROM users u LEFT JOIN LATERAL (
@@ -242,7 +242,7 @@ export class PgStore {
   // 管理后台专用聚合视图：只返回运营必要信息，绝不返回密码、令牌、原始硬件序列号或指纹哈希。
   async getUserDetail(userId:string){
     const [user,licenses,devices,orders,activity,stats]=await Promise.all([
-      this.pool.query(`SELECT id,username,role,status,note,created_at AS "createdAt",updated_at AS "updatedAt",
+      this.pool.query(`SELECT id,username,email,role,status,note,created_at AS "createdAt",updated_at AS "updatedAt",
         trial_started_at AS "trialStartedAt",trial_ends_at AS "trialEndsAt" FROM users WHERE id=$1`,[userId]),
       this.pool.query(`SELECT l.id,l.status,l.starts_at AS "startsAt",l.expires_at AS "expiresAt",l.created_at AS "createdAt",
         l.source,l.lifetime,p.code AS "planCode",p.name AS "planName",p.tier,p.max_devices AS "maxDevices",p.features

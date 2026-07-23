@@ -197,7 +197,7 @@
   let recent: LogItem[] = []
   let status: Status | null = null
   let license: LicenseStatus = { enabled: false, signedIn: false, authenticated: true, deviceLimitReached: false, username: '', plan: '', planCode: '', tier: '', maxDevices: 0, features: [], expiresAt: '', offlineUntil: '' }
-  let loginForm = { username: '', password: '' }
+  let loginForm = { username: '', email: '', password: '' }
   let authMode: 'login' | 'register' = 'login'
   let loginBusy = false
   let loginError = ''
@@ -506,10 +506,12 @@
     if (!license.authenticated || license.planCode === 'trial') { showMembership = true; membershipPrompted = true }
   }
   async function submitRegister() {
-    const email = loginForm.username.trim()
+    const username = loginForm.username.trim()
+    const email = loginForm.email.trim()
+    if (username.length < 3 || /[\s@]/.test(username)) { loginError = '用户名至少 3 位，不能包含空格或 @'; return }
     if (!/^\S+@\S+\.\S+$/.test(email) || loginForm.password.length < 8) { loginError = '请填写有效邮箱，密码至少 8 位'; return }
     loginBusy = true; loginError = ''
-    const err = await WRegister(email, loginForm.password)
+    const err = await WRegister(username, email, loginForm.password)
     loginBusy = false
     if (err) { loginError = err; return }
     loginForm.password = ''
@@ -1266,18 +1268,22 @@
         {/if}
         <div class="auth-tabs"><button type="button" class:active={authMode === 'login'} on:click={() => { authMode = 'login'; loginError = '' }}>登录</button><button type="button" class:active={authMode === 'register'} on:click={() => { authMode = 'register'; loginError = '' }}>免费注册</button></div>
         <label>
-          <span>{authMode === 'register' ? '邮箱' : '邮箱账号'}</span>
-          <input type="email" bind:value={loginForm.username} autocomplete="username" placeholder="name@example.com" disabled={loginBusy} />
+          <span>用户名</span>
+          <input type="text" bind:value={loginForm.username} autocomplete="username" placeholder="请输入用户名" minlength="3" maxlength="32" disabled={loginBusy} />
         </label>
+        {#if authMode === 'register'}<label>
+          <span>邮箱</span>
+          <input type="email" bind:value={loginForm.email} autocomplete="email" placeholder="name@example.com" maxlength="254" disabled={loginBusy} />
+        </label>{/if}
         <label>
           <span>密码</span>
           <input type="password" bind:value={loginForm.password} autocomplete={authMode === 'register' ? 'new-password' : 'current-password'} placeholder={authMode === 'register' ? '至少 8 位' : '请输入密码'} minlength="8" disabled={loginBusy} />
         </label>
         {#if loginError}<div class="license-error">{loginError}</div>{/if}
-        <button class="primary license-submit" type="submit" disabled={loginBusy || !loginForm.username.trim() || !loginForm.password}>
+        <button class="primary license-submit" type="submit" disabled={loginBusy || !loginForm.username.trim() || (authMode === 'register' && !loginForm.email.trim()) || !loginForm.password}>
           {loginBusy ? '正在验证…' : authMode === 'login' ? '登录并绑定本机' : '注册并领取试用'}
         </button>
-        <p class="license-tip">{authMode === 'register' ? '暂不验证邮箱，提交后直接登录并领取试用；同一电脑只能领取一次。' : '账号、设备名额与会员状态由服务端安全校验。'} 主板等硬件信息只生成摘要，不上传原始序列号。</p>
+        <p class="license-tip">{authMode === 'register' ? '邮箱当前不做验证；以后开启验证时无需改变用户名登录方式。同一电脑只能领取一次试用。' : '使用用户名和密码登录；设备名额与会员状态由服务端校验。'} 主板等硬件信息只生成摘要，不上传原始序列号。</p>
       </form>
     {:else}
       <section class="member-center">

@@ -9,8 +9,9 @@ export const deviceSchema = z.object({
 })
 export const loginSchema = z.object({ username: z.string().trim().min(3).max(64), password: z.string().min(8).max(256), device: deviceSchema })
 export const registerSchema = z.object({
-  // 当前以邮箱作为普通用户账号；暂不启用邮箱验证码，提交即注册。
-  username: z.string().trim().email().max(64),
+  // 用户名是登录凭据；邮箱单独保存，当前不验证，后续可平滑开启验证。
+  username: z.string().trim().min(3).max(32).refine(value=>!/[\s@]/u.test(value),'用户名不能包含空格或 @'),
+  email: z.string().trim().email().max(254),
   password: z.string().min(8).max(256),
   device: deviceSchema,
 })
