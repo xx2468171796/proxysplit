@@ -270,7 +270,13 @@
   let bootstrapLoaded = false
   let useDemo = false
 
-  const isWailsReady = () => typeof window !== 'undefined' && !!(window as any).go?.main?.App
+  // Obfuscated Wails releases intentionally replace window.go.main.App with a
+  // generated numeric dispatcher. Its global name/runtime shape is not a
+  // stable public contract, so probing either namespace can incorrectly report
+  // "not ready" even though every generated binding is callable. Calls made
+  // before bridge attachment already reject and are handled by safe()/the
+  // surrounding try/catch, therefore only guard SSR here.
+  const isWailsReady = () => typeof window !== 'undefined'
   async function safe<T>(call: () => Promise<T>, fallback: T): Promise<T> {
     if (!isWailsReady()) { if (!bootstrapLoaded) useDemo = true; return fallback }
     // A transient backend error must NOT flip the whole app into demo mode.

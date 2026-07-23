@@ -2,6 +2,7 @@
 - 2026-07-23：账号连续输错密码 5 次后锁定 5 分钟；后续每累计 5 次错误依次增加 5 分钟。管理员可从后台重置任意用户密码，重置后旧会话立即失效；管理员生产密码已按需求轮换，明文不入库、不入仓。
 - 2026-07-23：上述账号安全功能已部署至深圳生产环境 `/opt/proxysplit/releases/20260723-174000-f9eb1e0`；`/health` 与 `/admin/` 已验证正常。生产数据库迁移 `0004_login_lockout.sql` 已应用。
 - 2026-07-23：客户端“刷新套餐”空白根因已确认：生产 TLS 证书更新后，旧客户端（含 v1.9.6）内置的 SPKI 固定值失配，商业 API 请求被 TLS 拒绝；服务端目录 `/v1/catalog/plans` 本身正常返回 7 个已启用套餐。已构建并发布 `output/proxysplit-v1.9.7.exe`（SHA256 `6195c22cabaaa9f2dd0c97e0aa90201b469f5120ace28fe848b7b5ab1ca288f2`），更新为当前证书固定值并上传至 `/download/proxysplit-v1.9.7.exe`。该版本须手工替换旧版；旧发布签名私钥未在当前受控环境中，不能伪造自动更新签名。
+- 2026-07-23：进一步确认商业混淆构建会把 `window.go.main.App` 替换成数字 `ObfuscatedCall`，旧前端的桥接探测因此让刷新套餐、刷新授权、退出账号等操作直接静默返回。已改为直接调用生成绑定并由既有异常处理兜底；v1.9.10 使用 Go TLS 实测得到的生产 SPKI `ba4e822c...cd795` 构建。生产日志已复现客户端主动请求 `/v1/catalog/plans`、`/v1/announcements` 且均为 HTTP 200。产物 `output/proxysplit-v1.9.10.exe`，SHA256 `63e32c08a61c5e38db5583962657107d3b5b0072a7e3fb2da36910ce8e6e933e`，已上传 `/download/proxysplit-v1.9.10.exe`。
 - 当前正式桌面版本：`v1.9.6`，产物为 `output/proxysplit-v1.9.6.exe`，SHA256 `fc3e93747ef298ed1d597d94c7295824c6b9f71a9801c5d2e351f75aaea971d3`；已登记生产最新版本。v1.9.5 修复停止竞态、清理 `example.*` 假节点、配置导入/导出事务化和会员中心；v1.9.6 禁止字母/伪造应用图标，只显示从真实 EXE 提取的 Windows Shell 原始图标。
 - 2026-07-23 曾因发布目录从 `git archive` 提取而不含被忽略的 `server/apps/admin/dist`，导致 `/admin/` 返回 404；已重新构建并同步 dist，后台和 API 均正常。后续切换 `/opt/proxysplit/current` 前必须同步构建后的 `apps/admin/dist`。
 - 管理后台“用户与会员”已支持点击“详情”查看完整用户档案：账号状态、注册/试用信息、授权历史、设备绑定与活跃会话、订单及近期审计操作；接口刻意不返回密码、令牌、硬件原始序列号或指纹哈希。生产 API 已验证。
