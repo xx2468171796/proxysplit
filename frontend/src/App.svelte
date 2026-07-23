@@ -586,8 +586,9 @@
     if (paymentPoll) { clearInterval(paymentPoll); paymentPoll = null }
     if (paymentPollVis && typeof document !== 'undefined') { document.removeEventListener('visibilitychange', paymentPollVis); paymentPollVis = null }
   }
-  // 关闭会员中心即停止轮询，避免付款窗口关掉后后台空转。
-  $: if (!showMembership && paymentPoll) stopPaymentPolling()
+  // 已有有效权益时，关闭会员弹窗才停止轮询。无有效权益用户使用的是整页购买
+  // 界面（showMembership=false），不能因此误停付款查单。
+  $: if (license.authenticated && !showMembership && paymentPoll) stopPaymentPolling()
   async function refreshPayment() {
     commerceBusy = true; commerceError = ''
     await loadCommerce()

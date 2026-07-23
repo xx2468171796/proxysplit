@@ -370,6 +370,9 @@ export class PgStore {
     const settings=await this.getCommerceSettings()
     const provider=await this.getProvider(settings.activePaymentProvider)
     if(!provider||!provider.enabled)throw new Error('PAYMENT_UNAVAILABLE')
+    const configuredTimeout=Number(provider.config.orderTimeoutMinutes)
+    const timeoutMinutes=Number.isFinite(configuredTimeout)?Math.min(60,Math.max(5,Math.floor(configuredTimeout))):10
+    const expiresAt=new Date(Date.now()+timeoutMinutes*60_000)
     const plan=(await this.pool.query(`SELECT id,name,tier,billing_cycle,duration_days,lifetime,price_cents,currency,purchase_limit_per_user
       FROM plans WHERE id=$1 AND active=true AND public=true AND (sale_starts_at IS NULL OR sale_starts_at<=now()) AND (sale_ends_at IS NULL OR sale_ends_at>now())`,[planId])).rows[0]
     if(!plan)throw new Error('PLAN_NOT_AVAILABLE')
@@ -378,12 +381,12 @@ export class PgStore {
       if(count.rows[0].n>=plan.purchase_limit_per_user)throw new Error('PURCHASE_LIMIT')
     }
     const no=orderNo()
-    const r=await this.pool.query(`INSERT INTO orders(order_no,user_id,plan_id,plan_name,tier,billing_cycle,duration_days,lifetime,amount_cents,currency,provider_code)
-      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+    const r=await this.pool.query(`INSERT INTO orders(order_no,user_id,plan_id,plan_name,tier,billing_cycle,duration_days,lifetime,amount_cents,currency,provider_code,expires_at)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
       RETURNING id,order_no AS "orderNo",user_id AS "userId",plan_id AS "planId",plan_name AS "planName",tier,billing_cycle AS "billingCycle",
       duration_days AS "durationDays",lifetime,amount_cents AS "amountCents",currency,status,provider_code AS "providerCode",
       provider_order_no AS "providerOrderNo",pay_url AS "payUrl",paid_at AS "paidAt",expires_at AS "expiresAt",created_at AS "createdAt"`,
-      [no,userId,plan.id,plan.name,plan.tier,plan.billing_cycle,plan.duration_days,plan.lifetime,plan.price_cents,plan.currency,provider.code])
+      [no,userId,plan.id,plan.name,plan.tier,plan.billing_cycle,plan.duration_days,plan.lifetime,plan.price_cents,plan.currency,provider.code,expiresAt])
     return r.rows[0]
   }
   async setOrderPayment(orderNoValue:string,providerOrderNo:string,payUrl:string){
@@ -412,6 +415,13 @@ export class PgStore {
       FROM orders WHERE user_id=$1 ORDER BY created_at DESC LIMIT 100`,[userId])
     return r.rows
   }
+  async listPendingPaymentOrders(limit=20){
+    const safeLimit=Math.min(100,Math.max(1,Math.floor(limit)))
+    const r=await this.pool.query(`SELECT order_no AS "orderNo" FROM orders
+      WHERE status='pending' AND created_at>now()-interval '24 hours'
+      ORDER BY updated_at ASC LIMIT $1`,[safeLimit])
+    return r.rows as Array<{orderNo:string}>
+  }
   async listOrders(){
     const r=await this.pool.query(`SELECT o.id,o.order_no AS "orderNo",u.username,o.plan_name AS "planName",o.tier,
       o.amount_cents AS "amountCents",o.currency,o.status,o.provider_code AS "providerCode",o.provider_order_no AS "providerOrderNo",
@@ -436,7 +446,10 @@ export class PgStore {
         await client.query('COMMIT')
         return {ok:true,duplicate:true}
       }
-      if(order.status!=='pending')throw new Error('ORDER_NOT_PAYABLE')
+      // A gateway may accept payment while our create/query response is lost and
+      // the local order is marked failed. A cryptographically verified PAID
+      // callback/query must still grant what the customer paid for.
+      if(order.status!=='pending'&&order.status!=='failed')throw new Error('ORDER_NOT_PAYABLE')
       if(order.provider_order_no&&order.provider_order_no!==input.providerOrderNo)throw new Error('PROVIDER_ORDER_MISMATCH')
       const existing=(await client.query(`SELECT l.id,l.expires_at,l.lifetime FROM licenses l JOIN plans p ON p.id=l.plan_id
         WHERE l.user_id=$1 AND l.status='active' AND p.tier=$2 ORDER BY l.lifetime DESC,l.expires_at DESC LIMIT 1 FOR UPDATE`,

@@ -29,6 +29,21 @@ describe('zhongzhuan payment adapter',()=>{
     expect(signature).toBe(sign(params))
     expect(result.payUrl).toBe('https://cashier.invalid/q/1')
     expect(store.setOrderPayment).toHaveBeenCalledWith(order.orderNo,'gateway-1','https://cashier.invalid/q/1')
+    expect(store.failOrder).not.toHaveBeenCalled()
+  })
+
+  it('keeps an ambiguously failed gateway create pending for later reconciliation',async()=>{
+    process.env.PAYMENT_TEST_APP_ID='app-test'
+    process.env.PAYMENT_TEST_APP_SECRET='test-secret'
+    vi.stubGlobal('fetch',vi.fn(async()=>{throw new Error('connection reset')}))
+    const store={
+      createOrder:async()=>order,getProvider:async()=>provider,
+      setOrderPayment:vi.fn(),failOrder:vi.fn(),
+    }
+    const service=new PaymentService(store as unknown as PgStore,'https://proxysplit.invalid')
+    await expect(service.createOrder('user-id','plan-id','alice')).rejects.toMatchObject({code:'PAYMENT_CREATE_FAILED'})
+    expect(store.setOrderPayment).not.toHaveBeenCalled()
+    expect(store.failOrder).not.toHaveBeenCalled()
   })
 
   it('verifies callback timestamp/signature/amount before idempotent fulfillment',async()=>{
@@ -62,8 +77,10 @@ describe('zhongzhuan payment adapter',()=>{
       getProvider:async()=>provider,fulfillPaidOrder:fulfill,
     }
     const service=new PaymentService(store as unknown as PgStore,'https://proxysplit.invalid')
-    const result=await service.syncOrder(order.orderNo)
+    const [result,duplicatePoll]=await Promise.all([service.syncOrder(order.orderNo),service.syncOrder(order.orderNo)])
     expect(result).toMatchObject({status:'paid',changed:true})
+    expect(duplicatePoll).toEqual(result)
+    expect(fetch).toHaveBeenCalledTimes(1)
     const {sign:signature,...params}=queryBody
     expect(signature).toBe(sign(params))
     expect(fulfill).toHaveBeenCalledWith(expect.objectContaining({orderNo:order.orderNo,amountCents:29900,eventId:'event-9',providerOrderNo:'gateway-1'}))
@@ -81,5 +98,19 @@ describe('zhongzhuan payment adapter',()=>{
     const service=new PaymentService(store as unknown as PgStore,'https://proxysplit.invalid')
     await expect(service.syncOrder(order.orderNo)).rejects.toMatchObject({code:'PAYMENT_AMOUNT_MISMATCH'})
     expect(fulfill).not.toHaveBeenCalled()
+  })
+
+  it('closes an expired gateway order and stops treating it as payable',async()=>{
+    process.env.PAYMENT_TEST_APP_ID='app-test'
+    process.env.PAYMENT_TEST_APP_SECRET='test-secret'
+    vi.stubGlobal('fetch',vi.fn(async()=>new Response(JSON.stringify({code:0,data:{status:'EXPIRED',amount:299,out_trade_no:'gateway-1'}}),{status:200,headers:{'content-type':'application/json'}})))
+    const failOrder=vi.fn()
+    const store={
+      getOrderForCallback:async()=>({orderNo:order.orderNo,providerCode:provider.code,providerOrderNo:'gateway-1',amountCents:29900,status:'pending'}),
+      getProvider:async()=>provider,failOrder,
+    }
+    const service=new PaymentService(store as unknown as PgStore,'https://proxysplit.invalid')
+    await expect(service.syncOrder(order.orderNo)).resolves.toMatchObject({status:'expired',changed:true})
+    expect(failOrder).toHaveBeenCalledWith(order.orderNo)
   })
 })

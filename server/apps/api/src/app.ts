@@ -29,6 +29,30 @@ export async function buildApp(config:ApiConfig,provided?:Core){
   app.post('/v1/auth/logout',async(req)=>core.auth.logout(refreshSchema.parse(req.body),req.ip))
   app.post('/v1/license/lease',async(req)=>{const p=await auth(req);const input=leaseSchema.parse(req.body);return core.auth.lease(p.userId,p.deviceId,input.deviceFingerprint,input.appVersion)})
   const payments=new PaymentService(core.store,config.PUBLIC_BASE_URL.replace(/\/$/,''))
+  let paymentReconcileRunning=false
+  const reconcilePayments=async()=>{
+    if(paymentReconcileRunning)return
+    paymentReconcileRunning=true
+    try{
+      const pending=await core.store.listPendingPaymentOrders(20)
+      await Promise.all(pending.map(async({orderNo})=>{
+        try{
+          const result=await payments.syncOrder(orderNo)
+          if(result.changed)app.log.info({orderNo,status:result.status},'payment reconciliation updated order')
+        }catch(error){
+          app.log.warn({orderNo,err:error instanceof Error?error.message:'sync failed'},'payment reconciliation failed')
+        }
+      }))
+    }catch(error){
+      app.log.warn({err:error instanceof Error?error.message:'reconciliation failed'},'payment reconciliation batch failed')
+    }finally{paymentReconcileRunning=false}
+  }
+  let paymentReconcileTimer:ReturnType<typeof setInterval>|undefined
+  if(config.NODE_ENV!=='test'){
+    paymentReconcileTimer=setInterval(()=>void reconcilePayments(),15_000)
+    paymentReconcileTimer.unref()
+    setTimeout(()=>void reconcilePayments(),1_000).unref()
+  }
   app.get('/v1/releases/latest',async()=>({release:await core.store.latestRelease()}))
   app.get('/v1/releases',async()=>({items:await core.store.listReleases()}))
   app.get('/v1/catalog/plans',async()=>({items:await core.store.listPlans(true),paymentMethods:(await core.store.getCommerceSettings()).paymentMethods}))
@@ -36,14 +60,23 @@ export async function buildApp(config:ApiConfig,provided?:Core){
   app.get('/v1/me',async(req)=>{const p=await auth(req);const user=await core.store.findUserById(p.userId);return {user:user&&{id:user.id,username:user.username,status:user.status},membership:await core.store.entitlement(p.userId),devices:await core.store.listUserDevices(p.userId)}})
   app.get('/v1/me/devices',async(req)=>{const p=await auth(req);return {items:await core.store.listUserDevices(p.userId)}})
   app.delete('/v1/me/devices/:id',async(req)=>{const p=await auth(req);const id=(req.params as {id:string}).id;const row=await core.store.unbindDevice(id,p.userId);if(!row)throw new AppError('NOT_FOUND','设备不存在',404);await core.store.audit(p.userId,'user.device.unbind','device',id,req.ip,'success');return {ok:true}})
-  app.get('/v1/me/orders',async(req)=>{const p=await auth(req);const items=await core.store.listUserOrders(p.userId);
-    // 读时对账：对仍待支付且未过期的订单主动向网关查单，弥补异步回调不可达的情况（best-effort，不阻断列表）。
+  app.get('/v1/me/orders',{config:{rateLimit:{max:30,timeWindow:'1 minute'}}},async(req)=>{const p=await auth(req);const items=await core.store.listUserOrders(p.userId);
+    // 读时对账：支付窗口内的待支付订单主动向网关查单，弥补异步回调不可达的情况（best-effort，不阻断列表）。
     const now=Date.now();
-    const pending=items.filter(o=>o.status==='pending'&&(!o.expiresAt||new Date(o.expiresAt).getTime()>now)).slice(0,5);
+    const pending=items.filter(o=>o.status==='pending'&&(!o.createdAt||now-new Date(o.createdAt).getTime()<86_400_000)).slice(0,5);
     if(!pending.length)return {items};
     await Promise.all(pending.map(o=>payments.syncOrder(o.orderNo).catch(err=>app.log.warn({err:err instanceof Error?err.message:'sync failed',orderNo:o.orderNo},'order sync failed'))));
     return {items:await core.store.listUserOrders(p.userId)}})
-  app.get('/v1/me/orders/:orderNo',async(req)=>{const p=await auth(req);const row=await core.store.getOrderForUser((req.params as {orderNo:string}).orderNo,p.userId);if(!row)throw new AppError('NOT_FOUND','订单不存在',404);return row})
+  app.get('/v1/me/orders/:orderNo',{config:{rateLimit:{max:30,timeWindow:'1 minute'}}},async(req)=>{
+    const p=await auth(req),orderNo=(req.params as {orderNo:string}).orderNo
+    let row=await core.store.getOrderForUser(orderNo,p.userId)
+    if(!row)throw new AppError('NOT_FOUND','订单不存在',404)
+    if(row.status==='pending'){
+      await payments.syncOrder(orderNo).catch(err=>app.log.warn({err:err instanceof Error?err.message:'sync failed',orderNo},'order sync failed'))
+      row=await core.store.getOrderForUser(orderNo,p.userId)
+    }
+    return row
+  })
   app.post('/v1/orders',{config:{rateLimit:{max:10,timeWindow:'1 minute'}}},async(req)=>{const p=await auth(req);const input=orderCreateSchema.parse(req.body);const user=await core.store.findUserById(p.userId);if(!user)throw new AppError('NOT_FOUND','用户不存在',404);try{return await payments.createOrder(p.userId,input.planId,user.username)}catch(error){const message=(error as Error).message;if(message==='PAYMENT_UNAVAILABLE')throw new AppError('PAYMENT_UNAVAILABLE','支付通道暂不可用',503);if(message==='PLAN_NOT_AVAILABLE')throw new AppError('PLAN_NOT_AVAILABLE','套餐已下架或不在活动时间内',404);if(message==='PURCHASE_LIMIT')throw new AppError('PURCHASE_LIMIT','已达到该活动套餐的购买次数上限',409);throw error}})
   app.post('/v1/payments/zhongzhuan/notify',{config:{rateLimit:{max:120,timeWindow:'1 minute'}}},async(req,reply)=>{
     try{await payments.handleZhongzhuanCallback(req.body);return {code:0,message:'success'}}
@@ -75,6 +108,6 @@ export async function buildApp(config:ApiConfig,provided?:Core){
   app.get('/v1/admin/releases',async(req)=>{await admin(req);return {items:await core.store.listReleases()}})
   app.post('/v1/admin/releases',async(req)=>{const p=await admin(req);const input=releaseCreateSchema.parse(req.body);const row=await core.store.createRelease(input);await core.store.audit(p.userId,'admin.release.create','release',row.id,req.ip,'success',{version:input.version});return row})
   app.get('/v1/admin/audit',async(req)=>{await admin(req);return {items:await core.store.listAudit()}})
-  app.addHook('onClose',async()=>{if(redis)redis.disconnect();if(!provided)await core.close()})
+  app.addHook('onClose',async()=>{if(paymentReconcileTimer)clearInterval(paymentReconcileTimer);if(redis)redis.disconnect();if(!provided)await core.close()})
   return app
 }

@@ -8,6 +8,7 @@ type ZhongzhuanCallback={
   status?:string;timestamp?:number|string;sign?:string;sn?:string;trade_no?:string;
   payway?:string;payer_info?:string;paid_at?:string
 }
+type SyncOrderResult={ok:boolean;status:string;changed:boolean;duplicate?:boolean}
 
 const signedParams=(params:Record<string,unknown>)=>Object.keys(params).sort()
   .map(key=>`${key}=${String(params[key] as Scalar)}`).join('&')
@@ -24,6 +25,7 @@ const credential=(provider:PaymentProviderRecord,name:'APP_ID'|'APP_SECRET')=>{
 }
 
 export class PaymentService{
+  private syncCache=new Map<string,{at:number;promise:Promise<SyncOrderResult>}>()
   constructor(private store:PgStore,private publicBaseUrl:string){}
 
   async createOrder(userId:string,planId:string,username:string){
@@ -53,7 +55,9 @@ export class PaymentService{
       await this.store.setOrderPayment(order.orderNo,providerOrderNo,data.data.qr_code)
       return {...order,providerOrderNo,payUrl:data.data.qr_code}
     }catch(error){
-      await this.store.failOrder(order.orderNo)
+      // A timeout/connection reset is ambiguous: the gateway may already have
+      // accepted the order. Keep it pending so callback/reconciliation can
+      // still honor a later confirmed payment.
       throw new AppError('PAYMENT_CREATE_FAILED',`支付下单失败：${error instanceof Error?error.message:'网关通讯异常'}`,502)
     }finally{clearTimeout(timer)}
   }
@@ -88,7 +92,18 @@ export class PaymentService{
   // 主动查单兜底：异步回调（notify_url）可能因回调地址不可达/网关未转发而永远收不到，
   // 前端点“刷新到账”时由服务端带凭据向网关查一次订单，命中已支付即幂等落地，
   // 与 handleZhongzhuanCallback 复用同一 fulfillPaidOrder（payment_events 去重，双写安全）。
-  async syncOrder(orderNo:string){
+  syncOrder(orderNo:string):Promise<SyncOrderResult>{
+    const now=Date.now(),cached=this.syncCache.get(orderNo)
+    if(cached&&now-cached.at<5_000)return cached.promise
+    for(const [key,value] of this.syncCache){
+      if(now-value.at>=60_000)this.syncCache.delete(key)
+    }
+    const promise=this.syncOrderUncached(orderNo)
+    this.syncCache.set(orderNo,{at:now,promise})
+    return promise
+  }
+
+  private async syncOrderUncached(orderNo:string):Promise<SyncOrderResult>{
     const order=await this.store.getOrderForCallback(orderNo)
     if(!order||order.status!=='pending')return {ok:true,status:order?.status??'unknown',changed:false}
     const provider=await this.store.getProvider(order.providerCode)
@@ -97,7 +112,7 @@ export class PaymentService{
     const timestamp=Math.floor(Date.now()/1000)
     // 查单只签 app_id/timestamp/app_order_no（与统一收款 5ff 网关客户端一致，多签参数会验签失败）。
     const params:Record<string,Scalar>={app_id:appId,timestamp,app_order_no:orderNo}
-    const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),15_000)
+    const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),8_000)
     try{
       const response=await fetch(`${provider.endpoint.replace(/\/$/,'')}/api/v1/pay/query`,{
         method:'POST',headers:{'content-type':'application/json'},
@@ -120,7 +135,7 @@ export class PaymentService{
         providerCode:provider.code,eventId,orderNo,amountCents,providerOrderNo,
         payloadHash:createHash('sha256').update(JSON.stringify(data.data)).digest('hex'),
       })
-      return {...result,status:'paid',changed:true}
+      return {...result,status:'paid',changed:!result.duplicate}
     }finally{clearTimeout(timer)}
   }
 }
