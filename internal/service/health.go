@@ -28,16 +28,11 @@ type Health struct {
 // Health returns the current engine capture state + cached per-line reachability.
 func (s *Service) Health() Health {
 	s.mu.Lock()
-	eng := s.eng
 	running := s.core.Running()
 	s.mu.Unlock()
 
 	h := Health{Running: running}
-	if eng != nil {
-		h.CapturedPkts = eng.Captured()
-		h.Capturing = h.CapturedPkts > 0
-		h.Warning = eng.CaptureWarn()
-	} else if running {
+	if running {
 		// sing-box TUN captures at the virtual adapter in both 应用分流
 		// (process_name routing) and 整机全局 modes.
 		h.Capturing = true

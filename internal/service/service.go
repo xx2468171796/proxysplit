@@ -90,16 +90,28 @@ type Config struct {
 	Apps []string `json:"apps,omitempty"` // legacy; migrated to Rules on load
 }
 
+// Stats is a counter snapshot surfaced to the UI. The legacy WinDivert capture
+// engine that populated it was removed with the move to sing-box-native routing,
+// so these currently report zero; the fields are kept for the UI contract.
+type Stats struct {
+	Running     bool  `json:"running"`
+	ActiveConns int64 `json:"activeConns"`
+	TotalConns  int64 `json:"totalConns"`
+	Tracked     int   `json:"tracked"`
+	UpBytes     int64 `json:"upBytes"`
+	DownBytes   int64 `json:"downBytes"`
+}
+
 // Status is a snapshot for the UI.
 type Status struct {
-	CoreRunning   bool         `json:"coreRunning"`
-	EngineRunning bool         `json:"engineRunning"`
-	CorePort      int          `json:"corePort"`
-	NodeName      string       `json:"nodeName"`
-	SelectedID    string       `json:"selectedId"`
-	RuleMode      string       `json:"ruleMode"`
-	UptimeSec     int64        `json:"uptimeSec"`
-	Stats         engine.Stats `json:"stats"`
+	CoreRunning   bool   `json:"coreRunning"`
+	EngineRunning bool   `json:"engineRunning"`
+	CorePort      int    `json:"corePort"`
+	NodeName      string `json:"nodeName"`
+	SelectedID    string `json:"selectedId"`
+	RuleMode      string `json:"ruleMode"`
+	UptimeSec     int64  `json:"uptimeSec"`
+	Stats         Stats  `json:"stats"`
 }
 
 // Service ties the pieces together.
@@ -115,7 +127,6 @@ type Service struct {
 	lifecycleMu  sync.Mutex
 	cfg          Config
 	core         *core.Manager
-	eng          *engine.Engine
 	onLog        func(string)
 	startedAt    time.Time
 	activeFP     map[string]string // running line id -> content fingerprint (change detection)
@@ -723,51 +734,20 @@ func (s *Service) SetDefaultLine(id string) string {
 	return ""
 }
 
-// applyLive re-applies rule changes to a running engine. If the set of active
-// node-lines is unchanged, only the matcher is updated (no dropped connections);
-// otherwise the core+engine are restarted to create the new inbounds.
+// applyLive re-applies a rule/line change to the running core. In the
+// sing-box-native model (TUN / 应用分流) the app rules live in the core config,
+// so a change is applied by regenerating + reloading the config (restart while
+// running).
 func (s *Service) applyLive() {
 	s.mu.Lock()
-	eng := s.eng
-	if eng == nil {
-		// sing-box-native mode (TUN / 应用分流): the app rules live in the core
-		// config, so a rule change is applied by regenerating + reloading it.
-		running := s.core.Running()
-		s.mu.Unlock()
-		if running {
-			s.Stop()
-			if err := s.Start(); err != nil {
-				s.log("[service] reload after rule change failed: " + err.Error())
-			}
-		}
-		return
-	}
-	selected := s.selectedNode()
-	plan, err := s.buildRoutingPlan(selected)
-	if err != nil {
-		s.mu.Unlock()
-		return
-	}
-	// Restart when the active-line topology OR any active line's resolved content
-	// (node / mode / rules) changed; otherwise just re-apply the matcher.
-	changed := len(plan.fingerprints) != len(s.activeFP)
-	for k, fp := range plan.fingerprints {
-		if s.activeFP[k] != fp {
-			changed = true
-		}
-	}
-	mode := s.cfg.RuleMode
+	running := s.core.Running()
 	s.mu.Unlock()
-
-	if changed {
-		// Line topology changed -> restart to (re)create inbounds.
+	if running {
 		s.Stop()
 		if err := s.Start(); err != nil {
-			s.log("[service] restart after rule change failed: " + err.Error())
+			s.log("[service] reload after rule change failed: " + err.Error())
 		}
-		return
 	}
-	eng.Matcher().SetRules(plan.engineRules, mode, plan.defaultTarget)
 }
 
 // Apps / SetApps are legacy string wrappers (proxy = a global-line rule).
@@ -977,11 +957,7 @@ func (s *Service) SetSettings(st Settings) {
 	old := s.cfg.Settings
 	s.cfg.Settings = st
 	s.save()
-	eng := s.eng
 	s.mu.Unlock()
-	if eng != nil {
-		eng.Matcher().SetPrivateDirect(st.PrivateDirect)
-	}
 	// Switching capture mode (TUN <-> app-split), QUIC policy, LAN sharing or
 	// remote DNS changes the core filter/config, so restart if running.
 	if s.core.Running() && (old.TunMode != st.TunMode || old.BlockQUIC != st.BlockQUIC ||
@@ -1092,7 +1068,6 @@ func (s *Service) Start() error {
 			return fmt.Errorf("core(TUN): %w", err)
 		}
 		s.mu.Lock()
-		s.eng = nil
 		s.startedAt = time.Now()
 		s.activeFP = nil
 		s.mu.Unlock()
@@ -1219,7 +1194,6 @@ func (s *Service) Start() error {
 	}
 
 	s.mu.Lock()
-	s.eng = nil // legacy engine remains nil in the sing-box-native split model
 	s.startedAt = time.Now()
 	s.activeFP = nil
 	s.mu.Unlock()
@@ -1236,15 +1210,10 @@ func (s *Service) Stop() {
 	defer s.lifecycleMu.Unlock()
 
 	s.mu.Lock()
-	eng := s.eng
-	s.eng = nil
 	s.startedAt = time.Time{}
 	s.activeFP = nil
 	clearSysProxy := s.sysProxyOn
 	s.mu.Unlock()
-	if eng != nil {
-		eng.Stop()
-	}
 	s.core.Stop()
 	// Never leave the OS pointing at a now-dead proxy (would black-hole all HTTP).
 	// Done synchronously here (the async onCoreExit is a crash-only safety net).
@@ -1262,7 +1231,6 @@ func (s *Service) Stop() {
 func (s *Service) Status() Status {
 	s.mu.Lock()
 	node := s.selectedNode()
-	eng := s.eng
 	sel := s.cfg.SelectedID
 	mode := s.cfg.RuleMode
 	started := s.startedAt
@@ -1273,13 +1241,10 @@ func (s *Service) Status() Status {
 		CorePort:      s.core.Port(),
 		SelectedID:    sel,
 		RuleMode:      mode,
-		EngineRunning: eng != nil && eng.Running(),
+		EngineRunning: false,
 	}
 	if node != nil {
 		st.NodeName = node.Name
-	}
-	if eng != nil {
-		st.Stats = eng.Stats()
 	}
 	if !started.IsZero() {
 		st.UptimeSec = int64(time.Since(started).Seconds())
