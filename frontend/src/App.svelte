@@ -392,7 +392,6 @@
     const m = r.match || r.path || '?'
     return /[\\/]/.test(m) ? (m.split(/[\\/]/).pop() || m) : m
   }
-  function firstChar(s: string): string { return s && s.length ? s[0] : '?' }
   function ruleIcon(r: AppRule): string {
     const path = ruleIconPath(r)
     if (path && iconMap[path]) return iconMap[path]
@@ -1421,7 +1420,7 @@
                     {#if ruleIcon(r)}
                       <span class="entity-icon real-app-icon"><img src={ruleIcon(r)} alt="" /></span>
                     {:else}
-                      <span class="entity-icon app">{firstChar(ruleName(r)).toUpperCase()}</span>
+                      <span class="entity-icon app-icon-placeholder" title="未能读取该程序的原始图标"></span>
                     {/if}
                     <div class="entity-text"><b>{ruleName(r)}</b><small title={r.path}>{r.path}</small></div>
                   </div></td><td><span class="tag">{r.line === 'direct' ? '直连' : r.line === 'block' ? '拦截' : r.line === 'global' ? '全局' : '规则'}</span></td><td>{r.node ? nodeName(r.node) : '活动节点'}</td><td><span class="status-pill" class:gray={!r.enabled}>{r.enabled ? '已启用' : '已停用'}</span></td></tr>
@@ -1522,7 +1521,7 @@
                           {#if iconMap[p.path]}
                             <img class="app-icon-img" src={iconMap[p.path]} alt="" />
                           {:else}
-                            <div class="app-icon" data-k={firstChar(p.desc || p.name)}>{firstChar(p.desc || p.name).toUpperCase()}</div>
+                            <span class="app-icon-placeholder" title="未能读取该程序的原始图标"></span>
                           {/if}
                           <div class="proc-info"><strong>{p.desc || p.name}</strong><small>{p.path || p.name}</small></div>
                         </div>
@@ -1553,7 +1552,7 @@
                         {#if ruleIcon(r)}
                           <img class="app-icon-img" src={ruleIcon(r)} alt="" />
                         {:else}
-                          <div class="app-icon" data-k={firstChar(ruleName(r))}>{firstChar(ruleName(r)).toUpperCase()}</div>
+                          <span class="app-icon-placeholder" title="未能读取该程序的原始图标"></span>
                         {/if}
                         <div class="app-meta"><strong>{ruleName(r)} <span class="run-dot" class:on={isRunning(r)} title={isRunning(r) ? '正在运行' : '未运行'}></span></strong><small class="path" title={r.path}>{r.path}</small></div>
                       </div>
@@ -2324,9 +2323,7 @@
   .rrow.off { opacity: .55; }
   .app-cell { display: flex; align-items: center; gap: 10px; min-width: 0; }
   .app-meta { min-width: 0; display: flex; flex-direction: column; gap: 1px; }
-  .app-icon { width: 32px; height: 32px; flex: none; border-radius: 9px; display: grid; place-items: center; font-size: 13px; font-weight: 800; color: #fff; background: #64748b; }
-  .app-icon[data-k="C"] { background: var(--brand); } .app-icon[data-k="c"] { background: var(--ok); }
-  .app-icon[data-k="T"] { background: #38bdf8; } .app-icon[data-k="m"] { background: #14b8a6; } .app-icon[data-k="S"] { background: #1e293b; }
+  .app-icon-placeholder { width: 34px; height: 34px; flex: none; border-radius: 9px; background: var(--soft); border: 1px solid var(--line-2); }
   .app-icon-img { width: 34px; height: 34px; flex: none; padding: 2px; border-radius: 9px; object-fit: contain; background: #fff; border: 1px solid var(--line-2); }
   .app-cell strong { font-size: 14px; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .path { font-size: 11.5px; color: var(--muted-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
