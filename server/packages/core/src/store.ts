@@ -228,6 +228,30 @@ export class PgStore {
       ) l ON true LEFT JOIN plans p ON p.id=l.plan_id ORDER BY u.created_at DESC LIMIT 500`)
     return r.rows
   }
+  // 管理后台专用聚合视图：只返回运营必要信息，绝不返回密码、令牌、原始硬件序列号或指纹哈希。
+  async getUserDetail(userId:string){
+    const [user,licenses,devices,orders,activity,stats]=await Promise.all([
+      this.pool.query(`SELECT id,username,role,status,note,created_at AS "createdAt",updated_at AS "updatedAt",
+        trial_started_at AS "trialStartedAt",trial_ends_at AS "trialEndsAt" FROM users WHERE id=$1`,[userId]),
+      this.pool.query(`SELECT l.id,l.status,l.starts_at AS "startsAt",l.expires_at AS "expiresAt",l.created_at AS "createdAt",
+        l.source,l.lifetime,p.code AS "planCode",p.name AS "planName",p.tier,p.max_devices AS "maxDevices",p.features
+        FROM licenses l JOIN plans p ON p.id=l.plan_id WHERE l.user_id=$1 ORDER BY l.expires_at DESC LIMIT 100`,[userId]),
+      this.pool.query(`SELECT d.id,d.name,d.platform,d.app_version AS "appVersion",d.revoked,d.first_seen_at AS "firstSeenAt",d.last_seen_at AS "lastSeenAt",
+        (SELECT count(*)::int FROM sessions s WHERE s.device_id=d.id AND s.revoked_at IS NULL AND s.expires_at>now()) AS "activeSessions"
+        FROM devices d WHERE d.user_id=$1 ORDER BY d.last_seen_at DESC LIMIT 100`,[userId]),
+      this.pool.query(`SELECT order_no AS "orderNo",plan_name AS "planName",tier,billing_cycle AS "billingCycle",duration_days AS "durationDays",
+        lifetime,amount_cents AS "amountCents",currency,status,provider_code AS "providerCode",provider_order_no AS "providerOrderNo",
+        paid_at AS "paidAt",expires_at AS "expiresAt",created_at AS "createdAt" FROM orders WHERE user_id=$1 ORDER BY created_at DESC LIMIT 100`,[userId]),
+      this.pool.query(`SELECT action,target_type AS "targetType",target_id AS "targetId",ip,result,metadata,created_at AS "createdAt"
+        FROM audit_logs WHERE actor_user_id=$1 OR (target_type='user' AND target_id=$1) ORDER BY created_at DESC LIMIT 100`,[userId]),
+      this.pool.query(`SELECT
+        (SELECT count(*)::int FROM devices WHERE user_id=$1 AND revoked=false) AS "activeDevices",
+        (SELECT count(*)::int FROM orders WHERE user_id=$1 AND status='paid') AS "paidOrders",
+        (SELECT coalesce(sum(amount_cents),0)::int FROM orders WHERE user_id=$1 AND status='paid') AS "paidAmountCents"`,[userId]),
+    ])
+    if(!user.rows[0])return null
+    return {user:user.rows[0],licenses:licenses.rows,devices:devices.rows,orders:orders.rows,activity:activity.rows,stats:stats.rows[0]}
+  }
   async createUserWithLicense(input:{username:string;passwordHash:string;role:string;planId?:string;days:number}){
     const c=await this.pool.connect()
     try{
