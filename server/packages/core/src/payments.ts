@@ -84,4 +84,43 @@ export class PaymentService{
       providerOrderNo,payloadHash:createHash('sha256').update(JSON.stringify(callback)).digest('hex'),
     })
   }
+
+  // 主动查单兜底：异步回调（notify_url）可能因回调地址不可达/网关未转发而永远收不到，
+  // 前端点“刷新到账”时由服务端带凭据向网关查一次订单，命中已支付即幂等落地，
+  // 与 handleZhongzhuanCallback 复用同一 fulfillPaidOrder（payment_events 去重，双写安全）。
+  async syncOrder(orderNo:string){
+    const order=await this.store.getOrderForCallback(orderNo)
+    if(!order||order.status!=='pending')return {ok:true,status:order?.status??'unknown',changed:false}
+    const provider=await this.store.getProvider(order.providerCode)
+    if(!provider||!provider.enabled||provider.adapter!=='zhongzhuan')return {ok:true,status:order.status,changed:false}
+    const appId=credential(provider,'APP_ID'),secret=credential(provider,'APP_SECRET')
+    const timestamp=Math.floor(Date.now()/1000)
+    // 查单只签 app_id/timestamp/app_order_no（与统一收款 5ff 网关客户端一致，多签参数会验签失败）。
+    const params:Record<string,Scalar>={app_id:appId,timestamp,app_order_no:orderNo}
+    const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),15_000)
+    try{
+      const response=await fetch(`${provider.endpoint.replace(/\/$/,'')}/api/v1/pay/query`,{
+        method:'POST',headers:{'content-type':'application/json'},
+        body:JSON.stringify({...params,sign:sign(params,secret)}),signal:controller.signal,
+      })
+      const data=await response.json() as {code?:number;message?:string;data?:{status?:string;amount?:number|string;out_trade_no?:string;trade_no?:string;paid_at?:string;sn?:string}}
+      if(!response.ok||data.code!==0||!data.data?.status)throw new AppError('PAYMENT_QUERY_FAILED',`查单失败：${data.message||`HTTP ${response.status}`}`,502)
+      const status=String(data.data.status).toUpperCase()
+      // 网关状态：PENDING | PAID | CANCELLED | EXPIRED。终态置 failed 让前端停止轮询。
+      if(status==='EXPIRED'||status==='CANCELLED'){await this.store.failOrder(orderNo);return {ok:true,status:status.toLowerCase(),changed:true}}
+      if(status!=='PAID')return {ok:true,status:'pending',changed:false}
+      const amountCents=Math.round(Number(data.data.amount)*100)
+      if(!Number.isSafeInteger(amountCents)||amountCents!==order.amountCents)throw new AppError('PAYMENT_AMOUNT_MISMATCH','支付金额不匹配',409)
+      const providerOrderNo=data.data.out_trade_no||data.data.trade_no||order.providerOrderNo||orderNo
+      if(order.providerOrderNo&&order.providerOrderNo!==providerOrderNo&&order.providerOrderNo!==orderNo){
+        throw new AppError('PAYMENT_ORDER_MISMATCH','支付平台订单号不匹配',409)
+      }
+      const eventId=data.data.sn||data.data.trade_no||data.data.out_trade_no||`${orderNo}:query`
+      const result=await this.store.fulfillPaidOrder({
+        providerCode:provider.code,eventId,orderNo,amountCents,providerOrderNo,
+        payloadHash:createHash('sha256').update(JSON.stringify(data.data)).digest('hex'),
+      })
+      return {...result,status:'paid',changed:true}
+    }finally{clearTimeout(timer)}
+  }
 }

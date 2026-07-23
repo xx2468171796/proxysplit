@@ -46,4 +46,40 @@ describe('zhongzhuan payment adapter',()=>{
     const stale={...data,timestamp:Math.floor(Date.now()/1000)-600}
     await expect(service.handleZhongzhuanCallback({...stale,sign:sign(stale)})).rejects.toMatchObject({code:'PAYMENT_CALLBACK_EXPIRED'})
   })
+
+  it('sync polls the gateway and idempotently fulfills a pending order',async()=>{
+    process.env.PAYMENT_TEST_APP_ID='app-test'
+    process.env.PAYMENT_TEST_APP_SECRET='test-secret'
+    let queryBody:Record<string,unknown>={}
+    vi.stubGlobal('fetch',vi.fn(async(url:string,init:RequestInit)=>{
+      expect(url).toContain('/api/v1/pay/query')
+      queryBody=JSON.parse(String(init.body))
+      return new Response(JSON.stringify({code:0,data:{status:'PAID',amount:299,out_trade_no:'gateway-1',trade_no:'trade-1',sn:'event-9'}}),{status:200,headers:{'content-type':'application/json'}})
+    }))
+    const fulfill=vi.fn(async()=>({ok:true,duplicate:false}))
+    const store={
+      getOrderForCallback:async()=>({orderNo:order.orderNo,providerCode:provider.code,providerOrderNo:'gateway-1',amountCents:29900,status:'pending'}),
+      getProvider:async()=>provider,fulfillPaidOrder:fulfill,
+    }
+    const service=new PaymentService(store as unknown as PgStore,'https://proxysplit.invalid')
+    const result=await service.syncOrder(order.orderNo)
+    expect(result).toMatchObject({status:'paid',changed:true})
+    const {sign:signature,...params}=queryBody
+    expect(signature).toBe(sign(params))
+    expect(fulfill).toHaveBeenCalledWith(expect.objectContaining({orderNo:order.orderNo,amountCents:29900,eventId:'event-9',providerOrderNo:'gateway-1'}))
+  })
+
+  it('sync rejects a paid result whose amount does not match the order',async()=>{
+    process.env.PAYMENT_TEST_APP_ID='app-test'
+    process.env.PAYMENT_TEST_APP_SECRET='test-secret'
+    vi.stubGlobal('fetch',vi.fn(async()=>new Response(JSON.stringify({code:0,data:{status:'PAID',amount:1,out_trade_no:'gateway-1'}}),{status:200,headers:{'content-type':'application/json'}})))
+    const fulfill=vi.fn()
+    const store={
+      getOrderForCallback:async()=>({orderNo:order.orderNo,providerCode:provider.code,providerOrderNo:'gateway-1',amountCents:29900,status:'pending'}),
+      getProvider:async()=>provider,fulfillPaidOrder:fulfill,
+    }
+    const service=new PaymentService(store as unknown as PgStore,'https://proxysplit.invalid')
+    await expect(service.syncOrder(order.orderNo)).rejects.toMatchObject({code:'PAYMENT_AMOUNT_MISMATCH'})
+    expect(fulfill).not.toHaveBeenCalled()
+  })
 })

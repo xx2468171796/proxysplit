@@ -217,6 +217,8 @@
   let appUpdateTimer: ReturnType<typeof setInterval> | null = null
   let activeOrder: MemberOrder | null = null
   let paymentQR = ''
+  let paymentPoll: ReturnType<typeof setInterval> | null = null
+  let paymentPollVis: (() => void) | null = null
   let ruleMode: 'blacklist' | 'whitelist' = 'whitelist' // 只代理列出的（默认/推荐）
   let linkText = ''
   let addMsg = ''
@@ -554,7 +556,40 @@
     const qr = await WGetPaymentQR(order.payUrl) as any
     if (qr?.err || !qr?.data) { commerceError = qr?.err || '支付宝二维码生成失败'; return }
     paymentQR = qr.data
+    startPaymentPolling()
   }
+  // 展示二维码后自动轮询到账（与统一收款 5ff 一致：3s 一次，后台标签页暂停，回前台立即查一次，
+  // 到账/过期即停）。服务端 GET /v1/me/orders 会顺带向网关查单落地，无需依赖异步回调。
+  async function pollActiveOrderOnce() {
+    if (!activeOrder || !isWailsReady()) return
+    const res = await WGetMyOrders() as any
+    if (res?.err) return
+    if (Array.isArray(res?.items)) memberOrders = res.items
+    const order = memberOrders.find(o => o.orderNo === activeOrder?.orderNo)
+    if (!order) return
+    if (order.status === 'paid') {
+      stopPaymentPolling()
+      const err = await WRefreshEntitlement()
+      if (err) commerceError = err
+      else { activeOrder = null; paymentQR = ''; showMembership = false; await refreshLicense() }
+    } else if (order.status === 'failed' || order.status === 'expired' || order.status === 'cancelled') {
+      stopPaymentPolling()
+      commerceError = '订单已过期或取消，请重新下单'
+      activeOrder = null; paymentQR = ''
+    }
+  }
+  function startPaymentPolling() {
+    stopPaymentPolling()
+    paymentPoll = setInterval(() => { if (typeof document !== 'undefined' && document.hidden) return; pollActiveOrderOnce() }, 3000)
+    paymentPollVis = () => { if (!document.hidden) pollActiveOrderOnce() }
+    if (typeof document !== 'undefined') document.addEventListener('visibilitychange', paymentPollVis)
+  }
+  function stopPaymentPolling() {
+    if (paymentPoll) { clearInterval(paymentPoll); paymentPoll = null }
+    if (paymentPollVis && typeof document !== 'undefined') { document.removeEventListener('visibilitychange', paymentPollVis); paymentPollVis = null }
+  }
+  // 关闭会员中心即停止轮询，避免付款窗口关掉后后台空转。
+  $: if (!showMembership && paymentPoll) stopPaymentPolling()
   async function refreshPayment() {
     commerceBusy = true; commerceError = ''
     await loadCommerce()
@@ -1234,6 +1269,7 @@
     if (donateTimer) clearInterval(donateTimer)
     if (commerceTimer) clearInterval(commerceTimer)
     if (appUpdateTimer) clearInterval(appUpdateTimer)
+    stopPaymentPolling()
     window.removeEventListener('focus', reloadData)
     window.removeEventListener('proxysplit:bootstrap', onBootstrap)
     document.removeEventListener('visibilitychange', onVisible)
