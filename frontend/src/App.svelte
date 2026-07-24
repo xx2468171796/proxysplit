@@ -2384,7 +2384,7 @@
                   <label class="lan-field"><span>端口</span><input type="number" min="1" max="65535" bind:value={settings.lanPort} on:change={saveSettings} /></label>
                   <label class="lan-field"><span>类型</span>
                     <select bind:value={settings.lanType} on:change={saveSettings}>
-                      <option value="mixed">混合 (SOCKS5+HTTP)</option>
+                      <option value="mixed">混合 SOCKS5+HTTP</option>
                       <option value="socks">SOCKS5</option>
                       <option value="http">HTTP</option>
                     </select>
@@ -2676,6 +2676,8 @@
   /* LAN-share sub-form */
   .lan-cfg { padding: 12px 0 6px; border-bottom: 1px solid var(--line-3); display: grid; gap: 10px; min-width: 0; }
   .lan-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
+  /* 端口只需容纳数字，让「类型」下拉获得更多宽度，避免「混合 (SOCKS5+HTTP)」被截断 */
+  .lan-cfg .lan-row:first-child { grid-template-columns: 92px minmax(0, 1fr); }
   .lan-field { display: flex; flex-direction: column; gap: 4px; font-size: 11.5px; color: var(--muted); font-weight: 600; min-width: 0; }
   .lan-field input, .lan-field select { width: 100%; min-width: 0; box-sizing: border-box; border: 1px solid var(--line); background: var(--soft); color: var(--ink); border-radius: 8px; padding: 7px 10px; font-size: 13px; font-family: inherit; }
   .lan-field input:focus, .lan-field select:focus { outline: none; border-color: var(--brand); }
@@ -2760,7 +2762,7 @@
 
   /* 一键切模式 segmented control */
   .mode-seg { align-self: flex-end; display: inline-flex; height: 34px; padding: 3px; gap: 2px; background: #f1f5f9; border: 1px solid var(--line); border-radius: 999px; }
-  .mode-seg button { padding: 0 12px; border-radius: 999px; font-size: 12.5px; font-weight: 650; color: var(--muted); background: transparent; border: none; cursor: pointer; transition: all var(--tr); }
+  .mode-seg button { padding: 0 12px; border-radius: 999px; font-size: 12.5px; font-weight: 650; color: var(--muted); background: transparent; border: none; cursor: pointer; white-space: nowrap; transition: all var(--tr); }
   .mode-seg button:hover { color: var(--ink-2); }
   .mode-seg button.on { background: var(--card); color: var(--brand-600); box-shadow: 0 1px 2px rgba(15,23,42,.12); }
 
@@ -2811,7 +2813,7 @@
   .card-head h3 { margin: 0; font-size: 16px; font-weight: 750; color: var(--ink); letter-spacing: -.005em; }
   .sub { margin: 4px 0 0; font-size: 12.5px; color: var(--muted-2); }
   .actions { display: flex; gap: 8px; flex-wrap: wrap; }
-  .primary, .ghost-btn, .mini, .link, .rail-more, .icon-btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; border-radius: 9px; font-size: 13px; }
+  .primary, .ghost-btn, .mini, .link, .rail-more, .icon-btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; border-radius: 9px; font-size: 13px; white-space: nowrap; }
   .primary { background: var(--brand); color: #fff; padding: 9px 15px; font-weight: 650; box-shadow: 0 6px 14px -6px rgba(37,99,235,.5); }
   .primary:hover { background: var(--brand-600); transform: translateY(-1px); box-shadow: 0 10px 18px -8px rgba(37,99,235,.55); }
   .primary:active { transform: translateY(0); }
@@ -3163,7 +3165,7 @@
   .ai-hint { margin-top: 12px; font-size: 12px; line-height: 1.6; color: var(--muted); }
   .settings-grid h3 { margin: 0 0 8px; font-size: 15px; color: var(--ink); }
   .setting { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--line-3); font-size: 13.5px; color: var(--muted); }
-  .setting:last-child { border-bottom: 0; } .setting strong { color: var(--ink); text-align: right; }
+  .setting:last-child { border-bottom: 0; } .setting strong { color: var(--ink); text-align: right; white-space: nowrap; }
   .setting-hint { display: block; color: var(--muted); font-size: 11px; font-weight: 400; margin-top: 2px; }
   .manual-form { margin-top: 10px; padding: 12px; border: 1px solid var(--line-2); border-radius: 12px; background: var(--surface-2); }
   .mf-head { font-size: 12px; color: var(--muted); margin-bottom: 10px; }
