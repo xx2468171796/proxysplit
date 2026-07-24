@@ -2691,9 +2691,12 @@
   textarea:focus, input:focus { border-color: #93c5fd; box-shadow: 0 0 0 3px rgba(59,130,246,.12); }
   input { border: 1px solid #e2e8f0; border-radius: var(--r2); padding: 9px 12px; background: var(--soft); outline: none; font-size: 13px; transition: border-color var(--tr), box-shadow var(--tr); }
   .toast { color: var(--ok-600); font-size: 13px; margin-top: 8px; }
-  .ntable { display: grid; gap: 2px; min-width: 500px; }
-  .nhead, .nrow { display: grid; grid-template-columns: minmax(0, 2fr) 90px 108px auto; gap: 12px; align-items: center; }
+  /* 表头和每一行必须共用同一组父级轨道。之前每行各算一次 `auto`
+     操作列，表头的“操作”很窄、数据行按钮很宽，导致四列整体错位。 */
+  .ntable { display: grid; grid-template-columns: minmax(0, 2fr) minmax(130px, .65fr) 130px auto; gap: 2px 12px; min-width: 500px; }
+  .nhead, .nrow { display: grid; grid-template-columns: subgrid; grid-column: 1 / -1; column-gap: 12px; align-items: center; }
   .nhead { font-size: 11.5px; color: var(--muted-2); padding: 0 8px 10px; border-bottom: 1px solid var(--line-2); font-weight: 600; letter-spacing: .02em; }
+  .nhead > span:not(.ctr) { justify-self: start; text-align: left; }
   .nrow { padding: 11px 8px; border-bottom: 1px solid var(--line-3); border-radius: 8px; transition: background var(--tr); cursor: pointer; }
   .nrow:hover { background: var(--soft); }
   .nrow.sel { background: var(--ok-tint); }
@@ -2837,7 +2840,7 @@
   .searchbar { width: min(290px, 34vw); min-height: 37px; padding: 0 11px; display: flex; align-items: center; gap: 8px; border: 1px solid #d9e1ec; border-radius: 9px; background: var(--card); }
   .searchbar input { width: 100%; min-width: 0; border: 0; outline: 0; background: transparent; }
   .node-list-card .tscroll { margin: 0; padding: 0 17px; }
-  .node-list-card .nhead { min-height: 39px; padding: 0 6px; background: var(--soft); }
+  .node-list-card .nhead { min-height: 39px; padding: 0 8px; background: var(--soft); }
   .node-list-card .nrow { min-height: 58px; border-radius: 0; }
   .node-list-foot { padding: 13px 17px; border-top: 1px solid var(--line); }
   .manual-form { margin: 14px 0 0; }
