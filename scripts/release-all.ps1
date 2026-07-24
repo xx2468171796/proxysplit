@@ -29,9 +29,20 @@ function Step([string]$text) {
 function Run([string]$file, [string[]]$arguments, [string]$workingDirectory = $root) {
     Push-Location $workingDirectory
     try {
-        & $file @arguments
-        if ($LASTEXITCODE -ne 0) {
-            throw "$file failed with exit code $LASTEXITCODE"
+        # Native tools (pnpm/npm/go) routinely write progress banners to stderr.
+        # Under $ErrorActionPreference='Stop', PowerShell 5.1 turns that stderr into
+        # a terminating NativeCommandError even on exit code 0. Flatten stderr to
+        # plain text and judge success solely by the process exit code.
+        $previous = $ErrorActionPreference
+        $ErrorActionPreference = 'Continue'
+        try {
+            & $file @arguments 2>&1 | ForEach-Object { Write-Host "$_" }
+            $code = $LASTEXITCODE
+        } finally {
+            $ErrorActionPreference = $previous
+        }
+        if ($code -ne 0) {
+            throw "$file failed with exit code $code"
         }
     } finally {
         Pop-Location
