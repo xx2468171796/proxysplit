@@ -1,6 +1,20 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-  <defs><linearGradient id="g" x1="8" y1="6" x2="56" y2="58" gradientUnits="userSpaceOnUse"><stop stop-color="#5d8aff"/><stop offset="1" stop-color="#2451d0"/></linearGradient></defs>
-  <rect width="64" height="64" rx="18" fill="url(#g)"/>
-  <ellipse cx="32" cy="32" rx="15" ry="20" fill="none" stroke="#fff" stroke-width="4"/>
-  <path d="M32 12v40" stroke="#fff" stroke-width="4" stroke-linecap="round"/>
+  <defs>
+    <linearGradient id="bg" x1="8" y1="4" x2="56" y2="60" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#0b2455"/>
+      <stop offset="1" stop-color="#03122f"/>
+    </linearGradient>
+    <linearGradient id="route" x1="10" y1="20" x2="54" y2="48" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#2878ff"/>
+      <stop offset=".58" stop-color="#0968ff"/>
+      <stop offset="1" stop-color="#10c9ef"/>
+    </linearGradient>
+  </defs>
+  <rect x="1" y="1" width="62" height="62" rx="16" fill="url(#bg)"/>
+  <path d="M11 32h15" fill="none" stroke="#2878ff" stroke-width="8" stroke-linecap="round"/>
+  <path d="M25 32c8 0 8-13 16-13h7" fill="none" stroke="#1672ff" stroke-width="7" stroke-linecap="round"/>
+  <path d="M25 32c8 0 8 13 16 13h7" fill="none" stroke="url(#route)" stroke-width="7" stroke-linecap="round"/>
+  <path d="m45 12 9 7-9 7z" fill="#0968ff"/>
+  <path d="m45 38 9 7-9 7z" fill="#10c9ef"/>
+  <circle cx="25" cy="32" r="3.2" fill="#fff"/>
 </svg>

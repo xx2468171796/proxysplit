@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte'
+  import brandIcon from './assets/proxysplit-logo.svg'
   import {
     AddNodes as WAddNodes,
     AddManualNode as WAddManualNode,
@@ -1433,7 +1434,7 @@
 <div class="shell">
   <aside class="sidebar">
     <div class="brand">
-      <div class="logo">◑</div>
+      <div class="logo"><img src={brandIcon} alt="" /></div>
       <div class="brand-title">ProxySplit<small>DESKTOP CLIENT</small></div>
     </div>
 
@@ -2358,7 +2359,8 @@
   /* ---------- sidebar ---------- */
   .sidebar { background: var(--card); border-right: 1px solid var(--line); padding: 18px 14px 14px; display: flex; flex-direction: column; min-width: 0; }
   .brand { height: 56px; display: flex; align-items: center; gap: 11px; padding: 0 10px 12px; }
-  .logo { width: 38px; height: 38px; border-radius: 12px; display: grid; place-items: center; font-size: 22px; color: #fff; background: linear-gradient(145deg, #3775f1, #2454d4); box-shadow: 0 8px 18px rgba(40,100,232,.27); }
+  .logo { width: 38px; height: 38px; flex: 0 0 38px; filter: drop-shadow(0 8px 12px rgba(31,83,190,.24)); }
+  .logo img { display: block; width: 100%; height: 100%; }
   .brand-title { font-size: 20px; font-weight: 800; color: var(--ink); letter-spacing: -.35px; }
   .brand-title small { display: block; color: var(--muted-2); font-size: 8px; font-weight: 750; letter-spacing: 1.05px; margin-top: 1px; }
   .nav-label { padding: 18px 12px 7px; color: #a0aabd; font-size: 10px; font-weight: 800; letter-spacing: 1.2px; }
