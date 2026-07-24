@@ -158,3 +158,13 @@
 - 并发会话兑换/下载收尾加固一并合入：下载接口 releaseExists 拒伪造版本(防污染统计)、track/view 限流收紧；deleteRedeemCode 对 used_count>0 的多人码拦截删除(防 CASCADE 抹兑换台账)。
 - 🔴 迁移隐患修复：migrate.ts 按文件名(schema_migrations.name)记录、已应用即跳过、不校验内容 hash。并发会话把新索引加进已部署的 0008 → 现有生产库不会重跑该索引。改用独立 0009_download_events_time_idx.sql(IF NOT EXISTS 幂等)让索引正确落库。教训：改已部署迁移无效(按名跳过)，schema 变更必须新迁移文件。
 - 生产验证：latest=1.9.39，0009 applied，admin/site 200；回归 users分页/orders amountSum(3180)/analytics/downloads(200)/下载伪造版本404/真实302 全过。commit e31e289，SHA256 ed2dc69e199d904a994c4547f25857868e86f169a356be44034b50f9fc05d1b0，站点 /opt/proxysplit/releases/20260724-225941-e31e289-v1.9.39。
+
+## 2026-07-24 v1.9.40 运行诊断——实时连接命中规则+出口
+- 论坛反馈：诊断页直接显示"这条连接命中哪条规则、走哪个出口"比看日志强。数据现成在 sing-box clash_api /connections（之前 clashTraffic 只数条数、丢弃 metadata/rule/chains）。
+- clash.go 新增 clashConnections 解析每条连接(metadata 进程/目标、rule+rulePayload 命中规则、chains 出口链)；Service.Connections 把出口 tag 映射友好名(proxy=活动节点/node-<id>=对应节点/direct=直连/reject=拦截)；app.go GetConnections 绑定。App.svelte「日志」页升级「运行诊断」，顶部实时连接表(进程→目标→命中规则→出口，出口三色，可过滤，每秒刷新)。go build+svelte-check 过。生产 latest=1.9.40，commit 76627af。
+- 注：客户端功能无法无头实拍(需管理员+真实 TUN 流量)，走标准 clash_api 格式+字段缺失兜底。
+
+## 参考：ProxyBridge (github.com/InterceptSuite/ProxyBridge) 对照
+- 同赛道竞品(Proxifier 替代品/按进程分流)，但技术栈无关：原生 C + WinDivert(Win)/NetworkExtension(mac)/NFQUEUE(Linux)，上游仅 SOCKS5/HTTP。跨平台但一平台一套原生实现。
+- 我们优势：现代协议(reality/hysteria2/vless/vmess/trojan/tuic)、产品完整度(订阅/测速/TUN/系统代理/LAN/AI控制/商业后台/运行诊断)。方向领先，不用改路线。
+- 唯一可借鉴点：它每条规则可按 进程+IP+端口+协议+主机名(通配)组合匹配 allow/block；我们应用规则主要按进程名。sing-box 路由底层已支持 domain/ip/port，可把应用规则升级为"进程 + 目标(域名/IP/端口)"条件，让分流更精细（待用户确认是否做）。[[proxysplit-project]]
