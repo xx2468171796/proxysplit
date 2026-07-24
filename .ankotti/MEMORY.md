@@ -133,3 +133,9 @@
 - 验证：Svelte check 0 errors/0 warnings，前端生产构建通过；本机已启动 v1.9.34 并完成界面截图检查。
 - 正式产物：`output/proxysplit-v1.9.34.exe`，82,286,592 字节，SHA256 `5d82f548244aec00d2513e5f2ee5b19b5a08e3516d1e1fcee55e4059bc779b0b`。
 - 生产 API、官网与下载均已切换 v1.9.34，站点目录 `/opt/proxysplit/releases/20260724-200000-feae2ac`；线上 latest=1.9.34，安装包 HTTP 200 且长度匹配。
+
+## 2026-07-24 v1.9.35 TCP 延迟 / Google 延迟拆分显示
+- 需求：节点延迟同时显示 TCP 延迟与 Google 延迟并做区分。latency.Measure 改为双指标 Result{Latency, TCPLatency}：measureTCP() 恒定直连 dial 到节点边缘（含 tls/reality/ws 握手）=TCP 延迟；有 SOCKS 隧道时额外经隧道测 Google HTTPS 204=Google 延迟。nodes.Node 加 tcpLatency 字段；service/前端两张节点表各加一列（表头 TCP 延迟 / Google 延迟 + 悬浮说明，不通分别标注 TCP 不通 / Google 不通）；health.go 无隧道探测改读 .TCPLatency，apptest 走真隧道仍读 .Latency。
+- 🔴 发布流水线两个潜伏 bug（本机 core.autocrlf=true 触发）：①`git archive HEAD:server` 只读 server 子树的 .gitattributes，根目录 eol=lf 不生效 → api-entrypoint.sh 被写成 CRLF → 容器 `exec /app/deploy/api-entrypoint.sh: no such file or directory`。修复：新增 server/.gitattributes（子树自带 *.sh eol=lf）+ release-all.ps1 git archive 加 -c core.autocrlf=false。②release-all.ps1 Run 函数在 $ErrorActionPreference=Stop 下把 pnpm/go 的 stderr 横幅当成终止错误 → 改为仅按 $LASTEXITCODE 判定。③首次失败留下的 proxysplit-v1.9.35.exe 进程锁文件导致 Copy-Item 失败 → 需先杀占用进程。
+- 回归：go test/vet、svelte-check、pnpm typecheck/test/build 全过。正式产物 output/proxysplit-v1.9.35.exe，78.6MB，SHA256 3fc1ab71338282ee1bd78a870770b20e6fc3474b10b0721e6b410392639a9470。
+- 生产 API、官网、下载均已切换 v1.9.35；latest API=1.9.35，health ok，proxysplit-v1.9.35.exe 与 proxysplit-latest.exe 均 HTTP 200/78.6MB。站点目录 /opt/proxysplit/releases/20260724-203840-dec2549-v1.9.35，DB 备份 postgres-20260724-203840-dec2549-v1.9.35.sql.gz，commit dec254963309d9d982bc575f84dd51af01d7fa82。
