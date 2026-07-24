@@ -9,7 +9,14 @@ RUN corepack enable \
 
 WORKDIR /app
 COPY . .
-RUN pnpm install --frozen-lockfile \
+# The production host reaches registry.npmjs.org slowly and pnpm install times
+# out on cold cache (e.g. after new deps land). Pull tarballs from the faithful
+# npmmirror mirror (identical integrity hashes, so --frozen-lockfile still
+# validates) and give the network generous timeout/retries.
+RUN pnpm config set registry https://registry.npmmirror.com \
+    && pnpm config set fetch-timeout 600000 \
+    && pnpm config set fetch-retries 5 \
+    && pnpm install --frozen-lockfile \
     && chmod 0755 /app/deploy/api-entrypoint.sh
 
 ENTRYPOINT ["/app/deploy/api-entrypoint.sh"]
