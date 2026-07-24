@@ -82,7 +82,10 @@ func dial(n *nodes.Node, socksAddr string, timeout time.Duration) (net.Conn, err
 		return nil, err
 	}
 
-	if strings.EqualFold(n.Security, "tls") || strings.EqualFold(n.Security, "reality") {
+	// Reality is not a conventional TLS handshake: it needs the protocol's
+	// public-key/short-id exchange. Keep its direct fallback at TCP level rather
+	// than incorrectly marking every healthy Reality node as unavailable.
+	if strings.EqualFold(n.Security, "tls") {
 		serverName := strings.TrimSpace(n.SNI)
 		if serverName == "" {
 			serverName = strings.TrimSpace(n.Host)

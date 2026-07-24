@@ -78,3 +78,24 @@ func TestMeasureWebSocketUpgrade(t *testing.T) {
 		t.Fatalf("valid WebSocket upgrade should pass: %+v", got)
 	}
 }
+
+func TestMeasureRealityDoesNotUsePlainTLSHandshake(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	go func() {
+		conn, err := ln.Accept()
+		if err == nil {
+			conn.Close()
+		}
+	}()
+	port := ln.Addr().(*net.TCPAddr).Port
+	got := Measure(&nodes.Node{
+		Server: "127.0.0.1", Port: port, Security: "reality",
+	}, "", time.Second)
+	if got.Latency < 0 {
+		t.Fatalf("Reality direct fallback must not attempt ordinary TLS: %+v", got)
+	}
+}
