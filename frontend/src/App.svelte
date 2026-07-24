@@ -132,7 +132,7 @@
     selectedId: string
     ruleMode: string
     uptimeSec: number
-    stats?: { activeConns: number; totalConns: number; tracked: number; upBytes: number; downBytes: number }
+    stats?: { running?: boolean; activeConns: number; totalConns: number; tracked: number; upBytes: number; downBytes: number }
   }
   type BootstrapState = {
     ready?: boolean; error?: string
