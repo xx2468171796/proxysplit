@@ -230,6 +230,7 @@
   let paymentQR = ''
   let redeemInput = ''
   let redeemBusy = false
+  let showRedeemDialog = false
   let paymentPoll: ReturnType<typeof setInterval> | null = null
   let paymentPollVis: (() => void) | null = null
   let paymentPollBusy = false
@@ -659,7 +660,14 @@
     if (err) { commerceError = err; return }
     redeemInput = ''
     await refreshLicense(); await loadCommerce()
+    showRedeemDialog = false
     toast('兑换成功，会员权益已开通')
+  }
+  // 侧边栏常驻入口：未登录先引导登录/开通，已登录直接弹出兑换框。
+  function openRedeem() {
+    commerceError = ''
+    if (!license.authenticated) { openMembership(); return }
+    showRedeemDialog = true
   }
   async function refreshPayment() {
     commerceBusy = true; commerceError = ''
@@ -1471,6 +1479,7 @@
     info: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></svg>',
     globe: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a15 15 0 0 1 0 18M12 3a15 15 0 0 0 0 18"/></svg>',
     qq: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M20 12c0-4.4-3.6-8-8-8s-8 3.6-8 8a8 8 0 0 0 3 6.2c-.3.9-.8 1.7-1 2.3-.2.5.2.8.6.6 1-.4 2.2-1 3-1.5a8 8 0 0 0 4.8 0c.8.5 2 1.1 3 1.5.4.2.8-.1.6-.6-.2-.6-.7-1.4-1-2.3A8 8 0 0 0 20 12z"/></svg>',
+    ticket: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 8a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v2a2 2 0 0 0 0 4v2a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-2a2 2 0 0 0 0-4V8z"/><path d="M13 6v12" stroke-dasharray="2 2"/></svg>',
     bars: '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="3" y="14" width="3.5" height="6" rx="1"/><rect x="8.2" y="10" width="3.5" height="10" rx="1"/><rect x="13.4" y="6" width="3.5" height="14" rx="1"/><rect x="18.6" y="14" width="3.5" height="6" rx="1" opacity=".35"/></svg>',
     chevron: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 6l6 6-6 6"/></svg>',
     stop: '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="7" y="7" width="10" height="10" rx="2"/></svg>',
@@ -1606,6 +1615,9 @@
     </nav>
 
     <div class="sidebar-foot">
+      <button class="redeem-entry" title="使用兑换码 / 授权码开通会员" on:click={openRedeem}>
+        <i>{@html I.ticket}</i><span>兑换码开通会员</span>
+      </button>
       <div class="core-card">
         <span class="dot" class:on={status?.coreRunning}></span>
         <div><strong>{status?.coreRunning ? '核心运行中' : '核心已停止'}</strong><small>sing-box {coreVersion || '1.13.14'}</small></div>
@@ -2292,6 +2304,23 @@
       <div class="sb-right">系统代理：<b class:on={sysProxy}>{sysProxy ? '已开启' : '已关闭'}</b><span class="ok" class:on={running}>✓</span></div>
     </footer>
   </section>
+
+  {#if showRedeemDialog}
+    <div class="modal-mask" role="button" tabindex="0" aria-label="关闭兑换" on:click|self={() => (showRedeemDialog = false)} on:keydown={(e) => e.key === 'Escape' && (showRedeemDialog = false)}>
+      <section class="redeem-modal">
+        <div class="redeem-modal-head">
+          <div><span class="member-eyebrow">兑换码开通</span><h2>输入兑换码 / 授权码</h2></div>
+          <button class="icon-btn" title="关闭" on:click={() => (showRedeemDialog = false)}>✕</button>
+        </div>
+        <p class="redeem-modal-tip">当前账号 <b>{license.username || '未登录'}</b>。输入后立即按码上的会员等级与时长开通，无需支付。同一账号对同一个兑换码只能兑换一次。</p>
+        <form class="redeem-form vertical" on:submit|preventDefault={redeem}>
+          <input placeholder="输入兑换码，如 PS-XXXX-XXXX-XXXX" bind:value={redeemInput} disabled={redeemBusy} maxlength="64" />
+          <button type="submit" disabled={redeemBusy || !redeemInput.trim()}>{redeemBusy ? '兑换中…' : '立即兑换'}</button>
+        </form>
+        {#if commerceError}<p class="redeem-modal-err">{commerceError}</p>{/if}
+      </section>
+    </div>
+  {/if}
 
   {#if showMembership}
     <div class="modal-mask member-modal-mask" role="button" tabindex="0" aria-label="关闭会员中心" on:click|self={() => (showMembership = false)} on:keydown={(e) => e.key === 'Escape' && (showMembership = false)}>
@@ -3139,6 +3168,19 @@
   .redeem-form input { flex: 1; min-height: 36px; padding: 0 12px; border: 1px solid rgba(255,255,255,.14); border-radius: 9px; background: rgba(8,16,30,.55); color: #e7eefb; font: inherit; font-size: 12px; }
   .redeem-form button { min-height: 36px; padding: 0 16px; border: 0; border-radius: 9px; background: #10b981; color: #04120c; font: inherit; font-size: 12px; font-weight: 800; cursor: pointer; }
   .redeem-form button:disabled { opacity: .55; cursor: not-allowed; }
+  .redeem-form.vertical { flex-direction: column; }
+  .redeem-form.vertical input, .redeem-form.vertical button { width: 100%; min-height: 42px; font-size: 13px; }
+  /* 侧边栏常驻兑换入口 */
+  .redeem-entry { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; margin-bottom: 10px; min-height: 40px; padding: 0 12px; border: 1px solid rgba(52,211,153,.45); border-radius: 11px; background: linear-gradient(120deg,rgba(16,185,129,.18),rgba(16,185,129,.08)); color: #7ff0c6; font: inherit; font-size: 12.5px; font-weight: 700; cursor: pointer; transition: background .15s,border-color .15s; }
+  .redeem-entry:hover { background: rgba(16,185,129,.24); border-color: rgba(52,211,153,.7); }
+  .redeem-entry i { display: inline-flex; width: 17px; height: 17px; }
+  .redeem-entry i :global(svg) { width: 100%; height: 100%; }
+  /* 独立兑换弹窗 */
+  .redeem-modal { width: min(460px,94vw); margin: auto; padding: 22px; border: 1px solid #243655; border-radius: 18px; color: #eaf1ff; background: linear-gradient(150deg,#0b1730,#111f3d); box-shadow: 0 30px 90px rgba(0,0,0,.45); }
+  .redeem-modal-head { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px; }
+  .redeem-modal-head h2 { margin: 4px 0 0; font-size: 18px; }
+  .redeem-modal-tip { margin: 0 0 16px; color: #9aacca; font-size: 12px; line-height: 1.6; }
+  .redeem-modal-err { margin: 12px 0 0; padding: 9px 12px; border: 1px solid rgba(248,113,113,.35); border-radius: 9px; background: rgba(248,113,113,.1); color: #fca5a5; font-size: 12px; }
   .member-modal-head { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 18px; }
   .member-modal-head h2 { margin: 5px 0; }
   .member-head-actions { display: flex; align-items: center; gap: 8px; }

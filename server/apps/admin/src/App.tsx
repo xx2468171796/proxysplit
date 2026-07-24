@@ -12,6 +12,7 @@ import RedeemPage from '@/pages/redeem'
 import PaymentsPage from '@/pages/payments'
 import AnnouncementsPage from '@/pages/announcements'
 import ReleasesPage from '@/pages/releases'
+import DownloadsPage from '@/pages/downloads'
 import AuditPage from '@/pages/audit'
 import SettingsPage from '@/pages/settings'
 
@@ -32,6 +33,7 @@ export function App() {
         <Route path="payments" element={<PaymentsPage />} />
         <Route path="announcements" element={<AnnouncementsPage />} />
         <Route path="releases" element={<ReleasesPage />} />
+        <Route path="downloads" element={<DownloadsPage />} />
         <Route path="audit" element={<AuditPage />} />
         <Route path="settings" element={<SettingsPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />

@@ -497,12 +497,14 @@ func (c *Client) Redeem(code string) error {
 	if err := c.authedRequestLocked(ctx, http.MethodPost, "/v1/me/redeem", map[string]any{"code": code}, nil); err != nil {
 		return err
 	}
-	if err := c.refreshLocked(ctx); err != nil {
-		return err
-	}
-	if err := c.acquireLeaseLocked(ctx); err != nil {
-		return err
-	}
+	// The code is now consumed and the entitlement granted server-side. From here
+	// the redemption has SUCCEEDED: a refresh/lease failure (most often an outdated
+	// client hitting the min-version wall) must NOT surface as a plain error that
+	// makes the user redeem again — that was the old "redeem twice, double time"
+	// bug. Persist whatever state we have and report success; /v1/me re-sync and
+	// the mandatory-update prompt handle the stale-lease / upgrade path.
+	_ = c.refreshLocked(ctx)
+	_ = c.acquireLeaseLocked(ctx)
 	return c.saveLocked()
 }
 
@@ -654,10 +656,16 @@ func (c *Client) verifyLease(token string) (leaseClaims, error) {
 		return claims, errors.New("授权租约与当前设备不匹配")
 	}
 	if compareVersion(normalizedVersion(c.version), claims.MinVersion) < 0 {
-		return claims, errors.New("当前客户端版本过低，请先升级")
+		return claims, ErrClientOutdated
 	}
 	return claims, nil
 }
+
+// ErrClientOutdated marks a lease rejected purely because the running client is
+// older than the server-mandated minimum version. Callers that already applied a
+// server-side state change (e.g. redeeming a code) use this to report "succeeded,
+// please upgrade" instead of a plain failure that invites a duplicate retry.
+var ErrClientOutdated = errors.New("当前客户端版本过低，请先升级")
 
 func compareVersion(a, b string) int {
 	pa, pb := strings.Split(a, "."), strings.Split(b, ".")

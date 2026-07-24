@@ -25,6 +25,31 @@ const observer = new IntersectionObserver((entries) => {
 }, { threshold: 0.12 })
 document.querySelectorAll('.reveal').forEach((node) => observer.observe(node))
 
+// 匿名访客 ID：仅用于下载/浏览量按人去重，持久化在本地。
+function visitorId() {
+  try {
+    let v = localStorage.getItem('proxysplit:visitor')
+    if (!v) {
+      v = (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random().toString(16).slice(2))
+      localStorage.setItem('proxysplit:visitor', v)
+    }
+    return v
+  } catch { return '' }
+}
+const VISITOR = visitorId()
+// 下载走 /v1/download/<file>?v=<visitor>：服务端记录一次（哈希IP+访客+UA）后 302 到真实文件。
+const trackedDownload = (file) => `/v1/download/${file}?v=${encodeURIComponent(VISITOR)}`
+
+// 页面浏览埋点（去重靠服务端按 IP / 访客统计）。
+try {
+  fetch('/v1/track/view', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ visitorId: VISITOR, path: location.pathname + location.search, referer: document.referrer || '' }),
+    keepalive: true,
+  }).catch(() => {})
+} catch {}
+
 document.addEventListener('click', (event) => {
   if (event.target.closest('[data-download]')) {
     try { localStorage.setItem('proxysplit:last-download', new Date().toISOString()) } catch {}
@@ -35,7 +60,7 @@ const latestRelease = fetch('/v1/releases/latest', { headers: { accept: 'applica
   .then((response) => response.ok ? response.json() : Promise.reject(new Error('release unavailable')))
   .then(({ release }) => {
     if (!release || !/^\d+\.\d+\.\d+$/.test(release.version)) throw new Error('invalid release')
-    return { version: release.version, url: `/download/proxysplit-v${release.version}.exe` }
+    return { version: release.version, url: trackedDownload(`proxysplit-v${release.version}.exe`) }
   })
   .catch(() => null)
 
@@ -79,7 +104,7 @@ if (planGrid) {
           ${countdown}
           <p>${escapeHTML(plan.description || '')}</p>
           <ul><li>${period}</li><li>${tier}</li>${limit}<li>服务端签名授权</li></ul>
-          <a href="/download/proxysplit-latest.exe" data-download>支付宝开通</a>
+          <a href="${trackedDownload('proxysplit-latest.exe')}" data-download>支付宝开通</a>
         </article>`
       }).join('')
       latestRelease.then((release) => applyLatestDownload(release, planGrid))

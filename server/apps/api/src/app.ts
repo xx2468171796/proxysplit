@@ -3,7 +3,7 @@ import cors from '@fastify/cors'
 import rateLimit from '@fastify/rate-limit'
 import { Redis } from 'ioredis'
 import { AppError, normalizeUsername } from '@proxysplit/shared'
-import { activateDeviceSchema, adminGrantSchema, analyticsQuerySchema, announcementListQuery, announcementUpsertSchema, auditListQuery, deviceListQuery, leaseSchema, licenseExtendSchema, loginSchema, orderCreateSchema, orderListQuery, planListQuery, planPatchSchema, planUpsertSchema, providerUpsertSchema, redeemCodeCreateSchema, redeemListQuery, redeemSchema, refreshSchema, registerSchema, releaseCreateSchema, releaseListQuery, settingPatchSchema, userCreateSchema, userListQuery, userPasswordSchema, userStatusSchema } from '@proxysplit/contracts'
+import { activateDeviceSchema, adminGrantSchema, analyticsQuerySchema, announcementListQuery, announcementUpsertSchema, auditListQuery, deviceListQuery, downloadStatsQuery, leaseSchema, licenseExtendSchema, loginSchema, orderCreateSchema, orderListQuery, planListQuery, planPatchSchema, planUpsertSchema, providerUpsertSchema, redeemCodeCreateSchema, redeemListQuery, redeemSchema, refreshSchema, registerSchema, releaseCreateSchema, releaseListQuery, settingPatchSchema, trackViewSchema, userCreateSchema, userListQuery, userPasswordSchema, userStatusSchema } from '@proxysplit/contracts'
 import { createCommercialCore, hashPassword, PaymentService, type AuthService, type PgStore } from '@proxysplit/core'
 import type { ApiConfig } from './config.js'
 
@@ -75,6 +75,24 @@ export async function buildApp(config:ApiConfig,provided?:Core){
   }
   app.get('/v1/releases/latest',async()=>({release:await core.store.latestRelease()}))
   app.get('/v1/releases',async()=>({items:(await core.store.listReleases({limit:100})).items}))
+  // Tracked download: log one event (hashed IP + visitor id + UA), then 302 to
+  // the real Nginx-served file. Only known-shaped filenames are allowed so this
+  // can never become an open redirect or path-traversal.
+  const DOWNLOAD_FILE=/^proxysplit-(v\d+\.\d+\.\d+|latest)\.exe$/
+  app.get('/v1/download/:file',{config:{rateLimit:{max:60,timeWindow:'1 minute'}}},async(req,reply)=>{
+    const file=(req.params as {file:string}).file
+    if(!DOWNLOAD_FILE.test(file))throw new AppError('NOT_FOUND','文件不存在',404)
+    const version=(file.match(/v(\d+\.\d+\.\d+)/)?.[1])??''
+    const q=req.query as {v?:string}
+    await core.store.recordDownloadEvent({kind:'download',file,version,ip:req.ip,visitorId:typeof q.v==='string'?q.v:'',userAgent:String(req.headers['user-agent']??''),referer:String(req.headers['referer']??req.headers['referrer']??'')}).catch(err=>app.log.warn({err:err instanceof Error?err.message:'record failed'},'download event failed'))
+    return reply.header('cache-control','no-store').redirect(`/download/${file}`,302)
+  })
+  // Page-view beacon fired by the marketing site on load.
+  app.post('/v1/track/view',{config:{rateLimit:{max:120,timeWindow:'1 minute'}}},async(req)=>{
+    const input=trackViewSchema.parse(req.body??{})
+    await core.store.recordDownloadEvent({kind:'view',ip:req.ip,visitorId:input.visitorId??'',path:input.path??'',userAgent:String(req.headers['user-agent']??''),referer:input.referer??String(req.headers['referer']??req.headers['referrer']??'')}).catch(err=>app.log.warn({err:err instanceof Error?err.message:'record failed'},'view event failed'))
+    return {ok:true}
+  })
   app.get('/v1/catalog/plans',async()=>({items:(await core.store.listPlans({publicOnly:true,limit:100})).items,paymentMethods:(await core.store.getCommerceSettings()).paymentMethods}))
   app.get('/v1/announcements',async()=>({items:(await core.store.listAnnouncements({publicOnly:true,limit:200})).items}))
   app.get('/v1/me',async(req)=>{const p=await auth(req,true);const user=await core.store.findUserById(p.userId);return {user:user&&{id:user.id,username:user.username,status:user.status},membership:await core.store.entitlement(p.userId),devices:await core.store.listUserDevices(p.userId)}})
@@ -111,6 +129,13 @@ export async function buildApp(config:ApiConfig,provided?:Core){
     const toDate=to?new Date(to):new Date()
     const fromDate=from?new Date(from):new Date(toDate.getTime()-days*86_400_000)
     return core.store.analytics({from:fromDate,to:toDate})
+  })
+  app.get('/v1/admin/downloads',async(req)=>{
+    await admin(req)
+    const {days,from,to}=downloadStatsQuery.parse(req.query)
+    const toDate=to?new Date(to):new Date()
+    const fromDate=from?new Date(from):new Date(toDate.getTime()-days*86_400_000)
+    return core.store.downloadStats({from:fromDate,to:toDate})
   })
   app.get('/v1/admin/users',async(req)=>{await admin(req);return core.store.listUsers(userListQuery.parse(req.query))})
   app.get('/v1/admin/users/:id',async(req)=>{await admin(req);const row=await core.store.getUserDetail((req.params as {id:string}).id);if(!row)throw new AppError('NOT_FOUND','用户不存在',404);return row})
@@ -154,7 +179,7 @@ export async function buildApp(config:ApiConfig,provided?:Core){
   app.get('/v1/admin/orders',async(req)=>{await admin(req);return core.store.listOrders(orderListQuery.parse(req.query))})
   app.post('/v1/admin/orders/:orderNo/confirm',async(req)=>{const p=await admin(req);const orderNo=(req.params as {orderNo:string}).orderNo;const result=await core.store.confirmOrderManually(orderNo);await core.store.audit(p.userId,'admin.order.confirm','order',orderNo,req.ip,'success',{duplicate:!!result.duplicate});return result})
   app.get('/v1/admin/redeem-codes',async(req)=>{await admin(req);return core.store.listRedeemCodes(redeemListQuery.parse(req.query))})
-  app.post('/v1/admin/redeem-codes',async(req)=>{const p=await admin(req);const input=redeemCodeCreateSchema.parse(req.body);const result=await core.store.createRedeemCodes({planId:input.planId,durationDays:input.durationDays??null,lifetime:input.lifetime,count:input.count,note:input.note,codeExpiresAt:input.codeExpiresAt?new Date(input.codeExpiresAt):null},p.userId);await core.store.audit(p.userId,'admin.redeem.create','redeem-batch',result.batchId,req.ip,'success',{count:result.codes.length,planId:input.planId});return result})
+  app.post('/v1/admin/redeem-codes',async(req)=>{const p=await admin(req);const input=redeemCodeCreateSchema.parse(req.body);const result=await core.store.createRedeemCodes({planId:input.planId,durationDays:input.durationDays??null,lifetime:input.lifetime,count:input.count,maxUses:input.maxUses??null,note:input.note,codeExpiresAt:input.codeExpiresAt?new Date(input.codeExpiresAt):null},p.userId);await core.store.audit(p.userId,'admin.redeem.create','redeem-batch',result.batchId,req.ip,'success',{count:result.codes.length,planId:input.planId,maxUses:input.maxUses??null});return result})
   app.post('/v1/admin/redeem-codes/:id/status',async(req)=>{const p=await admin(req);const id=(req.params as {id:string}).id;const status=(req.body as {status?:string})?.status==='disabled'?'disabled':'active';const row=await core.store.setRedeemCodeStatus(id,status);if(!row)throw new AppError('NOT_FOUND','兑换码不存在或已被使用',404);await core.store.audit(p.userId,'admin.redeem.status','redeem-code',id,req.ip,'success',{status});return {ok:true,status}})
   app.delete('/v1/admin/redeem-codes/:id',async(req)=>{
     const p=await admin(req);const id=(req.params as {id:string}).id

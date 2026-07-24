@@ -62,6 +62,8 @@ interface RedeemCode {
   planName: string
   tier: string
   redeemedBy: string | null
+  maxUses: number | null
+  usedCount: number
 }
 
 interface Plan {
@@ -182,8 +184,28 @@ export default function RedeemPage() {
         cell: ({ row }) => <StatusBadge value={statusLabel(row.original.status)} />,
       },
       {
+        id: 'uses',
+        header: '使用次数',
+        cell: ({ row }) => {
+          const r = row.original
+          const cap = r.maxUses == null ? '不限' : r.maxUses
+          const full = r.maxUses != null && r.usedCount >= r.maxUses
+          return (
+            <div>
+              <div className={full ? 'text-sm font-medium text-destructive' : 'text-sm font-medium'}>
+                {r.usedCount} / {cap}
+              </div>
+              <div className="text-xs text-muted-foreground">
+                {r.maxUses === 1 ? '单次' : '多人复用'}
+                {full ? ' · 已领完' : ''}
+              </div>
+            </div>
+          )
+        },
+      },
+      {
         id: 'redeem',
-        header: '兑换情况',
+        header: '最近兑换',
         meta: meta({ sortKey: 'redeemedAt' }),
         cell: ({ row }) => {
           const r = row.original
@@ -405,6 +427,8 @@ function CreateRedeemDialog({
   const [lifetime, setLifetime] = React.useState(false)
   const [days, setDays] = React.useState(30)
   const [count, setCount] = React.useState(10)
+  const [unlimitedUses, setUnlimitedUses] = React.useState(false)
+  const [maxUses, setMaxUses] = React.useState(50)
   const [note, setNote] = React.useState('')
   const [expires, setExpires] = React.useState('')
   const [busy, setBusy] = React.useState(false)
@@ -416,6 +440,8 @@ function CreateRedeemDialog({
       setLifetime(false)
       setDays(30)
       setCount(10)
+      setUnlimitedUses(false)
+      setMaxUses(50)
       setNote('')
       setExpires('')
       setResult(null)
@@ -432,6 +458,7 @@ function CreateRedeemDialog({
         lifetime,
         durationDays: lifetime ? null : days,
         count,
+        maxUses: unlimitedUses ? null : maxUses,
         note: note.trim(),
         codeExpiresAt: expires ? new Date(expires).toISOString() : null,
       })
@@ -557,6 +584,29 @@ function CreateRedeemDialog({
               <Checkbox checked={lifetime} onCheckedChange={(v) => setLifetime(v === true)} />
               永久有效（忽略有效天数）
             </label>
+            <div className="space-y-1.5 rounded-md border border-dashed p-3">
+              <div className="flex items-center justify-between">
+                <Label>每个码可兑换人数</Label>
+                <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <Checkbox
+                    checked={unlimitedUses}
+                    onCheckedChange={(v) => setUnlimitedUses(v === true)}
+                  />
+                  不限次数
+                </label>
+              </div>
+              <Input
+                type="number"
+                min={1}
+                max={1000000}
+                disabled={unlimitedUses}
+                value={maxUses}
+                onChange={(e) => setMaxUses(Number(e.target.value))}
+              />
+              <p className="text-xs text-muted-foreground">
+                一个码可被多少个不同账号兑换（用满即失效）；同一账号对同一码只能兑换一次。勾选「不限次数」则仅受有效期约束。
+              </p>
+            </div>
             <div className="space-y-1.5">
               <Label>码有效期（可选）</Label>
               <Input
@@ -580,7 +630,10 @@ function CreateRedeemDialog({
               <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
                 取消
               </Button>
-              <Button type="submit" disabled={busy || !planId || (!lifetime && days < 1)}>
+              <Button
+                type="submit"
+                disabled={busy || !planId || (!lifetime && days < 1) || (!unlimitedUses && maxUses < 1)}
+              >
                 {busy ? '生成中…' : `生成 ${count} 个`}
               </Button>
             </DialogFooter>

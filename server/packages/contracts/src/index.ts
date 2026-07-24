@@ -36,11 +36,25 @@ export const redeemCodeCreateSchema = z.object({
   lifetime: z.boolean().default(false),
   durationDays: z.number().int().min(1).max(36500).nullable().optional(),
   count: z.number().int().min(1).max(500).default(1),
+  // 单个兑换码最多可被多少个不同账号兑换；null / 省略 = 不限次数（仅受有效期约束）。
+  maxUses: z.number().int().min(1).max(1000000).nullable().optional(),
   note: z.string().trim().max(200).default(''),
   codeExpiresAt: z.string().datetime().nullable().optional(),
 }).superRefine((v,ctx)=>{ if(!v.lifetime&&!v.durationDays)ctx.addIssue({code:'custom',path:['durationDays'],message:'非永久兑换码必须设置时长'}) })
 // 客户端兑换：输入一段兑换码。
 export const redeemSchema = z.object({ code: z.string().trim().min(4).max(64) })
+// 页面浏览埋点上报：访客 UUID 由客户端生成并持久化在 localStorage。
+export const trackViewSchema = z.object({
+  visitorId: z.string().trim().max(64).optional(),
+  path: z.string().trim().max(300).optional(),
+  referer: z.string().trim().max(500).optional(),
+})
+// 下载统计查询窗口（管理后台）。
+export const downloadStatsQuery = z.object({
+  days: z.coerce.number().int().min(1).max(365).default(30),
+  from: z.string().datetime().optional(),
+  to: z.string().datetime().optional(),
+})
 export const releaseCreateSchema = z.object({
   version: z.string().regex(/^\d+\.\d+\.\d+$/), minimumVersion: z.string().regex(/^\d+\.\d+\.\d+$/),
   url: z.string().url(), sha256: z.string().regex(/^[a-f0-9]{64}$/), signature: z.string().min(32),
@@ -201,3 +215,5 @@ export type ReleaseListQuery = z.infer<typeof releaseListQuery>
 export type AuditListQuery = z.infer<typeof auditListQuery>
 export type AnalyticsQuery = z.infer<typeof analyticsQuerySchema>
 export type RedeemCodeStatusInput = z.infer<typeof redeemCodeStatusSchema>
+export type TrackViewInput = z.infer<typeof trackViewSchema>
+export type DownloadStatsQuery = z.infer<typeof downloadStatsQuery>

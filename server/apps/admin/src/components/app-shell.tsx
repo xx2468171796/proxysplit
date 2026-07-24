@@ -3,6 +3,7 @@ import {
   Activity,
   Boxes,
   CreditCard,
+  Download,
   KeyRound,
   Layers3,
   LayoutDashboard,
@@ -52,6 +53,7 @@ export const NAV_ITEMS: NavItem[] = [
   { to: '/payments', label: '支付通道', icon: CreditCard, title: '支付通道', subtitle: '配置并切换收款 Provider，密钥只引用服务器环境变量' },
   { to: '/announcements', label: '公告', icon: Megaphone, title: '公告管理', subtitle: '活动公告、维护通知和客户端更新说明' },
   { to: '/releases', label: '版本', icon: PackageOpen, title: '版本发布', subtitle: '升级清单、强制升级和版本日志' },
+  { to: '/downloads', label: '下载统计', icon: Download, title: '下载与浏览统计', subtitle: '按 IP / 访客去重的下载量、浏览量、版本与来源分布' },
   { to: '/audit', label: '审计', icon: Activity, title: '审计日志', subtitle: '管理员关键操作与结果追踪' },
   { to: '/settings', label: '商业设置', icon: Settings2, title: '商业设置', subtitle: '注册、免费试用、设备默认值和离线授权策略' },
 ]

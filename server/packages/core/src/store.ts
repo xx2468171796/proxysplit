@@ -748,9 +748,11 @@ export class PgStore {
   }
 
   // 批量生成兑换码。返回本批生成的明码（仅此一次可见）。
-  async createRedeemCodes(opts:{planId:string;durationDays:number|null;lifetime:boolean;count:number;note:string;codeExpiresAt?:Date|null},actor:string){
+  // maxUses：单个码最多可被多少个不同账号兑换（null = 不限次数）。
+  async createRedeemCodes(opts:{planId:string;durationDays:number|null;lifetime:boolean;count:number;maxUses?:number|null;note:string;codeExpiresAt?:Date|null},actor:string){
     const plan=(await this.pool.query('SELECT id FROM plans WHERE id=$1',[opts.planId])).rows[0]
     if(!plan)throw new AppError('PLAN_NOT_FOUND','套餐不存在',404)
+    const maxUses=opts.maxUses==null?null:Math.max(1,Math.floor(opts.maxUses))
     const client=await this.pool.connect()
     try{
       await client.query('BEGIN')
@@ -761,8 +763,8 @@ export class PgStore {
         for(let attempt=0;attempt<5&&!inserted;attempt++){
           const code=genRedeemCode()
           try{
-            await client.query(`INSERT INTO redeem_codes(code,plan_id,duration_days,lifetime,note,batch_id,code_expires_at,created_by)
-              VALUES($1,$2,$3,$4,$5,$6,$7,$8)`,[code,opts.planId,opts.lifetime?null:opts.durationDays,opts.lifetime,opts.note,batchId,opts.codeExpiresAt??null,actor])
+            await client.query(`INSERT INTO redeem_codes(code,plan_id,duration_days,lifetime,note,batch_id,code_expires_at,max_uses,created_by)
+              VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)`,[code,opts.planId,opts.lifetime?null:opts.durationDays,opts.lifetime,opts.note,batchId,opts.codeExpiresAt??null,maxUses,actor])
             codes.push(code);inserted=true
           }catch(err){ if((err as {code?:string}).code!=='23505')throw err }
         }
@@ -786,6 +788,7 @@ export class PgStore {
     vals.push(limit,offset)
     const r=await this.pool.query(`SELECT rc.id,rc.code,rc.status,rc.duration_days AS "durationDays",rc.lifetime,rc.note,rc.batch_id AS "batchId",
       rc.code_expires_at AS "codeExpiresAt",rc.redeemed_at AS "redeemedAt",rc.created_at AS "createdAt",
+      rc.max_uses AS "maxUses",rc.used_count AS "usedCount",
       p.name AS "planName",p.tier,u.username AS "redeemedBy",(count(*) OVER())::int AS "totalCount"
       FROM redeem_codes rc JOIN plans p ON p.id=rc.plan_id LEFT JOIN users u ON u.id=rc.redeemed_by
       ${where} ORDER BY ${orderBy} LIMIT $${i} OFFSET $${i+1}`,vals)
@@ -799,21 +802,83 @@ export class PgStore {
     return r.rows[0]??null
   }
 
-  // 客户端兑换：校验码可用后按码上的套餐+时长发放，并把码置为已用。
+  // 客户端兑换：一码可被 max_uses 个不同账号兑换（null=不限）。同一账号对同一码
+  // 只能兑换一次（redeem_redemptions 唯一约束保证幂等，杜绝旧版“重复兑换翻倍”）。
   async redeemCode(userId:string,codeInput:string){
     const code=codeInput.trim().toUpperCase()
     const client=await this.pool.connect()
     try{
       await client.query('BEGIN')
+      // 锁住整条码，串行化并发兑换，保证 used_count 计数与名额判断准确。
       const rc=(await client.query('SELECT * FROM redeem_codes WHERE code=$1 FOR UPDATE',[code])).rows[0]
       if(!rc){await client.query('ROLLBACK');throw new AppError('REDEEM_NOT_FOUND','兑换码无效',404)}
-      if(rc.status!=='active'){await client.query('ROLLBACK');throw new AppError('REDEEM_UNAVAILABLE','兑换码已被使用或已停用',409)}
+      if(rc.status==='disabled'){await client.query('ROLLBACK');throw new AppError('REDEEM_UNAVAILABLE','兑换码已停用',409)}
       if(rc.code_expires_at&&new Date(rc.code_expires_at).getTime()<Date.now()){await client.query('ROLLBACK');throw new AppError('REDEEM_EXPIRED','兑换码已过期',409)}
+      const maxUses:number|null=rc.max_uses==null?null:Number(rc.max_uses)
+      const usedCount=Number(rc.used_count)||0
+      // 名额用尽（末次成功兑换时 status 已置 used，这里是双保险）。
+      if(rc.status==='used'||(maxUses!=null&&usedCount>=maxUses)){
+        await client.query('ROLLBACK')
+        throw new AppError('REDEEM_EXHAUSTED','兑换码已被领完',409)
+      }
+      // 幂等闸门：同一账号重复兑换同一码时唯一约束冲突 → 不再二次发放。
+      const claim=await client.query(`INSERT INTO redeem_redemptions(code_id,user_id) VALUES($1,$2)
+        ON CONFLICT (code_id,user_id) DO NOTHING RETURNING id`,[rc.id,userId])
+      if(!claim.rowCount){await client.query('ROLLBACK');throw new AppError('REDEEM_ALREADY','你已经兑换过这个兑换码了',409)}
       const grant=await this.grantWithinTx(client,{userId,planId:rc.plan_id,durationDays:rc.duration_days,lifetime:rc.lifetime,source:'redeem'})
-      await client.query(`UPDATE redeem_codes SET status='used',redeemed_by=$2,redeemed_at=now() WHERE id=$1`,[rc.id,userId])
+      const nextUsed=usedCount+1
+      const nowUsedUp=maxUses!=null&&nextUsed>=maxUses
+      await client.query(`UPDATE redeem_codes SET used_count=$2,status=$3,redeemed_by=$4,redeemed_at=now() WHERE id=$1`,
+        [rc.id,nextUsed,nowUsedUp?'used':'active',userId])
       await client.query('COMMIT')
       return {ok:true,...grant}
     }catch(e){await client.query('ROLLBACK');throw e}finally{client.release()}
+  }
+
+  // 记录一次下载/浏览事件。IP 仅存盐值哈希，不落原始地址。
+  async recordDownloadEvent(ev:{kind:'download'|'view';file?:string;version?:string;ip?:string;visitorId?:string;userAgent?:string;referer?:string;path?:string}){
+    const ipHash=ev.ip?sha256('proxysplit-dl-ip-v1:'+ev.ip):''
+    await this.pool.query(`INSERT INTO download_events(kind,file,version,ip_hash,visitor_id,user_agent,referer,path)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8)`,
+      [ev.kind,(ev.file??'').slice(0,200),(ev.version??'').slice(0,40),ipHash,(ev.visitorId??'').slice(0,64),
+       (ev.userAgent??'').slice(0,500),(ev.referer??'').slice(0,500),(ev.path??'').slice(0,300)])
+  }
+
+  // 下载/浏览统计：总量、去重(独立IP/独立访客)、按日趋势、版本与来源分布。
+  async downloadStats(range:{from:Date;to:Date}){
+    const day=(col:string)=>`to_char(date_trunc('day',${col} AT TIME ZONE 'Asia/Shanghai'),'YYYY-MM-DD')`
+    const win:[Date,Date]=[range.from,range.to]
+    const [totals,daily,versions,referers,recent]=await Promise.all([
+      this.pool.query(`SELECT kind,
+          count(*)::int AS total,
+          count(DISTINCT NULLIF(ip_hash,''))::int AS "uniqueIps",
+          count(DISTINCT NULLIF(visitor_id,''))::int AS "uniqueVisitors"
+        FROM download_events WHERE created_at>=$1 AND created_at<$2 GROUP BY kind`,win),
+      this.pool.query(`SELECT ${day('created_at')} AS date,
+          count(*) FILTER(WHERE kind='download')::int AS downloads,
+          count(*) FILTER(WHERE kind='view')::int AS views,
+          count(DISTINCT NULLIF(ip_hash,'')) FILTER(WHERE kind='download')::int AS "downloadIps"
+        FROM download_events WHERE created_at>=$1 AND created_at<$2 GROUP BY 1 ORDER BY 1`,win),
+      this.pool.query(`SELECT version,count(*)::int AS total,count(DISTINCT NULLIF(ip_hash,''))::int AS "uniqueIps"
+        FROM download_events WHERE kind='download' AND created_at>=$1 AND created_at<$2 AND version<>'' GROUP BY version ORDER BY total DESC LIMIT 20`,win),
+      this.pool.query(`SELECT COALESCE(NULLIF(split_part(regexp_replace(referer,'^https?://',''),'/',1),''),'直接访问') AS source,count(*)::int AS total
+        FROM download_events WHERE created_at>=$1 AND created_at<$2 GROUP BY 1 ORDER BY total DESC LIMIT 15`,win),
+      this.pool.query(`SELECT kind,file,version,referer,created_at AS "createdAt"
+        FROM download_events WHERE created_at>=$1 AND created_at<$2 ORDER BY created_at DESC LIMIT 50`,win),
+    ])
+    const n=(v:unknown)=>Number(v)||0
+    const dl=totals.rows.find(r=>r.kind==='download')
+    const vw=totals.rows.find(r=>r.kind==='view')
+    return {
+      summary:{
+        downloads:n(dl?.total),downloadUniqueIps:n(dl?.uniqueIps),downloadUniqueVisitors:n(dl?.uniqueVisitors),
+        views:n(vw?.total),viewUniqueIps:n(vw?.uniqueIps),viewUniqueVisitors:n(vw?.uniqueVisitors),
+      },
+      daily:daily.rows.map(r=>({date:r.date,downloads:r.downloads,views:r.views,downloadIps:r.downloadIps})),
+      versions:versions.rows.map(r=>({version:r.version,total:r.total,uniqueIps:r.uniqueIps})),
+      referers:referers.rows.map(r=>({source:r.source,total:r.total})),
+      recent:recent.rows.map(r=>({kind:r.kind,file:r.file,version:r.version,referer:r.referer,createdAt:r.createdAt})),
+    }
   }
 
   async listAnnouncements(params:Partial<AnnouncementListQuery>&{publicOnly?:boolean}={}):Promise<ListResult<any>>{
