@@ -23,6 +23,15 @@
 .pricing-card p{min-height:43px;color:#91a4bc;font-size:11px;line-height:1.65}
 .pricing-card ul{padding-left:17px;color:#bdc9d8;font-size:11px;line-height:1.9}
 .pricing-card>a{display:flex;height:40px;margin-top:18px;align-items:center;justify-content:center;border-radius:10px;background:#fff;color:#102248;font-size:11px;font-weight:800}
+.pricing-card.has-sale{border-color:rgba(255,120,60,.5);box-shadow:0 18px 50px rgba(255,90,40,.15)}
+.pricing-card.sale-ended{opacity:.82}
+.pricing-card.sale-ended strong del{display:none}
+.sale-countdown{margin:2px 0 12px;padding:9px 11px;border-radius:11px;background:linear-gradient(135deg,rgba(255,86,48,.17),rgba(255,153,0,.12));border:1px solid rgba(255,120,60,.42);display:flex;flex-direction:column;gap:6px}
+.sale-countdown .sc-label{color:#ffb27a;font-size:9.5px;font-weight:800;letter-spacing:.03em}
+.sale-countdown .sc-label.ended{color:#8297b0}
+.sale-countdown .sc-timer{display:flex;align-items:center;gap:3px;font-variant-numeric:tabular-nums}
+.sale-countdown .sc-timer b{min-width:26px;padding:3px 5px;border-radius:6px;background:rgba(8,16,30,.6);color:#ffd9b0;font-size:14px;font-weight:800;text-align:center}
+.sale-countdown .sc-timer i{color:#e0894a;font-size:10px;font-style:normal;font-weight:700;margin:0 1px}
 .pricing-placeholder{grid-column:1/-1;min-height:140px;display:grid;place-content:center;text-align:center}
 .pricing-placeholder span{font-size:16px;font-weight:800}
 .pricing-placeholder p{color:#8297b0;font-size:11px}

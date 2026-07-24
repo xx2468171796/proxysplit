@@ -63,20 +63,66 @@ if (planGrid) {
       planGrid.innerHTML = items.map((plan) => {
         const period = plan.lifetime ? '永久有效' : `${plan.durationDays || 0} 天`
         const tier = plan.tier === 'premium' ? '超级会员' : '普通会员'
-        return `<article class="pricing-card ${plan.tier === 'premium' ? 'premium' : ''}">
+        const saleEnds = plan.saleEndsAt ? Date.parse(plan.saleEndsAt) : NaN
+        const onSale = Number.isFinite(saleEnds) && saleEnds > Date.now()
+        const countdown = onSale
+          ? `<div class="sale-countdown" data-sale-ends="${escapeHTML(plan.saleEndsAt)}" role="timer" aria-label="限时优惠倒计时">
+              <span class="sc-label">⏳ 限时优惠 · 距结束</span>
+              <span class="sc-timer"><b data-cd="d">--</b><i>天</i><b data-cd="h">--</b><i>:</i><b data-cd="m">--</b><i>:</i><b data-cd="s">--</b></span>
+            </div>`
+          : ''
+        const limit = plan.purchaseLimitPerUser ? `<li>每人限购 ${plan.purchaseLimitPerUser} 次</li>` : ''
+        return `<article class="pricing-card ${plan.tier === 'premium' ? 'premium' : ''}${onSale ? ' has-sale' : ''}">
           <div><span>${escapeHTML(plan.badge || tier)}</span><em>${plan.maxDevices} 台设备</em></div>
           <h3>${escapeHTML(plan.name)}</h3>
           <strong><small>¥</small>${(Number(plan.priceCents) / 100).toFixed(2)}${Number(plan.originalPriceCents) > Number(plan.priceCents) ? `<del>¥${(Number(plan.originalPriceCents) / 100).toFixed(2)}</del>` : ''}</strong>
+          ${countdown}
           <p>${escapeHTML(plan.description || '')}</p>
-          <ul><li>${period}</li><li>${tier}</li><li>服务端签名授权</li></ul>
+          <ul><li>${period}</li><li>${tier}</li>${limit}<li>服务端签名授权</li></ul>
           <a href="/download/proxysplit-v1.9.27.exe" data-download>支付宝开通</a>
         </article>`
       }).join('')
       latestRelease.then((release) => applyLatestDownload(release, planGrid))
+      startCountdowns(planGrid)
     })
     .catch(() => {
       planGrid.innerHTML = '<article class="pricing-placeholder"><span>套餐暂不可用</span><p>请稍后重试，或在客户端会员中心查看。</p></article>'
     })
+}
+
+// Live limited-time countdown for plans with a future saleEndsAt (set in the
+// admin backend). Ticks every second and flips to "活动已结束" on expiry.
+function startCountdowns(root) {
+  const nodes = [...root.querySelectorAll('.sale-countdown[data-sale-ends]')]
+  if (!nodes.length) return
+  const pad = (n) => String(n).padStart(2, '0')
+  let timer
+  const tick = () => {
+    const now = Date.now()
+    let anyLive = false
+    nodes.forEach((node) => {
+      const end = Date.parse(node.getAttribute('data-sale-ends'))
+      const card = node.closest('.pricing-card')
+      if (!Number.isFinite(end)) { node.remove(); return }
+      let ms = end - now
+      if (ms <= 0) {
+        node.innerHTML = '<span class="sc-label ended">活动已结束</span>'
+        card?.classList.add('sale-ended')
+        card?.classList.remove('has-sale')
+        return
+      }
+      anyLive = true
+      const d = Math.floor(ms / 86400000); ms -= d * 86400000
+      const h = Math.floor(ms / 3600000); ms -= h * 3600000
+      const m = Math.floor(ms / 60000); ms -= m * 60000
+      const s = Math.floor(ms / 1000)
+      const set = (k, v) => { const el = node.querySelector(`[data-cd="${k}"]`); if (el) el.textContent = v }
+      set('d', d); set('h', pad(h)); set('m', pad(m)); set('s', pad(s))
+    })
+    if (!anyLive && timer) clearInterval(timer)
+  }
+  tick()
+  timer = setInterval(tick, 1000)
 }
 
 function escapeHTML(value) {
