@@ -37,3 +37,10 @@
 .pricing-placeholder p{color:#8297b0;font-size:11px}
 .pricing-foot{max-width:1200px;margin:20px auto 0;color:#71869f;font-size:10px;text-align:center}
 @media(max-width:700px){.protocol-strip{align-items:flex-start;flex-direction:column}.membership-note{align-items:flex-start;flex-direction:column}.pricing-grid{grid-template-columns:1fr}}
+
+.footer-contact{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-top:14px}
+.footer-contact>span{color:#758ba6;font-size:10px;font-weight:800;letter-spacing:.1em;text-transform:uppercase}
+.footer-contact button{display:inline-flex;align-items:center;gap:6px;padding:7px 12px;border:1px solid rgba(255,255,255,.14);border-radius:10px;background:rgba(255,255,255,.04);color:#c8d8ef;font:inherit;font-size:12px;cursor:pointer;transition:background .15s,border-color .15s}
+.footer-contact button:hover{background:rgba(79,124,255,.16);border-color:rgba(79,124,255,.45)}
+.footer-contact button b{color:#eaf1ff;font-weight:800;letter-spacing:.02em}
+.footer-contact button.copied{background:rgba(34,197,94,.16);border-color:rgba(34,197,94,.5);color:#86efac}

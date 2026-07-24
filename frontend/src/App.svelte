@@ -1073,14 +1073,17 @@
   // --- 侧栏底部：官网 / GitHub / QQ群 ---
   async function openWebsite() { if (isWailsReady()) { try { await WOpenWebsite() } catch (e) { toast('打开官网失败：' + e) } } }
   async function openGitHub() { if (isWailsReady()) { try { await WOpenGitHub() } catch (e) { toast('打开 GitHub 失败：' + e) } } }
-  async function copyQQ() {
-    const qq = '719243244'
+  async function copyContact(value: string, label: string) {
     try {
-      if (isWailsReady()) await WCopyToClipboard(qq)
-      else await navigator.clipboard?.writeText(qq)
-      toast('已复制 QQ 群号 ' + qq)
-    } catch { toast('QQ 群号：' + qq) }
+      if (isWailsReady()) await WCopyToClipboard(value)
+      else await navigator.clipboard?.writeText(value)
+      toast(`已复制${label} ${value}`)
+    } catch { toast(`${label}：${value}`) }
   }
+  const QQ_GROUP = '719243244'
+  const SERVICE_WECHAT = 'zyg69996'
+  const copyQQ = () => copyContact(QQ_GROUP, 'QQ 群号')
+  const copyWechat = () => copyContact(SERVICE_WECHAT, '客服微信')
 
   // --- 一键切模式 (clash mode: 规则/全局/直连, no restart) ---
   async function refreshClashMode() { clashMode = await safe<string>(() => WGetClashMode(), clashMode) }
@@ -1543,6 +1546,7 @@
     globe: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a15 15 0 0 1 0 18M12 3a15 15 0 0 0 0 18"/></svg>',
     qq: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M20 12c0-4.4-3.6-8-8-8s-8 3.6-8 8a8 8 0 0 0 3 6.2c-.3.9-.8 1.7-1 2.3-.2.5.2.8.6.6 1-.4 2.2-1 3-1.5a8 8 0 0 0 4.8 0c.8.5 2 1.1 3 1.5.4.2.8-.1.6-.6-.2-.6-.7-1.4-1-2.3A8 8 0 0 0 20 12z"/></svg>',
     ticket: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 8a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v2a2 2 0 0 0 0 4v2a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-2a2 2 0 0 0 0-4V8z"/><path d="M13 6v12" stroke-dasharray="2 2"/></svg>',
+    wechat: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M9 4C5.1 4 2 6.6 2 9.8c0 1.8 1 3.4 2.6 4.5L4 16.5l2.3-1.2c.6.2 1.2.3 1.9.4"/><path d="M15 8.5c3.3 0 6 2.3 6 5.1 0 1.6-.9 3-2.3 4l.5 1.9-2-1.1a7.7 7.7 0 0 1-2.2.3c-3.3 0-6-2.3-6-5s2.7-5.2 6-5.2z"/></svg>',
     bars: '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="3" y="14" width="3.5" height="6" rx="1"/><rect x="8.2" y="10" width="3.5" height="10" rx="1"/><rect x="13.4" y="6" width="3.5" height="14" rx="1"/><rect x="18.6" y="14" width="3.5" height="6" rx="1" opacity=".35"/></svg>',
     chevron: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 6l6 6-6 6"/></svg>',
     stop: '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="7" y="7" width="10" height="10" rx="2"/></svg>',
@@ -1674,7 +1678,7 @@
           <section class="member-panel device-limit-panel"><div class="panel-title"><b>选择要解绑的旧设备</b><span>{accountDevices.length} / {license.maxDevices || '—'} 台</span></div>{#each accountDevices as device}<div class="member-row"><div><b>{device.name}</b><small>{device.appVersion} · 最近在线 {new Date(device.lastSeenAt).toLocaleString()}</small></div><div>{#if device.current}<span class="current-device">当前设备</span>{/if}<button disabled={device.current} title={device.current ? '请勿解绑当前正在使用的设备' : '解绑此旧设备'} on:click={() => unbindDevice(device.id)}>解绑</button></div></div>{:else}<p class="member-empty">暂无可解绑设备</p>{/each}</section>
         {/if}
         {#if announcements.length}<section class="member-panel announcements"><div class="panel-title"><b>公告与更新</b><span>{announcements.length} 条</span></div>{#each announcements.slice(0, 4) as item}<div class="member-row"><div><b>{item.title}</b><small>{item.summary || item.content}</small></div><time>{new Date(item.publishedAt).toLocaleDateString()}</time></div>{/each}</section>{/if}
-        {#if activeOrder}<div class="payment-sheet qr-payment">{#if paymentQR}<div class="payment-qr-box"><img src={paymentQR} alt="支付宝付款二维码" /><span>请使用支付宝扫码</span></div>{/if}<div class="payment-order-info">{#if splitOrders.length > 1}<span class="split-badge">分 {splitOrders.length} 笔支付 · 第 {splitIdx + 1} 笔</span>{:else}<span>支付宝安全支付</span>{/if}<h3>{activeOrder.planName} · ¥{(activeOrder.amountCents / 100).toFixed(2)}</h3>{#if splitOrders.length > 1}<p>因支付渠道单笔限额，本单需分 {splitOrders.length} 笔支付。付完本笔（¥{(activeOrder.amountCents / 100).toFixed(2)}）会自动显示下一笔，全部付完即开通会员。</p>{:else}<p>打开手机支付宝扫描二维码完成付款，支付成功后点击刷新到账状态。</p>{/if}<small>请在 {new Date(activeOrder.expiresAt).toLocaleString()} 前完成支付</small></div><div class="payment-actions"><button class="ghost-btn" on:click={() => activeOrder?.payUrl && WOpenPaymentURL(activeOrder.payUrl)}>本机打开支付宝</button><button class="primary" disabled={commerceBusy} on:click={refreshPayment}>我已支付，刷新状态</button></div></div>{/if}
+        {#if activeOrder}<div class="payment-sheet qr-payment">{#if paymentQR}<div class="payment-qr-box"><img src={paymentQR} alt="支付宝付款二维码" /><span>请使用支付宝扫码</span></div>{/if}<div class="payment-order-info">{#if splitOrders.length > 1}<span class="split-badge">分 {splitOrders.length} 笔支付 · 第 {splitIdx + 1} 笔</span>{:else}<span>支付宝安全支付</span>{/if}<h3>{activeOrder.planName} · ¥{(activeOrder.amountCents / 100).toFixed(2)}</h3>{#if splitOrders.length > 1}<p class="split-note">⚠️ 本单金额较大，因支付渠道单笔限额，需<b>分 {splitOrders.length} 笔分别支付</b>。请先扫码付本笔 <b>¥{(activeOrder.amountCents / 100).toFixed(2)}</b>，付完会<b>自动跳出下一笔二维码</b>，{splitOrders.length} 笔全部付完才会开通会员，中途请勿关闭。</p>{:else}<p>打开手机支付宝扫描二维码完成付款，支付成功后点击刷新到账状态。</p>{/if}<small>请在 {new Date(activeOrder.expiresAt).toLocaleString()} 前完成支付</small></div><div class="payment-actions"><button class="ghost-btn" on:click={() => activeOrder?.payUrl && WOpenPaymentURL(activeOrder.payUrl)}>本机打开支付宝</button><button class="primary" disabled={commerceBusy} on:click={refreshPayment}>我已支付，刷新状态</button></div></div>{/if}
       </section>
     {/if}
   </main>
@@ -1705,10 +1709,17 @@
         <span class="dot" class:on={status?.coreRunning}></span>
         <div><strong>{status?.coreRunning ? '核心运行中' : '核心已停止'}</strong><small>sing-box {coreVersion || '1.13.14'}</small></div>
       </div>
+      <div class="contact-card">
+        <button class="contact-row" title="点击复制 QQ 群号" on:click={copyQQ}>
+          <i>{@html I.qq}</i><span>QQ 群 <b>{QQ_GROUP}</b></span><em>点击复制</em>
+        </button>
+        <button class="contact-row" title="点击复制客服微信" on:click={copyWechat}>
+          <i>{@html I.wechat}</i><span>客服微信 <b>{SERVICE_WECHAT}</b></span><em>点击复制</em>
+        </button>
+      </div>
       <div class="foot-icons">
         <button title="官网 proxysplit.zygskins.cn" on:click={openWebsite}>{@html I.globe}</button>
         <button title="GitHub github.com/xx2468171796" on:click={openGitHub}>{@html I.gh}</button>
-        <button title="QQ群 719243244（点击复制）" on:click={copyQQ}>{@html I.qq}</button>
       </div>
     </div>
   </aside>
@@ -2714,6 +2725,14 @@
   .side-nav button.active { background: var(--brand-tint); color: var(--brand); font-weight: 650; }
   .side-nav button.active i { color: var(--brand); }
   .sidebar-foot { margin-top: auto; display: grid; gap: var(--s4); }
+  .contact-card { display: grid; gap: 6px; padding: 9px; border: 1px solid rgba(255,255,255,.09); border-radius: 11px; background: rgba(255,255,255,.03); }
+  .contact-row { display: flex; align-items: center; gap: 8px; width: 100%; padding: 6px 8px; border: 0; border-radius: 8px; background: transparent; color: #cfe0f5; font: inherit; font-size: 12px; cursor: pointer; text-align: left; }
+  .contact-row:hover { background: rgba(59,130,246,.16); }
+  .contact-row i { display: inline-flex; width: 16px; height: 16px; flex: none; color: #7aa2ff; }
+  .contact-row i :global(svg) { width: 16px; height: 16px; }
+  .contact-row span { flex: 1; color: #9fb0c7; }
+  .contact-row b { color: #eaf1ff; font-weight: 700; letter-spacing: .02em; }
+  .contact-row em { flex: none; font-style: normal; font-size: 10px; color: #6b8bc4; }
   .core-card { display: flex; align-items: center; gap: 10px; padding: 11px 12px; border: 1px solid var(--line); border-radius: var(--r3); background: var(--soft); min-width: 0; }
   .core-card strong { display: block; font-size: 13px; color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .core-card small { display: block; font-size: 11px; color: var(--muted-2); margin-top: 2px; }
@@ -3320,6 +3339,8 @@
   .redeem-form input { flex: 1; min-height: 36px; padding: 0 12px; border: 1px solid rgba(255,255,255,.14); border-radius: 9px; background: rgba(8,16,30,.55); color: #e7eefb; font: inherit; font-size: 12px; }
   .redeem-form button { min-height: 36px; padding: 0 16px; border: 0; border-radius: 9px; background: #10b981; color: #04120c; font: inherit; font-size: 12px; font-weight: 800; cursor: pointer; }
   .split-badge { display: inline-block; padding: 3px 9px; border-radius: 999px; background: rgba(255,120,60,.16); border: 1px solid rgba(255,120,60,.42); color: #ffb27a; font-size: 11px; font-weight: 800; }
+  .split-note { margin: 8px 0 0!important; padding: 9px 11px; border-radius: 10px; background: rgba(255,120,60,.12); border: 1px solid rgba(255,120,60,.4); color: #ffcaa0!important; font-size: 12px; line-height: 1.7; }
+  .split-note b { color: #fff; }
   .redeem-form button:disabled { opacity: .55; cursor: not-allowed; }
   .redeem-form.vertical { flex-direction: column; }
   .redeem-form.vertical input, .redeem-form.vertical button { width: 100%; min-height: 42px; font-size: 13px; }

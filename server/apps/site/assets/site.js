@@ -153,3 +153,21 @@ function startCountdowns(root) {
 function escapeHTML(value) {
   return String(value).replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char])
 }
+
+// 页脚联系方式：点击复制 QQ 群 / 客服微信，并给出提示。
+document.querySelectorAll('[data-copy]').forEach((btn) => {
+  btn.addEventListener('click', async () => {
+    const value = btn.getAttribute('data-copy') || ''
+    const label = btn.getAttribute('data-label') || ''
+    const original = btn.dataset.original || btn.innerHTML
+    btn.dataset.original = original
+    try {
+      await navigator.clipboard.writeText(value)
+      btn.classList.add('copied')
+      btn.innerHTML = `已复制 ${label} ✓`
+    } catch {
+      btn.innerHTML = `${label}：${value}`
+    }
+    setTimeout(() => { btn.innerHTML = btn.dataset.original; btn.classList.remove('copied') }, 1800)
+  })
+})
