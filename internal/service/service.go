@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -849,6 +850,22 @@ func (s *Service) UpdateSub(id string) error {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	// A provider may return universal share links to ProxySplit and Clash YAML
+	// to Clash-compatible clients. Preserve IDs across equivalent formats so a
+	// subscription refresh never breaks selected nodes or per-app overrides.
+	oldByEndpoint := make(map[string]*nodes.Node)
+	for _, n := range s.cfg.Nodes {
+		if n.SubID == id {
+			oldByEndpoint[nodeEndpointKey(n)] = n
+		}
+	}
+	for _, n := range list {
+		if old := oldByEndpoint[nodeEndpointKey(n)]; old != nil {
+			n.ID = old.ID
+			n.Latency = old.Latency
+			n.Speed = old.Speed
+		}
+	}
 	// Drop old nodes from this sub, then merge fresh ones.
 	kept := s.cfg.Nodes[:0]
 	for _, n := range s.cfg.Nodes {
@@ -866,6 +883,22 @@ func (s *Service) UpdateSub(id string) error {
 	}
 	s.save()
 	return nil
+}
+
+func nodeEndpointKey(n *nodes.Node) string {
+	if n == nil {
+		return ""
+	}
+	sni := n.SNI
+	if strings.EqualFold(n.Security, "none") {
+		sni = ""
+	}
+	return strings.Join([]string{
+		strings.ToLower(n.Type), n.Name, strings.ToLower(n.Server),
+		strconv.Itoa(n.Port), n.UUID, n.Password, n.Username, n.Method,
+		strconv.Itoa(n.AlterID), n.Cipher, strings.ToLower(n.Security), sni,
+		n.Flow, n.PublicKey, n.ShortID, strings.ToLower(n.Network), n.Path, n.Host,
+	}, "\x00")
 }
 
 // RemoveSub deletes a subscription and its nodes.

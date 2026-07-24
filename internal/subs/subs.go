@@ -43,7 +43,10 @@ func Fetch(url string, viaProxy string) ([]*nodes.Node, error) {
 	if err != nil {
 		return nil, fmt.Errorf("build request: %w", err)
 	}
-	req.Header.Set("User-Agent", "ProxySplit")
+	// Many subscription panels negotiate on User-Agent. Asking for Clash format
+	// gives complete structured proxy fields; ParseClashYAML below handles it,
+	// while panels that return universal/base64 links remain supported.
+	req.Header.Set("User-Agent", "Clash.Meta")
 
 	resp, err := client.Do(req)
 	if err != nil {
@@ -61,11 +64,20 @@ func Fetch(url string, viaProxy string) ([]*nodes.Node, error) {
 
 	text := decodeBody(string(body))
 	out, _ := nodes.ParseMany(text)
+	if len(out) == 0 {
+		out, err = nodes.ParseClashYAML(body)
+		if err != nil {
+			return nil, fmt.Errorf("subscription has no supported nodes: %w", err)
+		}
+	}
 	filtered := out[:0]
 	for _, node := range out {
 		if !isMetadataNode(node.Name) {
 			filtered = append(filtered, node)
 		}
+	}
+	if len(filtered) == 0 {
+		return nil, fmt.Errorf("subscription contains only metadata entries")
 	}
 	return filtered, nil
 }
