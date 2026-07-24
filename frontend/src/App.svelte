@@ -1391,20 +1391,20 @@
         {#if license.deviceLimitReached}<div class="member-alert"><b>本机待激活</b>：已达到 {license.maxDevices} 台设备上限。请在此页面解绑一台旧设备；解绑成功后系统会自动绑定本机并恢复启动权限。</div>{/if}
         {#if commerceError}<div class="member-alert">{commerceError}</div>{/if}
         <section class="benefit-comparison">
-          <div class="benefit-title"><div><b>普通会员与超级会员</b><small>按设备数量和所需功能选择，套餐时长可在下方挑选</small></div></div>
+          <div class="benefit-title"><div><b>普通会员与超级会员</b><small>功能与协议完全一致，仅同时在线设备数量不同</small></div></div>
           <div class="benefit-grid">
             <div class="benefit-corner">权益项目</div><div class="benefit-tier">普通会员</div><div class="benefit-tier premium">超级会员</div>
             <div>同时在线设备</div><b>{standardReference?.maxDevices || 3} 台</b><b>{premiumReference?.maxDevices || 8} 台</b>
-            <div>代理协议</div><b>HTTP / HTTPS / SOCKS5</b><b>全部主流协议</b>
+            <div>代理协议</div><b>全部支持</b><b>全部支持</b>
             <div>应用分流规则</div><b>支持</b><b>支持</b>
-            <div>自定义线路</div><b class="muted-benefit">基础线路</b><b>支持</b>
-            <div>技术支持</div><b class="muted-benefit">标准支持</b><b>优先支持</b>
+            <div>自定义线路</div><b>支持</b><b>支持</b>
+            <div>功能权益</div><b>完整功能</b><b>完整功能</b>
           </div>
         </section>
         <div class="plan-sections">
           {#each [
             { key: 'standard', title: '普通会员', note: '适合个人日常使用，支持 3 台设备', plans: standardPlans },
-            { key: 'premium', title: '超级会员', note: '更多设备、全部协议和高级功能', plans: premiumPlans }
+            { key: 'premium', title: '超级会员', note: '功能与普通会员一致，支持 8 台设备', plans: premiumPlans }
           ] as group (group.key)}
             {#if group.plans.length}
               <section class="plan-section">
@@ -2143,21 +2143,21 @@
         {#if commerceError}<div class="member-alert">{commerceError}</div>{/if}
         {#if planLoadError}<div class="member-alert plan-load-alert"><span>{planLoadError}</span><button class="member-refresh" on:click={loadCommerce}>重新读取</button></div>{/if}
         <section class="benefit-comparison compact">
-          <div class="benefit-title"><div><b>普通会员与超级会员</b><small>按设备数量和所需功能选择，套餐时长可在下方挑选</small></div></div>
+          <div class="benefit-title"><div><b>普通会员与超级会员</b><small>功能与协议完全一致，仅同时在线设备数量不同</small></div></div>
           <div class="benefit-grid">
             <div class="benefit-corner">权益项目</div><div class="benefit-tier">普通会员</div><div class="benefit-tier premium">超级会员</div>
             <div>同时在线设备</div><b>{standardReference?.maxDevices || 3} 台</b><b>{premiumReference?.maxDevices || 8} 台</b>
-            <div>代理协议</div><b>HTTP / HTTPS / SOCKS5</b><b>全部主流协议</b>
+            <div>代理协议</div><b>全部支持</b><b>全部支持</b>
             <div>应用分流规则</div><b>支持</b><b>支持</b>
-            <div>自定义线路</div><b class="muted-benefit">基础线路</b><b>支持</b>
-            <div>技术支持</div><b class="muted-benefit">标准支持</b><b>优先支持</b>
+            <div>自定义线路</div><b>支持</b><b>支持</b>
+            <div>功能权益</div><b>完整功能</b><b>完整功能</b>
           </div>
         </section>
         {#if memberPlans.length}
           <div class="plan-sections">
             {#each [
               { key: 'standard', title: '普通会员', note: '适合个人日常使用，支持 3 台设备', plans: standardPlans },
-              { key: 'premium', title: '超级会员', note: '更多设备、全部协议和高级功能', plans: premiumPlans }
+              { key: 'premium', title: '超级会员', note: '功能与普通会员一致，支持 8 台设备', plans: premiumPlans }
             ] as group (group.key)}
               {#if group.plans.length}
                 <section class="plan-section">

@@ -4,7 +4,6 @@ import (
 	"context"
 	"embed"
 	"encoding/json"
-	"fmt"
 	"net"
 	"net/url"
 	"os"
@@ -98,23 +97,6 @@ func (a *App) startup(ctx context.Context) {
 func (a *App) commercialStartGuard() error {
 	if err := a.lic.EnsureEntitled(); err != nil {
 		return err
-	}
-	if !a.lic.Enabled() {
-		return nil
-	}
-	selected := a.svc.Status().SelectedID
-	for _, node := range a.svc.Nodes() {
-		if node.ID != selected {
-			continue
-		}
-		protocol := strings.ToLower(node.Type)
-		if protocol == "socks5" {
-			protocol = "socks"
-		}
-		if a.lic.HasFeature("all-protocols") || a.lic.HasFeature(protocol) {
-			return nil
-		}
-		return fmt.Errorf("当前会员不支持 %s 协议，请升级超级会员", strings.ToUpper(protocol))
 	}
 	return nil
 }
@@ -302,9 +284,6 @@ func (a *App) SetAppRules(rules []service.AppRule) string { return a.svc.SetAppR
 // GetLines / SetLines manage routing lines (builtin + custom; SetLines takes custom).
 func (a *App) GetLines() []service.Line { return a.svc.GetLines() }
 func (a *App) SetLines(lines []service.Line) string {
-	if len(lines) > 0 && a.lic != nil && !a.lic.HasFeature("custom-lines") {
-		return "当前会员不支持自定义线路，请升级超级会员"
-	}
 	return a.svc.SetLines(lines)
 }
 
@@ -397,9 +376,6 @@ func (a *App) SetRuleSetEnabled(name string, enabled bool) string {
 // Global custom routing rules (域名/IP → 代理/直连/拦截).
 func (a *App) GetCustomRules() []core.RouteRule { return a.svc.GetCustomRules() }
 func (a *App) SetCustomRules(rules []core.RouteRule) string {
-	if len(rules) > 0 && a.lic != nil && !a.lic.HasFeature("custom-lines") {
-		return "当前会员不支持高级自定义规则，请升级超级会员"
-	}
 	return a.svc.SetCustomRules(rules)
 }
 
