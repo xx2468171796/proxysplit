@@ -268,7 +268,11 @@ func (c *Client) request(ctx context.Context, method, path string, input any, ou
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Content-Type", "application/json")
+	if input != nil {
+		// Fastify rejects an empty request carrying application/json before the
+		// route runs. DELETE /devices has no body, so do not advertise one.
+		req.Header.Set("Content-Type", "application/json")
+	}
 	if token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)
 	}

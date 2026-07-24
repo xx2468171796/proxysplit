@@ -15,6 +15,14 @@ export async function buildApp(config:ApiConfig,provided?:Core){
   // overwrites (rather than appends) X-Forwarded-For, so client-supplied hops
   // cannot become req.ip even though Docker changes the proxy source address.
   const app=Fastify({logger:{level:config.NODE_ENV==='test'?'silent':'info'},trustProxy:1})
+  // v1.9.20 and older clients sent Content-Type: application/json on a
+  // bodyless DELETE. Fastify rejects that before routing, so normalize these
+  // legacy requests while new clients stop sending the incorrect header.
+  app.addHook('onRequest',async req=>{
+    if(req.method==='DELETE'&&(!req.headers['content-length']||req.headers['content-length']==='0')){
+      delete req.headers['content-type']
+    }
+  })
   let redis:Redis|undefined
   if(config.REDIS_URL){redis=new Redis(config.REDIS_URL,{maxRetriesPerRequest:1,enableOfflineQueue:false});redis.on('error',()=>{})}
   await app.register(cors,{origin:[config.ADMIN_ORIGIN],credentials:false})

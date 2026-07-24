@@ -57,3 +57,23 @@ func TestCreateOrderRefreshesAndRetriesOnlyOnUnauthorized(t *testing.T) {
 		t.Fatalf("unexpected calls: orders=%d refreshes=%d", orders, refreshes)
 	}
 }
+
+func TestUnbindDeviceSendsNoJSONContentTypeWithoutBody(t *testing.T) {
+	var contentType string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		contentType = r.Header.Get("Content-Type")
+		if r.Method != http.MethodDelete {
+			t.Fatalf("method=%s", r.Method)
+		}
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer server.Close()
+	c := &Client{apiURL: server.URL, http: server.Client(), path: t.TempDir() + "/license.dat",
+		state: state{AccessToken: "access", DeviceID: "current-device"}}
+	if err := c.UnbindDevice("old-device"); err != nil {
+		t.Fatal(err)
+	}
+	if contentType != "" {
+		t.Fatalf("bodyless DELETE advertised JSON content: %q", contentType)
+	}
+}

@@ -47,4 +47,30 @@ describe('commercial API shell', () => {
     expect(admin.statusCode).toBe(403)
     await app.close()
   })
+
+  it('accepts legacy bodyless device DELETE requests that advertise JSON', async () => {
+    const config: ApiConfig = {
+      NODE_ENV: 'test', HOST: '127.0.0.1', PORT: 18780, PUBLIC_BASE_URL:'http://127.0.0.1:18780',
+      DATABASE_URL: 'postgres://unused', ACCESS_TOKEN_SECRET: 'test-secret-must-be-at-least-32-bytes-long',
+      REFRESH_TOKEN_TTL_DAYS: 30, ADMIN_ORIGIN: 'http://127.0.0.1:18781',
+    }
+    let unbound=''
+    const core = {
+      auth: { publicKeyPem: 'PUBLIC-KEY', verifyAccess: async () => ({ userId: 'u', deviceId: 'current', role: 'user' }) },
+      store: {
+        unbindDevice: async(id:string,userId:string)=>{unbound=`${userId}:${id}`;return {userId}},
+        audit: async()=>{},
+      },
+      close: async () => {},
+    }
+    const app = await buildApp(config, core as never)
+    const response = await app.inject({
+      method: 'DELETE', url: '/v1/me/devices/old-device',
+      headers: { authorization: 'Bearer token', 'content-type':'application/json' },
+    })
+    expect(response.statusCode).toBe(200)
+    expect(response.json()).toEqual({ok:true})
+    expect(unbound).toBe('u:old-device')
+    await app.close()
+  })
 })
