@@ -119,3 +119,10 @@
 - 本机当前 39 个节点按新标准实测 Google HTTPS 为 0/39，证实截图中的 4/5 ms 是旧 TCP 假阳性，不能代表节点可上网。
 - 回归通过：`go test ./...`、`go vet ./...`、Svelte check/build；正式产物 `output/proxysplit-v1.9.32.exe`，81,974,272 字节，SHA256 `e500cdcd015a830be50d6c0f26b4bbf6691cb9c20da8e9dfe6afe1e0c8622187`。
 - 生产 API、官网、下载与本机进程均已切换 v1.9.32；生产站点目录 `/opt/proxysplit/releases/20260724-193000-d5b4cfc`。
+## 2026-07-24 v1.9.33 实时上下行速度修复
+- 根因确认：迁移到 sing-box 原生分流后，`Status.Stats` 仍沿用已删除的 WinDivert 计数器，服务端始终返回 0；前端虽然每秒计算差值，但数据源从未变化。
+- 已改为每秒读取 sing-box Clash API `/connections` 的 `downloadTotal`、`uploadTotal` 和活动连接数，前端按相邻累计值计算实时 B/s、KB/s、MB/s。
+- 修复 1480px 响应式规则按 DOM 序号误隐藏“上传”的问题；窄窗口现在优先保留下载、上传和启动按钮。
+- 实机启动 v1.9.33 后验证 Clash API：2 秒内下载累计增加 14,095 字节、上传累计增加 11,327 字节，活动连接 8，数据源会真实变化。
+- 回归通过 `go test ./...`、`go vet ./...`、Svelte check/build；正式产物 81,877,504 字节，SHA256 `efa2b812a1be04be17bf35005b8b7b2322bdb70c6d90c260968e7b507c44d175`。
+- 生产 API、官网、下载与本机进程均已切换 v1.9.33；生产站点目录 `/opt/proxysplit/releases/20260724-194300-8dd86d3`。
