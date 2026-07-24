@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"time"
 )
@@ -84,4 +85,49 @@ func putClashMode(port int, secret, mode string) error {
 		return fmt.Errorf("clash_api status %d", resp.StatusCode)
 	}
 	return nil
+}
+
+// clashTraffic reads the cumulative byte counters maintained by sing-box's
+// Clash API. The UI polls Status once per second and calculates the current
+// upload/download rate from the difference between two snapshots.
+func clashTraffic(port int, secret string) (Stats, error) {
+	if port <= 0 {
+		return Stats{}, fmt.Errorf("clash_api is not running")
+	}
+	return clashTrafficURL(fmt.Sprintf("http://127.0.0.1:%d/connections", port), secret)
+}
+
+func clashTrafficURL(url, secret string) (Stats, error) {
+	req, err := http.NewRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return Stats{}, err
+	}
+	if secret != "" {
+		req.Header.Set("Authorization", "Bearer "+secret)
+	}
+	resp, err := (&http.Client{Timeout: 600 * time.Millisecond}).Do(req)
+	if err != nil {
+		return Stats{}, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1024))
+		return Stats{}, fmt.Errorf("clash_api status %d", resp.StatusCode)
+	}
+	var payload struct {
+		DownloadTotal int64             `json:"downloadTotal"`
+		UploadTotal   int64             `json:"uploadTotal"`
+		Connections   []json.RawMessage `json:"connections"`
+	}
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 8<<20)).Decode(&payload); err != nil {
+		return Stats{}, err
+	}
+	return Stats{
+		Running:     true,
+		ActiveConns: int64(len(payload.Connections)),
+		TotalConns:  int64(len(payload.Connections)),
+		Tracked:     len(payload.Connections),
+		UpBytes:     payload.UploadTotal,
+		DownBytes:   payload.DownloadTotal,
+	}, nil
 }

@@ -94,9 +94,9 @@ type Config struct {
 	Apps []string `json:"apps,omitempty"` // legacy; migrated to Rules on load
 }
 
-// Stats is a counter snapshot surfaced to the UI. The legacy WinDivert capture
-// engine that populated it was removed with the move to sing-box-native routing,
-// so these currently report zero; the fields are kept for the UI contract.
+// Stats is a cumulative counter snapshot surfaced to the UI. It is populated
+// from sing-box's Clash API; the frontend derives bytes/second from consecutive
+// snapshots.
 type Stats struct {
 	Running     bool  `json:"running"`
 	ActiveConns int64 `json:"activeConns"`
@@ -136,6 +136,7 @@ type Service struct {
 	activeFP     map[string]string // running line id -> content fingerprint (change detection)
 	clashPort    int               // clash_api external controller port of the running core
 	clashSecret  string            // clash_api bearer secret
+	trafficStats Stats             // last successful clash_api counter snapshot
 	clashMode    string            // last-applied clash mode: rule|global|direct (default rule)
 	sysProxyOn   bool              // the Windows system proxy is currently applied by us
 	sysProxyWant bool              // user wants system proxy on — re-applied (new port) each Start
@@ -1291,6 +1292,7 @@ func (s *Service) Start() error {
 		clashPort, _ := core.FreePort()
 		s.mu.Lock()
 		s.clashPort = clashPort
+		s.trafficStats = Stats{}
 		s.mu.Unlock()
 		if err := s.core.StartTUN(node, level, tunRoute, nil, clashOptsFor(clashPort)); err != nil {
 			return fmt.Errorf("core(TUN): %w", err)
@@ -1410,6 +1412,7 @@ func (s *Service) Start() error {
 	clashPort, _ := core.FreePort()
 	s.mu.Lock()
 	s.clashPort = clashPort
+	s.trafficStats = Stats{}
 	s.mu.Unlock()
 	opts := clashOptsFor(clashPort)
 	opts.Split = true
@@ -1440,6 +1443,7 @@ func (s *Service) Stop() {
 	s.mu.Lock()
 	s.startedAt = time.Time{}
 	s.activeFP = nil
+	s.trafficStats = Stats{}
 	clearSysProxy := s.sysProxyOn
 	s.mu.Unlock()
 	s.core.Stop()
@@ -1462,14 +1466,32 @@ func (s *Service) Status() Status {
 	sel := s.cfg.SelectedID
 	mode := s.cfg.RuleMode
 	started := s.startedAt
+	clashPort := s.clashPort
+	clashSecret := s.clashSecret
+	stats := s.trafficStats
 	s.mu.Unlock()
 
+	running := s.core.Running()
 	st := Status{
-		CoreRunning:   s.core.Running(),
+		CoreRunning:   running,
 		CorePort:      s.core.Port(),
 		SelectedID:    sel,
 		RuleMode:      mode,
-		EngineRunning: false,
+		EngineRunning: running,
+	}
+	if running {
+		if fresh, err := clashTraffic(clashPort, clashSecret); err == nil {
+			stats = fresh
+			s.mu.Lock()
+			s.trafficStats = fresh
+			s.mu.Unlock()
+		} else {
+			// A core can be alive for a fraction of a second before its Clash
+			// controller is ready. Keep the status responsive and retry on the
+			// next one-second UI poll.
+			stats.Running = true
+		}
+		st.Stats = stats
 	}
 	if node != nil {
 		st.NodeName = node.Name

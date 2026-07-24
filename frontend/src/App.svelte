@@ -461,14 +461,21 @@
     status = await safe(() => WGetStatus() as Promise<Status>, demoStatus)
     const s = status?.stats
     const now = Date.now()
-    if (s && prevT) {
+    if (!s?.running) {
+      downRate = 0; upRate = 0
+      prevDown = 0; prevUp = 0; prevT = 0
+      return
+    }
+    if (prevT) {
       const dt = (now - prevT) / 1000
       if (dt > 0) {
-        downRate = Math.max(0, s.downBytes - prevDown) / dt
-        upRate = Math.max(0, s.upBytes - prevUp) / dt
+        // sing-box counters restart from zero whenever the core restarts.
+        // Treat a decrease as a new baseline instead of showing a giant spike.
+        downRate = s.downBytes >= prevDown ? (s.downBytes - prevDown) / dt : 0
+        upRate = s.upBytes >= prevUp ? (s.upBytes - prevUp) / dt : 0
       }
     }
-    if (s) { prevDown = s.downBytes; prevUp = s.upBytes; prevT = now }
+    prevDown = s.downBytes; prevUp = s.upBytes; prevT = now
   }
   async function refreshAll() {
     await Promise.all([refreshStatus(), refreshHealth(), refreshNodes(), refreshRules(), refreshLines(), refreshSubs()])
@@ -1580,9 +1587,9 @@
             <div><b>{license.username}</b><small>{membershipIdentity} · {membershipRemaining}</small></div>
           </button>
         {/if}
-        <div class="metric-mini"><small>下载</small><strong class="down">↓ {dn.v} {dn.u}</strong></div>
-        <div class="metric-mini"><small>上传</small><strong class="up">↑ {up.v} {up.u}</strong></div>
-        <div class="metric-mini"><small>连接 / 状态</small><strong>{activeConns} · {running ? uptime : '未连接'}</strong></div>
+        <div class="metric-mini metric-down"><small>下载</small><strong class="down">↓ {dn.v} {dn.u}</strong></div>
+        <div class="metric-mini metric-up"><small>上传</small><strong class="up">↑ {up.v} {up.u}</strong></div>
+        <div class="metric-mini metric-status"><small>连接 / 状态</small><strong>{activeConns} · {running ? uptime : '未连接'}</strong></div>
         <button class="power-btn" class:running on:click={toggleRun} disabled={busy}>
           {@html running ? I.stop : I.power}<span>{busy ? '…' : running ? '停止' : '启动'}</span>
         </button>
@@ -2495,12 +2502,14 @@
 
   /* 窄窗口优先保留标题、活动节点和启动按钮，统计项不再把顶栏挤出窗口。 */
   @media (max-width: 1480px) {
-    .top-metrics .metric-mini:nth-child(3) { display: none; }
+    .top-metrics .account-chip { display: none; }
     .tb-left { gap: 10px; }.page-identity { min-width: 106px; }
   }
   @media (max-width: 1240px) {
-    .top-metrics { display: none; }.tb-field select { max-width: 180px; }
-    .account-chip { max-width: 118px; }.account-chip div { display: none; }
+    .top-metrics { display: flex; }
+    .top-metrics .metric-status { display: none; }
+    .tb-field select { max-width: 160px; }
+    .page-identity { display: none; }
   }
 
   /* ---------- workspace ---------- */
