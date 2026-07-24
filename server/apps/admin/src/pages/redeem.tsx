@@ -569,42 +569,83 @@ function CreateRedeemDialog({
                   onChange={(e) => setDays(Number(e.target.value))}
                 />
               </div>
-              <div className="space-y-1.5">
-                <Label>生成数量</Label>
-                <Input
-                  type="number"
-                  min={1}
-                  max={500}
-                  value={count}
-                  onChange={(e) => setCount(Number(e.target.value))}
-                />
-              </div>
+              <label className="flex items-center gap-2 pb-2 text-sm self-end">
+                <Checkbox checked={lifetime} onCheckedChange={(v) => setLifetime(v === true)} />
+                永久有效
+              </label>
             </div>
-            <label className="flex items-center gap-2 text-sm">
-              <Checkbox checked={lifetime} onCheckedChange={(v) => setLifetime(v === true)} />
-              永久有效（忽略有效天数）
-            </label>
-            <div className="space-y-1.5 rounded-md border border-dashed p-3">
+
+            {/* 发放方式：把「生成几个码」与「每码可兑人数」放一起 + 快捷预设 + 实时说明，消除两个维度的混淆 */}
+            <div className="space-y-3 rounded-md border p-3">
               <div className="flex items-center justify-between">
-                <Label>每个码可兑换人数</Label>
-                <label className="flex items-center gap-2 text-xs text-muted-foreground">
-                  <Checkbox
-                    checked={unlimitedUses}
-                    onCheckedChange={(v) => setUnlimitedUses(v === true)}
-                  />
-                  不限次数
-                </label>
+                <Label className="text-sm font-semibold">发放方式</Label>
+                <div className="flex gap-1.5">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setUnlimitedUses(false)
+                      setMaxUses(1)
+                      if (count < 2) setCount(10)
+                    }}
+                  >
+                    一人一码
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setCount(1)
+                      setUnlimitedUses(false)
+                      setMaxUses(50)
+                    }}
+                  >
+                    一码多人
+                  </Button>
+                </div>
               </div>
-              <Input
-                type="number"
-                min={1}
-                max={1000000}
-                disabled={unlimitedUses}
-                value={maxUses}
-                onChange={(e) => setMaxUses(Number(e.target.value))}
-              />
-              <p className="text-xs text-muted-foreground">
-                一个码可被多少个不同账号兑换（用满即失效）；同一账号对同一码只能兑换一次。勾选「不限次数」则仅受有效期约束。
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label>生成几个码</Label>
+                  <Input
+                    type="number"
+                    min={1}
+                    max={500}
+                    value={count}
+                    onChange={(e) => setCount(Number(e.target.value))}
+                  />
+                  <p className="text-xs text-muted-foreground">本次创建多少个不同的兑换码。</p>
+                </div>
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <Label>每码可兑换人数</Label>
+                    <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                      <Checkbox
+                        checked={unlimitedUses}
+                        onCheckedChange={(v) => setUnlimitedUses(v === true)}
+                      />
+                      不限
+                    </label>
+                  </div>
+                  <Input
+                    type="number"
+                    min={1}
+                    max={1000000}
+                    disabled={unlimitedUses}
+                    value={maxUses}
+                    onChange={(e) => setMaxUses(Number(e.target.value))}
+                  />
+                  <p className="text-xs text-muted-foreground">每个码可被多少个不同账号兑换。</p>
+                </div>
+              </div>
+              <p className="rounded bg-muted px-3 py-2 text-xs text-muted-foreground">
+                {unlimitedUses
+                  ? `将生成 ${count} 个码，每个码不限兑换人数（仅受有效期约束）；同一账号对同一码只能兑一次。`
+                  : maxUses <= 1
+                    ? `将生成 ${count} 个「一人一码」单次码，可发放给 ${count} 个账号，每人一个、各用一次。`
+                    : `将生成 ${count} 个码，每个码可被 ${maxUses} 个不同账号兑换，最多覆盖 ${count * maxUses} 人次；同一账号对同一码只能兑一次。`}
               </p>
             </div>
             <div className="space-y-1.5">
