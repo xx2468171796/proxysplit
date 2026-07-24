@@ -303,6 +303,7 @@ func (a *App) GetAppIcon(exePath string) string { return a.svc.GetAppIcon(exePat
 
 // TestLatency measures one node; TestAllLatency measures every node.
 func (a *App) TestLatency(id string) int { return a.svc.TestLatency(id) }
+func (a *App) TestTCP(id string) int     { return a.svc.TestTCP(id) }
 func (a *App) TestAllLatency()           { a.svc.TestAllLatency() }
 
 // Subscriptions.
@@ -492,6 +493,12 @@ func (a *App) SpeedTest() SpeedResult {
 	return SpeedResult{Mbps: mbps, Err: errStr(err)}
 }
 
+// SpeedTestNode measures one specific node's download throughput (MB/s).
+func (a *App) SpeedTestNode(id string) SpeedResult {
+	mbps, err := a.svc.SpeedTestNode(id)
+	return SpeedResult{Mbps: mbps, Err: errStr(err)}
+}
+
 // QRResult carries a node's share-link QR (PNG data URI) to the UI.
 type QRResult struct {
 	Data string `json:"data"`
@@ -641,6 +648,29 @@ func (a *App) OpenPaymentURL(payURL string) string {
 	}
 	runtime.BrowserOpenURL(a.ctx, payURL)
 	return ""
+}
+
+// Fixed external destinations shown in the sidebar footer. They are hardcoded
+// (not arbitrary URLs from the frontend) so the browser-open boundary can never
+// be pointed at an attacker-chosen address.
+const (
+	websiteURL = "https://proxysplit.zygskins.cn"
+	githubURL  = "https://github.com/xx2468171796"
+	qqGroup    = "719243244"
+)
+
+// OpenWebsite opens the official ProxySplit site in the default browser.
+func (a *App) OpenWebsite() { runtime.BrowserOpenURL(a.ctx, websiteURL) }
+
+// OpenGitHub opens the author's GitHub profile in the default browser.
+func (a *App) OpenGitHub() { runtime.BrowserOpenURL(a.ctx, githubURL) }
+
+// QQGroup returns the support QQ group number for the UI to display/copy.
+func (a *App) QQGroup() string { return qqGroup }
+
+// CopyToClipboard puts text on the system clipboard (used for the QQ group).
+func (a *App) CopyToClipboard(text string) string {
+	return errStr(runtime.ClipboardSetText(a.ctx, text))
 }
 
 func (a *App) GetAnnouncements() AnnouncementsResult {

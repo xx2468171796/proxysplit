@@ -14,6 +14,23 @@ import (
 func (s *Service) SpeedTest() (float64, error) {
 	s.mu.Lock()
 	node := s.selectedNode()
+	var id string
+	if node != nil {
+		id = node.ID
+	}
+	s.mu.Unlock()
+	if id == "" {
+		return 0, fmt.Errorf("没有可测速的活动节点")
+	}
+	return s.SpeedTestNode(id)
+}
+
+// SpeedTestNode measures a specific node's download throughput (MB/s) through a
+// full proxy tunnel, so any node in the list can be speed-tested individually
+// without first setting it active.
+func (s *Service) SpeedTestNode(id string) (float64, error) {
+	s.mu.Lock()
+	node := s.nodeByID(id)
 	var snap *nodes.Node
 	if node != nil {
 		copy := *node
@@ -22,7 +39,7 @@ func (s *Service) SpeedTest() (float64, error) {
 	s.mu.Unlock()
 
 	if snap == nil {
-		return 0, fmt.Errorf("没有可测速的活动节点")
+		return 0, fmt.Errorf("找不到该节点")
 	}
 
 	socks, closeFn, err := s.nodeSocks(snap)

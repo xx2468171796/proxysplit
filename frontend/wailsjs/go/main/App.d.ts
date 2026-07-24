@@ -8,17 +8,21 @@ import {license} from '../models';
 import {nodes} from '../models';
 import {proc} from '../models';
 
+export function ActivateCurrentDevice():Promise<string>;
+
 export function AddManualNode(arg1:string,arg2:string,arg3:string,arg4:number,arg5:string,arg6:string):Promise<string>;
 
 export function AddNodes(arg1:string):Promise<main.AddResult>;
 
 export function AddSub(arg1:string,arg2:string,arg3:boolean):Promise<string>;
 
-export function EditSub(arg1:string,arg2:string,arg3:string):Promise<string>;
-
 export function CheckAppUpdate():Promise<updater.Status>;
 
+export function CopyToClipboard(arg1:string):Promise<string>;
+
 export function CreateMembershipOrder(arg1:string):Promise<main.OrderResult>;
+
+export function EditSub(arg1:string,arg2:string,arg3:string):Promise<string>;
 
 export function ExportAppRules():Promise<string>;
 
@@ -27,9 +31,6 @@ export function ExportConfig():Promise<string>;
 export function GetAIControlInfo():Promise<main.AIControlInfo>;
 
 export function GetAnnouncements():Promise<main.AnnouncementsResult>;
-
-export function GetPaymentQR(arg1:string):Promise<main.QRResult>;
-export function OpenPaymentURL(arg1:string):Promise<string>;
 
 export function GetAppIcon(arg1:string):Promise<string>;
 
@@ -71,6 +72,8 @@ export function GetNodeQR(arg1:string):Promise<main.QRResult>;
 
 export function GetNodes():Promise<Array<nodes.Node>>;
 
+export function GetPaymentQR(arg1:string):Promise<main.QRResult>;
+
 export function GetRouting():Promise<service.Routing>;
 
 export function GetRuleMode():Promise<string>;
@@ -99,13 +102,21 @@ export function Login(arg1:string,arg2:string):Promise<string>;
 
 export function Logout():Promise<string>;
 
+export function OpenGitHub():Promise<void>;
+
+export function OpenPaymentURL(arg1:string):Promise<string>;
+
+export function OpenWebsite():Promise<void>;
+
 export function PickExeFiles():Promise<Array<string>>;
 
 export function PreviewAppRulesImport(arg1:string):Promise<service.RuleImportPreview>;
 
-export function RefreshEntitlement():Promise<string>;
+export function QQGroup():Promise<string>;
 
 export function RedeemCode(arg1:string):Promise<string>;
+
+export function RefreshEntitlement():Promise<string>;
 
 export function Register(arg1:string,arg2:string,arg3:string):Promise<string>;
 
@@ -149,6 +160,8 @@ export function SetSystemProxy(arg1:boolean):Promise<string>;
 
 export function SpeedTest():Promise<main.SpeedResult>;
 
+export function SpeedTestNode(arg1:string):Promise<main.SpeedResult>;
+
 export function Start():Promise<string>;
 
 export function Stop():Promise<void>;
@@ -159,8 +172,9 @@ export function TestApp(arg1:string):Promise<number>;
 
 export function TestLatency(arg1:string):Promise<number>;
 
-  export function UnbindMyDevice(arg1:string):Promise<string>;
-  export function ActivateCurrentDevice():Promise<string>;
+export function TestTCP(arg1:string):Promise<number>;
+
+export function UnbindMyDevice(arg1:string):Promise<string>;
 
 export function UpdateCore():Promise<string>;
 

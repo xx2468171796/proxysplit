@@ -1,4 +1,4 @@
-﻿export namespace core {
+export namespace core {
 	
 	export class RouteRule {
 	    type: string;
@@ -14,33 +14,6 @@
 	        this.type = source["type"];
 	        this.value = source["value"];
 	        this.action = source["action"];
-	    }
-	}
-
-}
-
-export namespace engine {
-	
-	export class Stats {
-	    running: boolean;
-	    activeConns: number;
-	    totalConns: number;
-	    tracked: number;
-	    upBytes: number;
-	    downBytes: number;
-	
-	    static createFrom(source: any = {}) {
-	        return new Stats(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.running = source["running"];
-	        this.activeConns = source["activeConns"];
-	        this.totalConns = source["totalConns"];
-	        this.tracked = source["tracked"];
-	        this.upBytes = source["upBytes"];
-	        this.downBytes = source["downBytes"];
 	    }
 	}
 
@@ -619,7 +592,6 @@ export namespace service {
 	        this.name = source["name"];
 	        this.node = source["node"];
 	        this.latency = source["latency"];
-	        
 	        this.ok = source["ok"];
 	    }
 	}
@@ -827,6 +799,28 @@ export namespace service {
 	        this.autoUpdateApp = source["autoUpdateApp"];
 	    }
 	}
+	export class Stats {
+	    running: boolean;
+	    activeConns: number;
+	    totalConns: number;
+	    tracked: number;
+	    upBytes: number;
+	    downBytes: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new Stats(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.running = source["running"];
+	        this.activeConns = source["activeConns"];
+	        this.totalConns = source["totalConns"];
+	        this.tracked = source["tracked"];
+	        this.upBytes = source["upBytes"];
+	        this.downBytes = source["downBytes"];
+	    }
+	}
 	export class Status {
 	    coreRunning: boolean;
 	    engineRunning: boolean;
@@ -835,7 +829,7 @@ export namespace service {
 	    selectedId: string;
 	    ruleMode: string;
 	    uptimeSec: number;
-	    stats: engine.Stats;
+	    stats: Stats;
 	
 	    static createFrom(source: any = {}) {
 	        return new Status(source);
@@ -850,7 +844,7 @@ export namespace service {
 	        this.selectedId = source["selectedId"];
 	        this.ruleMode = source["ruleMode"];
 	        this.uptimeSec = source["uptimeSec"];
-	        this.stats = this.convertValues(source["stats"], engine.Stats);
+	        this.stats = this.convertValues(source["stats"], Stats);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -962,3 +956,4 @@ export namespace updater {
 	}
 
 }
+

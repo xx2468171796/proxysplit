@@ -20,6 +20,7 @@ import (
 	"proxysplit/internal/engine"
 	"proxysplit/internal/geoupdate"
 	"proxysplit/internal/icon"
+	"proxysplit/internal/latency"
 	"proxysplit/internal/nodes"
 	"proxysplit/internal/proc"
 	"proxysplit/internal/subs"
@@ -578,6 +579,31 @@ func (s *Service) TestLatency(id string) int {
 	}
 	s.mu.Unlock()
 	return res.Latency
+}
+
+// TestTCP measures ONLY the raw TCP latency to a node's edge (direct dial +
+// protocol handshake, no proxy tunnel). It is fast and needs no core, so it is
+// the cheap "is the line reachable at all" check, distinct from TestLatency's
+// full Google end-to-end probe. Returns ms, -1 on failure.
+func (s *Service) TestTCP(id string) int {
+	s.mu.Lock()
+	n := s.nodeByID(id)
+	var snap nodes.Node
+	if n != nil {
+		snap = *n
+	}
+	s.mu.Unlock()
+	if n == nil {
+		return -1
+	}
+	res := latency.Measure(&snap, "", 6*time.Second)
+	s.mu.Lock()
+	if current := s.nodeByID(id); current != nil {
+		current.TCPLatency = res.TCPLatency
+		s.save()
+	}
+	s.mu.Unlock()
+	return res.TCPLatency
 }
 
 // TestAllLatency measures every node.

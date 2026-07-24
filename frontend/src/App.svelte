@@ -18,6 +18,7 @@
     GetRuleMode as WGetRuleMode,
     SetRuleMode as WSetRuleMode,
     TestLatency as WTestLatency,
+    TestTCP as WTestTCP,
     TestAllLatency as WTestAllLatency,
     GetAppIcon as WGetAppIcon,
     GetSubs as WGetSubs,
@@ -41,6 +42,10 @@
     GetSystemProxy as WGetSystemProxy,
     SetSystemProxy as WSetSystemProxy,
     SpeedTest as WSpeedTest,
+    SpeedTestNode as WSpeedTestNode,
+    OpenWebsite as WOpenWebsite,
+    OpenGitHub as WOpenGitHub,
+    CopyToClipboard as WCopyToClipboard,
     GetNodeQR as WGetNodeQR,
     GetAutostart as WGetAutostart,
     SetAutostart as WSetAutostart,
@@ -260,7 +265,9 @@
   let speedMsg = '' // download speed test result / status
   let speedTesting = false
   let latencyTesting = false
-  let latencyTestingId = ''
+  let latencyTestingId = '' // node id whose 测 Google is running
+  let tcpTestingId = ''     // node id whose 测 TCP is running
+  let speedTestingId = ''   // node id whose 测速度 is running
   let qrData = '' // PNG data URI for the QR overlay ('' = hidden)
   let qrName = ''
   // 赞赏码：每次启动强制弹出，先倒计时 3 秒（期间不可关闭），倒计时结束后
@@ -947,7 +954,8 @@
       latencyTesting = false
     }
   }
-  async function testNodeLatency(n: Node) {
+  // 测 Google：完整代理链路访问 google 204 的端到端延迟（顺带刷新 TCP 延迟）
+  async function testNodeGoogle(n: Node) {
     if (latencyTestingId || useDemo || !isWailsReady()) return
     latencyTestingId = n.id
     nodes = nodes.map((x) => x.id === n.id ? { ...x, latency: -99, tcpLatency: -99 } : x)
@@ -960,6 +968,48 @@
     } finally {
       latencyTestingId = ''
     }
+  }
+  // 测 TCP：直连到节点边缘的传输层延迟（快，不需要启动核心）
+  async function testNodeTCP(n: Node) {
+    if (tcpTestingId || useDemo || !isWailsReady()) return
+    tcpTestingId = n.id
+    nodes = nodes.map((x) => x.id === n.id ? { ...x, tcpLatency: -99 } : x)
+    try {
+      await WTestTCP(n.id)
+      await refreshNodes()
+    } catch (e) {
+      toast('TCP 连通性检测失败：' + e)
+      await refreshNodes()
+    } finally {
+      tcpTestingId = ''
+    }
+  }
+  // 测速度：经该节点下载测吞吐（MB/s）
+  async function testNodeSpeed(n: Node) {
+    if (speedTestingId || useDemo || !isWailsReady()) return
+    speedTestingId = n.id
+    try {
+      const res = await WSpeedTestNode(n.id)
+      if (res && res.err) toast('测速失败：' + res.err)
+      await refreshNodes()
+    } catch (e) {
+      toast('测速失败：' + e)
+      await refreshNodes()
+    } finally {
+      speedTestingId = ''
+    }
+  }
+
+  // --- 侧栏底部：官网 / GitHub / QQ群 ---
+  async function openWebsite() { if (isWailsReady()) { try { await WOpenWebsite() } catch (e) { toast('打开官网失败：' + e) } } }
+  async function openGitHub() { if (isWailsReady()) { try { await WOpenGitHub() } catch (e) { toast('打开 GitHub 失败：' + e) } } }
+  async function copyQQ() {
+    const qq = '719243244'
+    try {
+      if (isWailsReady()) await WCopyToClipboard(qq)
+      else await navigator.clipboard?.writeText(qq)
+      toast('已复制 QQ 群号 ' + qq)
+    } catch { toast('QQ 群号：' + qq) }
   }
 
   // --- 一键切模式 (clash mode: 规则/全局/直连, no restart) ---
@@ -1419,6 +1469,8 @@
     dl: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M12 3v12M8 11l4 4 4-4M5 21h14"/></svg>',
     gh: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a10 10 0 0 0-3.2 19.5c.5.1.7-.2.7-.5v-1.7c-2.8.6-3.4-1.3-3.4-1.3-.5-1.2-1.1-1.5-1.1-1.5-.9-.6.1-.6.1-.6 1 .1 1.5 1 1.5 1 .9 1.5 2.3 1.1 2.9.8.1-.6.3-1.1.6-1.3-2.2-.300-4.6-1.1-4.6-4.9 0-1.1.4-2 1-2.7 0-.3-.4-1.3.1-2.7 0 0 .8-.3 2.7 1a9.4 9.4 0 0 1 5 0c1.9-1.3 2.7-1 2.7-1 .5 1.4.2 2.4.1 2.7.6.7 1 1.6 1 2.7 0 3.8-2.4 4.6-4.6 4.9.3.3.6.9.6 1.8v2.7c0 .3.2.6.7.5A10 10 0 0 0 12 2z"/></svg>',
     info: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></svg>',
+    globe: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a15 15 0 0 1 0 18M12 3a15 15 0 0 0 0 18"/></svg>',
+    qq: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M20 12c0-4.4-3.6-8-8-8s-8 3.6-8 8a8 8 0 0 0 3 6.2c-.3.9-.8 1.7-1 2.3-.2.5.2.8.6.6 1-.4 2.2-1 3-1.5a8 8 0 0 0 4.8 0c.8.5 2 1.1 3 1.5.4.2.8-.1.6-.6-.2-.6-.7-1.4-1-2.3A8 8 0 0 0 20 12z"/></svg>',
     bars: '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="3" y="14" width="3.5" height="6" rx="1"/><rect x="8.2" y="10" width="3.5" height="10" rx="1"/><rect x="13.4" y="6" width="3.5" height="14" rx="1"/><rect x="18.6" y="14" width="3.5" height="6" rx="1" opacity=".35"/></svg>',
     chevron: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 6l6 6-6 6"/></svg>',
     stop: '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="7" y="7" width="10" height="10" rx="2"/></svg>',
@@ -1559,9 +1611,9 @@
         <div><strong>{status?.coreRunning ? '核心运行中' : '核心已停止'}</strong><small>sing-box {coreVersion || '1.13.14'}</small></div>
       </div>
       <div class="foot-icons">
-        <button title="下载">{@html I.dl}</button>
-        <button title="GitHub">{@html I.gh}</button>
-        <button title="关于">{@html I.info}</button>
+        <button title="官网 proxysplit.zygskins.cn" on:click={openWebsite}>{@html I.globe}</button>
+        <button title="GitHub github.com/xx2468171796" on:click={openGitHub}>{@html I.gh}</button>
+        <button title="QQ群 719243244（点击复制）" on:click={copyQQ}>{@html I.qq}</button>
       </div>
     </div>
   </aside>
@@ -1822,7 +1874,7 @@
 
           <aside class="col-rail">
             <section class="card">
-              <div class="card-head sm"><h3>节点连通 / 速度</h3><button class="link" on:click={testAllLatency} disabled={latencyTesting}>{@html I.refresh} {latencyTesting ? '检测中…' : '测 Google'}</button></div>
+              <div class="card-head sm"><h3>节点连通 / 速度</h3><button class="link" on:click={testAllLatency} disabled={latencyTesting}>{@html I.refresh} {latencyTesting ? '检测中…' : '检测全部'}</button></div>
               <div class="nrail-head"><span>节点名称</span><span title="到节点边缘的 TCP 传输层延迟">TCP</span><span title="经完整代理链路访问 Google 的端到端延迟">Google</span><span>下载速度</span></div>
               {#each (useDemo ? demoNodes : nodes).slice(0, 6) as n}
                 <div class="nrail-row" class:sel={n.id === status?.selectedId} on:dblclick={() => selectNode(n.id)}>
@@ -1904,7 +1956,7 @@
                   <span class="lat tcp" data-q={qual(n.tcpLatency)}>{tcpLatencyText(n.tcpLatency)}</span>
                   <span class="lat" data-q={qual(n.latency)}>{latencyText(n.latency)}</span>
                   <span class="nspd">{n.speed?.toFixed(2) ?? '—'} MB/s</span>
-                  <div class="row-actions ctr"><button class="mini test" on:click={() => testNodeLatency(n)} disabled={!!latencyTestingId}>{latencyTestingId === n.id ? '检测中…' : '测 Google'}</button><button class="mini" on:click={() => selectNode(n.id)}>设为活动</button><button class="icon-btn" on:click={() => showQR(n)} title="分享二维码">{@html I.qr}</button><button class="icon-btn danger" on:click={() => removeNode(n.id)} title="删除节点">{@html I.trash}</button></div>
+                  <div class="row-actions ctr"><div class="test-group"><button class="mini test tcp" on:click={() => testNodeTCP(n)} disabled={!!tcpTestingId} title="测传输层 TCP 延迟（快，不启动核心）">{tcpTestingId === n.id ? '…' : '测TCP'}</button><button class="mini test" on:click={() => testNodeGoogle(n)} disabled={!!latencyTestingId} title="测完整代理链路访问 Google 的延迟">{latencyTestingId === n.id ? '…' : '测Google'}</button><button class="mini test spd" on:click={() => testNodeSpeed(n)} disabled={!!speedTestingId} title="测经该节点的下载速度">{speedTestingId === n.id ? '…' : '测速度'}</button></div><button class="mini" on:click={() => selectNode(n.id)}>设为活动</button><button class="icon-btn" on:click={() => showQR(n)} title="分享二维码">{@html I.qr}</button><button class="icon-btn danger" on:click={() => removeNode(n.id)} title="删除节点">{@html I.trash}</button></div>
                 </div>
               {/each}
               {#if nodes.length === 0}<div class="empty">还没有节点。粘贴分享链接点「从链接添加」，或点「手动添加」填 SOCKS5 / HTTP 代理。</div>{/if}
@@ -2455,6 +2507,17 @@
   .mini.test { min-width: 52px; padding: 5px 8px; font-variant-numeric: tabular-nums; background: var(--surface-3, #eef2f8); color: var(--muted); }
   .mini.test.ok { background: var(--ok-tint); color: var(--ok-600); }
   .mini.test.err { background: var(--bad-bg, #fdecec); color: var(--danger); }
+  /* Per-node 测TCP / 测Google / 测速度 — one visually-grouped segmented control. */
+  .test-group { display: inline-flex; gap: 0; border-radius: 8px; overflow: hidden; box-shadow: inset 0 0 0 1px var(--line-2); }
+  .test-group .mini.test { min-width: 0; border-radius: 0; padding: 5px 9px; font-size: 12px; font-weight: 650; box-shadow: none; }
+  .test-group .mini.test + .mini.test { border-left: 1px solid var(--line-2); }
+  .test-group .mini.test.tcp { color: #b45309; background: #fff7ed; }
+  .test-group .mini.test.tcp:hover:not(:disabled) { background: #ffedd5; }
+  .test-group .mini.test:not(.tcp):not(.spd) { color: var(--brand-600); background: var(--brand-tint); }
+  .test-group .mini.test:not(.tcp):not(.spd):hover:not(:disabled) { background: #e0e7ff; }
+  .test-group .mini.test.spd { color: var(--ok-600); background: var(--ok-tint); }
+  .test-group .mini.test.spd:hover:not(:disabled) { filter: brightness(.97); }
+  .test-group .mini.test:disabled { opacity: .55; }
   .mini.pick { background: var(--brand-tint); color: var(--brand-600); }
   .mini.pick :global(svg) { width: 14px; height: 14px; }
   .pick-hint { margin: 8px 2px 0; font-size: 11.5px; color: var(--muted-2); }
