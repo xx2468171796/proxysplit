@@ -1,9 +1,11 @@
 # ProxySplit 项目状态
 
 ## 当前发布
-- 2026-07-24：第三轮“支付 / 认证 / 客户端”多智能体对抗审计已完成，修复版本为 `v1.9.20`，源码提交 `322c4f4bff26ca54ff0b3d1e251023f86f0ef506`。
-- 服务端当前部署：`/opt/proxysplit/releases/20260724-124715-322c4f4`；API、PostgreSQL、Redis 均 healthy，公网 `/health`、套餐目录、后台和官网正常。
-- 客户端产物：`output/proxysplit-v1.9.20.exe`，大小 `80,241,664` 字节，SHA256 `974c356460a959d7aa9f814647c9a1ac074578a2c51a011cd53e5a39217a3528`；正式下载和 `/v1/releases/latest` 已切至 1.9.20，线上下载哈希一致。
+- 2026-07-24：设备解绑无效根因已确认：客户端对无请求体的 DELETE 仍发送 `Content-Type: application/json`，Fastify 在路由前将其拒绝为空 JSON，生产日志中两次真实解绑均为 HTTP 500。服务端现兼容旧请求，新客户端不再发送错误请求头；修复版本为 `v1.9.21`，源码提交 `b0e97d759b480a1f8e36cd4957c41cea14fde730`。
+- 服务端当前部署：`/opt/proxysplit/releases/20260724-143013-b0e97d7`；API、PostgreSQL、Redis 均 healthy，旧版 1.9.20 客户端的空 DELETE 已验证可进入正常认证路由。
+- 客户端产物：`output/proxysplit-v1.9.21.exe`，大小 `80,535,040` 字节，SHA256 `9071088b1cbac0efc17be951014aa92974bc7f7e91061365b113caef84d1a6f1`；正式下载和 `/v1/releases/latest` 已切至 1.9.21。
+- 用户两次尝试解绑的设备 `alone公司电脑` 已按明确操作记录完成解绑，生产库仅保留当前 `TOP-011913S11` 设备，后台审计记录为 success；本机已启动 1.9.21 并验证窗口标题和 ProductVersion。
+- 第三轮“支付 / 认证 / 客户端”多智能体对抗审计修复包含在 1.9.21 中，基础修复提交为 `322c4f4bff26ca54ff0b3d1e251023f86f0ef506`。
 - 本机曾仍从 `C:/Users/Administrator/Downloads/Programs/proxysplit-v1.9.19.exe` 启动，所以标题显示 1.9.19；这不是 1.9.20 构建错误。已备份旧文件、把该真实启动目标原地替换为 1.9.20 并重启，窗口标题与文件 ProductVersion 均已实测为 1.9.20。
 - 完整验证通过：`go test ./...`、`go vet ./...`、前端 `npm run check/build`、服务端 `pnpm typecheck/test/build`；服务端共 20 项测试（core 18 + API 2），前端 0 error / 0 warning。
 
