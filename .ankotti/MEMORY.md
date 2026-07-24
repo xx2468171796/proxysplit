@@ -1,6 +1,8 @@
 # ProxySplit 项目状态
 
 ## 当前发布
+- 2026-07-24：官网与后台入口整理完成并已上线：官网桌面导航、移动导航、页脚均不再展示 `/admin/` 管理入口，面向普通用户的文案不再出现“运营后台”；管理后台登录用户名初始值已清空，增加明确占位提示与必填校验。
+- 当前服务端静态发布目录：`/opt/proxysplit/releases/20260724-144631-39ef41a`；线上首页无 `/admin/` 引用，API 健康检查正常。正式下载版本仍为 `v1.9.21`，线上文件大小 `80,535,040` 字节，SHA256 `9071088b1cbac0efc17be951014aa92974bc7f7e91061365b113caef84d1a6f1`，与发布记录一致。
 - 2026-07-24：设备解绑无效根因已确认：客户端对无请求体的 DELETE 仍发送 `Content-Type: application/json`，Fastify 在路由前将其拒绝为空 JSON，生产日志中两次真实解绑均为 HTTP 500。服务端现兼容旧请求，新客户端不再发送错误请求头；修复版本为 `v1.9.21`，源码提交 `b0e97d759b480a1f8e36cd4957c41cea14fde730`。
 - 服务端当前部署：`/opt/proxysplit/releases/20260724-143013-b0e97d7`；API、PostgreSQL、Redis 均 healthy，旧版 1.9.20 客户端的空 DELETE 已验证可进入正常认证路由。
 - 客户端产物：`output/proxysplit-v1.9.21.exe`，大小 `80,535,040` 字节，SHA256 `9071088b1cbac0efc17be951014aa92974bc7f7e91061365b113caef84d1a6f1`；正式下载和 `/v1/releases/latest` 已切至 1.9.21。
