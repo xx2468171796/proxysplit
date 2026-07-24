@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from 'node:crypto'
 import { createDatabase } from '@proxysplit/db'
-import type { AnnouncementUpsertInput, PlanPatchInput, PlanUpsertInput, ProviderUpsertInput } from '@proxysplit/contracts'
+import type { AnnouncementListQuery, AnnouncementUpsertInput, AuditListQuery, DeviceListQuery, OrderListQuery, PlanListQuery, PlanPatchInput, PlanUpsertInput, ProviderUpsertInput, RedeemListQuery, ReleaseListQuery, UserListQuery } from '@proxysplit/contracts'
 import { AppError } from '@proxysplit/shared'
 
 export type UserRecord = {
@@ -94,6 +94,20 @@ const settingsDefaults:CommerceSettings={
   registrationEnabled:true,trialDays:3,trialPlanCode:'trial',
   defaultDeviceLimit:3,licenseLeaseMinutes:60,offlineGraceHours:6,
   activePaymentProvider:'zhongzhuan-prod',paymentMethods:['alipay'],
+}
+
+// ---- Admin list helpers: parameterized paging + whitelisted sorting ----
+// Sorting never concatenates user input: `sort` is only ever used as a lookup
+// key into a per-entity column map, so an unknown/injected value falls back to
+// the entity default. Only paging values and filters flow in as bound params.
+export type ListParams = { q?:string; limit?:number; offset?:number; sort?:string; order?:'asc'|'desc'|string }
+export type ListResult<T> = { items:T[]; total:number; limit:number; offset:number }
+const pageLimit=(n?:number)=>{const v=typeof n==='number'&&Number.isFinite(n)?Math.floor(n):20;return Math.min(100,Math.max(1,v))}
+const pageOffset=(n?:number)=>{const v=typeof n==='number'&&Number.isFinite(n)?Math.floor(n):0;return Math.max(0,v)}
+const orderClause=(sort:string|undefined,order:string|undefined,map:Record<string,string>,fallback:string)=>{
+  const col=sort?map[sort]:undefined
+  if(!col)return fallback
+  return `${col} ${order==='asc'?'ASC':'DESC'}`
 }
 
 export class PgStore {
@@ -304,14 +318,32 @@ export class PgStore {
       (SELECT coalesce(sum(amount_cents),0)::int FROM orders WHERE status='paid' AND paid_at>=date_trunc('month',now())) AS "monthRevenue"`)
     return r.rows[0]
   }
-  async listUsers(){
+  async listUsers(params:Partial<UserListQuery>={}):Promise<ListResult<any>>{
+    const conds:string[]=[];const vals:unknown[]=[];let i=1
+    if(params.q){vals.push(`%${params.q}%`);conds.push(`(u.username ILIKE $${i} OR u.email ILIKE $${i} OR u.note ILIKE $${i})`);i++}
+    if(params.status){vals.push(params.status);conds.push(`u.status::text=$${i}`);i++}
+    if(params.role){vals.push(params.role);conds.push(`u.role::text=$${i}`);i++}
+    if(params.tier){vals.push(params.tier);conds.push(`p.tier=$${i}`);i++}
+    if(params.membership==='active')conds.push(`l.id IS NOT NULL`)
+    else if(params.membership==='expired')conds.push(`l.id IS NULL`)
+    else if(params.membership==='expiring')conds.push(`l.id IS NOT NULL AND l.lifetime=false AND l.expires_at<=now()+interval '7 days'`)
+    if(params.createdFrom){vals.push(params.createdFrom);conds.push(`u.created_at>=$${i}`);i++}
+    if(params.createdTo){vals.push(params.createdTo);conds.push(`u.created_at<=$${i}`);i++}
+    const where=conds.length?`WHERE ${conds.join(' AND ')}`:''
+    const orderBy=orderClause(params.sort,params.order,{createdAt:'u.created_at',username:'u.username',email:'u.email',status:'u.status',role:'u.role',expiresAt:'l.expires_at'},'u.created_at DESC')
+    const limit=pageLimit(params.limit),offset=pageOffset(params.offset)
+    vals.push(limit,offset)
     const r=await this.pool.query(`SELECT u.id,u.username,u.email,u.role,u.status,u.note,u.created_at AS "createdAt",
       l.expires_at AS "expiresAt",l.lifetime,p.name AS "planName",p.tier,
-      (SELECT count(*)::int FROM devices d WHERE d.user_id=u.id AND d.revoked=false) AS devices
+      (SELECT count(*)::int FROM devices d WHERE d.user_id=u.id AND d.revoked=false) AS devices,
+      (count(*) OVER())::int AS "totalCount"
       FROM users u LEFT JOIN LATERAL (
         SELECT * FROM licenses WHERE user_id=u.id AND status='active' AND expires_at>now() ORDER BY lifetime DESC,expires_at DESC LIMIT 1
-      ) l ON true LEFT JOIN plans p ON p.id=l.plan_id ORDER BY u.created_at DESC LIMIT 500`)
-    return r.rows
+      ) l ON true LEFT JOIN plans p ON p.id=l.plan_id
+      ${where} ORDER BY ${orderBy} LIMIT $${i} OFFSET $${i+1}`,vals)
+    const total=r.rows[0]?Number(r.rows[0].totalCount):0
+    const items=r.rows.map(({totalCount,...rest}:{totalCount:number})=>rest)
+    return {items,total,limit,offset}
   }
   // 管理后台专用聚合视图：只返回运营必要信息，绝不返回密码、令牌、原始硬件序列号或指纹哈希。
   async getUserDetail(userId:string){
@@ -369,30 +401,91 @@ export class PgStore {
       WHERE id=(SELECT id FROM licenses WHERE user_id=$1 ORDER BY expires_at DESC LIMIT 1) RETURNING id,expires_at AS "expiresAt"`,[userId,days])
     return r.rows[0]??null
   }
-  async listDevices(){
+  async listDevices(params:Partial<DeviceListQuery>={}):Promise<ListResult<any>>{
+    const conds:string[]=[];const vals:unknown[]=[];let i=1
+    if(params.q){vals.push(`%${params.q}%`);conds.push(`(d.name ILIKE $${i} OR u.username ILIKE $${i} OR d.fingerprint_hash ILIKE $${i})`);i++}
+    if(params.platform){vals.push(params.platform);conds.push(`d.platform=$${i}`);i++}
+    if(params.revoked!==undefined){vals.push(params.revoked);conds.push(`d.revoked=$${i}`);i++}
+    if(params.online!==undefined)conds.push(params.online?`d.last_seen_at>now()-interval '15 minutes'`:`d.last_seen_at<=now()-interval '15 minutes'`)
+    if(params.appVersion){vals.push(params.appVersion);conds.push(`d.app_version=$${i}`);i++}
+    const where=conds.length?`WHERE ${conds.join(' AND ')}`:''
+    const orderBy=orderClause(params.sort,params.order,{lastSeenAt:'d.last_seen_at',firstSeenAt:'d.first_seen_at',name:'d.name',platform:'d.platform',username:'u.username',appVersion:'d.app_version'},'d.last_seen_at DESC')
+    const limit=pageLimit(params.limit),offset=pageOffset(params.offset)
+    vals.push(limit,offset)
     const r=await this.pool.query(`SELECT d.id,d.user_id AS "userId",u.username,d.name,d.platform,d.app_version AS "appVersion",
-      d.revoked,d.first_seen_at AS "firstSeenAt",d.last_seen_at AS "lastSeenAt"
-      FROM devices d JOIN users u ON u.id=d.user_id ORDER BY d.last_seen_at DESC LIMIT 1000`)
-    return r.rows
+      d.revoked,d.first_seen_at AS "firstSeenAt",d.last_seen_at AS "lastSeenAt",
+      (count(*) OVER())::int AS "totalCount"
+      FROM devices d JOIN users u ON u.id=d.user_id
+      ${where} ORDER BY ${orderBy} LIMIT $${i} OFFSET $${i+1}`,vals)
+    const total=r.rows[0]?Number(r.rows[0].totalCount):0
+    const items=r.rows.map(({totalCount,...rest}:{totalCount:number})=>rest)
+    return {items,total,limit,offset}
   }
-  async listReleases(){const r=await this.pool.query('SELECT id,version,minimum_version AS "minimumVersion",url,sha256,signature,mandatory,title,summary,changelog,channel,published_at AS "publishedAt" FROM releases ORDER BY published_at DESC');return r.rows}
+  async listReleases(params:Partial<ReleaseListQuery>={}):Promise<ListResult<any>>{
+    const conds:string[]=[];const vals:unknown[]=[];let i=1
+    if(params.q){vals.push(`%${params.q}%`);conds.push(`(version ILIKE $${i} OR title ILIKE $${i} OR summary ILIKE $${i})`);i++}
+    if(params.channel){vals.push(params.channel);conds.push(`channel=$${i}`);i++}
+    if(params.mandatory!==undefined){vals.push(params.mandatory);conds.push(`mandatory=$${i}`);i++}
+    const where=conds.length?`WHERE ${conds.join(' AND ')}`:''
+    const orderBy=orderClause(params.sort,params.order,{publishedAt:'published_at',version:'version',channel:'channel'},'published_at DESC')
+    const limit=pageLimit(params.limit),offset=pageOffset(params.offset)
+    vals.push(limit,offset)
+    const r=await this.pool.query(`SELECT id,version,minimum_version AS "minimumVersion",url,sha256,signature,mandatory,title,summary,changelog,channel,
+      published_at AS "publishedAt",(count(*) OVER())::int AS "totalCount"
+      FROM releases ${where} ORDER BY ${orderBy} LIMIT $${i} OFFSET $${i+1}`,vals)
+    const total=r.rows[0]?Number(r.rows[0].totalCount):0
+    const items=r.rows.map(({totalCount,...rest}:{totalCount:number})=>rest)
+    return {items,total,limit,offset}
+  }
   async createRelease(v:{version:string;minimumVersion:string;url:string;sha256:string;signature:string;mandatory:boolean;title:string;summary:string;changelog:string;channel:string}){
     const r=await this.pool.query('INSERT INTO releases(version,minimum_version,url,sha256,signature,mandatory,title,summary,changelog,channel) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id,version',[v.version,v.minimumVersion,v.url,v.sha256,v.signature,v.mandatory,v.title,v.summary,v.changelog,v.channel])
     return r.rows[0]
   }
-  async listAudit(){
+  async listAudit(params:Partial<AuditListQuery>={}):Promise<ListResult<any>>{
+    const conds:string[]=[];const vals:unknown[]=[];let i=1
+    if(params.q){vals.push(`%${params.q}%`);conds.push(`(a.action ILIKE $${i} OR a.target_type ILIKE $${i} OR a.target_id ILIKE $${i})`);i++}
+    if(params.action){vals.push(params.action);conds.push(`a.action=$${i}`);i++}
+    if(params.targetType){vals.push(params.targetType);conds.push(`a.target_type=$${i}`);i++}
+    if(params.result){vals.push(params.result);conds.push(`a.result=$${i}`);i++}
+    if(params.actor){vals.push(`%${params.actor}%`,params.actor);conds.push(`(u.username ILIKE $${i} OR a.actor_user_id::text=$${i+1})`);i+=2}
+    if(params.from){vals.push(params.from);conds.push(`a.created_at>=$${i}`);i++}
+    if(params.to){vals.push(params.to);conds.push(`a.created_at<=$${i}`);i++}
+    const where=conds.length?`WHERE ${conds.join(' AND ')}`:''
+    const orderBy=orderClause(params.sort,params.order,{createdAt:'a.created_at',action:'a.action',result:'a.result',targetType:'a.target_type'},'a.created_at DESC')
+    const limit=pageLimit(params.limit),offset=pageOffset(params.offset)
+    vals.push(limit,offset)
     const r=await this.pool.query(`SELECT a.id,a.action,a.target_type AS "targetType",a.target_id AS "targetId",a.ip,a.result,a.metadata,
-      a.created_at AS "createdAt",u.username AS actor FROM audit_logs a LEFT JOIN users u ON u.id=a.actor_user_id ORDER BY a.created_at DESC LIMIT 1000`)
-    return r.rows
+      a.created_at AS "createdAt",u.username AS actor,(count(*) OVER())::int AS "totalCount"
+      FROM audit_logs a LEFT JOIN users u ON u.id=a.actor_user_id
+      ${where} ORDER BY ${orderBy} LIMIT $${i} OFFSET $${i+1}`,vals)
+    const total=r.rows[0]?Number(r.rows[0].totalCount):0
+    const items=r.rows.map(({totalCount,...rest}:{totalCount:number})=>rest)
+    return {items,total,limit,offset}
   }
 
-  async listPlans(publicOnly=false){
-    const where=publicOnly?`WHERE active=true AND public=true AND (sale_starts_at IS NULL OR sale_starts_at<=now()) AND (sale_ends_at IS NULL OR sale_ends_at>now())`:''
+  // Serves both the public catalog (publicOnly, returns the full active set) and
+  // the admin console (filtered + paged). Always returns the {items,total,...}
+  // envelope; the public route reads `.items`.
+  async listPlans(params:Partial<PlanListQuery>&{publicOnly?:boolean}={}):Promise<ListResult<any>>{
+    const conds:string[]=[];const vals:unknown[]=[];let i=1
+    if(params.publicOnly)conds.push(`active=true AND public=true AND (sale_starts_at IS NULL OR sale_starts_at<=now()) AND (sale_ends_at IS NULL OR sale_ends_at>now())`)
+    if(params.q){vals.push(`%${params.q}%`);conds.push(`(code ILIKE $${i} OR name ILIKE $${i} OR description ILIKE $${i})`);i++}
+    if(params.tier){vals.push(params.tier);conds.push(`tier=$${i}`);i++}
+    if(params.active!==undefined){vals.push(params.active);conds.push(`active=$${i}`);i++}
+    if(params.public!==undefined){vals.push(params.public);conds.push(`public=$${i}`);i++}
+    if(params.billingCycle){vals.push(params.billingCycle);conds.push(`billing_cycle=$${i}`);i++}
+    const where=conds.length?`WHERE ${conds.join(' AND ')}`:''
+    const orderBy=orderClause(params.sort,params.order,{sortOrder:'sort_order',name:'name',priceCents:'price_cents',createdAt:'created_at',updatedAt:'updated_at',code:'code',tier:'tier'},'sort_order ASC,name ASC')
+    const limit=pageLimit(params.limit),offset=pageOffset(params.offset)
+    vals.push(limit,offset)
     const r=await this.pool.query(`SELECT id,code,name,description,tier,billing_cycle AS "billingCycle",duration_days AS "durationDays",
       lifetime,price_cents AS "priceCents",original_price_cents AS "originalPriceCents",currency,max_devices AS "maxDevices",features,active,public,sort_order AS "sortOrder",badge,
       sale_starts_at AS "saleStartsAt",sale_ends_at AS "saleEndsAt",purchase_limit_per_user AS "purchaseLimitPerUser",
-      created_at AS "createdAt",updated_at AS "updatedAt" FROM plans ${where} ORDER BY sort_order,name`)
-    return r.rows
+      created_at AS "createdAt",updated_at AS "updatedAt",(count(*) OVER())::int AS "totalCount"
+      FROM plans ${where} ORDER BY ${orderBy} LIMIT $${i} OFFSET $${i+1}`,vals)
+    const total=r.rows[0]?Number(r.rows[0].totalCount):0
+    const items=r.rows.map(({totalCount,...rest}:{totalCount:number})=>rest)
+    return {items,total,limit,offset}
   }
   async createPlan(v:PlanUpsertInput){
     const r=await this.pool.query(`INSERT INTO plans(code,name,description,tier,billing_cycle,duration_days,lifetime,price_cents,original_price_cents,currency,max_devices,features,active,public,sort_order,badge,sale_starts_at,sale_ends_at,purchase_limit_per_user)
@@ -518,11 +611,34 @@ export class PgStore {
   async touchPaymentReconciliation(orderNoValue:string){
     await this.pool.query(`UPDATE orders SET updated_at=now() WHERE order_no=$1 AND status IN ('pending','failed')`,[orderNoValue])
   }
-  async listOrders(){
-    const r=await this.pool.query(`SELECT o.id,o.order_no AS "orderNo",u.username,o.plan_name AS "planName",o.tier,
+  async listOrders(params:Partial<OrderListQuery>={}):Promise<ListResult<any>&{amountSum:number}>{
+    const conds:string[]=[];const vals:unknown[]=[];let i=1
+    if(params.q){vals.push(`%${params.q}%`);conds.push(`(o.order_no ILIKE $${i} OR o.plan_name ILIKE $${i} OR u.username ILIKE $${i})`);i++}
+    if(params.status){vals.push(params.status);conds.push(`o.status=$${i}`);i++}
+    if(params.providerCode){vals.push(params.providerCode);conds.push(`o.provider_code=$${i}`);i++}
+    if(params.tier){vals.push(params.tier);conds.push(`o.tier=$${i}`);i++}
+    if(params.billingCycle){vals.push(params.billingCycle);conds.push(`o.billing_cycle=$${i}`);i++}
+    if(params.paidFrom){vals.push(params.paidFrom);conds.push(`o.paid_at>=$${i}`);i++}
+    if(params.paidTo){vals.push(params.paidTo);conds.push(`o.paid_at<=$${i}`);i++}
+    if(params.createdFrom){vals.push(params.createdFrom);conds.push(`o.created_at>=$${i}`);i++}
+    if(params.createdTo){vals.push(params.createdTo);conds.push(`o.created_at<=$${i}`);i++}
+    const where=conds.length?`WHERE ${conds.join(' AND ')}`:''
+    const orderBy=orderClause(params.sort,params.order,{createdAt:'o.created_at',paidAt:'o.paid_at',amountCents:'o.amount_cents',status:'o.status',username:'u.username',orderNo:'o.order_no'},'o.created_at DESC')
+    const limit=pageLimit(params.limit),offset=pageOffset(params.offset)
+    vals.push(limit,offset)
+    // Window aggregates run over the full filtered set (before LIMIT), so total
+    // and amountSum reflect every matched order, not just the current page.
+    const r=await this.pool.query(`SELECT o.id,o.order_no AS "orderNo",u.username,o.plan_name AS "planName",o.tier,o.billing_cycle AS "billingCycle",
       o.amount_cents AS "amountCents",o.currency,o.status,o.provider_code AS "providerCode",o.provider_order_no AS "providerOrderNo",
-      o.paid_at AS "paidAt",o.created_at AS "createdAt" FROM orders o JOIN users u ON u.id=o.user_id ORDER BY o.created_at DESC LIMIT 1000`)
-    return r.rows
+      o.paid_at AS "paidAt",o.created_at AS "createdAt",
+      (count(*) OVER())::int AS "totalCount",
+      (coalesce(sum(o.amount_cents) FILTER (WHERE o.status='paid') OVER(),0))::bigint AS "amountSumAll"
+      FROM orders o JOIN users u ON u.id=o.user_id
+      ${where} ORDER BY ${orderBy} LIMIT $${i} OFFSET $${i+1}`,vals)
+    const total=r.rows[0]?Number(r.rows[0].totalCount):0
+    const amountSum=r.rows[0]?Number(r.rows[0].amountSumAll):0
+    const items=r.rows.map(({totalCount,amountSumAll,...rest}:{totalCount:number;amountSumAll:number})=>rest)
+    return {items,total,limit,offset,amountSum}
   }
   async fulfillPaidOrder(input:{providerCode:string;eventId:string;orderNo:string;amountCents:number;providerOrderNo:string;payloadHash:string;paidAt?:Date}){
     const client=await this.pool.connect()
@@ -657,13 +773,25 @@ export class PgStore {
     }catch(e){await client.query('ROLLBACK');throw e}finally{client.release()}
   }
 
-  async listRedeemCodes(){
+  async listRedeemCodes(params:Partial<RedeemListQuery>={}):Promise<ListResult<any>>{
+    const conds:string[]=[];const vals:unknown[]=[];let i=1
+    if(params.q){vals.push(`%${params.q}%`);conds.push(`(rc.code ILIKE $${i} OR rc.note ILIKE $${i})`);i++}
+    if(params.status){vals.push(params.status);conds.push(`rc.status=$${i}`);i++}
+    if(params.batchId){vals.push(params.batchId);conds.push(`rc.batch_id=$${i}`);i++}
+    if(params.planId){vals.push(params.planId);conds.push(`rc.plan_id=$${i}`);i++}
+    if(params.lifetime!==undefined){vals.push(params.lifetime);conds.push(`rc.lifetime=$${i}`);i++}
+    const where=conds.length?`WHERE ${conds.join(' AND ')}`:''
+    const orderBy=orderClause(params.sort,params.order,{createdAt:'rc.created_at',code:'rc.code',status:'rc.status',redeemedAt:'rc.redeemed_at',codeExpiresAt:'rc.code_expires_at'},'rc.created_at DESC')
+    const limit=pageLimit(params.limit),offset=pageOffset(params.offset)
+    vals.push(limit,offset)
     const r=await this.pool.query(`SELECT rc.id,rc.code,rc.status,rc.duration_days AS "durationDays",rc.lifetime,rc.note,rc.batch_id AS "batchId",
       rc.code_expires_at AS "codeExpiresAt",rc.redeemed_at AS "redeemedAt",rc.created_at AS "createdAt",
-      p.name AS "planName",p.tier,u.username AS "redeemedBy"
+      p.name AS "planName",p.tier,u.username AS "redeemedBy",(count(*) OVER())::int AS "totalCount"
       FROM redeem_codes rc JOIN plans p ON p.id=rc.plan_id LEFT JOIN users u ON u.id=rc.redeemed_by
-      ORDER BY rc.created_at DESC LIMIT 2000`)
-    return r.rows
+      ${where} ORDER BY ${orderBy} LIMIT $${i} OFFSET $${i+1}`,vals)
+    const total=r.rows[0]?Number(r.rows[0].totalCount):0
+    const items=r.rows.map(({totalCount,...rest}:{totalCount:number})=>rest)
+    return {items,total,limit,offset}
   }
 
   async setRedeemCodeStatus(id:string,status:'active'|'disabled'){
@@ -688,12 +816,23 @@ export class PgStore {
     }catch(e){await client.query('ROLLBACK');throw e}finally{client.release()}
   }
 
-  async listAnnouncements(publicOnly=false){
-    const where=publicOnly?`WHERE active=true AND (starts_at IS NULL OR starts_at<=now()) AND (ends_at IS NULL OR ends_at>now())`:''
+  async listAnnouncements(params:Partial<AnnouncementListQuery>&{publicOnly?:boolean}={}):Promise<ListResult<any>>{
+    const conds:string[]=[];const vals:unknown[]=[];let i=1
+    if(params.publicOnly)conds.push(`active=true AND (starts_at IS NULL OR starts_at<=now()) AND (ends_at IS NULL OR ends_at>now())`)
+    if(params.q){vals.push(`%${params.q}%`);conds.push(`(title ILIKE $${i} OR summary ILIKE $${i} OR content ILIKE $${i})`);i++}
+    if(params.type){vals.push(params.type);conds.push(`type=$${i}`);i++}
+    if(params.active!==undefined){vals.push(params.active);conds.push(`active=$${i}`);i++}
+    if(params.pinned!==undefined){vals.push(params.pinned);conds.push(`pinned=$${i}`);i++}
+    const where=conds.length?`WHERE ${conds.join(' AND ')}`:''
+    const orderBy=orderClause(params.sort,params.order,{publishedAt:'published_at',createdAt:'created_at',title:'title',type:'type'},'pinned DESC,published_at DESC')
+    const limit=pageLimit(params.limit),offset=pageOffset(params.offset)
+    vals.push(limit,offset)
     const r=await this.pool.query(`SELECT id,type,title,summary,content,version,active,pinned,published_at AS "publishedAt",
-      starts_at AS "startsAt",ends_at AS "endsAt",created_at AS "createdAt",updated_at AS "updatedAt"
-      FROM announcements ${where} ORDER BY pinned DESC,published_at DESC LIMIT 200`)
-    return r.rows
+      starts_at AS "startsAt",ends_at AS "endsAt",created_at AS "createdAt",updated_at AS "updatedAt",(count(*) OVER())::int AS "totalCount"
+      FROM announcements ${where} ORDER BY ${orderBy} LIMIT $${i} OFFSET $${i+1}`,vals)
+    const total=r.rows[0]?Number(r.rows[0].totalCount):0
+    const items=r.rows.map(({totalCount,...rest}:{totalCount:number})=>rest)
+    return {items,total,limit,offset}
   }
   async createAnnouncement(v:AnnouncementUpsertInput,actor:string){
     const r=await this.pool.query(`INSERT INTO announcements(type,title,summary,content,version,active,pinned,starts_at,ends_at,created_by)
@@ -708,6 +847,92 @@ export class PgStore {
     return r.rows[0]??null
   }
   async deleteAnnouncement(id:string){const r=await this.pool.query('DELETE FROM announcements WHERE id=$1 RETURNING id',[id]);return r.rows[0]??null}
+
+  // Hard-delete a user. licenses/devices/sessions/trial_claims cascade; audit /
+  // announcement / settings references are nulled to preserve history. A user
+  // still referenced by financial orders (no cascade) surfaces as 'referenced'.
+  async deleteUser(id:string):Promise<{ok:true}|{ok:false;reason:'not_found'|'last_admin'|'referenced'}>{
+    const client=await this.pool.connect()
+    try{
+      await client.query('BEGIN')
+      const u=(await client.query('SELECT id,role FROM users WHERE id=$1 FOR UPDATE',[id])).rows[0]
+      if(!u){await client.query('ROLLBACK');return {ok:false,reason:'not_found'}}
+      if(u.role==='admin'){
+        const n=(await client.query(`SELECT count(*)::int AS n FROM users WHERE role='admin'`)).rows[0].n
+        if(n<=1){await client.query('ROLLBACK');return {ok:false,reason:'last_admin'}}
+      }
+      await client.query('UPDATE audit_logs SET actor_user_id=NULL WHERE actor_user_id=$1',[id])
+      await client.query('UPDATE announcements SET created_by=NULL WHERE created_by=$1',[id])
+      await client.query('UPDATE system_settings SET updated_by=NULL WHERE updated_by=$1',[id])
+      try{
+        await client.query('DELETE FROM users WHERE id=$1',[id])
+      }catch(err){
+        if((err as {code?:string}).code==='23503'){await client.query('ROLLBACK');return {ok:false,reason:'referenced'}}
+        throw err
+      }
+      await client.query('COMMIT')
+      return {ok:true}
+    }catch(e){await client.query('ROLLBACK');throw e}finally{client.release()}
+  }
+  // Physically deleting a plan is only safe when nothing references it; otherwise
+  // callers should deactivate (active=false) instead.
+  async deletePlan(id:string):Promise<{ok:true}|{ok:false;reason:'not_found'|'referenced'}>{
+    const exists=(await this.pool.query('SELECT 1 FROM plans WHERE id=$1',[id])).rows[0]
+    if(!exists)return {ok:false,reason:'not_found'}
+    const ref=(await this.pool.query(`SELECT EXISTS(
+      SELECT 1 FROM orders WHERE plan_id=$1
+      UNION ALL SELECT 1 FROM licenses WHERE plan_id=$1
+      UNION ALL SELECT 1 FROM redeem_codes WHERE plan_id=$1
+    ) AS used`,[id])).rows[0]
+    if(ref?.used)return {ok:false,reason:'referenced'}
+    await this.pool.query('DELETE FROM plans WHERE id=$1',[id])
+    return {ok:true}
+  }
+  async deleteRedeemCode(id:string):Promise<{ok:true}|{ok:false;reason:'not_found'|'used'}>{
+    const row=(await this.pool.query('SELECT status FROM redeem_codes WHERE id=$1',[id])).rows[0]
+    if(!row)return {ok:false,reason:'not_found'}
+    if(row.status==='used')return {ok:false,reason:'used'}
+    await this.pool.query(`DELETE FROM redeem_codes WHERE id=$1 AND status<>'used'`,[id])
+    return {ok:true}
+  }
+  async deleteRelease(id:string){const r=await this.pool.query('DELETE FROM releases WHERE id=$1 RETURNING id',[id]);return r.rows[0]??null}
+
+  // Dashboard chart bundle. Amounts in cents; day buckets use Asia/Shanghai wall
+  // time so a purchase near local midnight lands on the expected calendar day.
+  async analytics(range:{from:Date;to:Date}){
+    const day=(col:string)=>`to_char(date_trunc('day',${col} AT TIME ZONE 'Asia/Shanghai'),'YYYY-MM-DD')`
+    const win:[Date,Date]=[range.from,range.to]
+    const [rev,signup,ordersD,orderStat,memTier,newDev,platform,redeem,audit]=await Promise.all([
+      this.pool.query(`SELECT ${day('paid_at')} AS date,coalesce(sum(amount_cents),0)::bigint AS "amountCents",count(*)::int AS orders
+        FROM orders WHERE status='paid' AND paid_at>=$1 AND paid_at<$2 GROUP BY 1 ORDER BY 1`,win),
+      this.pool.query(`SELECT ${day('created_at')} AS date,count(*)::int AS count
+        FROM users WHERE created_at>=$1 AND created_at<$2 GROUP BY 1 ORDER BY 1`,win),
+      this.pool.query(`SELECT ${day('created_at')} AS date,count(*)::int AS created,count(*) FILTER(WHERE status='paid')::int AS paid
+        FROM orders WHERE created_at>=$1 AND created_at<$2 GROUP BY 1 ORDER BY 1`,win),
+      this.pool.query(`SELECT status,count(*)::int AS count,coalesce(sum(amount_cents),0)::bigint AS "amountCents"
+        FROM orders WHERE created_at>=$1 AND created_at<$2 GROUP BY status ORDER BY status`,win),
+      this.pool.query(`SELECT p.tier,count(*)::int AS count FROM licenses l JOIN plans p ON p.id=l.plan_id
+        WHERE l.status='active' AND l.expires_at>now() GROUP BY p.tier ORDER BY p.tier`),
+      this.pool.query(`SELECT ${day('first_seen_at')} AS date,count(*)::int AS count
+        FROM devices WHERE first_seen_at>=$1 AND first_seen_at<$2 GROUP BY 1 ORDER BY 1`,win),
+      this.pool.query(`SELECT platform,count(*)::int AS count FROM devices WHERE revoked=false GROUP BY platform ORDER BY count DESC`),
+      this.pool.query(`SELECT status,count(*)::int AS count FROM redeem_codes GROUP BY status ORDER BY status`),
+      this.pool.query(`SELECT ${day('created_at')} AS date,count(*)::int AS count
+        FROM audit_logs WHERE created_at>=$1 AND created_at<$2 GROUP BY 1 ORDER BY 1`,win),
+    ])
+    const n=(v:unknown)=>Number(v)
+    return {
+      revenueDaily:rev.rows.map(r=>({date:r.date,amountCents:n(r.amountCents),orders:r.orders})),
+      signupsDaily:signup.rows.map(r=>({date:r.date,count:r.count})),
+      ordersDaily:ordersD.rows.map(r=>({date:r.date,created:r.created,paid:r.paid})),
+      orderStatus:orderStat.rows.map(r=>({status:r.status,count:r.count,amountCents:n(r.amountCents)})),
+      membershipTier:memTier.rows.map(r=>({tier:r.tier,count:r.count})),
+      newDevicesDaily:newDev.rows.map(r=>({date:r.date,count:r.count})),
+      platformDist:platform.rows.map(r=>({platform:r.platform,count:r.count})),
+      redeemStatus:redeem.rows.map(r=>({status:r.status,count:r.count})),
+      auditDaily:audit.rows.map(r=>({date:r.date,count:r.count})),
+    }
+  }
   async bootstrapAdmin(username:string,passwordHash:string){
     await this.pool.query(`INSERT INTO users(username,password_hash,role,status) VALUES($1,$2,'admin','active') ON CONFLICT(username) DO NOTHING`,[username,passwordHash])
   }

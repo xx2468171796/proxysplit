@@ -3,7 +3,7 @@ import cors from '@fastify/cors'
 import rateLimit from '@fastify/rate-limit'
 import { Redis } from 'ioredis'
 import { AppError, normalizeUsername } from '@proxysplit/shared'
-import { activateDeviceSchema, adminGrantSchema, announcementUpsertSchema, leaseSchema, licenseExtendSchema, loginSchema, orderCreateSchema, planPatchSchema, planUpsertSchema, providerUpsertSchema, redeemCodeCreateSchema, redeemSchema, refreshSchema, registerSchema, releaseCreateSchema, settingPatchSchema, userCreateSchema, userPasswordSchema, userStatusSchema } from '@proxysplit/contracts'
+import { activateDeviceSchema, adminGrantSchema, analyticsQuerySchema, announcementListQuery, announcementUpsertSchema, auditListQuery, deviceListQuery, leaseSchema, licenseExtendSchema, loginSchema, orderCreateSchema, orderListQuery, planListQuery, planPatchSchema, planUpsertSchema, providerUpsertSchema, redeemCodeCreateSchema, redeemListQuery, redeemSchema, refreshSchema, registerSchema, releaseCreateSchema, releaseListQuery, settingPatchSchema, userCreateSchema, userListQuery, userPasswordSchema, userStatusSchema } from '@proxysplit/contracts'
 import { createCommercialCore, hashPassword, PaymentService, type AuthService, type PgStore } from '@proxysplit/core'
 import type { ApiConfig } from './config.js'
 
@@ -74,9 +74,9 @@ export async function buildApp(config:ApiConfig,provided?:Core){
     setTimeout(()=>void reconcilePayments(),1_000).unref()
   }
   app.get('/v1/releases/latest',async()=>({release:await core.store.latestRelease()}))
-  app.get('/v1/releases',async()=>({items:await core.store.listReleases()}))
-  app.get('/v1/catalog/plans',async()=>({items:await core.store.listPlans(true),paymentMethods:(await core.store.getCommerceSettings()).paymentMethods}))
-  app.get('/v1/announcements',async()=>({items:await core.store.listAnnouncements(true)}))
+  app.get('/v1/releases',async()=>({items:(await core.store.listReleases({limit:100})).items}))
+  app.get('/v1/catalog/plans',async()=>({items:(await core.store.listPlans({publicOnly:true,limit:100})).items,paymentMethods:(await core.store.getCommerceSettings()).paymentMethods}))
+  app.get('/v1/announcements',async()=>({items:(await core.store.listAnnouncements({publicOnly:true,limit:200})).items}))
   app.get('/v1/me',async(req)=>{const p=await auth(req,true);const user=await core.store.findUserById(p.userId);return {user:user&&{id:user.id,username:user.username,status:user.status},membership:await core.store.entitlement(p.userId),devices:await core.store.listUserDevices(p.userId)}})
   app.post('/v1/me/redeem',{config:{rateLimit:{max:10,timeWindow:'1 minute'}}},async(req)=>{const p=await auth(req,true);const input=redeemSchema.parse(req.body);const result=await core.store.redeemCode(p.userId,input.code);await core.store.audit(p.userId,'user.redeem','redeem-code',input.code.trim().toUpperCase(),req.ip,'success');return {...result,membership:await core.store.entitlement(p.userId)}})
   app.get('/v1/me/devices',async(req)=>{const p=await auth(req,true);return {items:await core.store.listUserDevices(p.userId)}})
@@ -105,35 +105,75 @@ export async function buildApp(config:ApiConfig,provided?:Core){
   })
 
   app.get('/v1/admin/dashboard',async(req)=>{await admin(req);return core.store.dashboard()})
-  app.get('/v1/admin/users',async(req)=>{await admin(req);return {items:await core.store.listUsers()}})
+  app.get('/v1/admin/analytics',async(req)=>{
+    await admin(req)
+    const {days,from,to}=analyticsQuerySchema.parse(req.query)
+    const toDate=to?new Date(to):new Date()
+    const fromDate=from?new Date(from):new Date(toDate.getTime()-days*86_400_000)
+    return core.store.analytics({from:fromDate,to:toDate})
+  })
+  app.get('/v1/admin/users',async(req)=>{await admin(req);return core.store.listUsers(userListQuery.parse(req.query))})
   app.get('/v1/admin/users/:id',async(req)=>{await admin(req);const row=await core.store.getUserDetail((req.params as {id:string}).id);if(!row)throw new AppError('NOT_FOUND','用户不存在',404);return row})
   app.post('/v1/admin/users',async(req)=>{const p=await admin(req);const input=userCreateSchema.parse(req.body);const passwordHash=await hashPassword(input.password);const created=await core.store.createUserWithLicense({username:normalizeUsername(input.username),role:input.role,days:input.days,passwordHash,...(input.planId?{planId:input.planId}:{})});await core.store.audit(p.userId,'admin.user.create','user',created.id,req.ip,'success');return created})
   app.patch('/v1/admin/users/:id/status',async(req)=>{const p=await admin(req);const input=userStatusSchema.parse(req.body);const id=(req.params as {id:string}).id;if(!await core.store.setUserStatus(id,input.status))throw new AppError('NOT_FOUND','Resource not found',404);await core.store.audit(p.userId,'admin.user.status','user',id,req.ip,'success',{status:input.status});return {ok:true}})
   app.patch('/v1/admin/users/:id/password',async(req)=>{const p=await admin(req);const input=userPasswordSchema.parse(req.body);const id=(req.params as {id:string}).id;if(!await core.store.setUserPassword(id,await hashPassword(input.password)))throw new AppError('NOT_FOUND','用户不存在',404);await core.store.audit(p.userId,'admin.user.password','user',id,req.ip,'success');return {ok:true}})
   app.post('/v1/admin/users/:id/extend',async(req)=>{const p=await admin(req);const input=licenseExtendSchema.parse(req.body);const id=(req.params as {id:string}).id;const license=await core.store.extendLicense(id,input.days);if(!license)throw new AppError('NOT_FOUND','Resource not found',404);await core.store.audit(p.userId,'admin.license.extend','user',id,req.ip,'success',{days:input.days});return license})
-  app.get('/v1/admin/devices',async(req)=>{await admin(req);return {items:await core.store.listDevices()}})
+  app.delete('/v1/admin/users/:id',async(req)=>{
+    const p=await admin(req);const id=(req.params as {id:string}).id
+    if(id===p.userId)throw new AppError('CANNOT_DELETE_SELF','不能删除当前登录的管理员账号',409)
+    const res=await core.store.deleteUser(id)
+    if(!res.ok){
+      if(res.reason==='not_found')throw new AppError('NOT_FOUND','用户不存在',404)
+      if(res.reason==='last_admin')throw new AppError('CANNOT_DELETE_LAST_ADMIN','不能删除最后一个管理员',409)
+      throw new AppError('USER_HAS_REFERENCES','该用户存在订单等关联记录，无法删除',409)
+    }
+    await core.store.audit(p.userId,'admin.user.delete','user',id,req.ip,'success')
+    return {ok:true}
+  })
+  app.get('/v1/admin/devices',async(req)=>{await admin(req);return core.store.listDevices(deviceListQuery.parse(req.query))})
   app.delete('/v1/admin/devices/:id',async(req)=>{const p=await admin(req);const id=(req.params as {id:string}).id;const row=await core.store.unbindDevice(id);if(!row)throw new AppError('NOT_FOUND','Resource not found',404);await core.store.audit(p.userId,'admin.device.unbind','device',id,req.ip,'success');return {ok:true}})
-  app.get('/v1/admin/plans',async(req)=>{await admin(req);return {items:await core.store.listPlans(false)}})
+  app.get('/v1/admin/plans',async(req)=>{await admin(req);return core.store.listPlans(planListQuery.parse(req.query))})
   app.post('/v1/admin/plans',async(req)=>{const p=await admin(req);const input=planUpsertSchema.parse(req.body);const row=await core.store.createPlan(input);await core.store.audit(p.userId,'admin.plan.create','plan',row.id,req.ip,'success',{code:row.code});return row})
   app.patch('/v1/admin/plans/:id',async(req)=>{const p=await admin(req);const id=(req.params as {id:string}).id;const row=await core.store.updatePlan(id,planPatchSchema.parse(req.body));if(!row)throw new AppError('NOT_FOUND','套餐不存在',404);await core.store.audit(p.userId,'admin.plan.update','plan',id,req.ip,'success');return row})
+  app.delete('/v1/admin/plans/:id',async(req)=>{
+    const p=await admin(req);const id=(req.params as {id:string}).id
+    const res=await core.store.deletePlan(id)
+    if(!res.ok){
+      if(res.reason==='not_found')throw new AppError('NOT_FOUND','套餐不存在',404)
+      throw new AppError('PLAN_IN_USE','该套餐已被订单/授权/兑换码引用，请改用停用（active=false）',409)
+    }
+    await core.store.audit(p.userId,'admin.plan.delete','plan',id,req.ip,'success')
+    return {ok:true}
+  })
   app.get('/v1/admin/settings/commerce',async(req)=>{await admin(req);return core.store.getCommerceSettings()})
   app.patch('/v1/admin/settings/commerce',async(req)=>{const p=await admin(req);const parsed=settingPatchSchema.parse(req.body);const input=Object.fromEntries(Object.entries(parsed).filter(([,v])=>v!==undefined));const row=await core.store.updateCommerceSettings(input,p.userId);await core.store.audit(p.userId,'admin.settings.commerce','settings','commerce',req.ip,'success');return row})
   app.get('/v1/admin/payment-providers',async(req)=>{await admin(req);return {items:await core.store.listProviders()}})
   app.put('/v1/admin/payment-providers/:code',async(req)=>{const p=await admin(req);const code=(req.params as {code:string}).code;const input=providerUpsertSchema.parse({...req.body as object,code});const row=await core.store.upsertProvider(input);await core.store.audit(p.userId,'admin.payment-provider.update','payment-provider',code,req.ip,'success');return row})
   app.post('/v1/admin/payment-providers/:code/activate',async(req)=>{const p=await admin(req);const code=(req.params as {code:string}).code;const provider=await core.store.getProvider(code);if(!provider||!provider.enabled)throw new AppError('PAYMENT_PROVIDER_DISABLED','支付通道未启用',409);const row=await core.store.updateCommerceSettings({activePaymentProvider:code},p.userId);await core.store.audit(p.userId,'admin.payment-provider.activate','payment-provider',code,req.ip,'success');return row})
   app.post('/v1/admin/users/:id/grant',async(req)=>{const p=await admin(req);const input=adminGrantSchema.parse(req.body);const id=(req.params as {id:string}).id;const grant=await core.store.adminGrantLicense(id,{planId:input.planId,lifetime:!!input.lifetime,durationDays:input.durationDays??null});await core.store.audit(p.userId,'admin.license.grant','user',id,req.ip,'success',{planId:input.planId,lifetime:!!input.lifetime,durationDays:input.durationDays??null});return grant})
-  app.get('/v1/admin/orders',async(req)=>{await admin(req);return {items:await core.store.listOrders()}})
+  app.get('/v1/admin/orders',async(req)=>{await admin(req);return core.store.listOrders(orderListQuery.parse(req.query))})
   app.post('/v1/admin/orders/:orderNo/confirm',async(req)=>{const p=await admin(req);const orderNo=(req.params as {orderNo:string}).orderNo;const result=await core.store.confirmOrderManually(orderNo);await core.store.audit(p.userId,'admin.order.confirm','order',orderNo,req.ip,'success',{duplicate:!!result.duplicate});return result})
-  app.get('/v1/admin/redeem-codes',async(req)=>{await admin(req);return {items:await core.store.listRedeemCodes()}})
+  app.get('/v1/admin/redeem-codes',async(req)=>{await admin(req);return core.store.listRedeemCodes(redeemListQuery.parse(req.query))})
   app.post('/v1/admin/redeem-codes',async(req)=>{const p=await admin(req);const input=redeemCodeCreateSchema.parse(req.body);const result=await core.store.createRedeemCodes({planId:input.planId,durationDays:input.durationDays??null,lifetime:input.lifetime,count:input.count,note:input.note,codeExpiresAt:input.codeExpiresAt?new Date(input.codeExpiresAt):null},p.userId);await core.store.audit(p.userId,'admin.redeem.create','redeem-batch',result.batchId,req.ip,'success',{count:result.codes.length,planId:input.planId});return result})
   app.post('/v1/admin/redeem-codes/:id/status',async(req)=>{const p=await admin(req);const id=(req.params as {id:string}).id;const status=(req.body as {status?:string})?.status==='disabled'?'disabled':'active';const row=await core.store.setRedeemCodeStatus(id,status);if(!row)throw new AppError('NOT_FOUND','兑换码不存在或已被使用',404);await core.store.audit(p.userId,'admin.redeem.status','redeem-code',id,req.ip,'success',{status});return {ok:true,status}})
-  app.get('/v1/admin/announcements',async(req)=>{await admin(req);return {items:await core.store.listAnnouncements(false)}})
+  app.delete('/v1/admin/redeem-codes/:id',async(req)=>{
+    const p=await admin(req);const id=(req.params as {id:string}).id
+    const res=await core.store.deleteRedeemCode(id)
+    if(!res.ok){
+      if(res.reason==='not_found')throw new AppError('NOT_FOUND','兑换码不存在',404)
+      throw new AppError('REDEEM_CODE_USED','兑换码已被使用，不能删除',409)
+    }
+    await core.store.audit(p.userId,'admin.redeem.delete','redeem-code',id,req.ip,'success')
+    return {ok:true}
+  })
+  app.get('/v1/admin/announcements',async(req)=>{await admin(req);return core.store.listAnnouncements(announcementListQuery.parse(req.query))})
   app.post('/v1/admin/announcements',async(req)=>{const p=await admin(req);const row=await core.store.createAnnouncement(announcementUpsertSchema.parse(req.body),p.userId);await core.store.audit(p.userId,'admin.announcement.create','announcement',row.id,req.ip,'success');return row})
   app.put('/v1/admin/announcements/:id',async(req)=>{const p=await admin(req);const id=(req.params as {id:string}).id;const row=await core.store.updateAnnouncement(id,announcementUpsertSchema.parse(req.body));if(!row)throw new AppError('NOT_FOUND','公告不存在',404);await core.store.audit(p.userId,'admin.announcement.update','announcement',id,req.ip,'success');return row})
   app.delete('/v1/admin/announcements/:id',async(req)=>{const p=await admin(req);const id=(req.params as {id:string}).id;const row=await core.store.deleteAnnouncement(id);if(!row)throw new AppError('NOT_FOUND','公告不存在',404);await core.store.audit(p.userId,'admin.announcement.delete','announcement',id,req.ip,'success');return {ok:true}})
-  app.get('/v1/admin/releases',async(req)=>{await admin(req);return {items:await core.store.listReleases()}})
+  app.get('/v1/admin/releases',async(req)=>{await admin(req);return core.store.listReleases(releaseListQuery.parse(req.query))})
   app.post('/v1/admin/releases',async(req)=>{const p=await admin(req);const input=releaseCreateSchema.parse(req.body);const row=await core.store.createRelease(input);await core.store.audit(p.userId,'admin.release.create','release',row.id,req.ip,'success',{version:input.version});return row})
-  app.get('/v1/admin/audit',async(req)=>{await admin(req);return {items:await core.store.listAudit()}})
+  app.delete('/v1/admin/releases/:id',async(req)=>{const p=await admin(req);const id=(req.params as {id:string}).id;const row=await core.store.deleteRelease(id);if(!row)throw new AppError('NOT_FOUND','版本不存在',404);await core.store.audit(p.userId,'admin.release.delete','release',id,req.ip,'success');return {ok:true}})
+  app.get('/v1/admin/audit',async(req)=>{await admin(req);return core.store.listAudit(auditListQuery.parse(req.query))})
   app.addHook('onClose',async()=>{if(paymentReconcileTimer)clearInterval(paymentReconcileTimer);if(redis)redis.disconnect();if(!provided)await core.close()})
   return app
 }

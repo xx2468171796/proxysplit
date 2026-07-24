@@ -1,168 +1,41 @@
-import { useEffect, useState } from 'react'
-import {
-  Activity, Boxes, CreditCard, KeyRound, Layers3, LayoutDashboard, LogOut,
-  Megaphone, Monitor, PackageOpen, RefreshCw, Search, Settings2, ShieldCheck,
-  ShoppingCart, Ticket, Users,
-} from 'lucide-react'
-import { api, hasToken, login, setToken } from './api'
+import * as React from 'react'
+import { Navigate, Route, Routes } from 'react-router-dom'
+import { hasToken } from '@/lib/api'
+import { AppShell } from '@/components/app-shell'
+import { Login } from '@/pages/login'
+import DashboardPage from '@/pages/dashboard'
+import UsersPage from '@/pages/users'
+import DevicesPage from '@/pages/devices'
+import PlansPage from '@/pages/plans'
+import OrdersPage from '@/pages/orders'
+import RedeemPage from '@/pages/redeem'
+import PaymentsPage from '@/pages/payments'
+import AnnouncementsPage from '@/pages/announcements'
+import ReleasesPage from '@/pages/releases'
+import AuditPage from '@/pages/audit'
+import SettingsPage from '@/pages/settings'
 
-type Page='dashboard'|'users'|'devices'|'plans'|'orders'|'redeem'|'payments'|'announcements'|'releases'|'settings'|'audit'
-type AnyRow=Record<string,any>
-const pageMeta:Record<Page,[string,string]>={
-  dashboard:['运营概览','会员、订单、收入、授权与设备运行状态'],
-  users:['用户与会员','创建账号、调整授权、暂停与封禁'],
-  devices:['设备管理','查看硬件绑定、解绑设备并强制下线'],
-  plans:['套餐配置','普通会员、超级会员、月卡、季卡、年卡和永久套餐'],
-  orders:['充值订单','支付状态、到账金额，支持手动确认发货'],
-  redeem:['兑换码','批量生成授权码，自定义会员等级与时长，用户可在客户端兑换'],
-  payments:['支付通道','配置并切换收款 Provider，密钥只引用服务器环境变量'],
-  announcements:['公告管理','活动公告、维护通知和客户端更新说明'],
-  releases:['版本发布','升级清单、强制升级和版本日志'],
-  settings:['商业设置','注册、免费试用、设备默认值和离线授权策略'],
-  audit:['审计日志','管理员关键操作与结果追踪'],
-}
-const money=(v:number)=>`¥${(Number(v||0)/100).toFixed(2)}`
-const dt=(v?:string)=>v?new Date(v).toLocaleString():'—'
+export function App() {
+  const [signed, setSigned] = React.useState(hasToken())
 
-function Login({onDone}:{onDone:()=>void}){
-  const [username,setUsername]=useState(''),[password,setPassword]=useState(''),[busy,setBusy]=useState(false),[error,setError]=useState('')
-  async function submit(e:React.FormEvent){e.preventDefault();setBusy(true);setError('');try{await login(username,password);onDone()}catch(e){setError((e as Error).message)}finally{setBusy(false)}}
-  return <main className="login"><form className="login-card" onSubmit={submit}><div className="login-mark"><ShieldCheck/></div><h1>ProxySplit</h1><p>商业运营管理后台</p><label>用户名<input value={username} onChange={e=>setUsername(e.target.value)} autoComplete="username" placeholder="请输入管理员用户名" autoFocus required/></label><label>密码<input type="password" value={password} onChange={e=>setPassword(e.target.value)} autoComplete="current-password" placeholder="请输入密码" required/></label>{error&&<div className="error">{error}</div>}<button disabled={busy}>{busy?'登录中…':'登录后台'}</button></form></main>
-}
+  if (!signed) return <Login onDone={() => setSigned(true)} />
 
-function Dashboard(){
-  const [data,setData]=useState<AnyRow|null>(null)
-  useEffect(()=>{api<AnyRow>('/v1/admin/dashboard').then(setData).catch(()=>setData({}))},[])
-  const cards=[
-    ['用户总数',data?.users??'—',Users],['有效授权',data?.licenses??'—',KeyRound],
-    ['在线设备',data?.online??'—',Monitor],['待支付订单',data?.pendingOrders??'—',ShoppingCart],
-    ['本月实收',data?money(data.monthRevenue):'—',CreditCard],
-  ] as const
-  return <><div className="kpis">{cards.map(([name,value,Icon])=><article className="kpi" key={name}><span><Icon/></span><div><small>{name}</small><strong>{value}</strong></div></article>)}</div><section className="card welcome"><div><h2>付费授权闭环已启用</h2><p>支付回调验签后由服务端幂等开通会员；客户端只能使用服务端签发并绑定设备的 Ed25519 短期租约。</p></div><span className="healthy">● 服务正常</span></section></>
-}
-
-function UserDetail({data,onClose}:{data:AnyRow,onClose:()=>void}){
-  const u=data.user,stats=data.stats||{}
-  return <div className="detail-mask" onMouseDown={onClose}><section className="user-detail" onMouseDown={e=>e.stopPropagation()}><header><div><span>用户档案</span><h2>{u.username}</h2><p>{u.id} · 注册于 {dt(u.createdAt)}</p></div><button onClick={onClose}>关闭</button></header><div className="detail-kpis"><div><small>累计实收</small><b>{money(stats.paidAmountCents||0)}</b></div><div><small>已支付订单</small><b>{stats.paidOrders||0}</b></div><div><small>已绑设备</small><b>{stats.activeDevices||0}</b></div><div><small>账号状态</small><Pill value={u.status}/></div></div><section><h3>账号与试用信息</h3><dl><div><dt>账号 / 邮箱</dt><dd>{u.username}<small>{u.email||'未填写邮箱'}</small></dd></div><div><dt>角色</dt><dd>{u.role==='admin'?'管理员':'普通用户'}</dd></div><div><dt>试用开始</dt><dd>{dt(u.trialStartedAt)}</dd></div><div><dt>试用到期</dt><dd>{dt(u.trialEndsAt)}</dd></div><div><dt>备注</dt><dd>{u.note||'—'}</dd></div></dl></section><section><h3>会员授权 ({data.licenses.length})</h3><DetailTable heads={['套餐','状态','有效期','来源']}>{data.licenses.map((x:AnyRow)=><tr key={x.id}><td><b>{x.planName}</b><small>{x.planCode} · {x.maxDevices} 台</small></td><td><Pill value={x.status}/></td><td>{x.lifetime?'永久有效':dt(x.expiresAt)}<small>开始 {dt(x.startsAt)}</small></td><td>{x.source}</td></tr>)}</DetailTable></section><section><h3>设备绑定 ({data.devices.length})</h3><DetailTable heads={['设备','平台 / 版本','最近在线','会话']}>{data.devices.map((x:AnyRow)=><tr key={x.id}><td><b>{x.name}</b><small>{x.id}</small></td><td>{x.platform}<small>{x.appVersion}</small></td><td>{dt(x.lastSeenAt)}<small>首次 {dt(x.firstSeenAt)}</small></td><td><Pill value={x.revoked?'已解绑':x.activeSessions?'在线':'离线'}/></td></tr>)}</DetailTable></section><section><h3>订单记录 ({data.orders.length})</h3><DetailTable heads={['订单','套餐','金额 / 状态','支付时间']}>{data.orders.map((x:AnyRow)=><tr key={x.orderNo}><td className="mono">{x.orderNo}</td><td>{x.planName}<small>{x.billingCycle}</small></td><td><b>{money(x.amountCents)}</b><small>{x.status}</small></td><td>{dt(x.paidAt||x.createdAt)}</td></tr>)}</DetailTable></section><section><h3>近期操作 ({data.activity.length})</h3><DetailTable heads={['时间','动作','结果','来源']}>{data.activity.map((x:AnyRow,i:number)=><tr key={i}><td>{dt(x.createdAt)}</td><td className="mono">{x.action}</td><td><Pill value={x.result}/></td><td>{x.ip||'—'}</td></tr>)}</DetailTable></section></section></div>
-}
-function DetailTable({heads,children}:{heads:string[],children:React.ReactNode}){return <div className="detail-table"><Table heads={heads}>{children}</Table></div>}
-
-function UsersPage(){
-  const [rows,setRows]=useState<AnyRow[]>([]),[plans,setPlans]=useState<AnyRow[]>([]),[show,setShow]=useState(false),[detail,setDetail]=useState<AnyRow|null>(null),[detailError,setDetailError]=useState('')
-  const [form,setForm]=useState({username:'',password:'',days:30,planId:''})
-  const [grantFor,setGrantFor]=useState<AnyRow|null>(null),[grantForm,setGrantForm]=useState({planId:'',days:30,lifetime:false})
-  const load=()=>Promise.all([api<{items:AnyRow[]}>('/v1/admin/users'),api<{items:AnyRow[]}>('/v1/admin/plans')]).then(([u,p])=>{setRows(u.items);setPlans(p.items);const first=p.items[0];if(!form.planId&&first)setForm(x=>({...x,planId:first.id}))})
-  useEffect(()=>{load()},[])
-  async function create(e:React.FormEvent){e.preventDefault();await api('/v1/admin/users',{method:'POST',body:JSON.stringify(form)});setShow(false);setForm(x=>({...x,username:'',password:''}));load()}
-  async function status(id:string,value:string){await api(`/v1/admin/users/${id}/status`,{method:'PATCH',body:JSON.stringify({status:value})});load()}
-  async function extend(id:string){await api(`/v1/admin/users/${id}/extend`,{method:'POST',body:JSON.stringify({days:30})});load()}
-  function openGrant(r:AnyRow){setGrantForm({planId:plans[0]?.id||'',days:30,lifetime:false});setGrantFor(r)}
-  async function grant(e:React.FormEvent){e.preventDefault();if(!grantFor||!grantForm.planId)return;await api(`/v1/admin/users/${grantFor.id}/grant`,{method:'POST',body:JSON.stringify({planId:grantForm.planId,lifetime:grantForm.lifetime,durationDays:grantForm.lifetime?null:grantForm.days})});setGrantFor(null);load()}
-  async function changePassword(row:AnyRow){
-    const password=prompt(`为 ${row.username} 设置新密码（至少 8 位）。保存后该用户的所有已登录设备将需要重新登录。`)
-    if(password===null)return
-    if(password.length<8){alert('密码至少需要 8 位');return}
-    await api(`/v1/admin/users/${row.id}/password`,{method:'PATCH',body:JSON.stringify({password})})
-    alert(`已更新 ${row.username} 的密码，并已使原会话失效。`)
-  }
-  async function openDetail(id:string){setDetailError('');try{setDetail(await api(`/v1/admin/users/${id}`))}catch(e){setDetailError((e as Error).message)}}
-  return <><section className="card"><div className="card-head"><div><b>用户列表</b><small>共 {rows.length} 个账号；点击“详情”可查看完整会员、设备、订单与操作记录</small></div><button className="primary" onClick={()=>setShow(!show)}>+ 创建用户</button></div>{show&&<form className="inline-form wide" onSubmit={create}><input placeholder="用户名" value={form.username} onChange={e=>setForm({...form,username:e.target.value})}/><input placeholder="初始密码（至少10位）" type="password" value={form.password} onChange={e=>setForm({...form,password:e.target.value})}/><select value={form.planId} onChange={e=>setForm({...form,planId:e.target.value})}>{plans.map(p=><option value={p.id} key={p.id}>{p.name}</option>)}</select><input type="number" min="1" value={form.days} onChange={e=>setForm({...form,days:Number(e.target.value)})}/><button>创建并开通</button></form>}{detailError&&<div className="error">{detailError}</div>}<Table heads={['用户','会员 / 到期','设备','状态','操作']}>{rows.map(r=><tr key={r.id}><td><b>{r.username}</b><small>{dt(r.createdAt)}</small></td><td>{r.planName||'未开通'}<small>{r.lifetime?'永久有效':dt(r.expiresAt)}</small></td><td>{r.devices}</td><td><Pill value={r.status}/></td><td className="actions"><button onClick={()=>openDetail(r.id)}>详情</button><button onClick={()=>openGrant(r)}>发放会员</button><button onClick={()=>extend(r.id)}>续费30天</button><button onClick={()=>status(r.id,r.status==='active'?'suspended':'active')}>{r.status==='active'?'暂停':'恢复'}</button></td></tr>)}</Table></section>{detail&&<UserDetail data={detail} onClose={()=>setDetail(null)}/>}{grantFor&&<div className="detail-mask" onMouseDown={()=>setGrantFor(null)}><section className="user-detail grant-modal" onMouseDown={e=>e.stopPropagation()}><header><div><span>手动发放会员</span><h2>{grantFor.username}</h2><p>套餐决定会员等级 / 设备数 / 权益；已有同级会员时按剩余时长叠加，永久不会被降级。</p></div><button onClick={()=>setGrantFor(null)}>关闭</button></header><form className="editor-grid" onSubmit={grant}><label>套餐（会员等级）<select value={grantForm.planId} onChange={e=>setGrantForm({...grantForm,planId:e.target.value})}>{plans.map(p=><option value={p.id} key={p.id}>{p.name}（{p.tier==='premium'?'超级会员':p.tier==='standard'?'普通会员':p.tier}）</option>)}</select></label><label>有效天数<input type="number" min="1" disabled={grantForm.lifetime} value={grantForm.days} onChange={e=>setGrantForm({...grantForm,days:Number(e.target.value)})}/></label><label className="check"><input type="checkbox" checked={grantForm.lifetime} onChange={e=>setGrantForm({...grantForm,lifetime:e.target.checked})}/>永久有效</label><button className="primary">确认发放</button></form></section></div>}</>
-}
-
-function PasswordQuickReset(){
-  const [rows,setRows]=useState<AnyRow[]>([])
-  useEffect(()=>{api<{items:AnyRow[]}>('/v1/admin/users').then(x=>setRows(x.items))},[])
-  async function reset(){
-    const username=prompt('输入要修改密码的用户名')
-    if(username===null)return
-    const user=rows.find(x=>x.username===username.trim())
-    if(!user){alert('未找到该用户，请从上方用户列表复制用户名后重试');return}
-    const password=prompt(`为 ${user.username} 设置新密码（至少 8 位）。保存后该用户的所有已登录设备将需要重新登录。`)
-    if(password===null)return
-    if(password.length<8){alert('密码至少需要 8 位');return}
-    await api(`/v1/admin/users/${user.id}/password`,{method:'PATCH',body:JSON.stringify({password})})
-    alert(`已更新 ${user.username} 的密码，并已使原会话失效。`)
-  }
-  return <section className="card"><div className="card-head"><div><b>账号安全</b><small>修改密码后会立即撤销该账号所有已登录会话。</small></div><button className="primary" onClick={()=>void reset()}>修改用户密码</button></div></section>
-}
-
-function DevicesPage(){
-  const [rows,setRows]=useState<AnyRow[]>([]);const load=()=>api<{items:AnyRow[]}>('/v1/admin/devices').then(x=>setRows(x.items));useEffect(()=>{load()},[])
-  async function unbind(id:string){if(!confirm('确认解绑并强制该设备下线？以后允许重新绑定。'))return;await api(`/v1/admin/devices/${id}`,{method:'DELETE'});load()}
-  return <section className="card"><div className="card-head"><div><b>已绑定设备</b><small>设备上限按当前会员套餐执行；解绑会撤销全部会话并释放名额</small></div></div><Table heads={['用户 / 设备','平台','版本','最后在线','状态','操作']}>{rows.map(r=><tr key={r.id}><td><b>{r.username}</b><small>{r.name}</small></td><td>{r.platform}</td><td>{r.appVersion}</td><td>{dt(r.lastSeenAt)}</td><td><Pill value={r.revoked?'已解绑':'正常'}/></td><td className="actions"><button disabled={r.revoked} onClick={()=>unbind(r.id)}>解绑</button></td></tr>)}</Table></section>
-}
-
-const blankPlan={code:'',name:'',description:'',tier:'standard',billingCycle:'month',durationDays:30,lifetime:false,priceYuan:'19.90',originalPriceYuan:'',maxDevices:3,features:'proxy,rules,http,https,socks',active:false,public:true,sortOrder:100,badge:'',saleStarts:'',saleEnds:'',purchaseLimit:''}
-function PlansPage(){
-  const [rows,setRows]=useState<AnyRow[]>([]),[editId,setEditId]=useState(''),[show,setShow]=useState(false),[form,setForm]=useState({...blankPlan})
-  const load=()=>api<{items:AnyRow[]}>('/v1/admin/plans').then(x=>setRows(x.items));useEffect(()=>{load()},[])
-  function edit(r:AnyRow){setEditId(r.id);setShow(true);setForm({code:r.code,name:r.name,description:r.description,tier:r.tier,billingCycle:r.billingCycle,durationDays:r.durationDays??30,lifetime:r.lifetime,priceYuan:(r.priceCents/100).toFixed(2),originalPriceYuan:r.originalPriceCents?(r.originalPriceCents/100).toFixed(2):'',maxDevices:r.maxDevices,features:(r.features||[]).join(','),active:r.active,public:r.public,sortOrder:r.sortOrder,badge:r.badge||'',saleStarts:r.saleStartsAt?String(r.saleStartsAt).slice(0,16):'',saleEnds:r.saleEndsAt?String(r.saleEndsAt).slice(0,16):'',purchaseLimit:r.purchaseLimitPerUser?String(r.purchaseLimitPerUser):''})}
-  async function save(e:React.FormEvent){e.preventDefault();const body={...form,priceCents:Math.round(Number(form.priceYuan)*100),originalPriceCents:form.originalPriceYuan?Math.round(Number(form.originalPriceYuan)*100):null,durationDays:form.lifetime?null:Number(form.durationDays),features:form.features.split(',').map(x=>x.trim()).filter(Boolean),saleStartsAt:form.saleStarts?new Date(form.saleStarts).toISOString():null,saleEndsAt:form.saleEnds?new Date(form.saleEnds).toISOString():null,purchaseLimitPerUser:form.purchaseLimit?Number(form.purchaseLimit):null,currency:'CNY'};for(const k of ['priceYuan','originalPriceYuan','saleStarts','saleEnds','purchaseLimit'])delete (body as AnyRow)[k];if(editId){delete (body as AnyRow).code;await api(`/v1/admin/plans/${editId}`,{method:'PATCH',body:JSON.stringify(body)})}else await api('/v1/admin/plans',{method:'POST',body:JSON.stringify(body)});setShow(false);setEditId('');setForm({...blankPlan});load()}
-  return <><section className="card"><div className="card-head"><div><b>销售套餐</b><small>支持普通/超级会员、固定周期、永久版和限时限购活动套餐</small></div><button className="primary" onClick={()=>{setShow(!show);setEditId('');setForm({...blankPlan})}}>+ 新建套餐</button></div>{show&&<form className="editor-grid" onSubmit={save}><label>套餐代码<input disabled={!!editId} value={form.code} onChange={e=>setForm({...form,code:e.target.value})}/></label><label>套餐名称<input value={form.name} onChange={e=>setForm({...form,name:e.target.value})}/></label><label>会员等级<select value={form.tier} onChange={e=>setForm({...form,tier:e.target.value})}><option value="trial">试用</option><option value="standard">普通会员</option><option value="premium">超级会员</option></select></label><label>周期<select value={form.billingCycle} onChange={e=>setForm({...form,billingCycle:e.target.value,lifetime:e.target.value==='lifetime'})}><option value="month">月卡</option><option value="quarter">季卡</option><option value="year">年卡</option><option value="lifetime">永久</option><option value="custom">自定义</option></select></label><label>有效天数<input disabled={form.lifetime} type="number" value={form.durationDays} onChange={e=>setForm({...form,durationDays:Number(e.target.value)})}/></label><label>活动售价（元）<input type="number" step=".01" value={form.priceYuan} onChange={e=>setForm({...form,priceYuan:e.target.value})}/></label><label>划线原价（元）<input type="number" step=".01" value={form.originalPriceYuan} onChange={e=>setForm({...form,originalPriceYuan:e.target.value})}/></label><label>设备数<input type="number" min="1" value={form.maxDevices} onChange={e=>setForm({...form,maxDevices:Number(e.target.value)})}/></label><label>活动角标<input value={form.badge} onChange={e=>setForm({...form,badge:e.target.value})}/></label><label>每人限购次数<input type="number" min="1" placeholder="不填=不限购" value={form.purchaseLimit} onChange={e=>setForm({...form,purchaseLimit:e.target.value})}/></label><label>活动开始<input type="datetime-local" value={form.saleStarts} onChange={e=>setForm({...form,saleStarts:e.target.value})}/></label><label>活动结束<input type="datetime-local" value={form.saleEnds} onChange={e=>setForm({...form,saleEnds:e.target.value})}/></label><label className="span-2">功能代码（逗号分隔）<input value={form.features} onChange={e=>setForm({...form,features:e.target.value})}/></label><label className="span-2">介绍<textarea value={form.description} onChange={e=>setForm({...form,description:e.target.value})}/></label><label className="check"><input type="checkbox" checked={form.active} onChange={e=>setForm({...form,active:e.target.checked})}/>启用销售</label><label className="check"><input type="checkbox" checked={form.public} onChange={e=>setForm({...form,public:e.target.checked})}/>用户可见</label><button className="primary">{editId?'保存修改':'创建套餐'}</button></form>}</section><section className="plan-grid">{rows.map(r=><article className={'plan-card '+r.tier} key={r.id}><div><span>{r.badge||r.billingCycle}</span><Pill value={r.active?'销售中':'已停用'}/></div><h3>{r.name}</h3><strong>{money(r.priceCents)}</strong><p>{r.description||'暂无介绍'}</p><ul><li>{r.lifetime?'永久有效':`${r.durationDays} 天`}</li><li>{r.maxDevices} 台设备</li><li>{r.purchaseLimitPerUser?`每人限购 ${r.purchaseLimitPerUser} 次`:'不限购'}</li></ul><button onClick={()=>edit(r)}>编辑套餐</button></article>)}</section></>
-}
-
-function OrdersPage(){
-  const [rows,setRows]=useState<AnyRow[]>([]);const load=()=>api<{items:AnyRow[]}>('/v1/admin/orders').then(x=>setRows(x.items));useEffect(()=>{load()},[])
-  async function confirm(r:AnyRow){if(!window.confirm(`确认为订单 ${r.orderNo}（${r.username} · ${money(r.amountCents)}）手动发货并开通会员？此操作幂等，无需支付回调。`))return;await api(`/v1/admin/orders/${r.orderNo}/confirm`,{method:'POST'});load()}
-  return <section className="card"><div className="card-head"><div><b>充值订单</b><small>支付成功后自动、幂等开通；未到账的可手动确认发货</small></div><button title="刷新" onClick={()=>load()}>刷新</button></div><Table heads={['订单号 / 用户','套餐','金额','通道','状态','时间','操作']}>{rows.map(r=><tr key={r.id}><td><b className="mono">{r.orderNo}</b><small>{r.username}</small></td><td>{r.planName}<small>{r.tier}</small></td><td><b>{money(r.amountCents)}</b></td><td>{r.providerCode}</td><td><Pill value={r.status}/></td><td>{dt(r.paidAt||r.createdAt)}</td><td className="actions">{(r.status==='pending'||r.status==='failed')?<button onClick={()=>confirm(r)}>确认发货</button>:<span className="muted">—</span>}</td></tr>)}</Table></section>
-}
-
-function RedeemPage(){
-  const [rows,setRows]=useState<AnyRow[]>([]),[plans,setPlans]=useState<AnyRow[]>([]),[show,setShow]=useState(false),[minted,setMinted]=useState<string[]>([])
-  const [form,setForm]=useState({planId:'',days:30,lifetime:false,count:1,note:'',codeExpires:''})
-  const load=()=>Promise.all([api<{items:AnyRow[]}>('/v1/admin/redeem-codes'),api<{items:AnyRow[]}>('/v1/admin/plans')]).then(([c,p])=>{setRows(c.items);setPlans(p.items);setForm(x=>x.planId?x:{...x,planId:p.items[0]?.id||''})})
-  useEffect(()=>{load()},[])
-  async function create(e:React.FormEvent){e.preventDefault();if(!form.planId)return;const body={planId:form.planId,lifetime:form.lifetime,durationDays:form.lifetime?null:form.days,count:Number(form.count),note:form.note,codeExpiresAt:form.codeExpires?new Date(form.codeExpires).toISOString():null};const res=await api<{codes:string[]}>('/v1/admin/redeem-codes',{method:'POST',body:JSON.stringify(body)});setMinted(res.codes);setShow(false);load()}
-  async function toggle(r:AnyRow){const status=r.status==='disabled'?'active':'disabled';await api(`/v1/admin/redeem-codes/${r.id}/status`,{method:'POST',body:JSON.stringify({status})});load()}
-  return <><section className="card"><div className="card-head"><div><b>兑换码 / 授权码</b><small>共 {rows.length} 个；绑定套餐决定会员等级，时长可覆盖或永久，用户在客户端兑换</small></div><button className="primary" onClick={()=>{setMinted([]);setShow(!show)}}>+ 生成兑换码</button></div>{show&&<form className="editor-grid" onSubmit={create}><label>套餐（会员等级）<select value={form.planId} onChange={e=>setForm({...form,planId:e.target.value})}>{plans.map(p=><option value={p.id} key={p.id}>{p.name}（{p.tier==='premium'?'超级会员':p.tier==='standard'?'普通会员':p.tier}）</option>)}</select></label><label>有效天数<input type="number" min="1" disabled={form.lifetime} value={form.days} onChange={e=>setForm({...form,days:Number(e.target.value)})}/></label><label>生成数量<input type="number" min="1" max="500" value={form.count} onChange={e=>setForm({...form,count:Number(e.target.value)})}/></label><label>兑换码有效期（可选）<input type="datetime-local" value={form.codeExpires} onChange={e=>setForm({...form,codeExpires:e.target.value})}/></label><label className="span-2">备注<input value={form.note} onChange={e=>setForm({...form,note:e.target.value})} placeholder="如：双十一活动 / 补偿"/></label><label className="check"><input type="checkbox" checked={form.lifetime} onChange={e=>setForm({...form,lifetime:e.target.checked})}/>永久会员</label><button className="primary">生成</button></form>}{minted.length>0&&<div className="minted"><div className="minted-head"><b>已生成 {minted.length} 个兑换码</b><small>请立即复制保存，明码仅此一次展示</small><button onClick={()=>{navigator.clipboard?.writeText(minted.join('\n'));}}>复制全部</button></div><textarea readOnly className="mono" rows={Math.min(10,minted.length)} value={minted.join('\n')}/></div>}</section><section className="card"><Table heads={['兑换码','套餐 / 权益','状态','备注','有效期','兑换人 / 时间']}>{rows.map(r=><tr key={r.id}><td className="mono">{r.code}</td><td>{r.planName}<small>{r.tier==='premium'?'超级会员':r.tier==='standard'?'普通会员':r.tier} · {r.lifetime?'永久':`${r.durationDays} 天`}</small></td><td><Pill value={r.status==='used'?'已使用':r.status==='disabled'?'已停用':'可用'}/></td><td>{r.note||'—'}</td><td>{r.codeExpiresAt?dt(r.codeExpiresAt):'不限'}</td><td>{r.redeemedBy?<>{r.redeemedBy}<small>{dt(r.redeemedAt)}</small></>:<span className="actions">{r.status!=='used'&&<button onClick={()=>toggle(r)}>{r.status==='disabled'?'启用':'停用'}</button>}</span>}</td></tr>)}</Table></section></>
-}
-
-function PaymentsPage(){
-  const [rows,setRows]=useState<AnyRow[]>([]),[settings,setSettings]=useState<AnyRow>({}),[editing,setEditing]=useState<AnyRow|null>(null)
-  const load=()=>Promise.all([api<{items:AnyRow[]}>('/v1/admin/payment-providers'),api<AnyRow>('/v1/admin/settings/commerce')]).then(([p,s])=>{setRows(p.items);setSettings(s)})
-  useEffect(()=>{load()},[])
-  async function save(e:React.FormEvent){e.preventDefault();if(!editing)return;await api(`/v1/admin/payment-providers/${editing.code}`,{method:'PUT',body:JSON.stringify(editing)});setEditing(null);load()}
-  async function activate(code:string){await api(`/v1/admin/payment-providers/${code}/activate`,{method:'POST'});load()}
-  return <><section className="notice secure"><ShieldCheck/><div><b>支付密钥不会保存在网页或数据库</b><p>后台只保存环境变量引用；切换收款时会冻结订单对应的 Provider，历史回调仍按原通道验签。</p></div></section><section className="provider-grid">{rows.map(r=><article className="card provider" key={r.code}><div><div><small>{r.code}</small><h3>{r.displayName}</h3></div><Pill value={settings.activePaymentProvider===r.code?'当前通道':r.enabled?'已启用':'已停用'}/></div><p>{r.endpoint||'尚未配置网关地址'}</p><small>凭据引用：{r.credentialRef}_*</small><div className="actions"><button onClick={()=>setEditing({...r})}>配置</button><button className="primary" disabled={!r.enabled||settings.activePaymentProvider===r.code} onClick={()=>activate(r.code)}>设为当前收款</button></div></article>)}</section>{editing&&<section className="card"><form className="editor-grid" onSubmit={save}><label>显示名称<input value={editing.displayName} onChange={e=>setEditing({...editing,displayName:e.target.value})}/></label><label>适配器<select value={editing.adapter} onChange={e=>setEditing({...editing,adapter:e.target.value})}><option value="zhongzhuan">中转网关</option><option value="manual">人工支付</option></select></label><label className="span-2">网关地址<input value={editing.endpoint} onChange={e=>setEditing({...editing,endpoint:e.target.value})}/></label><label>AppID（可选展示）<input value={editing.merchantId||''} onChange={e=>setEditing({...editing,merchantId:e.target.value})}/></label><label>环境变量前缀<input value={editing.credentialRef} onChange={e=>setEditing({...editing,credentialRef:e.target.value})}/></label><label className="check"><input type="checkbox" checked={editing.enabled} onChange={e=>setEditing({...editing,enabled:e.target.checked})}/>启用通道</label><button className="primary">保存支付配置</button></form></section>}</>
-}
-
-const blankNotice={type:'notice',title:'',summary:'',content:'',version:'',active:true,pinned:false,startsAt:null,endsAt:null}
-function AnnouncementsPage(){
-  const [rows,setRows]=useState<AnyRow[]>([]),[form,setForm]=useState({...blankNotice}),[show,setShow]=useState(false),[editId,setEditId]=useState('')
-  const load=()=>api<{items:AnyRow[]}>('/v1/admin/announcements').then(x=>setRows(x.items));useEffect(()=>{load()},[])
-  async function save(e:React.FormEvent){e.preventDefault();await api(editId?`/v1/admin/announcements/${editId}`:'/v1/admin/announcements',{method:editId?'PUT':'POST',body:JSON.stringify(form)});setShow(false);setEditId('');setForm({...blankNotice});load()}
-  async function remove(id:string){if(confirm('确认删除该公告？')){await api(`/v1/admin/announcements/${id}`,{method:'DELETE'});load()}}
-  return <section className="card"><div className="card-head"><div><b>公告与活动</b><small>客户端和官网会员中心均可读取已发布内容</small></div><button className="primary" onClick={()=>{setShow(!show);setEditId('');setForm({...blankNotice})}}>+ 发布公告</button></div>{show&&<form className="editor-grid" onSubmit={save}><label>类型<select value={form.type} onChange={e=>setForm({...form,type:e.target.value})}><option value="notice">公告</option><option value="maintenance">维护</option><option value="release">更新</option></select></label><label>对应版本<input value={form.version} onChange={e=>setForm({...form,version:e.target.value})}/></label><label className="span-2">标题<input value={form.title} onChange={e=>setForm({...form,title:e.target.value})}/></label><label className="span-2">摘要<input value={form.summary} onChange={e=>setForm({...form,summary:e.target.value})}/></label><label className="span-2">正文<textarea rows={6} value={form.content} onChange={e=>setForm({...form,content:e.target.value})}/></label><label className="check"><input type="checkbox" checked={form.active} onChange={e=>setForm({...form,active:e.target.checked})}/>立即发布</label><label className="check"><input type="checkbox" checked={form.pinned} onChange={e=>setForm({...form,pinned:e.target.checked})}/>置顶</label><button className="primary">保存公告</button></form>}<Table heads={['公告','类型 / 版本','发布时间','状态','操作']}>{rows.map(r=><tr key={r.id}><td><b>{r.title}</b><small>{r.summary}</small></td><td>{r.type}<small>{r.version||'—'}</small></td><td>{dt(r.publishedAt)}</td><td><Pill value={r.active?'已发布':'草稿'}/></td><td className="actions"><button onClick={()=>{setEditId(r.id);setForm({...blankNotice,...r,startsAt:r.startsAt??null,endsAt:r.endsAt??null});setShow(true)}}>编辑</button><button onClick={()=>remove(r.id)}>删除</button></td></tr>)}</Table></section>
-}
-
-function ReleasesPage(){
-  const [rows,setRows]=useState<AnyRow[]>([]),[show,setShow]=useState(false),[form,setForm]=useState({version:'',minimumVersion:'',url:'',sha256:'',signature:'',mandatory:false,title:'',summary:'',changelog:'',channel:'stable'})
-  const load=()=>api<{items:AnyRow[]}>('/v1/admin/releases').then(x=>setRows(x.items));useEffect(()=>{load()},[])
-  async function create(e:React.FormEvent){e.preventDefault();await api('/v1/admin/releases',{method:'POST',body:JSON.stringify(form)});setShow(false);load()}
-  return <section className="card"><div className="card-head"><div><b>版本发布</b><small>清单必须包含 SHA256、离线签名和升级日志</small></div><button className="primary" onClick={()=>setShow(!show)}>+ 新版本</button></div>{show&&<form className="editor-grid" onSubmit={create}><label>版本号<input value={form.version} onChange={e=>setForm({...form,version:e.target.value})}/></label><label>最低版本<input value={form.minimumVersion} onChange={e=>setForm({...form,minimumVersion:e.target.value})}/></label><label className="span-2">版本标题<input value={form.title} onChange={e=>setForm({...form,title:e.target.value})}/></label><label className="span-2">摘要<input value={form.summary} onChange={e=>setForm({...form,summary:e.target.value})}/></label><label className="span-2">升级日志<textarea rows={5} value={form.changelog} onChange={e=>setForm({...form,changelog:e.target.value})}/></label><label className="span-2">下载地址<input value={form.url} onChange={e=>setForm({...form,url:e.target.value})}/></label><label className="span-2">SHA256<input className="mono" value={form.sha256} onChange={e=>setForm({...form,sha256:e.target.value})}/></label><label className="span-2">签名<input className="mono" value={form.signature} onChange={e=>setForm({...form,signature:e.target.value})}/></label><label>通道<select value={form.channel} onChange={e=>setForm({...form,channel:e.target.value})}><option value="stable">稳定版</option><option value="beta">测试版</option></select></label><label className="check"><input type="checkbox" checked={form.mandatory} onChange={e=>setForm({...form,mandatory:e.target.checked})}/>强制升级</label><button className="primary">发布版本</button></form>}<Table heads={['版本','更新说明','最低版本','SHA256','发布时间']}>{rows.map(r=><tr key={r.id}><td><b>v{r.version}</b><small>{r.channel}{r.mandatory?' · 强制升级':''}</small></td><td>{r.title||'—'}<small>{r.summary}</small></td><td>{r.minimumVersion}</td><td className="mono">{r.sha256.slice(0,16)}…</td><td>{dt(r.publishedAt)}</td></tr>)}</Table></section>
-}
-
-function SettingsPage(){
-  const [form,setForm]=useState<AnyRow|null>(null),[saved,setSaved]=useState(false)
-  useEffect(()=>{api<AnyRow>('/v1/admin/settings/commerce').then(setForm)},[])
-  if(!form)return <section className="card">正在加载…</section>
-  async function save(e:React.FormEvent){e.preventDefault();setForm(await api('/v1/admin/settings/commerce',{method:'PATCH',body:JSON.stringify(form)}));setSaved(true);setTimeout(()=>setSaved(false),1800)}
-  return <section className="card"><div className="card-head"><div><b>注册与授权策略</b><small>修改后新注册、登录与下一次租约刷新立即生效</small></div>{saved&&<span className="healthy">已保存</span>}</div><form className="settings-form" onSubmit={save}><label className="setting-row"><span>开放用户注册<small>关闭后已有账号不受影响</small></span><input type="checkbox" checked={form.registrationEnabled} onChange={e=>setForm({...form,registrationEnabled:e.target.checked})}/></label><label className="setting-row"><span>免费试用天数<small>默认3天；设为0时新用户不自动获得试用</small></span><input type="number" min="0" max="365" value={form.trialDays} onChange={e=>setForm({...form,trialDays:Number(e.target.value)})}/></label><label className="setting-row"><span>默认设备上限<small>未开通会员时登录会员中心可绑定的设备数</small></span><input type="number" min="1" value={form.defaultDeviceLimit} onChange={e=>setForm({...form,defaultDeviceLimit:Number(e.target.value)})}/></label><label className="setting-row"><span>客户端支付方式<small>当前只展示并引导支付宝支付</small></span><select value="alipay" disabled><option value="alipay">支付宝</option></select></label><label className="setting-row"><span>在线租约分钟<small>运行中客户端会定期续租，封禁或到期后自动停机</small></span><input type="number" min="15" value={form.licenseLeaseMinutes} onChange={e=>setForm({...form,licenseLeaseMinutes:Number(e.target.value)})}/></label><label className="setting-row"><span>离线宽限小时<small>不会超过会员本身到期时间</small></span><input type="number" min="0" max="72" value={form.offlineGraceHours} onChange={e=>setForm({...form,offlineGraceHours:Number(e.target.value)})}/></label><button className="primary">保存商业设置</button></form></section>
-}
-
-function AuditPage(){const [rows,setRows]=useState<AnyRow[]>([]);useEffect(()=>{api<{items:AnyRow[]}>('/v1/admin/audit').then(x=>setRows(x.items))},[]);return <section className="card"><div className="card-head"><div><b>审计日志</b><small>不记录密码、支付密钥、完整令牌与设备原始指纹</small></div></div><Table heads={['时间','管理员','动作','对象','来源IP','结果']}>{rows.map(r=><tr key={r.id}><td>{dt(r.createdAt)}</td><td>{r.actor||'系统'}</td><td className="mono">{r.action}</td><td>{r.targetType}:{String(r.targetId).slice(0,8)}</td><td>{r.ip||'—'}</td><td><Pill value={r.result}/></td></tr>)}</Table></section>}
-
-function Table({heads,children}:{heads:string[];children:React.ReactNode}){return <div className="table-wrap"><table><thead><tr>{heads.map(x=><th key={x}>{x}</th>)}</tr></thead><tbody>{children}</tbody></table></div>}
-function Pill({value}:{value:string}){const good=/正常|启用|发布|销售中|当前|active|paid|success/.test(value);const bad=/停用|封禁|失败|failed|banned|suspended/.test(value);return <span className={'pill '+(good?'active':bad?'banned':'pending')}>{value}</span>}
-
-export function App(){
-  const [signed,setSigned]=useState(hasToken()),[page,setPage]=useState<Page>('dashboard'),[query,setQuery]=useState('')
-  if(!signed)return <Login onDone={()=>setSigned(true)}/>
-  const nav=[
-    ['dashboard',LayoutDashboard,'概览'],['users',Users,'用户与会员'],['devices',Monitor,'设备'],
-    ['plans',Layers3,'套餐'],['orders',ShoppingCart,'订单'],['redeem',Ticket,'兑换码'],['payments',CreditCard,'支付通道'],
-    ['announcements',Megaphone,'公告'],['releases',PackageOpen,'版本'],['settings',Settings2,'商业设置'],['audit',Activity,'审计'],
-  ] as const
-  const pages:Record<Page,React.ReactNode>={dashboard:<Dashboard/>,users:<><UsersPage/><PasswordQuickReset/></>,devices:<DevicesPage/>,plans:<PlansPage/>,orders:<OrdersPage/>,redeem:<RedeemPage/>,payments:<PaymentsPage/>,announcements:<AnnouncementsPage/>,releases:<ReleasesPage/>,settings:<SettingsPage/>,audit:<AuditPage/>}
-  return <div className="shell"><aside><div className="brand"><span><Boxes/></span><div><b>ProxySplit</b><small>COMMERCIAL CONSOLE</small></div></div><nav>{nav.map(([id,Icon,label])=><button className={page===id?'active':''} onClick={()=>setPage(id)} key={id}><Icon/>{label}</button>)}</nav><div className="side-foot"><div><ShieldCheck/>安全运营模式</div><button onClick={()=>{setToken('');setSigned(false)}}><LogOut/>退出登录</button></div></aside><main><header><div><h1>{pageMeta[page][0]}</h1><p>{pageMeta[page][1]}</p></div><div className="header-actions"><label><Search/><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="搜索当前模块…"/></label><button title="刷新页面" onClick={()=>location.reload()}><RefreshCw/></button><span className="admin">AD</span></div></header><div className="content">{pages[page]}</div></main></div>
+  return (
+    <Routes>
+      <Route element={<AppShell />}>
+        <Route index element={<DashboardPage />} />
+        <Route path="users" element={<UsersPage />} />
+        <Route path="devices" element={<DevicesPage />} />
+        <Route path="plans" element={<PlansPage />} />
+        <Route path="orders" element={<OrdersPage />} />
+        <Route path="redeem" element={<RedeemPage />} />
+        <Route path="payments" element={<PaymentsPage />} />
+        <Route path="announcements" element={<AnnouncementsPage />} />
+        <Route path="releases" element={<ReleasesPage />} />
+        <Route path="audit" element={<AuditPage />} />
+        <Route path="settings" element={<SettingsPage />} />
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Route>
+    </Routes>
+  )
 }

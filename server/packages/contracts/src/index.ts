@@ -106,6 +106,76 @@ export const announcementUpsertSchema = z.object({
   startsAt:z.string().datetime().nullable().optional(),
   endsAt:z.string().datetime().nullable().optional(),
 })
+// ---- Admin console: shared list pagination / filtering + analytics ----
+// Query params arrive as strings; coerce numbers and normalise "true"/"false".
+const boolParam = z.preprocess(v=>typeof v==='string'?v==='true':v, z.boolean()).optional()
+export const paginationSchema = z.object({
+  q: z.string().trim().max(200).optional(),
+  limit: z.coerce.number().int().min(1).max(100).default(20),
+  offset: z.coerce.number().int().min(0).default(0),
+  sort: z.string().trim().max(40).optional(),
+  order: z.enum(['asc','desc']).optional(),
+})
+export const userListQuery = paginationSchema.extend({
+  status: z.enum(['active','suspended','banned']).optional(),
+  role: z.enum(['user','admin']).optional(),
+  tier: z.enum(['trial','standard','premium']).optional(),
+  membership: z.enum(['active','expired','expiring']).optional(),
+  createdFrom: z.string().datetime().optional(),
+  createdTo: z.string().datetime().optional(),
+})
+export const deviceListQuery = paginationSchema.extend({
+  platform: z.string().trim().max(40).optional(),
+  revoked: boolParam,
+  online: boolParam,
+  appVersion: z.string().trim().max(40).optional(),
+})
+export const orderListQuery = paginationSchema.extend({
+  status: z.enum(['pending','paid','closed','refunded','failed']).optional(),
+  providerCode: z.string().trim().max(64).optional(),
+  tier: z.enum(['trial','standard','premium']).optional(),
+  billingCycle: z.enum(['trial','month','quarter','year','lifetime','custom']).optional(),
+  paidFrom: z.string().datetime().optional(),
+  paidTo: z.string().datetime().optional(),
+  createdFrom: z.string().datetime().optional(),
+  createdTo: z.string().datetime().optional(),
+})
+export const redeemListQuery = paginationSchema.extend({
+  status: z.enum(['active','disabled','used']).optional(),
+  batchId: z.string().uuid().optional(),
+  planId: z.string().uuid().optional(),
+  lifetime: boolParam,
+})
+export const planListQuery = paginationSchema.extend({
+  tier: z.enum(['trial','standard','premium']).optional(),
+  active: boolParam,
+  public: boolParam,
+  billingCycle: z.enum(['trial','month','quarter','year','lifetime','custom']).optional(),
+})
+export const announcementListQuery = paginationSchema.extend({
+  type: z.enum(['notice','maintenance','release']).optional(),
+  active: boolParam,
+  pinned: boolParam,
+})
+export const releaseListQuery = paginationSchema.extend({
+  channel: z.enum(['stable','beta']).optional(),
+  mandatory: boolParam,
+})
+export const auditListQuery = paginationSchema.extend({
+  action: z.string().trim().max(80).optional(),
+  targetType: z.string().trim().max(80).optional(),
+  result: z.string().trim().max(40).optional(),
+  actor: z.string().trim().max(80).optional(),
+  from: z.string().datetime().optional(),
+  to: z.string().datetime().optional(),
+})
+export const analyticsQuerySchema = z.object({
+  days: z.coerce.number().int().min(1).max(365).default(30),
+  from: z.string().datetime().optional(),
+  to: z.string().datetime().optional(),
+})
+export const redeemCodeStatusSchema = z.object({ status: z.enum(['active','disabled']) })
+
 export type LoginInput = z.infer<typeof loginSchema>
 export type RegisterInput = z.infer<typeof registerSchema>
 export type DeviceInput = z.infer<typeof deviceSchema>
@@ -120,3 +190,14 @@ export type AnnouncementUpsertInput = z.infer<typeof announcementUpsertSchema>
 export type AdminGrantInput = z.infer<typeof adminGrantSchema>
 export type RedeemCodeCreateInput = z.infer<typeof redeemCodeCreateSchema>
 export type RedeemInput = z.infer<typeof redeemSchema>
+export type PaginationQuery = z.infer<typeof paginationSchema>
+export type UserListQuery = z.infer<typeof userListQuery>
+export type DeviceListQuery = z.infer<typeof deviceListQuery>
+export type OrderListQuery = z.infer<typeof orderListQuery>
+export type RedeemListQuery = z.infer<typeof redeemListQuery>
+export type PlanListQuery = z.infer<typeof planListQuery>
+export type AnnouncementListQuery = z.infer<typeof announcementListQuery>
+export type ReleaseListQuery = z.infer<typeof releaseListQuery>
+export type AuditListQuery = z.infer<typeof auditListQuery>
+export type AnalyticsQuery = z.infer<typeof analyticsQuerySchema>
+export type RedeemCodeStatusInput = z.infer<typeof redeemCodeStatusSchema>
