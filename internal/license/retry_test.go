@@ -40,7 +40,7 @@ func TestCreateOrderRefreshesAndRetriesOnlyOnUnauthorized(t *testing.T) {
 				http.Error(w, `{"error":{"message":"expired"}}`, http.StatusUnauthorized)
 				return
 			}
-			_ = json.NewEncoder(w).Encode(Order{OrderNo: "PS1"})
+			_ = json.NewEncoder(w).Encode(Checkout{Order: Order{OrderNo: "PS1"}})
 		case "/v1/auth/refresh":
 			refreshes++
 			_ = json.NewEncoder(w).Encode(map[string]string{"accessToken": "new-access", "refreshToken": "new-refresh"})
@@ -50,7 +50,7 @@ func TestCreateOrderRefreshesAndRetriesOnlyOnUnauthorized(t *testing.T) {
 	c := &Client{apiURL: server.URL, http: server.Client(), path: t.TempDir() + "/license.dat",
 		fingerprint: "fingerprint", state: state{AccessToken: "access", RefreshToken: "refresh"}}
 	order, err := c.CreateOrder("plan")
-	if err != nil || order.OrderNo != "PS1" {
+	if err != nil || order.Order.OrderNo != "PS1" {
 		t.Fatalf("retry after 401 failed: order=%+v err=%v", order, err)
 	}
 	if orders != 2 || refreshes != 1 {
