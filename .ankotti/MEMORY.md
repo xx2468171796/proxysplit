@@ -145,3 +145,10 @@
 - 应急：SQL 把 admin 名下 8 个一次性发布/测试设备 revoked=true + 撤销其会话，保留浏览器设备(运营后台 1e36fc5b)+发布器(317f69d9)，降到 2/3。实测 admin API 立即恢复(users=3/plans=12/dashboard 正常)。
 - 持久修复(v1.9.37)：① auth.ts login+activateDevice：admin 角色设备上限设为 Number.MAX_SAFE_INTEGER(免限)，普通账号不变。② admin/api.ts：login 遇 deviceLimitReached/无 token 抛错显示在登录页不再静默存 pending；api() 对 401/ACCESS_INVALID/DEVICE_ACTIVATION_REQUIRED 清 token+reload 回登录页。生产验证：全新指纹登录 admin 直接拿真实 deviceId、无 limit。
 - 教训：① bindDevice 按 revoked=false 计数、复用同 fingerprint_hash 设备；② 发布自动化复用 admin 账号会吃设备槽——新 release-all.ps1 已用固定指纹(codexreleasepublisher...)只占 1 槽；③ 前端列表 catch 成空会把"鉴权失败"伪装成"数据丢失"，务必区分。
+
+## 2026-07-24 v1.9.38 运营后台 shadcn 重写 + 兑换码多人复用 + 下载统计
+- 后台全量重写 shadcn-admin（多智能体 workflow，13 agent）：所有 /v1/admin 列表接口加分页(limit/offset)+搜索(q)+筛选+排序(白名单防注入)，统一 {items,total,limit,offset}；orders 附 amountSum；新增 GET /v1/admin/analytics(9组按天聚合,Asia/Shanghai)；补全 DELETE users(拦截删自己/最后admin)/plans(引用409)/redeem(已用409)/releases。前端 Tailwind+shadcn/ui+react-router+@tanstack/react-table+recharts，通用 DataTable + 11 模块页 + 仪表盘(6 KPI+9 图表+7/30/90天)。
+- 并发会话同时开发的功能一并合入(本会话独立复验后提交 158bda0)：兑换码一码多人复用(redeem_codes.max_uses/used_count + redeem_redemptions 表 UNIQUE(code_id,user_id)，迁移 0008)+ 修复重复兑换翻倍(client.go：兑换POST成功后 refresh/lease 失败不算失败)+ 下载/浏览量统计(/v1/download/:file 302前埋点 + /v1/track/view + 后台 downloads.tsx)。
+- 🔴 部署踩坑：admin 新增依赖(radix/recharts/react-table)使 docker pnpm-install 缓存失效，服务器(深圳)直连 npmjs.org 拉包 403s 超时致部署失败两次。修复：Dockerfile 加 `pnpm config set registry https://registry.npmmirror.com` + fetch-timeout 600s + fetch-retries 5(npmmirror 是 npm 完整镜像，integrity 一致不影响 --frozen-lockfile)。以后依赖变更不再卡。
+- 教训：多会话/多agent 同仓库并发编辑会让发布预检(要求工作区干净)失败——先确认对方开发完成，独立复验合并树(typecheck/test/build 全绿)后统一提交，避免 stash 破坏对方进度。
+- 生产验证：latest=1.9.38，health ok；实测 users分页/orders筛选+amountSum(3180)/analytics/audit分页/redeem maxUses·usedCount/download 302/delete 404 全部正常。commit 158bda0，SHA256 570a9f65586c3d1408bfba06051ac10a600d15105dbe4580cdb250ea0c71729c，站点 /opt/proxysplit/releases/20260724-222507-158bda0-v1.9.38。
