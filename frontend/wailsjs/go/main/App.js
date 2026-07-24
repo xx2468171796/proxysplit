@@ -42,6 +42,10 @@ export function GetPaymentQR(arg1) {
   return window['go']['main']['App']['GetPaymentQR'](arg1);
 }
 
+export function OpenPaymentURL(arg1) {
+  return window['go']['main']['App']['OpenPaymentURL'](arg1);
+}
+
 export function GetAppIcon(arg1) {
   return window['go']['main']['App']['GetAppIcon'](arg1);
 }

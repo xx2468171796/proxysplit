@@ -7,6 +7,8 @@ package coreupdate
 import (
 	"archive/zip"
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -129,21 +131,38 @@ func Update(destDir, viaProxy string) (string, error) {
 	version := strings.TrimPrefix(rel.TagName, "v")
 
 	// Pick the windows-amd64 zip that is NOT the "legacy" (older-CPU) build.
-	var downloadURL string
+	var downloadURL, assetName, checksumURL string
 	for _, a := range rel.Assets {
 		if strings.HasSuffix(a.Name, "windows-amd64.zip") && !strings.Contains(a.Name, "legacy") {
-			downloadURL = a.DownloadURL
-			break
+			downloadURL, assetName = a.DownloadURL, a.Name
+		}
+		if strings.Contains(strings.ToLower(a.Name), "checksums") && strings.HasSuffix(strings.ToLower(a.Name), ".txt") {
+			checksumURL = a.DownloadURL
 		}
 	}
 	if downloadURL == "" {
 		return "", fmt.Errorf("no windows-amd64 asset found in release %s", rel.TagName)
+	}
+	if checksumURL == "" {
+		return "", fmt.Errorf("release %s has no checksum manifest", rel.TagName)
 	}
 
 	// Download the zip into memory (bounded).
 	zipBytes, err := download(client, downloadURL)
 	if err != nil {
 		return "", err
+	}
+	checksums, err := download(client, checksumURL)
+	if err != nil {
+		return "", fmt.Errorf("download checksum manifest: %w", err)
+	}
+	expected, err := checksumForAsset(checksums, assetName)
+	if err != nil {
+		return "", err
+	}
+	actual := sha256.Sum256(zipBytes)
+	if !strings.EqualFold(expected, hex.EncodeToString(actual[:])) {
+		return "", fmt.Errorf("release zip SHA256 mismatch")
 	}
 
 	// Extract sing-box.exe from the zip.
@@ -179,6 +198,22 @@ func Update(destDir, viaProxy string) (string, error) {
 	}
 	_ = os.Remove(old) // best-effort; if still locked it is removed on next start
 	return version, nil
+}
+
+func checksumForAsset(manifest []byte, assetName string) (string, error) {
+	for _, line := range strings.Split(string(manifest), "\n") {
+		fields := strings.Fields(strings.TrimSpace(line))
+		if len(fields) < 2 {
+			continue
+		}
+		name := strings.TrimPrefix(fields[len(fields)-1], "*")
+		if path.Base(strings.ReplaceAll(name, "\\", "/")) == assetName && len(fields[0]) == 64 {
+			if _, err := hex.DecodeString(fields[0]); err == nil {
+				return strings.ToLower(fields[0]), nil
+			}
+		}
+	}
+	return "", fmt.Errorf("checksum for %s not found", assetName)
 }
 
 // download fetches url through client and returns the body (bounded to

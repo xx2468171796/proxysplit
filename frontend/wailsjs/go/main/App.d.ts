@@ -27,6 +27,7 @@ export function GetAIControlInfo():Promise<main.AIControlInfo>;
 export function GetAnnouncements():Promise<main.AnnouncementsResult>;
 
 export function GetPaymentQR(arg1:string):Promise<main.QRResult>;
+export function OpenPaymentURL(arg1:string):Promise<string>;
 
 export function GetAppIcon(arg1:string):Promise<string>;
 

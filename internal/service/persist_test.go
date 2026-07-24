@@ -1,6 +1,7 @@
 package service
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -8,6 +9,7 @@ import (
 
 	"proxysplit/internal/core"
 	"proxysplit/internal/engine"
+	"proxysplit/internal/nodes"
 )
 
 // TestConfigSurvivesCoreStart is the regression test for the data-loss bug: the
@@ -132,5 +134,29 @@ func TestLoadDropsPrototypePlaceholderNodes(t *testing.T) {
 	}
 	if got := s2.Nodes(); len(got) != 1 || got[0].ID != "real" {
 		t.Fatalf("placeholder node returned after reopen: %+v", got)
+	}
+}
+
+func TestLoadFallsBackWhenMainConfigHasWrongFieldTypes(t *testing.T) {
+	dir := t.TempDir()
+	backup := Config{LogLevel: "debug", Nodes: []*nodes.Node{{ID: "kept", Name: "Kept", Type: "socks5", Server: "127.0.0.1", Port: 1080}}, SelectedID: "kept"}
+	raw, err := json.Marshal(backup)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "config.json.bak"), raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// Syntactically valid JSON used to be partially decoded and then persisted,
+	// even though the nodes field has an incompatible type.
+	if err := os.WriteFile(filepath.Join(dir, "config.json"), []byte(`{"logLevel":"info","nodes":"not-an-array"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s, err := New(t.TempDir(), dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := s.Nodes(); len(got) != 1 || got[0].ID != "kept" {
+		t.Fatalf("backup not restored: %+v", got)
 	}
 }

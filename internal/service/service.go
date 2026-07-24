@@ -233,28 +233,43 @@ func isCoreConfig(data []byte) bool {
 	return bytes.Contains(data, []byte(`"outbounds"`)) || bytes.Contains(data, []byte(`"inbounds"`))
 }
 
+func decodeAppConfig(data []byte) (Config, bool) {
+	var cfg Config
+	if len(data) == 0 || !json.Valid(data) || isCoreConfig(data) || json.Unmarshal(data, &cfg) != nil {
+		return Config{}, false
+	}
+	return cfg, true
+}
+
 func (s *Service) load() {
 	// Read the main config; if it is missing, corrupt, or was clobbered by the
 	// core's sing-box config (a past bug wrote it here), fall back to the last
 	// known-good backup so the user's nodes/rules are never lost.
 	data, err := os.ReadFile(s.configPath())
-	bad := err != nil || !json.Valid(data) || isCoreConfig(data)
+	decoded, ok := decodeAppConfig(data)
+	bad := err != nil || !ok
 	if bad {
 		// Recovery chain: .bak (same dir) → the redundant copy next to the exe.
 		recovered := false
-		if bak, berr := os.ReadFile(s.configPath() + ".bak"); berr == nil && json.Valid(bak) && !isCoreConfig(bak) {
-			data = bak
-			s.log("[store] 主配置异常,已从备份恢复节点/规则")
-			_ = os.WriteFile(s.configPath(), bak, 0o600)
-			recovered = true
+		if bak, berr := os.ReadFile(s.configPath() + ".bak"); berr == nil {
+			if candidate, valid := decodeAppConfig(bak); valid {
+				data = bak
+				decoded = candidate
+				s.log("[store] 主配置异常,已从备份恢复节点/规则")
+				_ = os.WriteFile(s.configPath(), bak, 0o600)
+				recovered = true
+			}
 		}
 		if !recovered {
 			if alt := s.altConfigPath(); alt != "" {
-				if ad, aerr := os.ReadFile(alt); aerr == nil && json.Valid(ad) && !isCoreConfig(ad) {
-					data = ad
-					s.log("[store] 从 exe 旁的备份 proxysplit-data.json 恢复节点/规则")
-					_ = os.WriteFile(s.configPath(), ad, 0o600)
-					recovered = true
+				if ad, aerr := os.ReadFile(alt); aerr == nil {
+					if candidate, valid := decodeAppConfig(ad); valid {
+						data = ad
+						decoded = candidate
+						s.log("[store] 从 exe 旁的备份 proxysplit-data.json 恢复节点/规则")
+						_ = os.WriteFile(s.configPath(), ad, 0o600)
+						recovered = true
+					}
 				}
 			}
 		}
@@ -262,8 +277,8 @@ func (s *Service) load() {
 			data = nil // nothing usable — start clean rather than importing junk
 		}
 	}
-	if len(data) > 0 && json.Valid(data) && !isCoreConfig(data) {
-		_ = json.Unmarshal(data, &s.cfg)
+	if len(data) > 0 {
+		s.cfg = decoded
 	}
 	// Defaults / migration.
 	if s.cfg.LogLevel == "" {

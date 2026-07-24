@@ -27,6 +27,23 @@ class FakeStore {
   async findSession(jti: string) { return this.sessions.get(jti) ?? null }
   async consumeSession(jti: string) { const s = this.sessions.get(jti); if (!s || s.consumedAt) return false; s.consumedAt = new Date(); return true }
   async revokeFamily(family: string) { this.revokedFamilies.push(family); for (const s of this.sessions.values()) if (s.familyId === family) s.revokedAt = new Date() }
+  async rotateSessionAtomic(input: { oldJti: string; familyId: string; oldTokenHash: string; fingerprintHash: string; newJti: string; newTokenHash: string; expiresAt: Date }) {
+    const session = this.sessions.get(input.oldJti)
+    if (!session) return { ok: false, reason: 'invalid' } as const
+    if (session.familyId !== input.familyId || session.tokenHash !== input.oldTokenHash || session.consumedAt || session.revokedAt || session.expiresAt <= new Date()) {
+      await this.revokeFamily(session.familyId)
+      return { ok: false, reason: 'replay' } as const
+    }
+    if (session.fingerprintHash !== input.fingerprintHash) return { ok: false, reason: 'device' } as const
+    session.consumedAt = new Date()
+    this.sessions.set(input.newJti, {
+      jti: input.newJti, familyId: session.familyId, userId: session.userId, deviceId: session.deviceId,
+      tokenHash: input.newTokenHash, consumedAt: null, revokedAt: null, expiresAt: input.expiresAt,
+      fingerprintHash: session.fingerprintHash,
+    })
+    return { ok: true, userId: session.userId, deviceId: session.deviceId } as const
+  }
+  async isDeviceWithinLimit() { return true }
   async audit() {}
   async findDevice(id: string) { return id === this.device.id ? this.device : null }
   async touchDevice() {}
@@ -58,6 +75,18 @@ describe('commercial auth', () => {
     expect(rotated.refreshToken).not.toBe(login.refreshToken)
     await expect(auth.rotate({ refreshToken: login.refreshToken, deviceFingerprint: device.fingerprint })).rejects.toMatchObject({ code: 'REFRESH_REPLAY' })
     expect(store.revokedFamilies).toHaveLength(1)
+  })
+
+  it('allows only one winner when the same refresh token is rotated concurrently', async () => {
+    const { auth, device } = await fixture()
+    const login = await auth.login({ username: 'alice', password: 'correct horse battery staple', device })
+    const results = await Promise.allSettled([
+      auth.rotate({ refreshToken: login.refreshToken, deviceFingerprint: device.fingerprint }),
+      auth.rotate({ refreshToken: login.refreshToken, deviceFingerprint: device.fingerprint }),
+    ])
+    expect(results.filter(result => result.status === 'fulfilled')).toHaveLength(1)
+    const rejected = results.find(result => result.status === 'rejected')
+    expect(rejected).toMatchObject({ reason: { code: 'REFRESH_REPLAY' } })
   })
 
   it('issues an Ed25519 lease bound to the authenticated device', async () => {

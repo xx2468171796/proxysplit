@@ -53,8 +53,8 @@ const planBaseSchema = z.object({
   purchaseLimitPerUser:z.number().int().min(1).max(10000).nullable().optional(),
 })
 export const planUpsertSchema = planBaseSchema.superRefine((v,ctx)=>{
-  if(v.lifetime&&v.billingCycle!=='lifetime')ctx.addIssue({code:'custom',path:['billingCycle'],message:'永久套餐的周期必须为 lifetime'})
-  if(!v.lifetime&&v.billingCycle!=='trial'&&!v.durationDays)ctx.addIssue({code:'custom',path:['durationDays'],message:'非永久套餐必须设置有效天数'})
+  if(v.lifetime!==(v.billingCycle==='lifetime'))ctx.addIssue({code:'custom',path:['billingCycle'],message:'永久标记与套餐周期必须一致'})
+  if(!v.lifetime&&!v.durationDays)ctx.addIssue({code:'custom',path:['durationDays'],message:'非永久套餐必须设置有效天数'})
 })
 export const planPatchSchema = planBaseSchema.partial().omit({code:true})
 export const orderCreateSchema = z.object({planId:z.string().uuid()})

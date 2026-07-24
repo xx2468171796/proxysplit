@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { resolvePaidLicenseGrant } from './store.js'
+import { resolvePaidLicenseGrant, validatePlanTerms } from './store.js'
 
 describe('paid license grant calculation',()=>{
   const now=new Date('2026-07-24T00:00:00.000Z')
@@ -26,5 +26,14 @@ describe('paid license grant calculation',()=>{
   it('rejects a paid fixed-term order without a valid duration',()=>{
     expect(()=>resolvePaidLicenseGrant(null,{planId:'broken-plan',durationDays:null,lifetime:false},now))
       .toThrow('ORDER_DURATION_INVALID')
+  })
+
+  it('rejects inconsistent plan terms after a partial admin update is merged',()=>{
+    expect(()=>validatePlanTerms({billingCycle:'month',durationDays:null,lifetime:false}))
+      .toThrow('非永久套餐必须设置有效天数')
+    expect(()=>validatePlanTerms({billingCycle:'lifetime',durationDays:30,lifetime:false}))
+      .toThrow('永久标记与套餐周期必须一致')
+    expect(()=>validatePlanTerms({billingCycle:'lifetime',durationDays:null,lifetime:true}))
+      .not.toThrow()
   })
 })

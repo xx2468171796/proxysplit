@@ -72,10 +72,11 @@
     GetMyOrders as WGetMyOrders,
     CreateMembershipOrder as WCreateMembershipOrder,
     GetPaymentQR as WGetPaymentQR,
+    OpenPaymentURL as WOpenPaymentURL,
     GetAnnouncements as WGetAnnouncements,
     RefreshEntitlement as WRefreshEntitlement,
   } from '../wailsjs/go/main/App.js'
-  import { BrowserOpenURL, EventsOn } from '../wailsjs/runtime/runtime.js'
+  import { EventsOn } from '../wailsjs/runtime/runtime.js'
   import donateQR from './assets/images/donate.png'
 
   type Tab = 'overview' | 'nodes' | 'apps' | 'rules' | 'subs' | 'logs' | 'settings'
@@ -218,6 +219,8 @@
   let paymentQR = ''
   let paymentPoll: ReturnType<typeof setInterval> | null = null
   let paymentPollVis: (() => void) | null = null
+  let paymentPollBusy = false
+  let entitlementRecoveryOrder = ''
   let ruleMode: 'blacklist' | 'whitelist' = 'whitelist' // 只代理列出的（默认/推荐）
   let linkText = ''
   let addMsg = ''
@@ -500,7 +503,22 @@
       if (!license.signedIn) { accountDevices = []; memberOrders = []; return }
       const [deviceResult, orderResult] = await Promise.all([WGetMyDevices(), WGetMyOrders()]) as any[]
       if (!deviceResult?.err) accountDevices = Array.isArray(deviceResult?.items) ? deviceResult.items : []
-      if (!orderResult?.err) memberOrders = Array.isArray(orderResult?.items) ? orderResult.items : []
+      if (!orderResult?.err) {
+        memberOrders = Array.isArray(orderResult?.items) ? orderResult.items : []
+        // A payment may finish after the user closes the payment sheet or the
+        // whole app. Recover the lease once from the newest paid order instead
+        // of requiring the in-memory activeOrder poll to still exist.
+        const paid = memberOrders.find(o => o.status === 'paid')
+        if (paid && license.signedIn && !license.authenticated && paid.orderNo !== entitlementRecoveryOrder) {
+          entitlementRecoveryOrder = paid.orderNo
+          const refreshErr = await WRefreshEntitlement()
+          if (!refreshErr) await refreshLicense()
+          else {
+            entitlementRecoveryOrder = ''
+            commerceError = refreshErr
+          }
+        }
+      }
     } catch (e) {
       memberPlans = []
       planLoadError = '套餐读取失败，请检查网络后刷新。'
@@ -541,11 +559,15 @@
   }
   async function buyPlan(plan: MemberPlan) {
     commerceBusy = true; commerceError = ''
-    const result = await WCreateMembershipOrder(plan.id) as any
-    if (result.err) { commerceBusy = false; commerceError = result.err; return }
-    await showPayment(result.order)
-    await loadCommerce()
-    commerceBusy = false
+    try {
+      const result = await WCreateMembershipOrder(plan.id) as any
+      if (result?.err) { commerceError = result.err; return }
+      await showPayment(result.order)
+      await loadCommerce()
+    } catch (e) {
+      activeOrder = null; paymentQR = ''
+      commerceError = e instanceof Error ? e.message : '创建订单失败，请重试'
+    } finally { commerceBusy = false }
   }
   async function showPayment(order: MemberOrder) {
     activeOrder = order
@@ -559,22 +581,27 @@
   // 展示二维码后自动轮询到账（与统一收款 5ff 一致：3s 一次，后台标签页暂停，回前台立即查一次，
   // 到账/过期即停）。服务端 GET /v1/me/orders 会顺带向网关查单落地，无需依赖异步回调。
   async function pollActiveOrderOnce() {
-    if (!activeOrder || !isWailsReady()) return
-    const res = await WGetMyOrders() as any
-    if (res?.err) return
-    if (Array.isArray(res?.items)) memberOrders = res.items
-    const order = memberOrders.find(o => o.orderNo === activeOrder?.orderNo)
-    if (!order) return
-    if (order.status === 'paid') {
-      stopPaymentPolling()
-      const err = await WRefreshEntitlement()
-      if (err) commerceError = err
-      else { activeOrder = null; paymentQR = ''; showMembership = false; await refreshLicense() }
-    } else if (order.status === 'failed' || order.status === 'expired' || order.status === 'cancelled') {
-      stopPaymentPolling()
-      commerceError = '订单已过期或取消，请重新下单'
-      activeOrder = null; paymentQR = ''
-    }
+    if (!activeOrder || !isWailsReady() || paymentPollBusy) return
+    paymentPollBusy = true
+    try {
+      const res = await WGetMyOrders() as any
+      if (res?.err) return
+      if (Array.isArray(res?.items)) memberOrders = res.items
+      const order = memberOrders.find(o => o.orderNo === activeOrder?.orderNo)
+      if (!order) return
+      if (order.status === 'paid') {
+        stopPaymentPolling()
+        const err = await WRefreshEntitlement()
+        if (err) commerceError = err
+        else { activeOrder = null; paymentQR = ''; showMembership = false; await refreshLicense() }
+      } else if (order.status === 'failed' || order.status === 'expired' || order.status === 'cancelled') {
+        stopPaymentPolling()
+        commerceError = '订单已过期或取消，请重新下单'
+        activeOrder = null; paymentQR = ''
+      }
+    } catch (e) {
+      console.warn('[ProxySplit] payment poll failed', e)
+    } finally { paymentPollBusy = false }
   }
   function startPaymentPolling() {
     stopPaymentPolling()
@@ -591,14 +618,17 @@
   $: if (license.authenticated && !showMembership && paymentPoll) stopPaymentPolling()
   async function refreshPayment() {
     commerceBusy = true; commerceError = ''
-    await loadCommerce()
-    const order = activeOrder && memberOrders.find(o => o.orderNo === activeOrder?.orderNo)
-    if (order?.status === 'paid') {
-      const err = await WRefreshEntitlement()
-      if (err) commerceError = err
-      else { activeOrder = null; paymentQR = ''; showMembership = false; await refreshLicense() }
-    } else commerceError = '暂未查询到支付成功，请完成支付后重试'
-    commerceBusy = false
+    try {
+      await loadCommerce()
+      const order = activeOrder && memberOrders.find(o => o.orderNo === activeOrder?.orderNo)
+      if (order?.status === 'paid') {
+        const err = await WRefreshEntitlement()
+        if (err) commerceError = err
+        else { activeOrder = null; paymentQR = ''; showMembership = false; await refreshLicense() }
+      } else commerceError = '暂未查询到支付成功，请完成支付后重试'
+    } catch (e) {
+      commerceError = e instanceof Error ? e.message : '刷新到账失败，请重试'
+    } finally { commerceBusy = false }
   }
   async function unbindDevice(id: string) {
     if (!confirm('确认解绑这台设备并立即撤销会话？')) return
@@ -1395,7 +1425,7 @@
           <section class="member-panel device-limit-panel"><div class="panel-title"><b>选择要解绑的旧设备</b><span>{accountDevices.length} / {license.maxDevices || '—'} 台</span></div>{#each accountDevices as device}<div class="member-row"><div><b>{device.name}</b><small>{device.appVersion} · 最近在线 {new Date(device.lastSeenAt).toLocaleString()}</small></div><div>{#if device.current}<span class="current-device">当前设备</span>{/if}<button disabled={device.current} title={device.current ? '请勿解绑当前正在使用的设备' : '解绑此旧设备'} on:click={() => unbindDevice(device.id)}>解绑</button></div></div>{:else}<p class="member-empty">暂无可解绑设备</p>{/each}</section>
         {/if}
         {#if announcements.length}<section class="member-panel announcements"><div class="panel-title"><b>公告与更新</b><span>{announcements.length} 条</span></div>{#each announcements.slice(0, 4) as item}<div class="member-row"><div><b>{item.title}</b><small>{item.summary || item.content}</small></div><time>{new Date(item.publishedAt).toLocaleDateString()}</time></div>{/each}</section>{/if}
-        {#if activeOrder}<div class="payment-sheet qr-payment">{#if paymentQR}<div class="payment-qr-box"><img src={paymentQR} alt="支付宝付款二维码" /><span>请使用支付宝扫码</span></div>{/if}<div class="payment-order-info"><span>支付宝安全支付</span><h3>{activeOrder.planName} · ¥{(activeOrder.amountCents / 100).toFixed(2)}</h3><p>打开手机支付宝扫描二维码完成付款，支付成功后点击刷新到账状态。</p><small>请在 {new Date(activeOrder.expiresAt).toLocaleString()} 前完成支付</small></div><div class="payment-actions"><button class="ghost" on:click={() => activeOrder?.payUrl && BrowserOpenURL(activeOrder.payUrl)}>本机打开支付宝</button><button class="primary" disabled={commerceBusy} on:click={refreshPayment}>我已支付，刷新状态</button></div></div>{/if}
+        {#if activeOrder}<div class="payment-sheet qr-payment">{#if paymentQR}<div class="payment-qr-box"><img src={paymentQR} alt="支付宝付款二维码" /><span>请使用支付宝扫码</span></div>{/if}<div class="payment-order-info"><span>支付宝安全支付</span><h3>{activeOrder.planName} · ¥{(activeOrder.amountCents / 100).toFixed(2)}</h3><p>打开手机支付宝扫描二维码完成付款，支付成功后点击刷新到账状态。</p><small>请在 {new Date(activeOrder.expiresAt).toLocaleString()} 前完成支付</small></div><div class="payment-actions"><button class="ghost" on:click={() => activeOrder?.payUrl && WOpenPaymentURL(activeOrder.payUrl)}>本机打开支付宝</button><button class="primary" disabled={commerceBusy} on:click={refreshPayment}>我已支付，刷新状态</button></div></div>{/if}
       </section>
     {/if}
   </main>
@@ -2146,7 +2176,7 @@
         {:else}
           <div class="member-plans-empty"><b>{commerceLoading ? '正在加载套餐…' : '暂时无法显示套餐'}</b><span>{commerceLoading ? '请稍候。' : '请检查网络后重新加载。'}</span>{#if !commerceLoading}<button class="primary" on:click={loadCommerce}>重新加载</button>{/if}</div>
         {/if}
-        {#if activeOrder}<div class="payment-sheet qr-payment">{#if paymentQR}<div class="payment-qr-box"><img src={paymentQR} alt="支付宝付款二维码" /><span>支付宝扫码支付</span></div>{/if}<div class="payment-order-info"><span>支付宝安全支付</span><h3>{activeOrder.planName} · ¥{(activeOrder.amountCents / 100).toFixed(2)}</h3><p>打开手机支付宝扫描左侧二维码，付款完成后刷新到账状态。</p><small>请在 {new Date(activeOrder.expiresAt).toLocaleString()} 前完成支付</small></div><div class="payment-actions"><button class="ghost" on:click={() => activeOrder?.payUrl && BrowserOpenURL(activeOrder.payUrl)}>本机打开支付宝</button><button class="primary" disabled={commerceBusy} on:click={refreshPayment}>我已支付，刷新到账</button></div></div>{/if}
+        {#if activeOrder}<div class="payment-sheet qr-payment">{#if paymentQR}<div class="payment-qr-box"><img src={paymentQR} alt="支付宝付款二维码" /><span>支付宝扫码支付</span></div>{/if}<div class="payment-order-info"><span>支付宝安全支付</span><h3>{activeOrder.planName} · ¥{(activeOrder.amountCents / 100).toFixed(2)}</h3><p>打开手机支付宝扫描左侧二维码，付款完成后刷新到账状态。</p><small>请在 {new Date(activeOrder.expiresAt).toLocaleString()} 前完成支付</small></div><div class="payment-actions"><button class="ghost" on:click={() => activeOrder?.payUrl && WOpenPaymentURL(activeOrder.payUrl)}>本机打开支付宝</button><button class="primary" disabled={commerceBusy} on:click={refreshPayment}>我已支付，刷新到账</button></div></div>{/if}
       </section>
     </div>
   {/if}

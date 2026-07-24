@@ -376,8 +376,15 @@ func (c *Client) authedRequestLocked(ctx context.Context, method, path string, i
 	if c.state.AccessToken == "" {
 		return errors.New("请先登录")
 	}
-	if err := c.request(ctx, method, path, input, output, c.state.AccessToken); err == nil {
+	err := c.request(ctx, method, path, input, output, c.state.AccessToken)
+	if err == nil {
 		return nil
+	}
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) || apiErr.Status != http.StatusUnauthorized {
+		// Retrying a non-idempotent request after a timeout/5xx can create a
+		// second order even when the first request committed successfully.
+		return err
 	}
 	if err := c.refreshLocked(ctx); err != nil {
 		return err
@@ -494,7 +501,10 @@ func (c *Client) refreshLocked(ctx context.Context) error {
 		return err
 	}
 	c.state.AccessToken, c.state.RefreshToken = result.AccessToken, result.RefreshToken
-	return nil
+	// Refresh tokens are one-time credentials. Persist the rotated token before
+	// any subsequent lease request so a lease/network failure cannot leave the
+	// old, already-consumed token on disk.
+	return c.saveLocked()
 }
 
 func (c *Client) acquireLeaseLocked(ctx context.Context) error {
@@ -502,6 +512,10 @@ func (c *Client) acquireLeaseLocked(ctx context.Context) error {
 		Lease string `json:"lease"`
 	}
 	if err := c.request(ctx, http.MethodPost, "/v1/license/lease", map[string]any{"deviceFingerprint": c.fingerprint, "appVersion": normalizedVersion(c.version)}, &result, c.state.AccessToken); err != nil {
+		var apiErr *APIError
+		if !errors.As(err, &apiErr) || apiErr.Status != http.StatusUnauthorized {
+			return err
+		}
 		if err := c.refreshLocked(ctx); err != nil {
 			return err
 		}

@@ -44,20 +44,29 @@ export class PaymentService{
       notify_url:`${this.publicBaseUrl}/v1/payments/zhongzhuan/notify`,buyer_name:username,
     }
     const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),15_000)
+    let definitiveFailure=false
     try{
       const response=await fetch(`${provider.endpoint.replace(/\/$/,'')}/api/v1/pay/create`,{
         method:'POST',headers:{'content-type':'application/json'},
         body:JSON.stringify({...params,sign:sign(params,secret)}),signal:controller.signal,
       })
       const data=await response.json() as {code?:number;message?:string;data?:{qr_code?:string;out_trade_no?:string;trade_no?:string}}
+      if((response.status>=400&&response.status<500)||(typeof data.code==='number'&&data.code!==0))definitiveFailure=true
       if(!response.ok||data.code!==0||!data.data?.qr_code)throw new Error(data.message||`HTTP ${response.status}`)
       const providerOrderNo=data.data.out_trade_no||data.data.trade_no||order.orderNo
-      await this.store.setOrderPayment(order.orderNo,providerOrderNo,data.data.qr_code)
+      if(!await this.store.setOrderPayment(order.orderNo,providerOrderNo,data.data.qr_code)){
+        // A very fast verified callback can commit the paid order before the
+        // create response reaches us. That is success, not a create failure.
+        const current=await this.store.getOrderForCallback(order.orderNo)
+        if(current?.status==='paid')return {...order,status:'paid',providerOrderNo,payUrl:data.data.qr_code}
+        throw new Error('本地订单状态已变化，请刷新订单状态')
+      }
       return {...order,providerOrderNo,payUrl:data.data.qr_code}
     }catch(error){
       // A timeout/connection reset is ambiguous: the gateway may already have
       // accepted the order. Keep it pending so callback/reconciliation can
       // still honor a later confirmed payment.
+      if(definitiveFailure)await this.store.failOrder(order.orderNo)
       throw new AppError('PAYMENT_CREATE_FAILED',`支付下单失败：${error instanceof Error?error.message:'网关通讯异常'}`,502)
     }finally{clearTimeout(timer)}
   }
@@ -75,7 +84,7 @@ export class PaymentService{
     if(callback.app_id!==appId||!safeHexEqual(sign(params,secret),signature))throw new AppError('PAYMENT_SIGNATURE_INVALID','支付签名验证失败',401)
     const timestamp=Number(callback.timestamp)
     if(!Number.isFinite(timestamp)||Math.abs(Math.floor(Date.now()/1000)-timestamp)>300)throw new AppError('PAYMENT_CALLBACK_EXPIRED','支付回调已过期',401)
-    if(callback.status!=='PAID')return {ok:true,ignored:true}
+    if(String(callback.status??'').toUpperCase()!=='PAID')return {ok:true,ignored:true}
     const amountCents=Math.round(Number(callback.amount)*100)
     if(!Number.isSafeInteger(amountCents)||amountCents!==order.amountCents)throw new AppError('PAYMENT_AMOUNT_MISMATCH','支付金额不匹配',409)
     const providerOrderNo=callback.out_trade_no||callback.trade_no||callback.app_order_no
@@ -83,9 +92,11 @@ export class PaymentService{
       throw new AppError('PAYMENT_ORDER_MISMATCH','支付平台订单号不匹配',409)
     }
     const eventId=callback.sn||callback.trade_no||callback.out_trade_no||`${callback.app_order_no}:${timestamp}`
+    const paidAt=parsePaidAt(callback.paid_at)
     return this.store.fulfillPaidOrder({
       providerCode:provider.code,eventId,orderNo:callback.app_order_no,amountCents,
       providerOrderNo,payloadHash:createHash('sha256').update(JSON.stringify(callback)).digest('hex'),
+      ...(paidAt?{paidAt}:{}),
     })
   }
 
@@ -105,9 +116,11 @@ export class PaymentService{
 
   private async syncOrderUncached(orderNo:string):Promise<SyncOrderResult>{
     const order=await this.store.getOrderForCallback(orderNo)
-    if(!order||order.status!=='pending')return {ok:true,status:order?.status??'unknown',changed:false}
+    if(!order||(order.status!=='pending'&&order.status!=='failed'))return {ok:true,status:order?.status??'unknown',changed:false}
     const provider=await this.store.getProvider(order.providerCode)
-    if(!provider||!provider.enabled||provider.adapter!=='zhongzhuan')return {ok:true,status:order.status,changed:false}
+    // enabled controls creation of new orders. Historical orders must remain
+    // queryable after a provider is deactivated or switched.
+    if(!provider||provider.adapter!=='zhongzhuan')return {ok:true,status:order.status,changed:false}
     const appId=credential(provider,'APP_ID'),secret=credential(provider,'APP_SECRET')
     const timestamp=Math.floor(Date.now()/1000)
     // 查单只签 app_id/timestamp/app_order_no（与统一收款 5ff 网关客户端一致，多签参数会验签失败）。
@@ -131,11 +144,19 @@ export class PaymentService{
         throw new AppError('PAYMENT_ORDER_MISMATCH','支付平台订单号不匹配',409)
       }
       const eventId=data.data.sn||data.data.trade_no||data.data.out_trade_no||`${orderNo}:query`
+      const paidAt=parsePaidAt(data.data.paid_at)
       const result=await this.store.fulfillPaidOrder({
         providerCode:provider.code,eventId,orderNo,amountCents,providerOrderNo,
         payloadHash:createHash('sha256').update(JSON.stringify(data.data)).digest('hex'),
+        ...(paidAt?{paidAt}:{}),
       })
       return {...result,status:'paid',changed:!result.duplicate}
     }finally{clearTimeout(timer)}
   }
+}
+
+const parsePaidAt=(value?:string)=>{
+  if(!value)return undefined
+  const date=new Date(value)
+  return Number.isFinite(date.getTime())?date:undefined
 }

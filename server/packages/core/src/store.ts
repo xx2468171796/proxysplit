@@ -1,6 +1,7 @@
 import { createHash, randomBytes } from 'node:crypto'
 import { createDatabase } from '@proxysplit/db'
 import type { AnnouncementUpsertInput, PlanPatchInput, PlanUpsertInput, ProviderUpsertInput } from '@proxysplit/contracts'
+import { AppError } from '@proxysplit/shared'
 
 export type UserRecord = {
   id:string; username:string; passwordHash:string; role:'user'|'admin';
@@ -61,6 +62,12 @@ export function resolvePaidLicenseGrant(
   if(!Number.isInteger(days)||days<1)throw new Error('ORDER_DURATION_INVALID')
   const base=existing&&existing.expiresAt>now?existing.expiresAt:now
   return {planId:order.planId,expiresAt:new Date(base.getTime()+days*86400000),lifetime:false,changed:true}
+}
+export function validatePlanTerms(v:{billingCycle:string;durationDays:number|null;lifetime:boolean}){
+  if(v.lifetime!==(v.billingCycle==='lifetime'))throw new AppError('PLAN_TERMS_INVALID','永久标记与套餐周期必须一致',400)
+  if(!v.lifetime&&(!Number.isInteger(Number(v.durationDays))||Number(v.durationDays)<1)){
+    throw new AppError('PLAN_TERMS_INVALID','非永久套餐必须设置有效天数',400)
+  }
 }
 const settingMap:Record<keyof CommerceSettings,string>={
   registrationEnabled:'registration_enabled',
@@ -189,6 +196,14 @@ export class PgStore {
       name,platform,app_version AS "appVersion",revoked FROM devices WHERE id=$1`,[id])
     return r.rows[0]??null
   }
+  async isDeviceWithinLimit(userId:string,deviceId:string,maxDevices:number){
+    const r=await this.pool.query(`SELECT EXISTS(
+      SELECT 1 FROM (
+        SELECT id FROM devices WHERE user_id=$1 AND revoked=false ORDER BY first_seen_at,id LIMIT $3
+      ) allowed WHERE id=$2
+    ) AS allowed`,[userId,deviceId,maxDevices])
+    return r.rows[0]?.allowed===true
+  }
   async listUserDevices(userId:string){
     const r=await this.pool.query(`SELECT id,name,platform,app_version AS "appVersion",first_seen_at AS "firstSeenAt",
       last_seen_at AS "lastSeenAt" FROM devices WHERE user_id=$1 AND revoked=false ORDER BY last_seen_at DESC`,[userId])
@@ -220,6 +235,36 @@ export class PgStore {
   }
   async consumeSession(jti:string){const r=await this.pool.query('UPDATE sessions SET consumed_at=now() WHERE jti=$1 AND consumed_at IS NULL AND revoked_at IS NULL RETURNING jti',[jti]);return r.rowCount===1}
   async revokeFamily(familyId:string){await this.pool.query('UPDATE sessions SET revoked_at=coalesce(revoked_at,now()) WHERE family_id=$1',[familyId])}
+  async rotateSessionAtomic(input:{
+    oldJti:string;familyId:string;oldTokenHash:string;fingerprintHash:string;
+    newJti:string;newTokenHash:string;expiresAt:Date
+  }){
+    const client=await this.pool.connect()
+    try{
+      await client.query('BEGIN')
+      const session=(await client.query(`SELECT s.jti,s.family_id AS "familyId",s.user_id AS "userId",s.device_id AS "deviceId",
+        s.token_hash AS "tokenHash",s.consumed_at AS "consumedAt",s.revoked_at AS "revokedAt",s.expires_at AS "expiresAt",
+        d.fingerprint_hash AS "fingerprintHash" FROM sessions s JOIN devices d ON d.id=s.device_id
+        WHERE s.jti=$1 FOR UPDATE OF s`,[input.oldJti])).rows[0]
+      if(!session){await client.query('ROLLBACK');return {ok:false,reason:'invalid'} as const}
+      const replay=session.familyId!==input.familyId||session.tokenHash!==input.oldTokenHash||
+        session.consumedAt||session.revokedAt||session.expiresAt<=new Date()
+      if(replay){
+        await client.query('UPDATE sessions SET revoked_at=coalesce(revoked_at,now()) WHERE family_id=$1',[session.familyId])
+        await client.query('COMMIT')
+        return {ok:false,reason:'replay'} as const
+      }
+      if(session.fingerprintHash!==input.fingerprintHash){
+        await client.query('ROLLBACK')
+        return {ok:false,reason:'device'} as const
+      }
+      await client.query('UPDATE sessions SET consumed_at=now() WHERE jti=$1',[input.oldJti])
+      await client.query(`INSERT INTO sessions(user_id,device_id,family_id,jti,token_hash,expires_at)
+        VALUES($1,$2,$3,$4,$5,$6)`,[session.userId,session.deviceId,session.familyId,input.newJti,input.newTokenHash,input.expiresAt])
+      await client.query('COMMIT')
+      return {ok:true,userId:session.userId as string,deviceId:session.deviceId as string} as const
+    }catch(e){await client.query('ROLLBACK');throw e}finally{client.release()}
+  }
   async recordLoginFailure(userId:string){
     const r=await this.pool.query(`UPDATE users SET
       failed_login_count=CASE WHEN failed_login_count+1>=5 THEN 0 ELSE failed_login_count+1 END,
@@ -356,6 +401,16 @@ export class PgStore {
       saleStartsAt:v.saleStartsAt===undefined?current.sale_starts_at:v.saleStartsAt,saleEndsAt:v.saleEndsAt===undefined?current.sale_ends_at:v.saleEndsAt,
       purchaseLimitPerUser:v.purchaseLimitPerUser===undefined?current.purchase_limit_per_user:v.purchaseLimitPerUser,
     }
+    validatePlanTerms(merged)
+    const criticalChanged=current.tier!==merged.tier||current.billing_cycle!==merged.billingCycle||
+      Number(current.duration_days)!==Number(merged.durationDays)||current.lifetime!==merged.lifetime||
+      current.max_devices!==merged.maxDevices||JSON.stringify(current.features)!==JSON.stringify(merged.features)
+    if(criticalChanged){
+      const referenced=await this.pool.query(`SELECT EXISTS(
+        SELECT 1 FROM orders WHERE plan_id=$1 UNION ALL SELECT 1 FROM licenses WHERE plan_id=$1
+      ) AS used`,[id])
+      if(referenced.rows[0]?.used)throw new AppError('PLAN_TERMS_IMMUTABLE','已有订单或授权的套餐不能修改等级、周期、设备数或权益，请新建套餐',409)
+    }
     const r=await this.pool.query(`UPDATE plans SET name=$2,description=$3,tier=$4,billing_cycle=$5,duration_days=$6,lifetime=$7,
       price_cents=$8,original_price_cents=$9,currency=$10,max_devices=$11,features=$12,active=$13,public=$14,sort_order=$15,badge=$16,
       sale_starts_at=$17,sale_ends_at=$18,purchase_limit_per_user=$19,updated_at=now()
@@ -443,12 +498,14 @@ export class PgStore {
   async listPendingPaymentOrders(limit=20){
     const safeLimit=Math.min(100,Math.max(1,Math.floor(limit)))
     const r=await this.pool.query(`SELECT order_no AS "orderNo" FROM orders
-      WHERE status='pending' AND created_at>now()-interval '24 hours'
+      WHERE created_at>now()-interval '7 days'
+        AND ((status='pending' AND created_at<now()-interval '20 seconds')
+          OR (status='failed' AND updated_at<now()-interval '5 minutes'))
       ORDER BY updated_at ASC LIMIT $1`,[safeLimit])
     return r.rows as Array<{orderNo:string}>
   }
   async touchPaymentReconciliation(orderNoValue:string){
-    await this.pool.query(`UPDATE orders SET updated_at=now() WHERE order_no=$1 AND status='pending'`,[orderNoValue])
+    await this.pool.query(`UPDATE orders SET updated_at=now() WHERE order_no=$1 AND status IN ('pending','failed')`,[orderNoValue])
   }
   async listOrders(){
     const r=await this.pool.query(`SELECT o.id,o.order_no AS "orderNo",u.username,o.plan_name AS "planName",o.tier,
@@ -456,7 +513,7 @@ export class PgStore {
       o.paid_at AS "paidAt",o.created_at AS "createdAt" FROM orders o JOIN users u ON u.id=o.user_id ORDER BY o.created_at DESC LIMIT 1000`)
     return r.rows
   }
-  async fulfillPaidOrder(input:{providerCode:string;eventId:string;orderNo:string;amountCents:number;providerOrderNo:string;payloadHash:string}){
+  async fulfillPaidOrder(input:{providerCode:string;eventId:string;orderNo:string;amountCents:number;providerOrderNo:string;payloadHash:string;paidAt?:Date}){
     const client=await this.pool.connect()
     try{
       await client.query('BEGIN')
@@ -479,6 +536,10 @@ export class PgStore {
       // callback/query must still grant what the customer paid for.
       if(order.status!=='pending'&&order.status!=='failed')throw new Error('ORDER_NOT_PAYABLE')
       if(order.provider_order_no&&order.provider_order_no!==input.providerOrderNo)throw new Error('PROVIDER_ORDER_MISMATCH')
+      // Lock the logical user+tier slot before checking whether a license row
+      // exists. FOR UPDATE cannot lock an absent row, so without this lock two
+      // first payments can insert parallel 30-day licenses and lose one term.
+      await client.query('SELECT pg_advisory_xact_lock(hashtext($1))',[`license:${order.user_id}:${order.tier}`])
       const existing=(await client.query(`SELECT l.id,l.plan_id,l.expires_at,l.lifetime FROM licenses l JOIN plans p ON p.id=l.plan_id
         WHERE l.user_id=$1 AND l.status='active' AND p.tier=$2 ORDER BY l.lifetime DESC,l.expires_at DESC LIMIT 1 FOR UPDATE`,
         [order.user_id,order.tier])).rows[0]
@@ -494,7 +555,8 @@ export class PgStore {
         await client.query(`INSERT INTO licenses(user_id,plan_id,expires_at,lifetime,source,order_id)
           VALUES($1,$2,$3,$4,'order',$5)`,[order.user_id,grant.planId,grant.expiresAt,grant.lifetime,order.id])
       }
-      await client.query(`UPDATE orders SET status='paid',provider_order_no=$2,paid_at=now(),updated_at=now() WHERE id=$1`,[order.id,input.providerOrderNo])
+      await client.query(`UPDATE orders SET status='paid',provider_order_no=$2,paid_at=$3,updated_at=now() WHERE id=$1`,
+        [order.id,input.providerOrderNo,input.paidAt??new Date()])
       await client.query(`UPDATE payment_events SET result='fulfilled' WHERE id=$1`,[event.rows[0].id])
       await client.query('COMMIT')
       return {ok:true,duplicate:false}

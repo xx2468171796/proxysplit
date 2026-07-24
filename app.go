@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -622,11 +623,36 @@ func (a *App) CreateMembershipOrder(planID string) OrderResult {
 // The URL never leaves the client except when the user explicitly opens it.
 func (a *App) GetPaymentQR(payURL string) QRResult {
 	payURL = strings.TrimSpace(payURL)
-	if !strings.HasPrefix(payURL, "https://") && !strings.HasPrefix(payURL, "http://") && !strings.HasPrefix(payURL, "alipays://") {
+	if !validPaymentURL(payURL) {
 		return QRResult{Err: "支付链接格式无效"}
 	}
 	data, err := service.EncodeQRDataURI(payURL, 360)
 	return QRResult{Data: data, Err: errStr(err)}
+}
+
+func validPaymentURL(value string) bool {
+	u, err := url.Parse(strings.TrimSpace(value))
+	if err != nil {
+		return false
+	}
+	switch strings.ToLower(u.Scheme) {
+	case "https":
+		return u.Host != ""
+	case "alipays":
+		return true
+	default:
+		return false
+	}
+}
+
+// OpenPaymentURL validates the exact URL again at the privileged browser-open
+// boundary. The frontend never opens an arbitrary provider string directly.
+func (a *App) OpenPaymentURL(payURL string) string {
+	if !validPaymentURL(payURL) {
+		return "支付链接格式无效"
+	}
+	runtime.BrowserOpenURL(a.ctx, payURL)
+	return ""
 }
 
 func (a *App) GetAnnouncements() AnnouncementsResult {

@@ -32,6 +32,25 @@ describe('zhongzhuan payment adapter',()=>{
     expect(store.failOrder).not.toHaveBeenCalled()
   })
 
+  it('treats a callback that wins the create-response race as paid success',async()=>{
+    process.env.PAYMENT_TEST_APP_ID='app-test'
+    process.env.PAYMENT_TEST_APP_SECRET='test-secret'
+    vi.stubGlobal('fetch',vi.fn(async()=>new Response(JSON.stringify({
+      code:0,data:{qr_code:'https://cashier.invalid/q/fast',out_trade_no:'gateway-fast'},
+    }),{status:200,headers:{'content-type':'application/json'}})))
+    const store={
+      createOrder:async()=>order,getProvider:async()=>provider,
+      setOrderPayment:vi.fn(async()=>null),
+      getOrderForCallback:vi.fn(async()=>({...order,status:'paid'})),
+      failOrder:vi.fn(),
+    }
+    const service=new PaymentService(store as unknown as PgStore,'https://proxysplit.invalid')
+    await expect(service.createOrder('user-id','plan-id','alice')).resolves.toMatchObject({
+      status:'paid',providerOrderNo:'gateway-fast',payUrl:'https://cashier.invalid/q/fast',
+    })
+    expect(store.failOrder).not.toHaveBeenCalled()
+  })
+
   it('keeps an ambiguously failed gateway create pending for later reconciliation',async()=>{
     process.env.PAYMENT_TEST_APP_ID='app-test'
     process.env.PAYMENT_TEST_APP_SECRET='test-secret'
@@ -44,6 +63,21 @@ describe('zhongzhuan payment adapter',()=>{
     await expect(service.createOrder('user-id','plan-id','alice')).rejects.toMatchObject({code:'PAYMENT_CREATE_FAILED'})
     expect(store.setOrderPayment).not.toHaveBeenCalled()
     expect(store.failOrder).not.toHaveBeenCalled()
+  })
+
+  it('marks an order failed only when the gateway definitively rejects creation',async()=>{
+    process.env.PAYMENT_TEST_APP_ID='app-test'
+    process.env.PAYMENT_TEST_APP_SECRET='test-secret'
+    vi.stubGlobal('fetch',vi.fn(async()=>new Response(JSON.stringify({code:4001,message:'invalid order'}),{
+      status:400,headers:{'content-type':'application/json'},
+    })))
+    const store={
+      createOrder:async()=>order,getProvider:async()=>provider,
+      setOrderPayment:vi.fn(),failOrder:vi.fn(),
+    }
+    const service=new PaymentService(store as unknown as PgStore,'https://proxysplit.invalid')
+    await expect(service.createOrder('user-id','plan-id','alice')).rejects.toMatchObject({code:'PAYMENT_CREATE_FAILED'})
+    expect(store.failOrder).toHaveBeenCalledWith(order.orderNo)
   })
 
   it('verifies callback timestamp/signature/amount before idempotent fulfillment',async()=>{
@@ -84,6 +118,22 @@ describe('zhongzhuan payment adapter',()=>{
     const {sign:signature,...params}=queryBody
     expect(signature).toBe(sign(params))
     expect(fulfill).toHaveBeenCalledWith(expect.objectContaining({orderNo:order.orderNo,amountCents:29900,eventId:'event-9',providerOrderNo:'gateway-1'}))
+  })
+
+  it('recovers a previously failed order even after its provider is disabled',async()=>{
+    process.env.PAYMENT_TEST_APP_ID='app-test'
+    process.env.PAYMENT_TEST_APP_SECRET='test-secret'
+    vi.stubGlobal('fetch',vi.fn(async()=>new Response(JSON.stringify({
+      code:0,data:{status:'PAID',amount:299,out_trade_no:'gateway-1',paid_at:'2026-07-24T01:02:03Z'},
+    }),{status:200,headers:{'content-type':'application/json'}})))
+    const fulfill=vi.fn(async()=>({ok:true,duplicate:false}))
+    const store={
+      getOrderForCallback:async()=>({orderNo:order.orderNo,providerCode:provider.code,providerOrderNo:'gateway-1',amountCents:29900,status:'failed'}),
+      getProvider:async()=>({...provider,enabled:false}),fulfillPaidOrder:fulfill,
+    }
+    const service=new PaymentService(store as unknown as PgStore,'https://proxysplit.invalid')
+    await expect(service.syncOrder(order.orderNo)).resolves.toMatchObject({status:'paid',changed:true})
+    expect(fulfill).toHaveBeenCalledWith(expect.objectContaining({paidAt:new Date('2026-07-24T01:02:03Z')}))
   })
 
   it('sync rejects a paid result whose amount does not match the order',async()=>{

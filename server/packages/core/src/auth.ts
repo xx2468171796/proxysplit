@@ -103,14 +103,22 @@ export class AuthService{
   async rotate(input:RefreshInput,ip=''){
     let payload;try{({payload}=await jwtVerify(input.refreshToken,encoder.encode(this.cfg.accessSecret),{algorithms:['HS256']}))}catch{throw new AppError('REFRESH_INVALID','Session expired; sign in again',401)}
     if(payload.typ!=='refresh'||!payload.jti||!payload.fam||!payload.sub||!payload.did)throw new AppError('REFRESH_INVALID','Session expired; sign in again',401)
-    const session=await this.store.findSession(payload.jti);if(!session||session.familyId!==payload.fam||session.tokenHash!==sha256(input.refreshToken)||session.consumedAt||session.revokedAt||session.expiresAt<=new Date()){
-      if(session)await this.store.revokeFamily(session.familyId);throw new AppError('REFRESH_REPLAY','Credential replay detected; all sessions revoked',401)
+    const user=await this.store.findUserById(payload.sub);if(!user||user.status!=='active')throw new AppError('ACCOUNT_UNAVAILABLE','Account is unavailable',403)
+    const newJti=randomUUID(),familyId=String(payload.fam),deviceId=String(payload.did)
+    const refreshToken=await this.refresh(user.id,deviceId,familyId,newJti)
+    const rotated=await this.store.rotateSessionAtomic({
+      oldJti:String(payload.jti),familyId,oldTokenHash:sha256(input.refreshToken),fingerprintHash:hashFingerprint(input.deviceFingerprint),
+      newJti,newTokenHash:sha256(refreshToken),expiresAt:new Date(Date.now()+this.cfg.refreshDays*86400000),
+    })
+    if(!rotated.ok){
+      if(rotated.reason==='device')throw new AppError('DEVICE_MISMATCH','Device verification failed',401)
+      if(rotated.reason==='invalid')throw new AppError('REFRESH_INVALID','Session expired; sign in again',401)
+      throw new AppError('REFRESH_REPLAY','Credential replay detected; all sessions revoked',401)
     }
-    if(session.fingerprintHash!==hashFingerprint(input.deviceFingerprint))throw new AppError('DEVICE_MISMATCH','Device verification failed',401)
-    if(!await this.store.consumeSession(session.jti)){await this.store.revokeFamily(session.familyId);throw new AppError('REFRESH_REPLAY','Credential replay detected; all sessions revoked',401)}
-    const user=await this.store.findUserById(session.userId);if(!user||user.status!=='active')throw new AppError('ACCOUNT_UNAVAILABLE','Account is unavailable',403)
-    await this.store.audit(user.id,'auth.refresh','session',session.jti,ip,'success')
-    return this.issue(user,session.deviceId,session.familyId)
+    // Rotation is already committed; an audit sink failure must not hide the
+    // newly issued one-time token and strand the client with a consumed token.
+    await this.store.audit(user.id,'auth.refresh','session',String(payload.jti),ip,'success').catch(()=>{})
+    return {accessToken:await this.access(user,rotated.deviceId),refreshToken,expiresIn:900,deviceId:rotated.deviceId,user:{id:user.id,username:user.username,role:user.role}}
   }
   async logout(input:RefreshInput,ip=''){
     try{
@@ -125,11 +133,27 @@ export class AuthService{
     }catch{/* Logout is idempotent and does not reveal token validity. */}
     return {ok:true}
   }
-  async verifyAccess(token:string){try{const {payload}=await jwtVerify(token,encoder.encode(this.cfg.accessSecret),{algorithms:['HS256']});if(payload.typ!=='access'||!payload.sub||!payload.did)throw 0;return {userId:payload.sub,deviceId:String(payload.did),role:String(payload.role)}}catch{throw new AppError('ACCESS_INVALID','Authentication required',401)}}
+  async verifyAccess(token:string){
+    let payload
+    try{
+      ({payload}=await jwtVerify(token,encoder.encode(this.cfg.accessSecret),{algorithms:['HS256']}))
+      if(payload.typ!=='access'||!payload.sub||!payload.did)throw 0
+    }catch{throw new AppError('ACCESS_INVALID','Authentication required',401)}
+    const user=await this.store.findUserById(payload.sub)
+    if(!user||user.status!=='active')throw new AppError('ACCOUNT_UNAVAILABLE','Account is unavailable',403)
+    const deviceId=String(payload.did)
+    if(deviceId!=='pending'){
+      const device=await this.store.findDevice(deviceId)
+      if(!device||device.userId!==user.id||device.revoked)throw new AppError('DEVICE_MISMATCH','Device verification failed',401)
+    }
+    // Role is live database state, never stale JWT input.
+    return {userId:user.id,deviceId,role:user.role}
+  }
   async lease(userId:string,deviceId:string,deviceFingerprint:string,appVersion:string){
     const user=await this.store.findUserById(userId);if(!user||user.status!=='active')throw new AppError('ACCOUNT_UNAVAILABLE','Account is unavailable',403)
     const ent=await this.store.entitlement(userId);if(!ent)throw new AppError('LICENSE_INACTIVE','License is missing or expired',403)
     const device=await this.store.findDevice(deviceId);if(!device||device.userId!==userId||device.revoked||device.fingerprintHash!==hashFingerprint(deviceFingerprint))throw new AppError('DEVICE_MISMATCH','Device verification failed',401)
+    if(!await this.store.isDeviceWithinLimit(userId,deviceId,ent.maxDevices))throw new AppError('DEVICE_LIMIT','当前套餐设备名额已减少，请先解绑超额设备',409)
     const settings=await this.store.getCommerceSettings()
     await this.store.touchDevice(deviceId,appVersion);const release=await this.store.latestRelease();const expires=Math.min(Date.now()+settings.licenseLeaseMinutes*60000,ent.expiresAt.getTime())
     const token=await new SignJWT({typ:'license-lease',lid:ent.licenseId,did:deviceId,fph:device.fingerprintHash,plan:ent.planName,planCode:ent.planCode,tier:ent.tier,maxDevices:ent.maxDevices,features:ent.features,minVersion:release?.minimumVersion??'1.7.2',grace:settings.offlineGraceHours,entitlementExp:Math.floor(ent.expiresAt.getTime()/1000)}).setProtectedHeader({alg:'EdDSA',kid:'proxysplit-license-v1'}).setSubject(userId).setIssuedAt().setExpirationTime(Math.floor(expires/1000)).sign(this.privateKey)

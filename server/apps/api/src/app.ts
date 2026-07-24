@@ -2,7 +2,7 @@ import Fastify, { type FastifyRequest } from 'fastify'
 import cors from '@fastify/cors'
 import rateLimit from '@fastify/rate-limit'
 import { Redis } from 'ioredis'
-import { AppError } from '@proxysplit/shared'
+import { AppError, normalizeUsername } from '@proxysplit/shared'
 import { activateDeviceSchema, announcementUpsertSchema, leaseSchema, licenseExtendSchema, loginSchema, orderCreateSchema, planPatchSchema, planUpsertSchema, providerUpsertSchema, refreshSchema, registerSchema, releaseCreateSchema, settingPatchSchema, userCreateSchema, userPasswordSchema, userStatusSchema } from '@proxysplit/contracts'
 import { createCommercialCore, hashPassword, PaymentService, type AuthService, type PgStore } from '@proxysplit/core'
 import type { ApiConfig } from './config.js'
@@ -11,13 +11,20 @@ type Core={auth:AuthService;store:PgStore;close:()=>Promise<void>}
 const bearer=(value?:string)=>value?.startsWith('Bearer ')?value.slice(7):''
 export async function buildApp(config:ApiConfig,provided?:Core){
   const core=provided??await createCommercialCore({databaseUrl:config.DATABASE_URL,auth:{accessSecret:config.ACCESS_TOKEN_SECRET,refreshDays:config.REFRESH_TOKEN_TTL_DAYS,...(config.LICENSE_PRIVATE_KEY_PEM?{licensePrivateKeyPem:config.LICENSE_PRIVATE_KEY_PEM}:{}),...(config.LICENSE_PUBLIC_KEY_PEM?{licensePublicKeyPem:config.LICENSE_PUBLIC_KEY_PEM}:{})},...(config.BOOTSTRAP_ADMIN_USERNAME&&config.BOOTSTRAP_ADMIN_PASSWORD?{bootstrapAdmin:{username:config.BOOTSTRAP_ADMIN_USERNAME,password:config.BOOTSTRAP_ADMIN_PASSWORD}}:{})})
-  const app=Fastify({logger:{level:config.NODE_ENV==='test'?'silent':'info'},trustProxy:true})
+  // The API port is host-loopback-only and has exactly one Nginx hop. Nginx
+  // overwrites (rather than appends) X-Forwarded-For, so client-supplied hops
+  // cannot become req.ip even though Docker changes the proxy source address.
+  const app=Fastify({logger:{level:config.NODE_ENV==='test'?'silent':'info'},trustProxy:1})
   let redis:Redis|undefined
   if(config.REDIS_URL){redis=new Redis(config.REDIS_URL,{maxRetriesPerRequest:1,enableOfflineQueue:false});redis.on('error',()=>{})}
   await app.register(cors,{origin:[config.ADMIN_ORIGIN],credentials:false})
   await app.register(rateLimit,{global:false,max:10,timeWindow:'1 minute',...(redis?{redis}:{})})
   app.setErrorHandler((error,_req,reply)=>{if(error instanceof AppError)return reply.code(error.status).send({error:{code:error.code,message:error.message}});if((error as {issues?:unknown}).issues)return reply.code(400).send({error:{code:'VALIDATION_ERROR',message:'Invalid request'}});app.log.error(error);return reply.code(500).send({error:{code:'INTERNAL_ERROR',message:'Service temporarily unavailable'}})})
-  const auth=async(req:FastifyRequest)=>core.auth.verifyAccess(bearer(req.headers.authorization))
+  const auth=async(req:FastifyRequest,allowPending=false)=>{
+    const principal=await core.auth.verifyAccess(bearer(req.headers.authorization))
+    if(principal.deviceId==='pending'&&!allowPending)throw new AppError('DEVICE_ACTIVATION_REQUIRED','请先解绑旧设备并激活本机',403)
+    return principal
+  }
   const admin=async(req:FastifyRequest)=>{const principal=await auth(req);if(principal.role!=='admin')throw new AppError('ADMIN_REQUIRED','Administrator permission required',403);return principal}
 
   app.get('/health',async()=>({ok:true,service:'proxysplit-commercial-api'}))
@@ -25,7 +32,7 @@ export async function buildApp(config:ApiConfig,provided?:Core){
   app.post('/v1/auth/register',{config:{rateLimit:{max:3,timeWindow:'1 hour'}}},async(req)=>core.auth.register(registerSchema.parse(req.body),req.ip))
   app.post('/v1/auth/login',{config:{rateLimit:{max:30,timeWindow:'1 minute'}}},async(req)=>core.auth.login(loginSchema.parse(req.body),req.ip))
   app.post('/v1/auth/refresh',{config:{rateLimit:{max:10,timeWindow:'1 minute'}}},async(req)=>core.auth.rotate(refreshSchema.parse(req.body),req.ip))
-  app.post('/v1/me/device/activate',{config:{rateLimit:{max:10,timeWindow:'1 minute'}}},async(req)=>{const p=await auth(req);if(p.deviceId!=='pending')throw new AppError('DEVICE_ALREADY_ACTIVE','当前设备已激活',409);return core.auth.activateDevice(p.userId,activateDeviceSchema.parse(req.body).device,req.ip)})
+  app.post('/v1/me/device/activate',{config:{rateLimit:{max:10,timeWindow:'1 minute'}}},async(req)=>{const p=await auth(req,true);if(p.deviceId!=='pending')throw new AppError('DEVICE_ALREADY_ACTIVE','当前设备已激活',409);return core.auth.activateDevice(p.userId,activateDeviceSchema.parse(req.body).device,req.ip)})
   app.post('/v1/auth/logout',async(req)=>core.auth.logout(refreshSchema.parse(req.body),req.ip))
   app.post('/v1/license/lease',async(req)=>{const p=await auth(req);const input=leaseSchema.parse(req.body);return core.auth.lease(p.userId,p.deviceId,input.deviceFingerprint,input.appVersion)})
   const payments=new PaymentService(core.store,config.PUBLIC_BASE_URL.replace(/\/$/,''))
@@ -62,9 +69,9 @@ export async function buildApp(config:ApiConfig,provided?:Core){
   app.get('/v1/releases',async()=>({items:await core.store.listReleases()}))
   app.get('/v1/catalog/plans',async()=>({items:await core.store.listPlans(true),paymentMethods:(await core.store.getCommerceSettings()).paymentMethods}))
   app.get('/v1/announcements',async()=>({items:await core.store.listAnnouncements(true)}))
-  app.get('/v1/me',async(req)=>{const p=await auth(req);const user=await core.store.findUserById(p.userId);return {user:user&&{id:user.id,username:user.username,status:user.status},membership:await core.store.entitlement(p.userId),devices:await core.store.listUserDevices(p.userId)}})
-  app.get('/v1/me/devices',async(req)=>{const p=await auth(req);return {items:await core.store.listUserDevices(p.userId)}})
-  app.delete('/v1/me/devices/:id',async(req)=>{const p=await auth(req);const id=(req.params as {id:string}).id;const row=await core.store.unbindDevice(id,p.userId);if(!row)throw new AppError('NOT_FOUND','设备不存在',404);await core.store.audit(p.userId,'user.device.unbind','device',id,req.ip,'success');return {ok:true}})
+  app.get('/v1/me',async(req)=>{const p=await auth(req,true);const user=await core.store.findUserById(p.userId);return {user:user&&{id:user.id,username:user.username,status:user.status},membership:await core.store.entitlement(p.userId),devices:await core.store.listUserDevices(p.userId)}})
+  app.get('/v1/me/devices',async(req)=>{const p=await auth(req,true);return {items:await core.store.listUserDevices(p.userId)}})
+  app.delete('/v1/me/devices/:id',async(req)=>{const p=await auth(req,true);const id=(req.params as {id:string}).id;const row=await core.store.unbindDevice(id,p.userId);if(!row)throw new AppError('NOT_FOUND','设备不存在',404);await core.store.audit(p.userId,'user.device.unbind','device',id,req.ip,'success');return {ok:true}})
   app.get('/v1/me/orders',{config:{rateLimit:{max:30,timeWindow:'1 minute'}}},async(req)=>{const p=await auth(req);const items=await core.store.listUserOrders(p.userId);
     // 读时对账：支付窗口内的待支付订单主动向网关查单，弥补异步回调不可达的情况（best-effort，不阻断列表）。
     const now=Date.now();
@@ -91,7 +98,7 @@ export async function buildApp(config:ApiConfig,provided?:Core){
   app.get('/v1/admin/dashboard',async(req)=>{await admin(req);return core.store.dashboard()})
   app.get('/v1/admin/users',async(req)=>{await admin(req);return {items:await core.store.listUsers()}})
   app.get('/v1/admin/users/:id',async(req)=>{await admin(req);const row=await core.store.getUserDetail((req.params as {id:string}).id);if(!row)throw new AppError('NOT_FOUND','用户不存在',404);return row})
-  app.post('/v1/admin/users',async(req)=>{const p=await admin(req);const input=userCreateSchema.parse(req.body);const passwordHash=await hashPassword(input.password);const created=await core.store.createUserWithLicense({username:input.username,role:input.role,days:input.days,passwordHash,...(input.planId?{planId:input.planId}:{})});await core.store.audit(p.userId,'admin.user.create','user',created.id,req.ip,'success');return created})
+  app.post('/v1/admin/users',async(req)=>{const p=await admin(req);const input=userCreateSchema.parse(req.body);const passwordHash=await hashPassword(input.password);const created=await core.store.createUserWithLicense({username:normalizeUsername(input.username),role:input.role,days:input.days,passwordHash,...(input.planId?{planId:input.planId}:{})});await core.store.audit(p.userId,'admin.user.create','user',created.id,req.ip,'success');return created})
   app.patch('/v1/admin/users/:id/status',async(req)=>{const p=await admin(req);const input=userStatusSchema.parse(req.body);const id=(req.params as {id:string}).id;if(!await core.store.setUserStatus(id,input.status))throw new AppError('NOT_FOUND','Resource not found',404);await core.store.audit(p.userId,'admin.user.status','user',id,req.ip,'success',{status:input.status});return {ok:true}})
   app.patch('/v1/admin/users/:id/password',async(req)=>{const p=await admin(req);const input=userPasswordSchema.parse(req.body);const id=(req.params as {id:string}).id;if(!await core.store.setUserPassword(id,await hashPassword(input.password)))throw new AppError('NOT_FOUND','用户不存在',404);await core.store.audit(p.userId,'admin.user.password','user',id,req.ip,'success');return {ok:true}})
   app.post('/v1/admin/users/:id/extend',async(req)=>{const p=await admin(req);const input=licenseExtendSchema.parse(req.body);const id=(req.params as {id:string}).id;const license=await core.store.extendLicense(id,input.days);if(!license)throw new AppError('NOT_FOUND','Resource not found',404);await core.store.audit(p.userId,'admin.license.extend','user',id,req.ip,'success',{days:input.days});return license})
