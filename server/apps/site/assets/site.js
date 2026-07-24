@@ -45,6 +45,9 @@ function applyLatestDownload(release, root = document) {
   root.querySelectorAll('[data-download-version]').forEach((node) => {
     node.textContent = `下载 v${release.version}`
   })
+  root.querySelectorAll('[data-latest-version]').forEach((node) => {
+    node.innerHTML = `<i class="check">✓</i> 当前版本 v${release.version}`
+  })
 }
 latestRelease.then((release) => applyLatestDownload(release))
 
@@ -54,7 +57,7 @@ if (planGrid) {
     .then((response) => response.ok ? response.json() : Promise.reject(new Error('catalog unavailable')))
     .then(({ items = [] }) => {
       if (!items.length) {
-        planGrid.innerHTML = '<article class="pricing-placeholder"><span>套餐配置中</span><p>运营后台启用套餐后会自动展示；当前可下载客户端领取免费试用。</p></article>'
+        planGrid.innerHTML = '<article class="pricing-placeholder"><span>套餐准备中</span><p>套餐启用后会自动展示；当前可下载客户端领取免费试用。</p></article>'
         return
       }
       planGrid.innerHTML = items.map((plan) => {
@@ -66,7 +69,7 @@ if (planGrid) {
           <strong><small>¥</small>${(Number(plan.priceCents) / 100).toFixed(2)}${Number(plan.originalPriceCents) > Number(plan.priceCents) ? `<del>¥${(Number(plan.originalPriceCents) / 100).toFixed(2)}</del>` : ''}</strong>
           <p>${escapeHTML(plan.description || '')}</p>
           <ul><li>${period}</li><li>${tier}</li><li>服务端签名授权</li></ul>
-          <a href="/download/proxysplit-v1.9.19.exe" data-download>支付宝开通</a>
+          <a href="/download/proxysplit-v1.9.21.exe" data-download>支付宝开通</a>
         </article>`
       }).join('')
       latestRelease.then((release) => applyLatestDownload(release, planGrid))

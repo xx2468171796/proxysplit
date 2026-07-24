@@ -24,9 +24,9 @@ const money=(v:number)=>`¥${(Number(v||0)/100).toFixed(2)}`
 const dt=(v?:string)=>v?new Date(v).toLocaleString():'—'
 
 function Login({onDone}:{onDone:()=>void}){
-  const [username,setUsername]=useState('admin'),[password,setPassword]=useState(''),[busy,setBusy]=useState(false),[error,setError]=useState('')
+  const [username,setUsername]=useState(''),[password,setPassword]=useState(''),[busy,setBusy]=useState(false),[error,setError]=useState('')
   async function submit(e:React.FormEvent){e.preventDefault();setBusy(true);setError('');try{await login(username,password);onDone()}catch(e){setError((e as Error).message)}finally{setBusy(false)}}
-  return <main className="login"><form className="login-card" onSubmit={submit}><div className="login-mark"><ShieldCheck/></div><h1>ProxySplit</h1><p>商业运营管理后台</p><label>用户名<input value={username} onChange={e=>setUsername(e.target.value)} autoComplete="username"/></label><label>密码<input type="password" value={password} onChange={e=>setPassword(e.target.value)} autoComplete="current-password"/></label>{error&&<div className="error">{error}</div>}<button disabled={busy}>{busy?'登录中…':'登录后台'}</button></form></main>
+  return <main className="login"><form className="login-card" onSubmit={submit}><div className="login-mark"><ShieldCheck/></div><h1>ProxySplit</h1><p>商业运营管理后台</p><label>用户名<input value={username} onChange={e=>setUsername(e.target.value)} autoComplete="username" placeholder="请输入管理员用户名" autoFocus required/></label><label>密码<input type="password" value={password} onChange={e=>setPassword(e.target.value)} autoComplete="current-password" placeholder="请输入密码" required/></label>{error&&<div className="error">{error}</div>}<button disabled={busy}>{busy?'登录中…':'登录后台'}</button></form></main>
 }
 
 function Dashboard(){

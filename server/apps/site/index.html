@@ -4,14 +4,40 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="theme-color" content="#07111f">
-  <meta name="description" content="ProxySplit 是一款面向 Windows 的本地应用流量分流、规则管理与网络诊断工具。软件不提供翻墙、VPN、代理节点或网络线路服务。">
+  <meta name="description" content="ProxySplit 是一款面向 Windows 的本地应用流量分流、规则管理与网络诊断工具。按应用设置规则、直连、拦截或指定线路，配置保存在本机。软件不提供翻墙、VPN、代理节点或网络线路服务。">
   <meta name="robots" content="index,follow">
   <title>ProxySplit｜Windows 应用流量管理与分流工具</title>
+  <link rel="canonical" href="https://proxysplit.zygskins.cn/">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="ProxySplit">
+  <meta property="og:title" content="ProxySplit｜Windows 应用流量管理与分流工具">
+  <meta property="og:description" content="按应用设置规则、直连、拦截或指定线路；本地优先、状态可查、签名自动更新。注册即享 3 天免费试用。">
+  <meta property="og:url" content="https://proxysplit.zygskins.cn/">
+  <meta property="og:image" content="https://proxysplit.zygskins.cn/assets/proxysplit-hero.webp">
+  <meta property="og:locale" content="zh_CN">
+  <meta name="twitter:card" content="summary_large_image">
   <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
   <link rel="manifest" href="/site.webmanifest">
   <link rel="preload" href="/assets/proxysplit-hero.webp" as="image" type="image/webp">
   <link rel="stylesheet" href="/assets/site.css">
   <link rel="stylesheet" href="/assets/commerce.css">
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    "name": "ProxySplit",
+    "operatingSystem": "Windows 10, Windows 11",
+    "applicationCategory": "UtilitiesApplication",
+    "description": "面向 Windows 的本地应用流量分流、规则管理与网络诊断工具。",
+    "url": "https://proxysplit.zygskins.cn/",
+    "offers": {
+      "@type": "Offer",
+      "price": "15.90",
+      "priceCurrency": "CNY",
+      "description": "普通会员月卡，注册享 3 天免费试用"
+    }
+  }
+  </script>
 </head>
 <body>
   <header class="site-header" data-header>
@@ -28,13 +54,12 @@
         <a href="#faq">常见问题</a>
       </nav>
       <div class="nav-actions">
-        <a class="text-link" href="/admin/">管理端</a>
-        <a class="btn btn-small" href="/download/proxysplit-v1.9.19.exe" data-download>下载 Windows 版</a>
+        <a class="btn btn-small" href="/download/proxysplit-v1.9.21.exe" data-download>下载 Windows 版</a>
         <button class="menu-button" aria-label="打开菜单" aria-expanded="false" data-menu-button><span></span><span></span></button>
       </div>
     </div>
     <nav class="mobile-nav" data-mobile-nav>
-      <a href="#features">核心功能</a><a href="#membership">会员套餐</a><a href="#workflow">工作方式</a><a href="#security">安全与隐私</a><a href="#faq">常见问题</a><a href="/admin/">管理端</a>
+      <a href="#features">核心功能</a><a href="#membership">会员套餐</a><a href="#workflow">工作方式</a><a href="#security">安全与隐私</a><a href="#faq">常见问题</a>
     </nav>
   </header>
 
@@ -47,14 +72,14 @@
           <h1>让每个应用，走它<br><em>该走的网络路径</em></h1>
           <p class="hero-lead">ProxySplit 把应用识别、规则分流、线路选择、运行诊断集中到一个清晰界面。所有配置优先保存在本机，规则可视、状态可查、切换可控。</p>
           <div class="hero-actions">
-            <a class="btn btn-primary" href="/download/proxysplit-v1.9.19.exe" data-download>
+            <a class="btn btn-primary" href="/download/proxysplit-v1.9.21.exe" data-download>
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0 5-5m-5 5-5-5M4 19h16"/></svg>
               下载 Windows 版
             </a>
             <a class="btn btn-ghost" href="#workflow">了解工作方式 <span>→</span></a>
           </div>
           <div class="hero-meta">
-            <span><i class="check">✓</i> 当前版本 v1.9.2</span>
+            <span data-latest-version><i class="check">✓</i> 当前版本 v1.9.21</span>
             <span><i class="check">✓</i> Windows 10 / 11</span>
             <span><i class="check">✓</i> 签名自动更新</span>
             <span><i class="check">✓</i> 新用户默认免费试用 3 天</span>
@@ -63,8 +88,8 @@
         <div class="hero-visual reveal delay">
           <div class="visual-frame">
             <img src="/assets/proxysplit-hero.webp" width="1672" height="941" alt="ProxySplit 应用流量管理界面概念图">
-            <div class="floating-card fc-one"><span class="pulse"></span><div><b>分流引擎</b><small>本地运行中</small></div></div>
-            <div class="floating-card fc-two"><b>24</b><small>活动连接</small></div>
+            <div class="floating-card fc-one" aria-hidden="true"><span class="pulse"></span><div><b>分流引擎</b><small>本地运行中</small></div></div>
+            <div class="floating-card fc-two" aria-hidden="true"><b>24</b><small>活动连接</small></div>
           </div>
         </div>
       </div>
@@ -80,11 +105,11 @@
         <div><span class="kicker">MEMBERSHIP</span><h2>普通会员与超级会员，注册先免费试用 3 天</h2></div>
         <p>普通会员月卡 ¥15.90、3 台设备；超级会员月卡 ¥25.90、8 台设备。季卡优惠 10%，年卡优惠 25%，另有限时两个月的永久买断活动。</p>
       </div>
-      <div class="membership-note reveal"><div><b>注册即享免费试用</b><span>填写邮箱和至少 8 位密码即可直接登录，无需邮箱验证；当前默认试用 3 天，同一硬件仅可领取一次。</span></div><a href="/download/proxysplit-v1.9.19.exe" data-download>下载客户端注册 →</a></div>
+      <div class="membership-note reveal"><div><b>注册即享免费试用</b><span>填写邮箱和至少 8 位密码即可直接登录，无需邮箱验证；当前默认试用 3 天，同一硬件仅可领取一次。</span></div><a href="/download/proxysplit-v1.9.21.exe" data-download>下载客户端注册 →</a></div>
       <div class="pricing-grid" data-plan-grid>
         <article class="pricing-placeholder"><span>套餐正在加载</span><p>请稍候，或下载客户端进入会员中心查看。</p></article>
       </div>
-      <p class="pricing-foot reveal">当前仅支持支付宝支付。支付成功后由服务器验签并自动开通会员；支付密钥不会保存在客户端，设备名额可在客户端或运营后台解绑。</p>
+      <p class="pricing-foot reveal">当前仅支持支付宝支付。支付成功后由服务器验签并自动开通会员；支付密钥不会保存在客户端，设备名额可在客户端内管理。</p>
     </section>
 
     <section class="section features" id="features">
@@ -129,7 +154,7 @@
           <span class="kicker">HOW IT WORKS</span>
           <h2>清晰的四步链路<br>每一步都可见、可控</h2>
           <p>ProxySplit 是客户端流量管理工具。它读取你主动添加的合法网络配置，在本机完成应用匹配和路径选择。</p>
-          <a href="/download/proxysplit-v1.9.19.exe" class="inline-link" data-download>下载并开始配置 <span>→</span></a>
+          <a href="/download/proxysplit-v1.9.21.exe" class="inline-link" data-download>下载并开始配置 <span>→</span></a>
         </div>
         <ol class="steps">
           <li class="reveal"><span>01</span><div><b>添加应用</b><p>选择正在运行的进程或本地 EXE 文件。</p></div></li>
@@ -179,7 +204,7 @@
         <span class="kicker">PROXYSPLIT FOR WINDOWS</span>
         <h2>把网络路径的决定权，交还给每个应用</h2>
         <p>从清晰的应用分流开始，建立可观察、可维护的本地网络工作流。</p>
-        <div><a class="btn btn-white" href="/download/proxysplit-v1.9.19.exe" data-download data-download-version>下载 v1.9.19</a><a class="btn btn-darkghost" href="#security">阅读合规声明</a></div>
+        <div><a class="btn btn-white" href="/download/proxysplit-v1.9.21.exe" data-download data-download-version>下载 v1.9.21</a><a class="btn btn-darkghost" href="#security">阅读合规声明</a></div>
       </div>
     </section>
   </main>
@@ -188,7 +213,7 @@
     <div class="footer-top">
       <a class="brand footer-brand" href="/"><span class="brand-mark"><i></i></span><span><b>ProxySplit</b><small>DESKTOP TRAFFIC CONTROL</small></span></a>
       <p>面向 Windows 的本地应用流量管理、规则分流与网络诊断工具。</p>
-      <nav><a href="#features">核心功能</a><a href="#security">合规声明</a><a href="#faq">常见问题</a><a href="/admin/">管理端</a></nav>
+      <nav><a href="#features">核心功能</a><a href="#security">合规声明</a><a href="#faq">常见问题</a></nav>
     </div>
     <div class="footer-bottom"><span>© 2026 ProxySplit. All rights reserved.</span><span>仅供学习与合法的软件调试使用 · 严格遵守中华人民共和国法律法规</span></div>
   </footer>
