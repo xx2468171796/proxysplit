@@ -149,7 +149,21 @@ function ChartTooltip({
 
 const tickStyle = { fill: AXIS, fontSize: 11 } as const
 
-// ---------- 图表容器（标题 + 简述 + 骨架 + 空数据兜底）----------
+// ---------- 错误提示（红色文案 + 可重试入口，与 settings「重新加载」一致）----------
+// 概览区与运营趋势区各自独立呈现自己的错误，互不影响。
+function ErrorNotice({ message, onRetry }: { message: string; onRetry: () => void }) {
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+      <span className="min-w-0 break-all">{message}</span>
+      <Button variant="outline" size="sm" className="h-7 shrink-0" onClick={onRetry}>
+        重新加载
+      </Button>
+    </div>
+  )
+}
+
+// ---------- 图表容器（本站图表范式：标题 + 简述 + 骨架 + 空数据兜底）----------
+// 全站新增任何图表都应复用 ChartCard，以保证 loading / empty 表现与文案统一。
 function ChartCard({
   title,
   desc,
@@ -200,12 +214,18 @@ export default function DashboardPage() {
   const [days, setDays] = React.useState<number>(30)
   const [a, setA] = React.useState<Analytics | null>(null)
   const [aError, setAError] = React.useState('')
+  const [aReload, setAReload] = React.useState(0)
 
-  React.useEffect(() => {
+  // 概览 KPI（可重试；接口 / 参数不变，仅在失败后允许重新拉取）
+  const loadDashboard = React.useCallback(() => {
+    setError('')
     get<DashboardData>('/v1/admin/dashboard')
       .then(setData)
       .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)))
   }, [])
+  React.useEffect(() => {
+    loadDashboard()
+  }, [loadDashboard])
 
   React.useEffect(() => {
     let alive = true
@@ -221,7 +241,7 @@ export default function DashboardPage() {
     return () => {
       alive = false
     }
-  }, [days])
+  }, [days, aReload])
 
   const kpis: Kpi[] = [
     { label: '用户总数', value: data?.users != null ? String(data.users) : '—', icon: Users },
@@ -252,6 +272,9 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-6">
+      {/* 概览数据加载失败：放在 KPI 上方，明确归属于概览区（而非下方图表）*/}
+      {error && <ErrorNotice message={`概览数据加载失败：${error}`} onRetry={loadDashboard} />}
+
       {/* KPI 卡 */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
         {kpis.map((k) => (
@@ -261,8 +284,12 @@ export default function DashboardPage() {
               <k.icon className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              {data ? (
-                <div className="text-2xl font-bold">{k.value}</div>
+              {data || error ? (
+                // 加载失败时降级为「—」（k.value 已兜底），不再无限骨架；
+                // tabular-nums 稳定数字宽度、truncate 防止「¥xxxxx」在窄列换行抖动
+                <div className="truncate text-2xl font-bold tabular-nums" title={k.value}>
+                  {k.value}
+                </div>
               ) : (
                 <Skeleton className="h-8 w-20" />
               )}
@@ -270,8 +297,6 @@ export default function DashboardPage() {
           </Card>
         ))}
       </div>
-
-      {error && <div className="text-sm text-destructive">{error}</div>}
 
       {/* 图表区标题 + 时间范围切换 */}
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -294,11 +319,16 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {aError && <div className="text-sm text-destructive">{aError}</div>}
-
-      {/* 图表网格（响应式自适应）*/}
-      <div className="grid gap-4 lg:grid-cols-2">
-        {/* 每日营收（面积）*/}
+      {/* 运营趋势加载失败：整块降级为错误+重试，避免 9 张图都显示「暂无数据」误导 */}
+      {aError ? (
+        <ErrorNotice
+          message={`运营数据加载失败：${aError}`}
+          onRetry={() => setAReload((n) => n + 1)}
+        />
+      ) : (
+        /* 图表网格（响应式自适应）*/
+        <div className="grid gap-4 lg:grid-cols-2">
+          {/* 每日营收（面积）*/}
         <ChartCard
           title="每日营收"
           desc="已成交订单按日实收金额（元）"
@@ -428,7 +458,8 @@ export default function DashboardPage() {
             <Line type="monotone" dataKey="count" name="审计条数" stroke={pal(5)} strokeWidth={2} dot={false} />
           </LineChart>
         </ChartCard>
-      </div>
+        </div>
+      )}
 
       <div className="flex items-center gap-2 text-xs text-muted-foreground">
         <Activity className="h-3.5 w-3.5" />

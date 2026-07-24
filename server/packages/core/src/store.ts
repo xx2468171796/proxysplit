@@ -308,6 +308,12 @@ export class PgStore {
     const r=await this.pool.query('SELECT version,minimum_version AS "minimumVersion",url,sha256,signature,mandatory,title,summary,changelog,channel,published_at AS "publishedAt" FROM releases ORDER BY published_at DESC LIMIT 1')
     return r.rows[0]??null
   }
+  // 是否存在该版本号的正式发布（用于下载接口过滤伪造版本，避免污染下载统计）。
+  async releaseExists(version:string):Promise<boolean>{
+    if(!version)return false
+    const r=await this.pool.query('SELECT 1 FROM releases WHERE version=$1 LIMIT 1',[version])
+    return !!r.rowCount
+  }
   async dashboard(){
     const r=await this.pool.query(`SELECT
       (SELECT count(*)::int FROM users) users,
@@ -954,10 +960,12 @@ export class PgStore {
     return {ok:true}
   }
   async deleteRedeemCode(id:string):Promise<{ok:true}|{ok:false;reason:'not_found'|'used'}>{
-    const row=(await this.pool.query('SELECT status FROM redeem_codes WHERE id=$1',[id])).rows[0]
+    const row=(await this.pool.query('SELECT status,used_count FROM redeem_codes WHERE id=$1',[id])).rows[0]
     if(!row)return {ok:false,reason:'not_found'}
-    if(row.status==='used')return {ok:false,reason:'used'}
-    await this.pool.query(`DELETE FROM redeem_codes WHERE id=$1 AND status<>'used'`,[id])
+    // 多人复用码被部分兑换后 status 仍为 'active'，必须按实际消费拦截，否则删除会
+    // 通过 redeem_redemptions 的 ON DELETE CASCADE 抹掉已产生的兑换台账。
+    if(row.status==='used'||Number(row.used_count)>0)return {ok:false,reason:'used'}
+    await this.pool.query(`DELETE FROM redeem_codes WHERE id=$1 AND status<>'used' AND used_count=0`,[id])
     return {ok:true}
   }
   async deleteRelease(id:string){const r=await this.pool.query('DELETE FROM releases WHERE id=$1 RETURNING id',[id]);return r.rows[0]??null}

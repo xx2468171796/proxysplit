@@ -2,7 +2,7 @@ import * as React from 'react'
 import { type ColumnDef } from '@tanstack/react-table'
 import { CheckCircle2, FileText, MoreHorizontal, Truck } from 'lucide-react'
 import { get, post, listApi } from '@/lib/api'
-import { dt, money } from '@/lib/utils'
+import { cn, dt, money } from '@/lib/utils'
 import { DataTable, type ColumnMeta } from '@/components/data-table'
 import { Badge, type BadgeProps } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -62,7 +62,8 @@ const STATUS: Record<string, { label: string; variant: BadgeProps['variant'] }> 
   pending: { label: '待支付', variant: 'warning' },
   failed: { label: '支付失败', variant: 'destructive' },
   closed: { label: '已关闭', variant: 'secondary' },
-  refunded: { label: '已退款', variant: 'destructive' },
+  // 已退款按规范归为「灰(secondary)」——非失败态，只是终态回滚
+  refunded: { label: '已退款', variant: 'secondary' },
 }
 function OrderStatus({ value }: { value: string }) {
   const s = STATUS[value] ?? { label: value, variant: 'secondary' as const }
@@ -112,10 +113,17 @@ export default function OrdersPage() {
         header: '订单号',
         meta: meta({ sortKey: 'orderNo' }),
         cell: ({ row }) => (
-          <div className="min-w-0">
-            <div className="font-mono text-xs">{row.original.orderNo}</div>
+          <div className="min-w-0 max-w-[220px]">
+            <div className="truncate font-mono text-xs" title={row.original.orderNo}>
+              {row.original.orderNo}
+            </div>
             {row.original.providerOrderNo && (
-              <div className="font-mono text-xs text-muted-foreground">网关 {row.original.providerOrderNo}</div>
+              <div
+                className="truncate font-mono text-xs text-muted-foreground"
+                title={`网关订单号 ${row.original.providerOrderNo}`}
+              >
+                网关 {row.original.providerOrderNo}
+              </div>
             )}
           </div>
         ),
@@ -230,6 +238,7 @@ export default function OrdersPage() {
         refreshSignal={refresh}
         extraParams={extraParams}
         initialSort={{ sort: 'createdAt', order: 'desc' }}
+        emptyText="暂无订单，用户完成下单后会显示在这里"
         onLoaded={(res) => setAmountSum(res.amountSum ?? 0)}
         filters={[
           {
@@ -278,7 +287,11 @@ export default function OrdersPage() {
                 title="下单截止日期"
               />
             </div>
-            <div className="rounded-md border px-3 py-1.5 text-sm">
+            {/* 已成交合计：amountSum 为分，money() 统一按 分/100 展示为 ¥x.xx */}
+            <div
+              className="rounded-md border px-3 py-1.5 text-sm"
+              title="当前筛选条件下已支付订单的金额合计"
+            >
               <span className="text-muted-foreground">已成交合计</span>{' '}
               <span className="font-semibold text-foreground">{money(amountSum)}</span>
             </div>
@@ -416,9 +429,11 @@ function Field({
   className?: string
 }) {
   return (
-    <div className={className}>
+    <div className={cn('min-w-0', className)}>
       <div className="text-xs text-muted-foreground">{label}</div>
-      <div className={mono ? 'mt-0.5 font-mono text-xs' : 'mt-0.5'}>{value}</div>
+      <div className={cn('mt-0.5', mono && 'truncate font-mono text-xs')} title={value}>
+        {value}
+      </div>
     </div>
   )
 }

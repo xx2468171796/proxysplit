@@ -14,7 +14,7 @@ import {
 import { post, del, listApi } from '@/lib/api'
 import { dt } from '@/lib/utils'
 import { DataTable, type ColumnMeta } from '@/components/data-table'
-import { StatusBadge } from '@/components/status-badge'
+import { Badge, type BadgeProps } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -82,8 +82,22 @@ const meta = (m: ColumnMeta): ColumnMeta => m
 const tierLabel = (t: string) =>
   t === 'premium' ? '超级会员' : t === 'standard' ? '普通会员' : t === 'trial' ? '试用' : t
 
-const statusLabel = (s: RedeemStatus) =>
-  s === 'active' ? '启用' : s === 'disabled' ? '停用' : '已使用'
+/**
+ * 兑换码状态 -> 中文标签 + Badge variant。
+ * 用显式映射表渲染领域状态（对齐 orders 的 STATUS 范式），
+ * 以避免通用 StatusBadge 正则把「停用」误判为 destructive(红)——
+ * 按全站规范「停用/已使用=secondary(灰)」，仅「启用=success(绿)」。
+ */
+const STATUS: Record<RedeemStatus, { label: string; variant: BadgeProps['variant'] }> = {
+  active: { label: '启用', variant: 'success' },
+  disabled: { label: '停用', variant: 'secondary' },
+  used: { label: '已使用', variant: 'secondary' },
+}
+
+function RedeemStatusBadge({ value }: { value: RedeemStatus }) {
+  const s = STATUS[value] ?? { label: value, variant: 'secondary' as const }
+  return <Badge variant={s.variant}>{s.label}</Badge>
+}
 
 const termLabel = (r: RedeemCode) =>
   r.lifetime ? '永久' : r.durationDays != null ? `${r.durationDays} 天` : '—'
@@ -181,7 +195,7 @@ export default function RedeemPage() {
         id: 'status',
         header: '状态',
         meta: meta({ sortKey: 'status' }),
-        cell: ({ row }) => <StatusBadge value={statusLabel(row.original.status)} />,
+        cell: ({ row }) => <RedeemStatusBadge value={row.original.status} />,
       },
       {
         id: 'uses',
@@ -367,24 +381,27 @@ export default function RedeemPage() {
         ]}
         toolbar={
           <div className="flex flex-wrap items-center gap-2">
-            <div className="relative">
-              <Input
-                value={batchFilter}
-                onChange={(e) => setBatchFilter(e.target.value)}
-                placeholder="按批次 ID 筛选…"
-                className="h-9 w-[220px] pr-8 font-mono"
-                title="精确匹配批次 ID"
-              />
-              {batchFilter && (
-                <button
-                  type="button"
-                  className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                  title="清除批次筛选"
-                  onClick={() => setBatchFilter('')}
-                >
-                  <X className="h-4 w-4" />
-                </button>
-              )}
+            <div className="flex items-center gap-1.5">
+              <span className="shrink-0 text-xs text-muted-foreground">批次</span>
+              <div className="relative">
+                <Input
+                  value={batchFilter}
+                  onChange={(e) => setBatchFilter(e.target.value)}
+                  placeholder="按批次 ID 筛选…"
+                  className="h-9 w-[220px] pr-8 font-mono"
+                  title="精确匹配批次 ID"
+                />
+                {batchFilter && (
+                  <button
+                    type="button"
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                    title="清除批次筛选"
+                    onClick={() => setBatchFilter('')}
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                )}
+              </div>
             </div>
             <Button onClick={() => setCreateOpen(true)}>
               <Ticket className="h-4 w-4" />
@@ -543,7 +560,9 @@ function CreateRedeemDialog({
         ) : (
           <form className="space-y-4" onSubmit={submit}>
             <div className="space-y-1.5">
-              <Label>套餐（会员等级）</Label>
+              <Label>
+                套餐（会员等级）<span className="text-destructive"> *</span>
+              </Label>
               <Select value={planId} onValueChange={setPlanId}>
                 <SelectTrigger>
                   <SelectValue placeholder="选择套餐" />

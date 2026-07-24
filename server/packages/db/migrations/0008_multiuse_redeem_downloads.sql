@@ -51,5 +51,6 @@ CREATE TABLE IF NOT EXISTS download_events(
   created_at timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS download_events_kind_time_idx ON download_events(kind,created_at DESC);
+CREATE INDEX IF NOT EXISTS download_events_time_idx ON download_events(created_at DESC);
 CREATE INDEX IF NOT EXISTS download_events_iphash_idx ON download_events(ip_hash);
 CREATE INDEX IF NOT EXISTS download_events_visitor_idx ON download_events(visitor_id);

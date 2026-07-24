@@ -240,6 +240,7 @@ export default function AuditPage() {
         searchPlaceholder="搜索动作 / 目标类型 / 目标 ID…"
         extraParams={extraParams}
         initialSort={{ sort: 'createdAt', order: 'desc' }}
+        emptyText="暂无审计记录，可调整筛选或时间范围"
         getRowId={(row) => row.id}
         filters={[
           {
@@ -265,14 +266,18 @@ export default function AuditPage() {
         ]}
         toolbar={
           <div className="flex flex-wrap items-center gap-2">
-            <Input
-              value={actorInput}
-              onChange={(e) => setActorInput(e.target.value)}
-              placeholder="操作者用户名 / ID"
-              className="h-9 w-[190px]"
-              title="按操作者用户名或用户 ID 筛选"
-            />
             <div className="flex items-center gap-1">
+              <span className="text-sm text-muted-foreground">操作者</span>
+              <Input
+                value={actorInput}
+                onChange={(e) => setActorInput(e.target.value)}
+                placeholder="用户名 / 用户 ID"
+                className="h-9 w-[180px]"
+                title="按操作者用户名或用户 ID 筛选"
+              />
+            </div>
+            <div className="flex items-center gap-1">
+              <span className="text-sm text-muted-foreground">时间</span>
               <Input
                 type="datetime-local"
                 value={from}

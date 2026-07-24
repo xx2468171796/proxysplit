@@ -1,6 +1,6 @@
 import * as React from 'react'
 import { type ColumnDef } from '@tanstack/react-table'
-import { MonitorSmartphone, MoreHorizontal, Unlink } from 'lucide-react'
+import { MonitorSmartphone, MoreHorizontal, Unlink, X } from 'lucide-react'
 import { del, listApi } from '@/lib/api'
 import { dt } from '@/lib/utils'
 import { DataTable, type ColumnMeta } from '@/components/data-table'
@@ -40,6 +40,17 @@ type Device = {
 
 const meta = (m: ColumnMeta): ColumnMeta => m
 
+/** 后端平台为原始小写枚举；映射为规范化展示名，与 dashboard 的 platformLabel 口径一致。 */
+const platformLabel = (p: string) =>
+  (({
+    windows: 'Windows',
+    macos: 'macOS',
+    darwin: 'macOS',
+    android: 'Android',
+    ios: 'iOS',
+    linux: 'Linux',
+  }) as Record<string, string>)[p] ?? (p || '未知')
+
 /** 与后端一致：last_seen_at 在 15 分钟内视为在线。 */
 const ONLINE_WINDOW_MS = 15 * 60 * 1000
 const isOnline = (lastSeenAt: string) =>
@@ -67,8 +78,12 @@ export default function DevicesPage() {
         meta: meta({ sortKey: 'name' }),
         cell: ({ row }) => (
           <div className="min-w-0">
-            <div className="font-medium">{row.original.name}</div>
-            <div className="text-xs text-muted-foreground">{row.original.platform}</div>
+            <div className="truncate font-medium" title={row.original.name}>
+              {row.original.name}
+            </div>
+            <div className="text-xs text-muted-foreground">
+              {platformLabel(row.original.platform)}
+            </div>
           </div>
         ),
       },
@@ -82,7 +97,7 @@ export default function DevicesPage() {
         id: 'platform',
         header: '平台',
         meta: meta({ sortKey: 'platform' }),
-        cell: ({ row }) => row.original.platform || '—',
+        cell: ({ row }) => platformLabel(row.original.platform),
       },
       {
         id: 'appVersion',
@@ -165,6 +180,7 @@ export default function DevicesPage() {
           })
         }
         searchPlaceholder="搜索设备名 / 用户名…"
+        emptyText="没有符合条件的设备，试试调整筛选或版本号"
         refreshSignal={refresh}
         extraParams={extraParams}
         initialSort={{ sort: 'lastSeenAt', order: 'desc' }}
@@ -198,15 +214,30 @@ export default function DevicesPage() {
           },
         ]}
         toolbar={
-          <div className="flex items-center gap-1">
-            <MonitorSmartphone className="h-4 w-4 text-muted-foreground" />
-            <Input
-              value={appVersion}
-              onChange={(e) => setAppVersion(e.target.value)}
-              placeholder="按版本号筛选…"
-              className="h-9 w-[150px]"
-              title="按 App 版本号精确筛选"
-            />
+          <div className="flex items-center gap-1.5">
+            <span className="flex shrink-0 items-center gap-1 text-sm text-muted-foreground">
+              <MonitorSmartphone className="h-4 w-4" />
+              版本
+            </span>
+            <div className="relative">
+              <Input
+                value={appVersion}
+                onChange={(e) => setAppVersion(e.target.value)}
+                placeholder="按版本号精确筛选…"
+                className="h-9 w-[170px] pr-8 font-mono"
+                title="按 App 版本号精确筛选"
+              />
+              {appVersion && (
+                <button
+                  type="button"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  title="清除版本筛选"
+                  onClick={() => setAppVersion('')}
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              )}
+            </div>
           </div>
         }
       />

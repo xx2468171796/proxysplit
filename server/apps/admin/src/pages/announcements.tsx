@@ -4,7 +4,6 @@ import { MoreHorizontal, Pencil, Pin, Plus, Trash2 } from 'lucide-react'
 import { post, put, del, listApi } from '@/lib/api'
 import { dt } from '@/lib/utils'
 import { DataTable, type ColumnMeta } from '@/components/data-table'
-import { StatusBadge } from '@/components/status-badge'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -74,6 +73,13 @@ const typeMeta: Record<AnnouncementType, { label: string; tone: 'default' | 'sec
 }
 const typeLabel = (t: string) => typeMeta[t as AnnouncementType]?.label ?? t
 
+// 类型对客户端意味着什么——发布/编辑弹窗内随「类型」实时切换的一句话说明。
+const typeHint: Record<AnnouncementType, string> = {
+  notice: '普通通知：在客户端公告列表内展示，用户可随时查看，不打断使用。',
+  maintenance: '维护通知：提示服务维护或可能中断，客户端通常以醒目样式提醒，建议同时填写下方生效时间窗口。',
+  release: '版本发布：配合下方「版本」字段告知新版本内容，客户端可据此引导用户更新。',
+}
+
 const meta = (m: ColumnMeta): ColumnMeta => m
 
 // ISO 字符串 -> datetime-local 输入值（本地时区，精确到分）。
@@ -127,11 +133,19 @@ export default function AnnouncementsPage() {
         cell: ({ row }) => (
           <div className="min-w-0 max-w-[420px]">
             <div className="flex items-center gap-1.5 font-medium">
-              {row.original.pinned && <Pin className="h-3.5 w-3.5 shrink-0 text-primary" />}
-              <span className="truncate">{row.original.title}</span>
+              {row.original.pinned && (
+                <span title="已置顶" className="inline-flex shrink-0 text-primary">
+                  <Pin className="h-3.5 w-3.5" />
+                </span>
+              )}
+              <span className="truncate" title={row.original.title}>
+                {row.original.title}
+              </span>
             </div>
             {row.original.summary && (
-              <div className="truncate text-xs text-muted-foreground">{row.original.summary}</div>
+              <div className="truncate text-xs text-muted-foreground" title={row.original.summary}>
+                {row.original.summary}
+              </div>
             )}
           </div>
         ),
@@ -149,16 +163,12 @@ export default function AnnouncementsPage() {
       {
         id: 'active',
         header: '状态',
-        cell: ({ row }) => <StatusBadge value={row.original.active ? '启用' : '停用'} />,
-      },
-      {
-        id: 'pinned',
-        header: '置顶',
+        // 显式「中文 label + variant」映射：启用=success(绿)，停用=secondary(灰)，与全站状态色规范一致。
         cell: ({ row }) =>
-          row.original.pinned ? (
-            <Badge variant="default">置顶</Badge>
+          row.original.active ? (
+            <Badge variant="success">启用</Badge>
           ) : (
-            <span className="text-muted-foreground">—</span>
+            <Badge variant="secondary">停用</Badge>
           ),
       },
       {
@@ -240,6 +250,7 @@ export default function AnnouncementsPage() {
         }
         searchPlaceholder="搜索标题 / 摘要 / 正文…"
         refreshSignal={refresh}
+        emptyText="还没有公告，点右上角『发布公告』"
         filters={[
           {
             key: 'type',
@@ -344,14 +355,25 @@ function AnnouncementDialog({
     }
   }, [open, row])
 
+  // 本地可判定的无效态：标题过短、正文为空、生效结束早于开始。用于 disabled 主按钮 + 轻校验提示（不改接口）。
+  const titleInvalid = form.title.trim().length < 2
+  const contentInvalid = form.content.trim().length < 1
+  const startMs = form.startsAt ? new Date(form.startsAt).getTime() : NaN
+  const endMs = form.endsAt ? new Date(form.endsAt).getTime() : NaN
+  const windowInvalid = !Number.isNaN(startMs) && !Number.isNaN(endMs) && endMs <= startMs
+
   async function submit(e: React.FormEvent) {
     e.preventDefault()
-    if (form.title.trim().length < 2) {
+    if (titleInvalid) {
       toast.error('标题至少需要 2 个字符')
       return
     }
-    if (form.content.trim().length < 1) {
+    if (contentInvalid) {
       toast.error('正文不能为空')
+      return
+    }
+    if (windowInvalid) {
+      toast.error('生效结束需晚于生效开始')
       return
     }
     const body = {
@@ -393,7 +415,7 @@ function AnnouncementDialog({
           </DialogDescription>
         </DialogHeader>
         <form className="space-y-4" onSubmit={submit}>
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
             <div className="space-y-1.5">
               <Label>类型</Label>
               <Select value={form.type} onValueChange={(v) => set('type', v as AnnouncementType)}>
@@ -407,18 +429,28 @@ function AnnouncementDialog({
                 </SelectContent>
               </Select>
             </div>
-            <div className="col-span-2 space-y-1.5">
+            <div className="space-y-1.5 sm:col-span-2">
               <Label>版本（可选）</Label>
               <Input
                 value={form.version}
                 onChange={(e) => set('version', e.target.value)}
                 placeholder="如 1.9.0，仅发布类常用"
               />
+              <p className="text-xs text-muted-foreground">
+                发布类公告建议填写版本号，客户端可据此提示更新；其他类型可留空。
+              </p>
             </div>
           </div>
 
+          {/* 类型的一句话实时说明：随「类型」切换，告诉运营各类型对客户端的意义（参考 redeem 的说明块）。 */}
+          <p className="rounded bg-muted px-3 py-2 text-xs text-muted-foreground">
+            {typeHint[form.type]}
+          </p>
+
           <div className="space-y-1.5">
-            <Label>标题</Label>
+            <Label>
+              标题 <span className="text-destructive">*</span>
+            </Label>
             <Input
               value={form.title}
               onChange={(e) => set('title', e.target.value)}
@@ -435,10 +467,15 @@ function AnnouncementDialog({
               placeholder="列表与推送中展示的一句话摘要，最多 500 字符"
               maxLength={500}
             />
+            <p className="text-xs text-muted-foreground">
+              留空时列表将只展示标题；建议一句话概括正文。
+            </p>
           </div>
 
           <div className="space-y-1.5">
-            <Label>正文</Label>
+            <Label>
+              正文 <span className="text-destructive">*</span>
+            </Label>
             <Textarea
               value={form.content}
               onChange={(e) => set('content', e.target.value)}
@@ -448,7 +485,7 @@ function AnnouncementDialog({
             />
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div className="space-y-1.5">
               <Label>生效开始（可选）</Label>
               <Input
@@ -456,6 +493,7 @@ function AnnouncementDialog({
                 value={isoToLocalInput(form.startsAt)}
                 onChange={(e) => set('startsAt', localInputToIso(e.target.value))}
               />
+              <p className="text-xs text-muted-foreground">留空表示立即生效。</p>
             </div>
             <div className="space-y-1.5">
               <Label>生效结束（可选）</Label>
@@ -464,31 +502,40 @@ function AnnouncementDialog({
                 value={isoToLocalInput(form.endsAt)}
                 onChange={(e) => set('endsAt', localInputToIso(e.target.value))}
               />
+              <p className="text-xs text-muted-foreground">留空表示长期有效。</p>
             </div>
           </div>
+          {windowInvalid && (
+            <p className="text-xs text-destructive">生效结束需晚于生效开始，请调整时间。</p>
+          )}
 
-          <div className="flex items-center gap-6">
-            <label className="flex items-center gap-2 text-sm">
-              <Checkbox
-                checked={form.active}
-                onCheckedChange={(v) => set('active', v === true)}
-              />
-              启用（对外可见）
-            </label>
-            <label className="flex items-center gap-2 text-sm">
-              <Checkbox
-                checked={form.pinned}
-                onCheckedChange={(v) => set('pinned', v === true)}
-              />
-              置顶
-            </label>
+          <div className="space-y-2 rounded-md border p-3">
+            <div className="flex flex-wrap items-center gap-6">
+              <label className="flex items-center gap-2 text-sm">
+                <Checkbox
+                  checked={form.active}
+                  onCheckedChange={(v) => set('active', v === true)}
+                />
+                启用（对外可见）
+              </label>
+              <label className="flex items-center gap-2 text-sm">
+                <Checkbox
+                  checked={form.pinned}
+                  onCheckedChange={(v) => set('pinned', v === true)}
+                />
+                置顶
+              </label>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              未勾选「启用」的公告将保存为草稿，不会向客户端展示；「置顶」的公告会排在列表最前。
+            </p>
           </div>
 
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               取消
             </Button>
-            <Button type="submit" disabled={busy}>
+            <Button type="submit" disabled={busy || titleInvalid || contentInvalid || windowInvalid}>
               {busy ? '保存中…' : editing ? '保存修改' : '发布'}
             </Button>
           </DialogFooter>

@@ -10,7 +10,6 @@ import {
 } from 'lucide-react'
 import { get, put, post } from '@/lib/api'
 import { dt } from '@/lib/utils'
-import { StatusBadge } from '@/components/status-badge'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -76,6 +75,20 @@ const timeoutOf = (config: Provider['config']): number => {
   const t = Number(config?.orderTimeoutMinutes)
   return Number.isFinite(t) && t > 0 ? t : 10
 }
+
+// 领域状态 -> 中文label + 徽章色（显式映射，避免 StatusBadge 把「停用」误判为红色）。
+// 规范：启用/在线/当前=success(绿)；停用=secondary(灰)。
+const enabledBadge = (enabled: boolean) =>
+  enabled
+    ? { label: '启用', variant: 'success' as const }
+    : { label: '停用', variant: 'secondary' as const }
+
+// 必填标记（配合原生 required 一起用，不只依赖原生校验）
+const RequiredMark = () => <span className="text-destructive"> *</span>
+
+// 通道代码 / 凭据引用的命名规则（与后端 providerUpsertSchema 保持一致）
+const CODE_RE = /^[a-z0-9][a-z0-9-]{1,62}$/
+const CRED_RE = /^[A-Z][A-Z0-9_]{2,80}$/
 
 export default function PaymentsPage() {
   const [providers, setProviders] = React.useState<Provider[]>([])
@@ -190,24 +203,27 @@ export default function PaymentsPage() {
         ) : !error && providers.length === 0 ? (
           <Card className="sm:col-span-2 xl:col-span-3">
             <CardContent className="py-12 text-center text-sm text-muted-foreground">
-              暂无支付通道，点击「新增通道」创建。
+              还没有支付通道，点右上角「新增通道」创建。
             </CardContent>
           </Card>
         ) : (
           providers.map((p) => {
             const active = p.code === activeCode
+            const st = enabledBadge(p.enabled)
             return (
               <Card key={p.code} className={active ? 'border-primary/60 ring-1 ring-primary/30' : undefined}>
                 <CardHeader className="pb-3">
                   <div className="flex items-start justify-between gap-2">
-                    <CardTitle className="flex items-center gap-2">
-                      <CreditCard className="h-4 w-4 text-muted-foreground" />
-                      {p.displayName}
+                    <CardTitle className="flex min-w-0 items-center gap-2">
+                      <CreditCard className="h-4 w-4 shrink-0 text-muted-foreground" />
+                      <span className="truncate" title={p.displayName}>
+                        {p.displayName}
+                      </span>
                     </CardTitle>
                     <div className="flex shrink-0 flex-col items-end gap-1">
-                      <StatusBadge value={p.enabled ? '启用' : '停用'} />
+                      <Badge variant={st.variant}>{st.label}</Badge>
                       {active && (
-                        <Badge variant="default" className="gap-1">
+                        <Badge variant="success" className="gap-1">
                           <CheckCircle2 className="h-3 w-3" />
                           当前收款
                         </Badge>
@@ -215,18 +231,18 @@ export default function PaymentsPage() {
                     </div>
                   </div>
                   <CardDescription className="flex flex-wrap items-center gap-1.5">
-                    <span className="font-mono">{p.code}</span>
+                    <span className="font-mono text-xs">{p.code}</span>
                     <span>·</span>
                     <Badge variant="outline">{adapterLabel(p.adapter)}</Badge>
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-2 text-sm">
-                  <Field label="接口地址" value={p.endpoint || '—'} mono />
+                  <Field label="接口地址" value={p.endpoint || '—'} mono={!!p.endpoint} />
                   <Field label="商户号" value={p.merchantId || '—'} mono={!!p.merchantId} />
                   <Field
                     label="凭据引用"
                     value={
-                      <span className="inline-flex items-center gap-1 font-mono">
+                      <span className="inline-flex items-center gap-1 font-mono text-xs">
                         <KeyRound className="h-3.5 w-3.5 text-muted-foreground" />
                         {p.credentialRef}
                       </span>
@@ -301,6 +317,7 @@ function Field({
           mono ? 'font-mono text-xs' : '',
           muted ? 'text-muted-foreground' : 'text-foreground',
         ].join(' ')}
+        title={typeof value === 'string' ? value : undefined}
       >
         {value}
       </span>
@@ -357,14 +374,20 @@ function ProviderDialog({
     }
   }, [open, provider])
 
+  // 本地可判定的有效性：无效时直接 disabled 主按钮，不只靠 toast 兜底
+  const codeValid = isEdit || CODE_RE.test(code)
+  const nameValid = displayName.trim().length > 0
+  const refValid = CRED_RE.test(credentialRef)
+  const canSubmit = !busy && codeValid && nameValid && refValid
+
   async function submit(e: React.FormEvent) {
     e.preventDefault()
     // 轻量客户端校验（后端 providerUpsertSchema 会再次校验并返回 message）
-    if (!isEdit && !/^[a-z0-9][a-z0-9-]{1,62}$/.test(code)) {
+    if (!isEdit && !CODE_RE.test(code)) {
       toast.error('通道代码只能包含小写字母、数字与连字符，长度 2-63')
       return
     }
-    if (!/^[A-Z][A-Z0-9_]{2,80}$/.test(credentialRef)) {
+    if (!CRED_RE.test(credentialRef)) {
       toast.error('凭据引用需为大写字母开头的大写标识符（如 PAYMENT_ZHONGZHUAN）')
       return
     }
@@ -402,89 +425,137 @@ function ProviderDialog({
           </DialogDescription>
         </DialogHeader>
         <form className="space-y-4" onSubmit={submit}>
-          <div className="grid grid-cols-2 gap-3">
+          {/* 基本信息 */}
+          <div className="space-y-3 rounded-md border p-3">
+            <Label className="text-sm font-semibold">基本信息</Label>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>
+                  通道代码
+                  {!isEdit && <RequiredMark />}
+                </Label>
+                <Input
+                  value={code}
+                  onChange={(e) => setCode(e.target.value)}
+                  placeholder="zhongzhuan-prod"
+                  className="font-mono"
+                  disabled={isEdit}
+                  required
+                />
+                <p className="text-xs text-muted-foreground">
+                  {isEdit
+                    ? '代码创建后不可修改。'
+                    : '小写字母 / 数字 / 连字符，2–63 位，创建后不可修改。'}
+                </p>
+              </div>
+              <div className="space-y-1.5">
+                <Label>
+                  显示名称
+                  <RequiredMark />
+                </Label>
+                <Input
+                  value={displayName}
+                  onChange={(e) => setDisplayName(e.target.value)}
+                  placeholder="生产收款（收钱吧）"
+                  required
+                />
+                <p className="text-xs text-muted-foreground">
+                  展示在收款概览与对账处，便于区分不同通道。
+                </p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>适配器</Label>
+                <Select value={adapter} onValueChange={(v) => setAdapter(v as Adapter)}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="zhongzhuan">收钱吧中转</SelectItem>
+                    <SelectItem value="manual">手动确认</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  {adapter === 'manual'
+                    ? '不接第三方，由运营在后台手动确认到账。'
+                    : '经收钱吧中转自动下单并回调对账。'}
+                </p>
+              </div>
+              <div className="space-y-1.5">
+                <Label>订单超时（分钟）</Label>
+                <Input
+                  type="number"
+                  min={5}
+                  max={60}
+                  value={timeoutMin}
+                  onChange={(e) => setTimeoutMin(Number(e.target.value))}
+                />
+                <p className="text-xs text-muted-foreground">
+                  下单后未支付的自动关单时间（5–60 分钟）。
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* 对接参数 */}
+          <div className="space-y-3 rounded-md border p-3">
+            <Label className="text-sm font-semibold">对接参数</Label>
             <div className="space-y-1.5">
-              <Label>通道代码</Label>
+              <Label>接口地址</Label>
               <Input
-                value={code}
-                onChange={(e) => setCode(e.target.value)}
-                placeholder="zhongzhuan-prod"
-                disabled={isEdit}
+                type="url"
+                value={endpoint}
+                onChange={(e) => setEndpoint(e.target.value)}
+                placeholder="https://zf.example.com（手动确认可留空）"
+              />
+              <p className="text-xs text-muted-foreground">
+                {adapter === 'manual'
+                  ? '手动确认适配器无需接口地址，可留空。'
+                  : '收钱吧中转的下单 / 回调接口地址。'}
+              </p>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label>商户号（可选）</Label>
+              <Input
+                value={merchantId}
+                onChange={(e) => setMerchantId(e.target.value)}
+                placeholder="留空则不使用"
+              />
+              <p className="text-xs text-muted-foreground">
+                对接收钱吧时的商户标识，留空则不使用。
+              </p>
+            </div>
+          </div>
+
+          {/* 密钥凭据 */}
+          <div className="space-y-3 rounded-md border p-3">
+            <Label className="text-sm font-semibold">密钥凭据</Label>
+            <div className="space-y-1.5">
+              <Label>
+                凭据引用（环境变量前缀）
+                <RequiredMark />
+              </Label>
+              <Input
+                value={credentialRef}
+                onChange={(e) => setCredentialRef(e.target.value.toUpperCase())}
+                placeholder="PAYMENT_ZHONGZHUAN"
+                className="font-mono"
                 required
               />
-              {isEdit && <p className="text-xs text-muted-foreground">代码创建后不可修改</p>}
-            </div>
-            <div className="space-y-1.5">
-              <Label>显示名称</Label>
-              <Input
-                value={displayName}
-                onChange={(e) => setDisplayName(e.target.value)}
-                placeholder="生产收款（收钱吧）"
-                required
-              />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <Label>适配器</Label>
-              <Select value={adapter} onValueChange={(v) => setAdapter(v as Adapter)}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="zhongzhuan">收钱吧中转</SelectItem>
-                  <SelectItem value="manual">手动确认</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1.5">
-              <Label>订单超时（分钟）</Label>
-              <Input
-                type="number"
-                min={5}
-                max={60}
-                value={timeoutMin}
-                onChange={(e) => setTimeoutMin(Number(e.target.value))}
-              />
-            </div>
-          </div>
-
-          <div className="space-y-1.5">
-            <Label>接口地址</Label>
-            <Input
-              type="url"
-              value={endpoint}
-              onChange={(e) => setEndpoint(e.target.value)}
-              placeholder="https://zf.example.com（手动确认可留空）"
-            />
-          </div>
-
-          <div className="space-y-1.5">
-            <Label>商户号（可选）</Label>
-            <Input
-              value={merchantId}
-              onChange={(e) => setMerchantId(e.target.value)}
-              placeholder="留空则不使用"
-            />
-          </div>
-
-          <div className="space-y-1.5">
-            <Label>凭据引用（环境变量前缀）</Label>
-            <Input
-              value={credentialRef}
-              onChange={(e) => setCredentialRef(e.target.value.toUpperCase())}
-              placeholder="PAYMENT_ZHONGZHUAN"
-              className="font-mono"
-              required
-            />
-            <div className="flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 p-2.5 text-xs text-amber-700 dark:text-amber-400">
-              <KeyRound className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-              <span>
-                服务器将从环境变量 <code className="font-mono">{refPreview}_APP_ID</code> 与{' '}
-                <code className="font-mono">{refPreview}_APP_SECRET</code> 读取真实密钥；
-                此处<strong>不会</strong>保存任何明文密钥。
-              </span>
+              <p className="text-xs text-muted-foreground">
+                大写字母开头的大写标识符，如 PAYMENT_ZHONGZHUAN。
+              </p>
+              <div className="flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 p-2.5 text-xs text-amber-700 dark:text-amber-400">
+                <KeyRound className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                <span>
+                  服务器将从环境变量 <code className="font-mono">{refPreview}_APP_ID</code> 与{' '}
+                  <code className="font-mono">{refPreview}_APP_SECRET</code> 读取真实密钥；
+                  此处<strong>不会</strong>保存任何明文密钥。
+                </span>
+              </div>
             </div>
           </div>
 
@@ -497,8 +568,8 @@ function ProviderDialog({
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               取消
             </Button>
-            <Button type="submit" disabled={busy}>
-              {busy ? '保存中…' : isEdit ? '保存' : '创建通道'}
+            <Button type="submit" disabled={!canSubmit}>
+              {busy ? (isEdit ? '保存中…' : '创建中…') : isEdit ? '保存' : '创建通道'}
             </Button>
           </DialogFooter>
         </form>

@@ -69,6 +69,15 @@ const channelLabel = (c: string) => (c === 'beta' ? '测试版' : c === 'stable'
 const SEMVER = /^\d+\.\d+\.\d+$/
 const SHA256 = /^[a-f0-9]{64}$/
 
+function isValidUrl(s: string) {
+  try {
+    new URL(s)
+    return true
+  } catch {
+    return false
+  }
+}
+
 async function copy(text: string, label: string) {
   try {
     await navigator.clipboard.writeText(text)
@@ -118,14 +127,22 @@ export default function ReleasesPage() {
       {
         id: 'title',
         header: '标题 / 摘要',
-        cell: ({ row }) => (
-          <div className="min-w-0 max-w-[320px]">
-            <div className="truncate">{row.original.title || '（未填写标题）'}</div>
-            <div className="truncate text-xs text-muted-foreground">
-              {row.original.summary || '—'}
+        cell: ({ row }) => {
+          const r = row.original
+          return (
+            <div className="min-w-0 max-w-[320px]">
+              <div className="truncate" title={r.title || undefined}>
+                {r.title || '（未填写标题）'}
+              </div>
+              <div
+                className="truncate text-xs text-muted-foreground"
+                title={r.summary || undefined}
+              >
+                {r.summary || '—'}
+              </div>
             </div>
-          </div>
-        ),
+          )
+        },
       },
       {
         id: 'channel',
@@ -205,6 +222,7 @@ export default function ReleasesPage() {
           })
         }
         searchPlaceholder="搜索版本号 / 标题 / 摘要…"
+        emptyText="还没有发布任何版本，点右上角『发布新版本』"
         refreshSignal={refresh}
         initialSort={{ sort: 'publishedAt', order: 'desc' }}
         filters={[
@@ -240,6 +258,18 @@ export default function ReleasesPage() {
   )
 }
 
+// 必填字段星号
+function Req() {
+  return <span className="text-destructive"> *</span>
+}
+
+// 字段说明：有错误时显示红色错误文案（就近定位），否则显示灰色 hint。
+function FieldHint({ error, children }: { error?: string; children?: React.ReactNode }) {
+  if (error) return <p className="text-xs text-destructive">{error}</p>
+  if (!children) return null
+  return <p className="text-xs text-muted-foreground">{children}</p>
+}
+
 // ---------- 发布新版本 ----------
 function CreateReleaseDialog({
   open,
@@ -261,6 +291,8 @@ function CreateReleaseDialog({
   const [summary, setSummary] = React.useState('')
   const [changelog, setChangelog] = React.useState('')
   const [busy, setBusy] = React.useState(false)
+  // 记录哪些字段被触碰过，触碰后才就近展示错误，避免一进来满屏红字。
+  const [touched, setTouched] = React.useState<Record<string, boolean>>({})
 
   React.useEffect(() => {
     if (open) {
@@ -274,26 +306,67 @@ function CreateReleaseDialog({
       setTitle('')
       setSummary('')
       setChangelog('')
+      setTouched({})
     }
   }, [open])
 
-  function validate(): string | null {
-    if (!SEMVER.test(version)) return '版本号格式应为 x.y.z（如 1.9.0）'
-    if (!SEMVER.test(minimumVersion)) return '最低兼容版本格式应为 x.y.z（如 1.0.0）'
-    try {
-      new URL(url)
-    } catch {
-      return '下载地址必须是合法 URL'
-    }
-    if (!SHA256.test(sha256)) return 'SHA-256 必须是 64 位小写十六进制'
-    if (signature.trim().length < 32) return '签名长度至少 32 位'
-    return null
+  const touch = (k: string) => setTouched((t) => (t[k] ? t : { ...t, [k]: true }))
+
+  // 逐字段错误（纯前端），阈值与 placeholder 保持一致。
+  const errors = {
+    version: !version.trim()
+      ? '请填写版本号'
+      : !SEMVER.test(version.trim())
+        ? '格式应为 x.y.z（如 1.9.0）'
+        : '',
+    minimumVersion: !minimumVersion.trim()
+      ? '请填写最低兼容版本'
+      : !SEMVER.test(minimumVersion.trim())
+        ? '格式应为 x.y.z（如 1.0.0）'
+        : '',
+    url: !url.trim()
+      ? '请填写下载地址'
+      : !isValidUrl(url.trim())
+        ? '必须是合法 URL（含 http/https）'
+        : '',
+    sha256: !sha256.trim()
+      ? '请填写 SHA-256'
+      : !SHA256.test(sha256.trim())
+        ? '必须是 64 位小写十六进制'
+        : '',
+    signature: !signature.trim()
+      ? '请填写签名'
+      : signature.trim().length < 32
+        ? '签名长度至少 32 位'
+        : '',
   }
+
+  // 保留 validate()：返回第一个错误用于 toast 兜底。
+  function validate(): string | null {
+    return (
+      errors.version ||
+      errors.minimumVersion ||
+      errors.url ||
+      errors.sha256 ||
+      errors.signature ||
+      null
+    )
+  }
+
+  const firstError = validate()
 
   async function submit(e: React.FormEvent) {
     e.preventDefault()
     const err = validate()
     if (err) {
+      // 全部标记为已触碰，暴露所有就近错误文案
+      setTouched({
+        version: true,
+        minimumVersion: true,
+        url: true,
+        sha256: true,
+        signature: true,
+      })
       toast.error(err)
       return
     }
@@ -331,122 +404,170 @@ function CreateReleaseDialog({
           </DialogDescription>
         </DialogHeader>
         <form className="space-y-4" onSubmit={submit}>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <Label>版本号</Label>
-              <Input
-                value={version}
-                onChange={(e) => setVersion(e.target.value)}
-                placeholder="1.9.0"
-                className="font-mono"
-                required
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label>最低兼容版本</Label>
-              <Input
-                value={minimumVersion}
-                onChange={(e) => setMinimumVersion(e.target.value)}
-                placeholder="1.0.0"
-                className="font-mono"
-                required
-              />
-            </div>
-          </div>
-
-          <div className="space-y-1.5">
-            <Label>下载地址</Label>
-            <Input
-              type="url"
-              value={url}
-              onChange={(e) => setUrl(e.target.value)}
-              placeholder="https://dl.example.com/proxysplit-1.9.0.exe"
-              required
-            />
-          </div>
-
-          <div className="space-y-1.5">
-            <Label>SHA-256</Label>
-            <Input
-              value={sha256}
-              onChange={(e) => setSha256(e.target.value)}
-              placeholder="64 位小写十六进制"
-              className="font-mono"
-              required
-            />
-          </div>
-
-          <div className="space-y-1.5">
-            <Label>签名</Label>
-            <Textarea
-              value={signature}
-              onChange={(e) => setSignature(e.target.value)}
-              placeholder="安装包签名（至少 32 位）"
-              className="min-h-[64px] font-mono text-xs"
-              required
-            />
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <Label>渠道</Label>
-              <Select value={channel} onValueChange={(v) => setChannel(v as Channel)}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="stable">稳定版</SelectItem>
-                  <SelectItem value="beta">测试版</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="flex items-end">
-              <label className="flex h-9 items-center gap-2 text-sm">
-                <Checkbox
-                  checked={mandatory}
-                  onCheckedChange={(v) => setMandatory(v === true)}
+          {/* 分组一：版本与兼容 */}
+          <div className="space-y-3 rounded-md border p-3">
+            <Label className="text-sm font-semibold">版本与兼容</Label>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label>
+                  版本号
+                  <Req />
+                </Label>
+                <Input
+                  value={version}
+                  onChange={(e) => setVersion(e.target.value)}
+                  onBlur={() => touch('version')}
+                  placeholder="1.9.0"
+                  className="font-mono"
                 />
-                强制更新
-              </label>
+                <FieldHint error={touched.version ? errors.version : ''}>
+                  本次发布的版本号，格式 x.y.z。
+                </FieldHint>
+              </div>
+              <div className="space-y-1.5">
+                <Label>
+                  最低兼容版本
+                  <Req />
+                </Label>
+                <Input
+                  value={minimumVersion}
+                  onChange={(e) => setMinimumVersion(e.target.value)}
+                  onBlur={() => touch('minimumVersion')}
+                  placeholder="1.0.0"
+                  className="font-mono"
+                />
+                <FieldHint error={touched.minimumVersion ? errors.minimumVersion : ''}>
+                  低于该版本的客户端将被强制更新拦截。
+                </FieldHint>
+              </div>
             </div>
           </div>
 
-          <div className="space-y-1.5">
-            <Label>标题（可选）</Label>
-            <Input
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder="例如：稳定性与安全性更新"
-              maxLength={120}
-            />
+          {/* 分组二：安装包校验 */}
+          <div className="space-y-3 rounded-md border p-3">
+            <Label className="text-sm font-semibold">安装包校验</Label>
+            <div className="space-y-1.5">
+              <Label>
+                下载地址
+                <Req />
+              </Label>
+              <Input
+                type="url"
+                value={url}
+                onChange={(e) => setUrl(e.target.value)}
+                onBlur={() => touch('url')}
+                placeholder="https://dl.example.com/proxysplit-1.9.0.exe"
+              />
+              <FieldHint error={touched.url ? errors.url : ''}>
+                安装包直链，客户端从此地址下载更新。
+              </FieldHint>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label>
+                SHA-256
+                <Req />
+              </Label>
+              <Input
+                value={sha256}
+                onChange={(e) => setSha256(e.target.value)}
+                onBlur={() => touch('sha256')}
+                placeholder="64 位小写十六进制"
+                className="font-mono"
+              />
+              <FieldHint error={touched.sha256 ? errors.sha256 : ''}>
+                安装包的 SHA-256 校验值（64 位小写十六进制），客户端据此校验完整性。
+              </FieldHint>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label>
+                签名
+                <Req />
+              </Label>
+              <Textarea
+                value={signature}
+                onChange={(e) => setSignature(e.target.value)}
+                onBlur={() => touch('signature')}
+                placeholder="安装包签名（至少 32 位）"
+                className="min-h-[64px] font-mono text-xs"
+              />
+              <FieldHint error={touched.signature ? errors.signature : ''}>
+                安装包数字签名，至少 32 位，用于防止安装包被篡改。
+              </FieldHint>
+            </div>
           </div>
 
-          <div className="space-y-1.5">
-            <Label>摘要（可选）</Label>
-            <Textarea
-              value={summary}
-              onChange={(e) => setSummary(e.target.value)}
-              placeholder="一句话说明本次更新（最多 500 字）"
-              maxLength={500}
-            />
-          </div>
+          {/* 分组三：发布信息 */}
+          <div className="space-y-3 rounded-md border p-3">
+            <Label className="text-sm font-semibold">发布信息</Label>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label>渠道</Label>
+                <Select value={channel} onValueChange={(v) => setChannel(v as Channel)}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="stable">稳定版</SelectItem>
+                    <SelectItem value="beta">测试版</SelectItem>
+                  </SelectContent>
+                </Select>
+                <FieldHint>稳定版面向全部用户，测试版仅推送给内测客户端。</FieldHint>
+              </div>
+              <div className="space-y-1.5">
+                <Label>更新方式</Label>
+                <label className="flex h-9 items-center gap-2 text-sm">
+                  <Checkbox
+                    checked={mandatory}
+                    onCheckedChange={(v) => setMandatory(v === true)}
+                  />
+                  强制更新
+                </label>
+                <FieldHint>开启后会拦截低于最低兼容版本的客户端，强制其更新。</FieldHint>
+              </div>
+            </div>
 
-          <div className="space-y-1.5">
-            <Label>更新日志（可选）</Label>
-            <Textarea
-              value={changelog}
-              onChange={(e) => setChangelog(e.target.value)}
-              placeholder="支持多行，展示给用户的完整更新说明"
-              className="min-h-[120px]"
-              maxLength={20000}
-            />
+            <div className="space-y-1.5">
+              <Label>标题（可选）</Label>
+              <Input
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                placeholder="例如：稳定性与安全性更新"
+                maxLength={120}
+              />
+              <FieldHint>展示在更新提示顶部的一句话标题，最多 120 字。</FieldHint>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label>摘要（可选）</Label>
+              <Textarea
+                value={summary}
+                onChange={(e) => setSummary(e.target.value)}
+                placeholder="一句话说明本次更新（最多 500 字）"
+                maxLength={500}
+              />
+              <FieldHint>更新提示中的简短说明，最多 500 字。</FieldHint>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label>更新日志（可选）</Label>
+              <Textarea
+                value={changelog}
+                onChange={(e) => setChangelog(e.target.value)}
+                placeholder="支持多行，展示给用户的完整更新说明"
+                className="min-h-[120px]"
+                maxLength={20000}
+              />
+              <FieldHint>支持多行，展示给用户的完整更新说明。</FieldHint>
+            </div>
           </div>
 
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               取消
             </Button>
-            <Button type="submit" disabled={busy}>
+            <Button type="submit" disabled={busy || !!firstError}>
               {busy ? '发布中…' : '确认发布'}
             </Button>
           </DialogFooter>
@@ -496,6 +617,7 @@ function ReleaseDetailDialog({
                   target="_blank"
                   rel="noreferrer"
                   className="inline-flex min-w-0 items-center gap-1 truncate text-primary hover:underline"
+                  title={row.url}
                 >
                   <ExternalLink className="h-3.5 w-3.5 shrink-0" />
                   <span className="truncate">{row.url}</span>
@@ -506,7 +628,10 @@ function ReleaseDetailDialog({
 
             <Field label="SHA-256">
               <div className="flex items-center gap-2">
-                <code className="min-w-0 flex-1 truncate rounded bg-muted px-2 py-1 text-xs">
+                <code
+                  className="min-w-0 flex-1 truncate rounded bg-muted px-2 py-1 text-xs"
+                  title={row.sha256}
+                >
                   {row.sha256}
                 </code>
                 <CopyBtn text={row.sha256} label="SHA-256" />

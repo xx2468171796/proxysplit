@@ -104,6 +104,9 @@ const tierTone = (t: string) =>
 
 const meta = (m: ColumnMeta): ColumnMeta => m
 
+// 必填字段标记：Label 末尾红色星号
+const Req = () => <span className="text-destructive"> *</span>
+
 export default function PlansPage() {
   const [refresh, setRefresh] = React.useState(0)
   const bump = () => setRefresh((r) => r + 1)
@@ -293,6 +296,7 @@ export default function PlansPage() {
         }
         searchPlaceholder="搜索套餐 code / 名称 / 描述…"
         refreshSignal={refresh}
+        emptyText="还没有套餐，点右上角『新建套餐』"
         initialSort={{ sort: 'sortOrder', order: 'asc' }}
         filters={[
           { key: 'tier', label: '等级', options: TIER_OPTIONS },
@@ -480,6 +484,29 @@ function PlanFormDialog({
     }
   }
 
+  // 实时预览（随价格 / 周期 / 设备数变化的一句话说明）
+  const priceNum = Number(priceYuan)
+  const priceCentsPreview = Number.isFinite(priceNum) ? Math.round(priceNum * 100) : 0
+  const origNum = Number(originalYuan)
+  const origCentsPreview =
+    originalYuan.trim() !== '' && Number.isFinite(origNum) ? Math.round(origNum * 100) : null
+  const showOriginal = origCentsPreview != null && origCentsPreview > priceCentsPreview
+  const termPreview = lifetime
+    ? '永久有效'
+    : durationDays.trim() !== '' && Number(durationDays) >= 1
+      ? `有效 ${durationDays} 天`
+      : '有效 — 天'
+  const devicesPreview =
+    maxDevices.trim() !== '' && Number(maxDevices) >= 1 ? maxDevices : '—'
+
+  // 本地可提交判定（无效时禁用主按钮，不只靠 toast 兜底）
+  const codeOk = isEdit || /^[a-z0-9][a-z0-9-]{1,62}$/.test(code)
+  const nameOk = name.trim() !== ''
+  const priceOk = priceYuan.trim() !== '' && Number.isFinite(priceNum) && priceNum >= 0
+  const devicesOk = maxDevices.trim() !== '' && Number(maxDevices) >= 1
+  const daysOk = lifetime || (durationDays.trim() !== '' && Number(durationDays) >= 1)
+  const canSubmit = codeOk && nameOk && priceOk && devicesOk && daysOk
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[88vh] max-w-2xl overflow-y-auto">
@@ -493,176 +520,252 @@ function PlanFormDialog({
         </DialogHeader>
 
         <form className="space-y-4" onSubmit={submit}>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <Label>标识 code</Label>
-              <Input
-                value={code}
-                onChange={(e) => setCode(e.target.value)}
-                placeholder="premium-year"
-                disabled={isEdit}
-                required={!isEdit}
-              />
+          {/* 基础信息 */}
+          <div className="space-y-3 rounded-md border p-3">
+            <Label className="text-sm font-semibold">基础信息</Label>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label>
+                  标识 code
+                  <Req />
+                </Label>
+                <Input
+                  value={code}
+                  onChange={(e) => setCode(e.target.value)}
+                  placeholder="premium-year"
+                  disabled={isEdit}
+                  required={!isEdit}
+                  className="font-mono"
+                />
+                <p className="text-xs text-muted-foreground">
+                  {isEdit
+                    ? '唯一标识，创建后不可修改。'
+                    : '唯一标识，2-63 位小写字母 / 数字 / 连字符，创建后不可修改。'}
+                </p>
+              </div>
+              <div className="space-y-1.5">
+                <Label>
+                  名称
+                  <Req />
+                </Label>
+                <Input
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="超级会员年卡"
+                  required
+                />
+                <p className="text-xs text-muted-foreground">展示给用户的套餐名称。</p>
+              </div>
             </div>
-            <div className="space-y-1.5">
-              <Label>名称</Label>
-              <Input
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="超级会员年卡"
-                required
-              />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <Label>会员等级</Label>
-              <Select value={tier} onValueChange={(v) => setTier(v as Tier)}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {TIER_OPTIONS.map((o) => (
-                    <SelectItem key={o.value} value={o.value}>
-                      {o.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1.5">
-              <Label>计费周期</Label>
-              <Select value={billingCycle} onValueChange={(v) => onBillingChange(v as BillingCycle)}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {BILLING_OPTIONS.map((o) => (
-                    <SelectItem key={o.value} value={o.value}>
-                      {o.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <Label>有效天数</Label>
-              <Input
-                type="number"
-                min={1}
-                max={36500}
-                value={lifetime ? '' : durationDays}
-                onChange={(e) => setDurationDays(e.target.value)}
-                disabled={lifetime}
-                placeholder={lifetime ? '永久有效' : '30'}
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label>设备数上限</Label>
-              <Input
-                type="number"
-                min={1}
-                max={100}
-                value={maxDevices}
-                onChange={(e) => setMaxDevices(e.target.value)}
-                required
-              />
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label>会员等级</Label>
+                <Select value={tier} onValueChange={(v) => setTier(v as Tier)}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {TIER_OPTIONS.map((o) => (
+                      <SelectItem key={o.value} value={o.value}>
+                        {o.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">决定开通后的会员权限层级。</p>
+              </div>
+              <div className="space-y-1.5">
+                <Label>计费周期</Label>
+                <Select
+                  value={billingCycle}
+                  onValueChange={(v) => onBillingChange(v as BillingCycle)}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {BILLING_OPTIONS.map((o) => (
+                      <SelectItem key={o.value} value={o.value}>
+                        {o.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  仅影响展示与角标；选「永久」将忽略有效天数。
+                </p>
+              </div>
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <Label>售价（元）</Label>
-              <Input
-                type="number"
-                min={0}
-                step="0.01"
-                value={priceYuan}
-                onChange={(e) => setPriceYuan(e.target.value)}
-                placeholder="0.00"
-                required
-              />
+          {/* 定价 */}
+          <div className="space-y-3 rounded-md border p-3">
+            <Label className="text-sm font-semibold">定价</Label>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label>
+                  售价（元）
+                  <Req />
+                </Label>
+                <Input
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  value={priceYuan}
+                  onChange={(e) => setPriceYuan(e.target.value)}
+                  placeholder="0.00"
+                  required
+                />
+                <p className="text-xs text-muted-foreground">用户实际支付的金额，0 表示免费。</p>
+              </div>
+              <div className="space-y-1.5">
+                <Label>原价（元，可选）</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  value={originalYuan}
+                  onChange={(e) => setOriginalYuan(e.target.value)}
+                  placeholder="划线价，留空不显示"
+                />
+                <p className="text-xs text-muted-foreground">
+                  划线价，仅用于展示优惠力度；需高于售价才会显示。
+                </p>
+              </div>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label>有效天数</Label>
+                <Input
+                  type="number"
+                  min={1}
+                  max={36500}
+                  value={lifetime ? '' : durationDays}
+                  onChange={(e) => setDurationDays(e.target.value)}
+                  disabled={lifetime}
+                  placeholder={lifetime ? '永久有效' : '30'}
+                />
+                <p className="text-xs text-muted-foreground">
+                  会员有效期天数；勾选「永久有效」后忽略此项。
+                </p>
+              </div>
+              <div className="space-y-1.5">
+                <Label>
+                  设备数上限
+                  <Req />
+                </Label>
+                <Input
+                  type="number"
+                  min={1}
+                  max={100}
+                  value={maxDevices}
+                  onChange={(e) => setMaxDevices(e.target.value)}
+                  required
+                />
+                <p className="text-xs text-muted-foreground">该套餐可同时绑定 / 在线的设备数量。</p>
+              </div>
+            </div>
+            <p className="rounded bg-muted px-3 py-2 text-xs text-muted-foreground">
+              该套餐将以 <span className="font-medium text-foreground">{money(priceCentsPreview)}</span>
+              {showOriginal && (
+                <span className="line-through"> {money(origCentsPreview)}</span>
+              )}{' '}
+              出售、<span className="font-medium text-foreground">{termPreview}</span>、可绑{' '}
+              <span className="font-medium text-foreground">{devicesPreview}</span> 台设备。
+            </p>
+          </div>
+
+          {/* 展示与权益 */}
+          <div className="space-y-3 rounded-md border p-3">
+            <Label className="text-sm font-semibold">展示与权益</Label>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label>排序权重</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  max={10000}
+                  value={sortOrder}
+                  onChange={(e) => setSortOrder(e.target.value)}
+                />
+                <p className="text-xs text-muted-foreground">数值越小越靠前展示，默认 100。</p>
+              </div>
+              <div className="space-y-1.5">
+                <Label>角标（可选）</Label>
+                <Input
+                  value={badge}
+                  onChange={(e) => setBadge(e.target.value)}
+                  placeholder="如：热销 / 推荐"
+                  maxLength={30}
+                />
+                <p className="text-xs text-muted-foreground">卡片右上角标签，留空不显示。</p>
+              </div>
             </div>
             <div className="space-y-1.5">
-              <Label>原价（元，可选）</Label>
-              <Input
-                type="number"
-                min={0}
-                step="0.01"
-                value={originalYuan}
-                onChange={(e) => setOriginalYuan(e.target.value)}
-                placeholder="划线价，留空不显示"
+              <Label>权益（每行或逗号分隔一项）</Label>
+              <Textarea
+                value={featuresText}
+                onChange={(e) => setFeaturesText(e.target.value)}
+                placeholder={'proxy\nrules\ncustom-lines'}
+                rows={3}
               />
+              <p className="text-xs text-muted-foreground">最多 50 项，重复项会自动去重。</p>
+            </div>
+            <div className="space-y-1.5">
+              <Label>描述（可选）</Label>
+              <Textarea
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                placeholder="套餐说明，最多 500 字"
+                rows={2}
+                maxLength={500}
+              />
+              <p className="text-xs text-muted-foreground">套餐详情说明，最多 500 字。</p>
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <Label>排序权重</Label>
-              <Input
-                type="number"
-                min={0}
-                max={10000}
-                value={sortOrder}
-                onChange={(e) => setSortOrder(e.target.value)}
-              />
+          {/* 上架状态 */}
+          <div className="space-y-3 rounded-md border p-3">
+            <Label className="text-sm font-semibold">上架状态</Label>
+            <div className="space-y-3">
+              <div className="space-y-1">
+                <label className="flex items-center gap-2 text-sm font-medium">
+                  <Checkbox
+                    checked={lifetime}
+                    onCheckedChange={(v) => onLifetimeToggle(v === true)}
+                  />
+                  永久有效
+                </label>
+                <p className="pl-6 text-xs text-muted-foreground">
+                  勾选后会员永不过期，并忽略上方「有效天数」。
+                </p>
+              </div>
+              <div className="space-y-1">
+                <label className="flex items-center gap-2 text-sm font-medium">
+                  <Checkbox checked={active} onCheckedChange={(v) => setActive(v === true)} />
+                  上架销售
+                </label>
+                <p className="pl-6 text-xs text-muted-foreground">
+                  新套餐默认下架，勾选后才对外售卖。
+                </p>
+              </div>
+              <div className="space-y-1">
+                <label className="flex items-center gap-2 text-sm font-medium">
+                  <Checkbox checked={isPublic} onCheckedChange={(v) => setIsPublic(v === true)} />
+                  公开展示
+                </label>
+                <p className="pl-6 text-xs text-muted-foreground">
+                  关闭后不在套餐列表展示，仅可通过直链 / 兑换码触达。
+                </p>
+              </div>
             </div>
-            <div className="space-y-1.5">
-              <Label>角标（可选）</Label>
-              <Input
-                value={badge}
-                onChange={(e) => setBadge(e.target.value)}
-                placeholder="如：热销 / 推荐"
-                maxLength={30}
-              />
-            </div>
-          </div>
-
-          <div className="space-y-1.5">
-            <Label>权益（每行或逗号分隔一项）</Label>
-            <Textarea
-              value={featuresText}
-              onChange={(e) => setFeaturesText(e.target.value)}
-              placeholder={'proxy\nrules\ncustom-lines'}
-              rows={3}
-            />
-          </div>
-
-          <div className="space-y-1.5">
-            <Label>描述（可选）</Label>
-            <Textarea
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder="套餐说明，最多 500 字"
-              rows={2}
-              maxLength={500}
-            />
-          </div>
-
-          <div className="flex flex-wrap gap-6">
-            <label className="flex items-center gap-2 text-sm">
-              <Checkbox checked={lifetime} onCheckedChange={(v) => onLifetimeToggle(v === true)} />
-              永久有效
-            </label>
-            <label className="flex items-center gap-2 text-sm">
-              <Checkbox checked={active} onCheckedChange={(v) => setActive(v === true)} />
-              上架销售
-            </label>
-            <label className="flex items-center gap-2 text-sm">
-              <Checkbox checked={isPublic} onCheckedChange={(v) => setIsPublic(v === true)} />
-              公开展示
-            </label>
           </div>
 
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               取消
             </Button>
-            <Button type="submit" disabled={busy}>
+            <Button type="submit" disabled={busy || !canSubmit}>
               {busy ? '保存中…' : isEdit ? '保存修改' : '创建套餐'}
             </Button>
           </DialogFooter>

@@ -1,5 +1,13 @@
 import * as React from 'react'
-import { CreditCard, RotateCcw, Save, ShieldCheck, Smartphone } from 'lucide-react'
+import {
+  AlertTriangle,
+  CreditCard,
+  RefreshCw,
+  RotateCcw,
+  Save,
+  ShieldCheck,
+  Smartphone,
+} from 'lucide-react'
 import { get, patch } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -107,7 +115,8 @@ export default function SettingsPage() {
     () => (initial && form ? diffSettings(initial, form) : {}),
     [initial, form],
   )
-  const dirty = Object.keys(changes).length > 0
+  const changedCount = Object.keys(changes).length
+  const dirty = changedCount > 0
 
   // 当前收款下拉选项：始终包含已选值（即便不在 provider 列表内）。
   const providerOptions = React.useMemo(() => {
@@ -149,18 +158,28 @@ export default function SettingsPage() {
 
   if (loadError) {
     return (
-      <Card className="max-w-3xl">
-        <CardContent className="space-y-3 p-6">
-          <div className="text-sm text-destructive">加载商业设置失败：{loadError}</div>
-          <Button variant="outline" onClick={load}>
-            重新加载
-          </Button>
-        </CardContent>
-      </Card>
+      <div className="max-w-3xl">
+        <Card>
+          <CardContent className="flex flex-col items-start gap-3 p-6">
+            <div className="flex items-start gap-2 text-sm text-destructive">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+              <span>加载商业设置失败：{loadError}</span>
+            </div>
+            <Button variant="outline" onClick={load}>
+              <RefreshCw className="h-4 w-4" />
+              重新加载
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
     )
   }
 
   if (!form) return <SettingsSkeleton />
+
+  // 当前所选通道是否处于停用状态（用于实时提示；未在列表内的注入项视为可用）。
+  const activeProviderRow = providers.find((p) => p.code === form.activePaymentProvider)
+  const activeProviderDisabled = !!form.activePaymentProvider && !!activeProviderRow && !activeProviderRow.enabled
 
   return (
     <div className="max-w-3xl space-y-6">
@@ -288,26 +307,34 @@ export default function SettingsPage() {
         <CardContent className="space-y-6">
           <SettingRow
             label="当前收款通道"
-            hint="下单时使用的支付 Provider。停用的通道虽可选择，但下单前需在支付通道页启用。"
+            required
+            hint="下单时使用的支付 Provider。停用的通道虽可选择，但下单前需在「支付通道」页启用。"
           >
-            <Select
-              value={form.activePaymentProvider}
-              onValueChange={(v) => setField('activePaymentProvider', v)}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="选择收款通道" />
-              </SelectTrigger>
-              <SelectContent>
-                {providerOptions.map((o) => (
-                  <SelectItem key={o.value} value={o.value}>
-                    <span className="flex items-center gap-2">
-                      {o.label}
-                      {!o.enabled && <span className="text-xs text-muted-foreground">· 未启用</span>}
-                    </span>
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <div className="space-y-1.5">
+              <Select
+                value={form.activePaymentProvider}
+                onValueChange={(v) => setField('activePaymentProvider', v)}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="选择收款通道" />
+                </SelectTrigger>
+                <SelectContent>
+                  {providerOptions.map((o) => (
+                    <SelectItem key={o.value} value={o.value}>
+                      <span className="flex items-center gap-2">
+                        {o.label}
+                        {!o.enabled && <span className="text-xs text-muted-foreground">· 未启用</span>}
+                      </span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {activeProviderDisabled && (
+                <p className="rounded-md bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
+                  该通道当前已停用，需先在「支付通道」页启用后才能接单。
+                </p>
+              )}
+            </div>
           </SettingRow>
 
           <SettingRow label="支付方式" hint="前台可选的支付方式，目前仅支持支付宝。">
@@ -320,8 +347,13 @@ export default function SettingsPage() {
       </Card>
 
       {/* 保存栏 */}
-      <div className="flex items-center justify-end gap-3">
-        {dirty && <span className="mr-auto text-xs text-muted-foreground">有未保存的更改</span>}
+      <div className="flex flex-wrap items-center justify-end gap-3 border-t pt-5">
+        {dirty && (
+          <span className="mr-auto inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+            <span className="h-2 w-2 rounded-full bg-amber-500" />
+            有 {changedCount} 项未保存的更改
+          </span>
+        )}
         <Button variant="outline" onClick={reset} disabled={!dirty || saving}>
           <RotateCcw className="h-4 w-4" />
           重置
@@ -335,22 +367,27 @@ export default function SettingsPage() {
   )
 }
 
-/** 左标题 + 说明、右控件的一行设置项。 */
+/** 左标题 + 说明、右控件的一行设置项（全站表单 hint 范式）。 */
 function SettingRow({
   label,
   hint,
   htmlFor,
+  required,
   children,
 }: {
   label: string
   hint?: string
   htmlFor?: string
+  required?: boolean
   children: React.ReactNode
 }) {
   return (
     <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
       <div className="space-y-0.5 sm:pr-6">
-        <Label htmlFor={htmlFor}>{label}</Label>
+        <Label htmlFor={htmlFor}>
+          {label}
+          {required && <span className="text-destructive"> *</span>}
+        </Label>
         {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
       </div>
       <div className="w-full sm:w-[280px] sm:shrink-0">{children}</div>

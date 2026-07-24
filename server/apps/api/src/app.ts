@@ -83,12 +83,17 @@ export async function buildApp(config:ApiConfig,provided?:Core){
     const file=(req.params as {file:string}).file
     if(!DOWNLOAD_FILE.test(file))throw new AppError('NOT_FOUND','文件不存在',404)
     const version=(file.match(/v(\d+\.\d+\.\d+)/)?.[1])??''
+    // Reject fabricated versions so they can neither be counted as a download nor
+    // pollute the version distribution. 'latest' has no version and always passes.
+    if(version&&!await core.store.releaseExists(version))throw new AppError('NOT_FOUND','版本不存在',404)
     const q=req.query as {v?:string}
     await core.store.recordDownloadEvent({kind:'download',file,version,ip:req.ip,visitorId:typeof q.v==='string'?q.v:'',userAgent:String(req.headers['user-agent']??''),referer:String(req.headers['referer']??req.headers['referrer']??'')}).catch(err=>app.log.warn({err:err instanceof Error?err.message:'record failed'},'download event failed'))
     return reply.header('cache-control','no-store').redirect(`/download/${file}`,302)
   })
-  // Page-view beacon fired by the marketing site on load.
-  app.post('/v1/track/view',{config:{rateLimit:{max:120,timeWindow:'1 minute'}}},async(req)=>{
+  // Page-view beacon fired by the marketing site on load. Kept intentionally
+  // low so a single IP cannot trivially inflate PV/UV; unique-visitor metrics
+  // remain best-effort since the visitor id is client-supplied.
+  app.post('/v1/track/view',{config:{rateLimit:{max:40,timeWindow:'1 minute'}}},async(req)=>{
     const input=trackViewSchema.parse(req.body??{})
     await core.store.recordDownloadEvent({kind:'view',ip:req.ip,visitorId:input.visitorId??'',path:input.path??'',userAgent:String(req.headers['user-agent']??''),referer:input.referer??String(req.headers['referer']??req.headers['referrer']??'')}).catch(err=>app.log.warn({err:err instanceof Error?err.message:'record failed'},'view event failed'))
     return {ok:true}
