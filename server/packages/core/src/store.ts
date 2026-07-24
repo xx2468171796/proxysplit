@@ -48,6 +48,17 @@ export type OrderRecord = {
 const sha256=(value:string)=>createHash('sha256').update(value).digest('hex')
 const orderNo=()=>`PS${new Date().toISOString().replace(/\D/g,'').slice(0,14)}${randomBytes(5).toString('hex').toUpperCase()}`
 const permanentLicenseDate=()=>new Date('2999-12-31T23:59:59.000Z')
+// Human-friendly redeem code, e.g. PS-7K4M-9QXA-3F2H. Excludes I/O/0/1.
+const REDEEM_ALPHABET='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
+const genRedeemCode=()=>{
+  const b=randomBytes(12)
+  let s=''
+  for(let i=0;i<12;i++)s+=REDEEM_ALPHABET.charAt((b[i]??0)%REDEEM_ALPHABET.length)
+  return `PS-${s.slice(0,4)}-${s.slice(4,8)}-${s.slice(8,12)}`
+}
+// Minimal transactional client surface (a pg PoolClient) used by the shared
+// license-grant helper, to avoid a direct pg type dependency in this package.
+type TxClient={ query(text:string,params?:unknown[]):Promise<{rows:any[];rowCount:number|null}> }
 
 export function resolvePaidLicenseGrant(
   existing:{planId:string;expiresAt:Date;lifetime:boolean}|null,
@@ -560,6 +571,120 @@ export class PgStore {
       await client.query(`UPDATE payment_events SET result='fulfilled' WHERE id=$1`,[event.rows[0].id])
       await client.query('COMMIT')
       return {ok:true,duplicate:false}
+    }catch(e){await client.query('ROLLBACK');throw e}finally{client.release()}
+  }
+
+  // Shared license grant used by paid orders, manual admin grants and redeem
+  // codes. Must run inside an open transaction. Locks the user+tier slot, then
+  // stacks onto any existing active license via resolvePaidLicenseGrant (never
+  // downgrades a lifetime entitlement).
+  private async grantWithinTx(client:TxClient,opts:{userId:string;planId:string;durationDays:number|null;lifetime:boolean;source:string;orderId?:string|null}){
+    const plan=(await client.query('SELECT id,tier,duration_days,lifetime FROM plans WHERE id=$1',[opts.planId])).rows[0]
+    if(!plan)throw new AppError('PLAN_NOT_FOUND','套餐不存在',404)
+    await client.query('SELECT pg_advisory_xact_lock(hashtext($1))',[`license:${opts.userId}:${plan.tier}`])
+    const existing=(await client.query(`SELECT l.id,l.plan_id AS "planId",l.expires_at AS "expiresAt",l.lifetime FROM licenses l JOIN plans p ON p.id=l.plan_id
+      WHERE l.user_id=$1 AND l.status='active' AND p.tier=$2 ORDER BY l.lifetime DESC,l.expires_at DESC LIMIT 1 FOR UPDATE`,
+      [opts.userId,plan.tier])).rows[0]
+    const lifetime=opts.lifetime||!!plan.lifetime
+    const durationDays=lifetime?null:(opts.durationDays??plan.duration_days)
+    const grant=resolvePaidLicenseGrant(existing?{planId:existing.planId,expiresAt:existing.expiresAt,lifetime:existing.lifetime}:null,
+      {planId:opts.planId,durationDays,lifetime})
+    if(existing){
+      if(grant.changed)await client.query(`UPDATE licenses SET plan_id=$2,expires_at=$3,lifetime=$4,status='active',source=$5,order_id=$6 WHERE id=$1`,
+        [existing.id,grant.planId,grant.expiresAt,grant.lifetime,opts.source,opts.orderId??null])
+    }else{
+      await client.query(`INSERT INTO licenses(user_id,plan_id,expires_at,lifetime,source,order_id) VALUES($1,$2,$3,$4,$5,$6)`,
+        [opts.userId,grant.planId,grant.expiresAt,grant.lifetime,opts.source,opts.orderId??null])
+    }
+    return grant
+  }
+
+  // 后台手动给用户发放/续期一个套餐（等级由 planId 决定，时长可覆盖或永久）。
+  async adminGrantLicense(userId:string,opts:{planId:string;durationDays?:number|null;lifetime?:boolean}){
+    const client=await this.pool.connect()
+    try{
+      await client.query('BEGIN')
+      const user=(await client.query('SELECT id FROM users WHERE id=$1',[userId])).rows[0]
+      if(!user)throw new AppError('NOT_FOUND','用户不存在',404)
+      const grant=await this.grantWithinTx(client,{userId,planId:opts.planId,durationDays:opts.durationDays??null,lifetime:!!opts.lifetime,source:'admin'})
+      await client.query('COMMIT')
+      return {ok:true,...grant}
+    }catch(e){await client.query('ROLLBACK');throw e}finally{client.release()}
+  }
+
+  // 后台手动确认订单发货：把未支付/失败订单直接标记为已支付并发放权益，无需网关回调。
+  async confirmOrderManually(orderNoValue:string){
+    const client=await this.pool.connect()
+    try{
+      await client.query('BEGIN')
+      const order=(await client.query('SELECT * FROM orders WHERE order_no=$1 FOR UPDATE',[orderNoValue])).rows[0]
+      if(!order){await client.query('ROLLBACK');throw new AppError('NOT_FOUND','订单不存在',404)}
+      if(order.status==='paid'){await client.query('ROLLBACK');return {ok:true,duplicate:true}}
+      if(order.status!=='pending'&&order.status!=='failed'){await client.query('ROLLBACK');throw new AppError('ORDER_NOT_PAYABLE','订单当前状态不可发货',409)}
+      await client.query(`INSERT INTO payment_events(provider_code,event_id,order_no,payload_hash,verified,result)
+        VALUES($1,$2,$3,'manual',true,'manual') ON CONFLICT(provider_code,event_id) DO NOTHING`,
+        [order.provider_code,`manual:${order.order_no}`,order.order_no])
+      const grant=await this.grantWithinTx(client,{userId:order.user_id,planId:order.plan_id,durationDays:order.duration_days,lifetime:order.lifetime,source:'order',orderId:order.id})
+      await client.query(`UPDATE orders SET status='paid',provider_order_no=COALESCE(provider_order_no,'MANUAL'),paid_at=now(),updated_at=now() WHERE id=$1`,[order.id])
+      await client.query('COMMIT')
+      return {ok:true,duplicate:false,...grant}
+    }catch(e){await client.query('ROLLBACK');throw e}finally{client.release()}
+  }
+
+  // 批量生成兑换码。返回本批生成的明码（仅此一次可见）。
+  async createRedeemCodes(opts:{planId:string;durationDays:number|null;lifetime:boolean;count:number;note:string;codeExpiresAt?:Date|null},actor:string){
+    const plan=(await this.pool.query('SELECT id FROM plans WHERE id=$1',[opts.planId])).rows[0]
+    if(!plan)throw new AppError('PLAN_NOT_FOUND','套餐不存在',404)
+    const client=await this.pool.connect()
+    try{
+      await client.query('BEGIN')
+      const batchId=(await client.query('SELECT gen_random_uuid() AS id')).rows[0].id
+      const codes:string[]=[]
+      for(let i=0;i<opts.count;i++){
+        let inserted=false
+        for(let attempt=0;attempt<5&&!inserted;attempt++){
+          const code=genRedeemCode()
+          try{
+            await client.query(`INSERT INTO redeem_codes(code,plan_id,duration_days,lifetime,note,batch_id,code_expires_at,created_by)
+              VALUES($1,$2,$3,$4,$5,$6,$7,$8)`,[code,opts.planId,opts.lifetime?null:opts.durationDays,opts.lifetime,opts.note,batchId,opts.codeExpiresAt??null,actor])
+            codes.push(code);inserted=true
+          }catch(err){ if((err as {code?:string}).code!=='23505')throw err }
+        }
+        if(!inserted)throw new Error('REDEEM_CODE_GEN_FAILED')
+      }
+      await client.query('COMMIT')
+      return {batchId,codes}
+    }catch(e){await client.query('ROLLBACK');throw e}finally{client.release()}
+  }
+
+  async listRedeemCodes(){
+    const r=await this.pool.query(`SELECT rc.id,rc.code,rc.status,rc.duration_days AS "durationDays",rc.lifetime,rc.note,rc.batch_id AS "batchId",
+      rc.code_expires_at AS "codeExpiresAt",rc.redeemed_at AS "redeemedAt",rc.created_at AS "createdAt",
+      p.name AS "planName",p.tier,u.username AS "redeemedBy"
+      FROM redeem_codes rc JOIN plans p ON p.id=rc.plan_id LEFT JOIN users u ON u.id=rc.redeemed_by
+      ORDER BY rc.created_at DESC LIMIT 2000`)
+    return r.rows
+  }
+
+  async setRedeemCodeStatus(id:string,status:'active'|'disabled'){
+    const r=await this.pool.query(`UPDATE redeem_codes SET status=$2 WHERE id=$1 AND status IN ('active','disabled') RETURNING id`,[id,status])
+    return r.rows[0]??null
+  }
+
+  // 客户端兑换：校验码可用后按码上的套餐+时长发放，并把码置为已用。
+  async redeemCode(userId:string,codeInput:string){
+    const code=codeInput.trim().toUpperCase()
+    const client=await this.pool.connect()
+    try{
+      await client.query('BEGIN')
+      const rc=(await client.query('SELECT * FROM redeem_codes WHERE code=$1 FOR UPDATE',[code])).rows[0]
+      if(!rc){await client.query('ROLLBACK');throw new AppError('REDEEM_NOT_FOUND','兑换码无效',404)}
+      if(rc.status!=='active'){await client.query('ROLLBACK');throw new AppError('REDEEM_UNAVAILABLE','兑换码已被使用或已停用',409)}
+      if(rc.code_expires_at&&new Date(rc.code_expires_at).getTime()<Date.now()){await client.query('ROLLBACK');throw new AppError('REDEEM_EXPIRED','兑换码已过期',409)}
+      const grant=await this.grantWithinTx(client,{userId,planId:rc.plan_id,durationDays:rc.duration_days,lifetime:rc.lifetime,source:'redeem'})
+      await client.query(`UPDATE redeem_codes SET status='used',redeemed_by=$2,redeemed_at=now() WHERE id=$1`,[rc.id,userId])
+      await client.query('COMMIT')
+      return {ok:true,...grant}
     }catch(e){await client.query('ROLLBACK');throw e}finally{client.release()}
   }
 

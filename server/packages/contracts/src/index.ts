@@ -24,6 +24,23 @@ export const userStatusSchema = z.object({ status: z.enum(['active','suspended',
 // 管理端重置密码：与客户端注册保持一致，密码最低 8 位。
 export const userPasswordSchema = z.object({ password: z.string().min(8).max(256) })
 export const licenseExtendSchema = z.object({ days: z.number().int().min(1).max(3650) })
+// 后台手动发放：绑定一个套餐（决定会员等级/设备数/功能），可覆盖时长或直接永久。
+export const adminGrantSchema = z.object({
+  planId: z.string().uuid(),
+  lifetime: z.boolean().optional(),
+  durationDays: z.number().int().min(1).max(36500).nullable().optional(),
+}).refine(v=>v.lifetime||v.durationDays==null||v.durationDays>=1,'时长无效')
+// 兑换码/授权码：批量生成，绑定套餐 + 可覆盖时长；可选码有效期。
+export const redeemCodeCreateSchema = z.object({
+  planId: z.string().uuid(),
+  lifetime: z.boolean().default(false),
+  durationDays: z.number().int().min(1).max(36500).nullable().optional(),
+  count: z.number().int().min(1).max(500).default(1),
+  note: z.string().trim().max(200).default(''),
+  codeExpiresAt: z.string().datetime().nullable().optional(),
+}).superRefine((v,ctx)=>{ if(!v.lifetime&&!v.durationDays)ctx.addIssue({code:'custom',path:['durationDays'],message:'非永久兑换码必须设置时长'}) })
+// 客户端兑换：输入一段兑换码。
+export const redeemSchema = z.object({ code: z.string().trim().min(4).max(64) })
 export const releaseCreateSchema = z.object({
   version: z.string().regex(/^\d+\.\d+\.\d+$/), minimumVersion: z.string().regex(/^\d+\.\d+\.\d+$/),
   url: z.string().url(), sha256: z.string().regex(/^[a-f0-9]{64}$/), signature: z.string().min(32),
@@ -100,3 +117,6 @@ export type PlanUpsertInput = z.infer<typeof planUpsertSchema>
 export type PlanPatchInput = z.infer<typeof planPatchSchema>
 export type ProviderUpsertInput = z.infer<typeof providerUpsertSchema>
 export type AnnouncementUpsertInput = z.infer<typeof announcementUpsertSchema>
+export type AdminGrantInput = z.infer<typeof adminGrantSchema>
+export type RedeemCodeCreateInput = z.infer<typeof redeemCodeCreateSchema>
+export type RedeemInput = z.infer<typeof redeemSchema>
