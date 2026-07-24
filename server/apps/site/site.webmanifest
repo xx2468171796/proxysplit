@@ -1,9 +1,12 @@
 {
   "name": "ProxySplit",
   "short_name": "ProxySplit",
+  "description": "Windows 应用流量管理与分流工具",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#07111f",
   "theme_color": "#07111f",
-  "icons": []
+  "icons": [
+    { "src": "/assets/favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
 }
