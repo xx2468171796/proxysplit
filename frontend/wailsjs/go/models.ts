@@ -1,4 +1,4 @@
-export namespace core {
+﻿export namespace core {
 	
 	export class RouteRule {
 	    type: string;
@@ -509,6 +509,7 @@ export namespace nodes {
 	    path?: string;
 	    host?: string;
 	    latency: number;
+	    tcpLatency: number;
 	    speed: number;
 	    subId?: string;
 	    raw?: string;
@@ -543,6 +544,7 @@ export namespace nodes {
 	        this.path = source["path"];
 	        this.host = source["host"];
 	        this.latency = source["latency"];
+	        this.tcpLatency = source["tcpLatency"];
 	        this.speed = source["speed"];
 	        this.subId = source["subId"];
 	        this.raw = source["raw"];
@@ -617,6 +619,7 @@ export namespace service {
 	        this.name = source["name"];
 	        this.node = source["node"];
 	        this.latency = source["latency"];
+	        
 	        this.ok = source["ok"];
 	    }
 	}

@@ -36,10 +36,13 @@ type Node struct {
 	Host    string `json:"host,omitempty"`    // ws/http Host header
 
 	// Runtime measurements (populated by latency/speed tests).
-	// Latency: 0 = not measured, -1 = unreachable, positive = milliseconds.
-	Latency int     `json:"latency"`         // ms
-	Speed   float64 `json:"speed"`           // MB/s
-	SubID   string  `json:"subId,omitempty"` // owning subscription, if any
+	// Latency: Google end-to-end latency through the full proxy tunnel.
+	// TCPLatency: raw TCP connect latency to Server:Port (transport reachability).
+	// Both: 0 = not measured, -1 = unreachable, positive = milliseconds.
+	Latency    int     `json:"latency"`         // Google 延迟 ms
+	TCPLatency int     `json:"tcpLatency"`      // TCP 延迟 ms
+	Speed      float64 `json:"speed"`           // MB/s
+	SubID      string  `json:"subId,omitempty"` // owning subscription, if any
 
 	Raw string `json:"raw,omitempty"` // original share link
 }

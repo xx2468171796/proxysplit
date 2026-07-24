@@ -329,6 +329,7 @@ func (s *Service) load() {
 		for _, n := range s.cfg.Nodes {
 			if n != nil {
 				n.Latency = 0
+				n.TCPLatency = 0
 			}
 		}
 		s.cfg.ConnectivityProbeVersion = 2
@@ -569,6 +570,7 @@ func (s *Service) TestLatency(id string) int {
 	s.mu.Lock()
 	if current := s.nodeByID(id); current != nil {
 		current.Latency = res.Latency
+		current.TCPLatency = res.TCPLatency
 		if res.Speed > 0 {
 			current.Speed = res.Speed
 		}
@@ -592,6 +594,7 @@ func (s *Service) TestAllLatency() {
 	type measured struct {
 		id      string
 		latency int
+		tcp     int
 	}
 	jobs := make(chan nodes.Node)
 	results := make(chan measured, len(snaps))
@@ -605,7 +608,8 @@ func (s *Service) TestAllLatency() {
 		go func() {
 			defer wg.Done()
 			for n := range jobs {
-				results <- measured{id: n.ID, latency: s.measureNode(&n, 8*time.Second).Latency}
+				r := s.measureNode(&n, 8*time.Second)
+				results <- measured{id: n.ID, latency: r.Latency, tcp: r.TCPLatency}
 			}
 		}()
 	}
@@ -626,6 +630,7 @@ func (s *Service) TestAllLatency() {
 	for _, r := range measuredResults {
 		if n := s.nodeByID(r.id); n != nil {
 			n.Latency = r.latency
+			n.TCPLatency = r.tcp
 		}
 	}
 	s.save()
@@ -1044,6 +1049,7 @@ func reconcileSubscriptionNodes(oldNodes, freshNodes []*nodes.Node) {
 		if old := oldByEndpoint[nodeEndpointKey(fresh)]; old != nil {
 			fresh.ID = old.ID
 			fresh.Latency = old.Latency
+			fresh.TCPLatency = old.TCPLatency
 			fresh.Speed = old.Speed
 			continue
 		}

@@ -125,7 +125,7 @@ func TestMeasureWebSocketRequiresUpgrade(t *testing.T) {
 	got := Measure(&nodes.Node{
 		Server: "127.0.0.1", Port: port, Network: "ws", Path: "/",
 	}, "", 200*time.Millisecond)
-	if got.Latency != -1 {
+	if got.TCPLatency != -1 {
 		t.Fatalf("plain TCP listener must not pass a WebSocket probe: %+v", got)
 	}
 }
@@ -168,7 +168,7 @@ func TestMeasureWebSocketUpgrade(t *testing.T) {
 	got := Measure(&nodes.Node{
 		Server: "127.0.0.1", Port: port, Network: "ws", Path: "/probe",
 	}, "", time.Second)
-	if got.Latency < 0 {
+	if got.TCPLatency < 0 {
 		t.Fatalf("valid WebSocket upgrade should pass: %+v", got)
 	}
 }
@@ -189,7 +189,7 @@ func TestMeasureRealityDoesNotUsePlainTLSHandshake(t *testing.T) {
 	got := Measure(&nodes.Node{
 		Server: "127.0.0.1", Port: port, Security: "reality",
 	}, "", time.Second)
-	if got.Latency < 0 {
+	if got.TCPLatency < 0 {
 		t.Fatalf("Reality direct fallback must not attempt ordinary TLS: %+v", got)
 	}
 }

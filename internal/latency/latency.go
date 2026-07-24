@@ -27,40 +27,56 @@ import (
 // plausible "latency" while the node cannot carry real traffic.
 const connectivityURL = "https://www.google.com/generate_204"
 
-// Result is a latency/speed measurement.
+// Result is a latency/speed measurement. Latency and TCPLatency are two distinct
+// metrics and are always reported separately:
+//   - Latency:    Google 延迟 — full end-to-end HTTPS 204 round-trip through the
+//                 complete proxy tunnel. Reflects real usability.
+//   - TCPLatency: TCP 延迟 — raw TCP (+protocol handshake) connect time to the
+//                 node's edge. Reflects transport-layer reachability only.
+//
+// Each field is -1 on failure and 0 when that metric was not measured.
 type Result struct {
-	Latency int     // round-trip ms, -1 on failure
-	Speed   float64 // MB/s, 0 when not measured
+	Latency    int     // Google 延迟 ms, -1 on failure
+	TCPLatency int     // TCP 延迟 ms, -1 on failure
+	Speed      float64 // MB/s, 0 when not measured
 }
 
-// Measure tests connectivity to a node. When socksAddr is non-empty the running
-// core's SOCKS inbound may be used to measure true end-to-end latency (an HTTP
-// request to a lightweight endpoint through the proxy); otherwise a plain TCP
-// connect to node.Server:node.Port is the fallback.
+// Measure tests connectivity to a node and reports both metrics independently.
 //
-// IMPLEMENTED BY WORKFLOW AGENT (latency).
+// The TCP 延迟 is always taken by dialing node.Server:node.Port directly (plus
+// the protocol handshake for tls/reality/ws). When socksAddr is non-empty the
+// Google 延迟 is additionally measured by requesting an HTTPS 204 endpoint
+// through the running core's SOCKS inbound (true end-to-end latency). Without a
+// tunnel only the TCP 延迟 is available and Latency stays 0 (not measured).
 func Measure(n *nodes.Node, socksAddr string, timeout time.Duration) Result {
 	if timeout <= 0 {
 		timeout = 5 * time.Second
 	}
 
+	res := Result{TCPLatency: measureTCP(n, timeout)}
+
 	if socksAddr != "" {
 		elapsed, err := measureHTTPThroughSOCKS(socksAddr, connectivityURL, timeout, nil)
 		if err != nil {
-			return Result{Latency: -1}
+			res.Latency = -1
+		} else {
+			res.Latency = int(elapsed.Round(time.Millisecond) / time.Millisecond)
 		}
-		return Result{Latency: int(elapsed.Round(time.Millisecond) / time.Millisecond)}
 	}
+	return res
+}
 
+// measureTCP returns the raw TCP 延迟 to the node's edge (with the protocol
+// handshake so stale front doors don't register as reachable), -1 on failure.
+func measureTCP(n *nodes.Node, timeout time.Duration) int {
 	start := time.Now()
 	conn, err := dial(n, timeout)
 	if err != nil {
-		return Result{Latency: -1}
+		return -1
 	}
 	elapsed := time.Since(start)
 	conn.Close()
-
-	return Result{Latency: int(elapsed.Round(time.Millisecond) / time.Millisecond)}
+	return int(elapsed.Round(time.Millisecond) / time.Millisecond)
 }
 
 // dial opens a connection either through the core's SOCKS5 inbound or directly

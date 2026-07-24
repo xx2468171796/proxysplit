@@ -102,7 +102,8 @@
     port: number
     network?: string
     security?: string
-    latency?: number
+    latency?: number // Google 延迟(完整代理链路 end-to-end)
+    tcpLatency?: number // TCP 延迟(到节点边缘的传输层可达性)
     speed?: number
     region?: string // color key for the flag dot
   }
@@ -935,7 +936,7 @@
   async function testAllLatency() {
     if (latencyTesting || useDemo || !isWailsReady()) return
     latencyTesting = true
-    nodes = nodes.map((n) => ({ ...n, latency: -99 }))
+    nodes = nodes.map((n) => ({ ...n, latency: -99, tcpLatency: -99 }))
     try {
       await WTestAllLatency()
       await refreshNodes()
@@ -949,7 +950,7 @@
   async function testNodeLatency(n: Node) {
     if (latencyTestingId || useDemo || !isWailsReady()) return
     latencyTestingId = n.id
-    nodes = nodes.map((x) => x.id === n.id ? { ...x, latency: -99 } : x)
+    nodes = nodes.map((x) => x.id === n.id ? { ...x, latency: -99, tcpLatency: -99 } : x)
     try {
       await WTestLatency(n.id)
       await refreshNodes()
@@ -1432,6 +1433,12 @@
     if (ms < 0) return 'Google 不通'
     return `${ms} ms`
   }
+  function tcpLatencyText(ms?: number): string {
+    if (ms === -99) return '检测中…'
+    if (ms === undefined || ms === 0) return '未检测'
+    if (ms < 0) return 'TCP 不通'
+    return `${ms} ms`
+  }
   function nodeOptionLabel(n: Node): string { return `${n.name} · ${latencyText(n.latency)}` }
   function qual(ms?: number) { return !ms || ms < 0 ? 0 : ms < 80 ? 4 : ms < 130 ? 3 : ms < 200 ? 2 : 1 }
 </script>
@@ -1816,10 +1823,11 @@
           <aside class="col-rail">
             <section class="card">
               <div class="card-head sm"><h3>节点连通 / 速度</h3><button class="link" on:click={testAllLatency} disabled={latencyTesting}>{@html I.refresh} {latencyTesting ? '检测中…' : '测 Google'}</button></div>
-              <div class="nrail-head"><span>节点名称</span><span>延迟</span><span>下载速度</span></div>
+              <div class="nrail-head"><span>节点名称</span><span title="到节点边缘的 TCP 传输层延迟">TCP</span><span title="经完整代理链路访问 Google 的端到端延迟">Google</span><span>下载速度</span></div>
               {#each (useDemo ? demoNodes : nodes).slice(0, 6) as n}
                 <div class="nrail-row" class:sel={n.id === status?.selectedId} on:dblclick={() => selectNode(n.id)}>
                   <div class="nrail-name"><span class="flag {n.region || 'x'}"></span>{n.name}{#if n.id === status?.selectedId}<span class="active-badge">活动</span>{/if}</div>
+                  <span class="lat tcp" data-q={qual(n.tcpLatency)}>{tcpLatencyText(n.tcpLatency)}</span>
                   <span class="lat" data-q={qual(n.latency)}>{latencyText(n.latency)}</span>
                   <div class="spd"><b>{n.speed?.toFixed(2) ?? '—'}</b> MB/s <span class="bars" data-q={qual(n.latency)}>{@html I.bars}</span></div>
                 </div>
@@ -1886,13 +1894,14 @@
           <div class="card node-list-card"><div class="card-head"><div><h3>节点列表 <span class="status-pill gray">{nodes.length} 个</span></h3><p class="sub">“可用”表示已通过该节点访问 Google HTTPS 并收到 HTTP 204</p></div><div class="searchbar"><span>⌕</span><input bind:value={query} placeholder="搜索节点名称、地址或类型" /></div></div>
           <div class="tscroll">
             <div class="ntable">
-              <div class="nhead"><span>节点</span><span>Google 连通</span><span>速度</span><span class="ctr">操作</span></div>
+              <div class="nhead"><span>节点</span><span title="到节点边缘的 TCP 传输层延迟(直连测得,反映线路可达性)">TCP 延迟</span><span title="经完整代理链路访问 Google HTTPS 的端到端延迟(反映真实可用性)">Google 延迟</span><span>速度</span><span class="ctr">操作</span></div>
               {#each nodes.filter((n) => !query || `${n.name}${n.server}${n.type}`.toLowerCase().includes(query.toLowerCase())) as n}
                 <div class="nrow" class:sel={n.id === status?.selectedId} on:dblclick={() => selectNode(n.id)}>
                   <div class="ncell">
                     <span class="badge">{n.type}</span>
                     <div class="nmeta"><strong>{n.name}</strong><small class="muted">{n.server}:{n.port}</small></div>
                   </div>
+                  <span class="lat tcp" data-q={qual(n.tcpLatency)}>{tcpLatencyText(n.tcpLatency)}</span>
                   <span class="lat" data-q={qual(n.latency)}>{latencyText(n.latency)}</span>
                   <span class="nspd">{n.speed?.toFixed(2) ?? '—'} MB/s</span>
                   <div class="row-actions ctr"><button class="mini test" on:click={() => testNodeLatency(n)} disabled={!!latencyTestingId}>{latencyTestingId === n.id ? '检测中…' : '测 Google'}</button><button class="mini" on:click={() => selectNode(n.id)}>设为活动</button><button class="icon-btn" on:click={() => showQR(n)} title="分享二维码">{@html I.qr}</button><button class="icon-btn danger" on:click={() => removeNode(n.id)} title="删除节点">{@html I.trash}</button></div>
@@ -2658,8 +2667,8 @@
   .grow { flex: 1 1 180px; min-width: 0; }
 
   /* ---------- right rail ---------- */
-  .nrail-head { display: grid; grid-template-columns: minmax(0, 1fr) 62px 104px; gap: 8px; font-size: 11px; color: var(--muted-2); padding: 0 2px 8px; font-weight: 600; letter-spacing: .02em; }
-  .nrail-row { display: grid; grid-template-columns: minmax(0, 1fr) 62px 104px; gap: 8px; align-items: center; padding: 9px 6px; border-radius: 9px; cursor: pointer; transition: background var(--tr); }
+  .nrail-head { display: grid; grid-template-columns: minmax(0, 1fr) 58px 66px 104px; gap: 8px; font-size: 11px; color: var(--muted-2); padding: 0 2px 8px; font-weight: 600; letter-spacing: .02em; }
+  .nrail-row { display: grid; grid-template-columns: minmax(0, 1fr) 58px 66px 104px; gap: 8px; align-items: center; padding: 9px 6px; border-radius: 9px; cursor: pointer; transition: background var(--tr); }
   .nrail-row:hover { background: var(--soft); }
   .nrail-row.sel { background: var(--ok-tint); }
   .nrail-name { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--ink-2); font-weight: 550; min-width: 0; }
@@ -2670,6 +2679,7 @@
   .active-badge { font-size: 10px; color: var(--ok-600); background: #dcfce7; padding: 1px 6px; border-radius: 5px; font-weight: 700; flex: none; }
   .lat { font-size: 13px; font-weight: 650; white-space: nowrap; font-variant-numeric: tabular-nums; }
   .lat[data-q="4"] { color: var(--ok-600); } .lat[data-q="3"] { color: var(--ok); } .lat[data-q="2"] { color: #f59e0b; } .lat[data-q="1"] { color: var(--danger); }
+  .lat.tcp { font-size: 12px; font-weight: 550; opacity: .82; }
   .spd { font-size: 12px; color: var(--muted-2); display: flex; align-items: center; gap: 5px; justify-content: flex-end; white-space: nowrap; }
   .spd b { color: var(--ink-2); font-weight: 650; font-variant-numeric: tabular-nums; }
   .bars { display: inline-flex; } .bars :global(svg) { width: 15px; height: 15px; }
@@ -2693,7 +2703,7 @@
   .toast { color: var(--ok-600); font-size: 13px; margin-top: 8px; }
   /* 表头和每一行必须共用同一组父级轨道。之前每行各算一次 `auto`
      操作列，表头的“操作”很窄、数据行按钮很宽，导致四列整体错位。 */
-  .ntable { display: grid; grid-template-columns: minmax(0, 2fr) minmax(130px, .65fr) 130px auto; gap: 2px 12px; min-width: 500px; }
+  .ntable { display: grid; grid-template-columns: minmax(0, 2fr) minmax(96px, .5fr) minmax(110px, .6fr) 120px auto; gap: 2px 12px; min-width: 560px; }
   .nhead, .nrow { display: grid; grid-template-columns: subgrid; grid-column: 1 / -1; column-gap: 12px; align-items: center; }
   .nhead { font-size: 11.5px; color: var(--muted-2); padding: 0 8px 10px; border-bottom: 1px solid var(--line-2); font-weight: 600; letter-spacing: .02em; }
   .nhead > span:not(.ctr) { justify-self: start; text-align: left; }
