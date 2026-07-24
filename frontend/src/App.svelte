@@ -120,6 +120,9 @@
     line: string // 规则/全局/直连/拦截 (rule/global/direct/block)
     node?: string // node id for rule/global apps; '' = active/selected node
     enabled: boolean
+    domains?: string[] // 可选目标条件：域名后缀
+    ips?: string[]     // IP / CIDR
+    ports?: string[]   // 端口 / 端口段
   }
   type Line = {
     id: string
@@ -229,6 +232,9 @@
   let appUpdateTimer: ReturnType<typeof setInterval> | null = null
   let activeOrder: MemberOrder | null = null
   let paymentQR = ''
+  // 拆单分付：超限订单拆成多笔，顺序支付（付完一笔自动切下一笔的二维码）。
+  let splitOrders: MemberOrder[] = []
+  let splitIdx = 0
   let redeemInput = ''
   let redeemBusy = false
   let showRedeemDialog = false
@@ -324,8 +330,18 @@
       match: r.match, path: r.path,
       line: ['global', 'direct', 'block'].includes(r.line) ? r.line : 'rule',
       node: r.node || '', enabled: !!r.enabled,
+      domains: r.domains ?? [], ips: r.ips ?? [], ports: r.ports ?? [],
     }))
   }
+  // 目标条件：逗号/空格/换行分隔的文本 <-> 字符串数组
+  function parseList(s: string): string[] {
+    return s.split(/[\s,]+/).map((x) => x.trim()).filter(Boolean)
+  }
+  function hasScope(r: AppRule): boolean {
+    return (r.domains?.length || r.ips?.length || r.ports?.length) ? true : false
+  }
+  let scopeOpen: Record<number, boolean> = {}
+  function toggleScope(i: number) { scopeOpen[i] = !scopeOpen[i]; scopeOpen = scopeOpen }
 
   // The Go OnDomReady hook writes this snapshot to a window global and emits
   // an event.  This server-push path is independent from the initial Wails RPC
@@ -602,7 +618,13 @@
     try {
       const result = await WCreateMembershipOrder(plan.id) as any
       if (result?.err) { commerceError = result.err; return }
-      await showPayment(result.order)
+      if (result?.split && Array.isArray(result.orders) && result.orders.length > 1) {
+        splitOrders = result.orders; splitIdx = 0
+        await showPayment(splitOrders[0])
+      } else {
+        splitOrders = []; splitIdx = 0
+        await showPayment(result.order)
+      }
       await loadCommerce()
     } catch (e) {
       activeOrder = null; paymentQR = ''
@@ -630,14 +652,20 @@
       const order = memberOrders.find(o => o.orderNo === activeOrder?.orderNo)
       if (!order) return
       if (order.status === 'paid') {
+        // 拆单：本笔到账后自动切到下一笔的二维码；最后一笔付完才发货。
+        if (splitOrders.length > 1 && splitIdx < splitOrders.length - 1) {
+          splitIdx += 1
+          await showPayment(splitOrders[splitIdx])
+          return
+        }
         stopPaymentPolling()
         const err = await WRefreshEntitlement()
         if (err) commerceError = err
-        else { activeOrder = null; paymentQR = ''; showMembership = false; await refreshLicense() }
+        else { activeOrder = null; paymentQR = ''; splitOrders = []; splitIdx = 0; showMembership = false; await refreshLicense() }
       } else if (order.status === 'failed' || order.status === 'expired' || order.status === 'cancelled') {
         stopPaymentPolling()
         commerceError = '订单已过期或取消，请重新下单'
-        activeOrder = null; paymentQR = ''
+        activeOrder = null; paymentQR = ''; splitOrders = []; splitIdx = 0
       }
     } catch (e) {
       console.warn('[ProxySplit] payment poll failed', e)
@@ -680,10 +708,15 @@
       await loadCommerce()
       const order = activeOrder && memberOrders.find(o => o.orderNo === activeOrder?.orderNo)
       if (order?.status === 'paid') {
-        const err = await WRefreshEntitlement()
-        if (err) commerceError = err
-        else { activeOrder = null; paymentQR = ''; showMembership = false; await refreshLicense() }
-      } else commerceError = '暂未查询到支付成功，请完成支付后重试'
+        if (splitOrders.length > 1 && splitIdx < splitOrders.length - 1) {
+          splitIdx += 1
+          await showPayment(splitOrders[splitIdx])
+        } else {
+          const err = await WRefreshEntitlement()
+          if (err) commerceError = err
+          else { activeOrder = null; paymentQR = ''; splitOrders = []; splitIdx = 0; showMembership = false; await refreshLicense() }
+        }
+      } else commerceError = splitOrders.length > 1 ? `第 ${splitIdx + 1} 笔暂未查询到支付成功，请完成本笔支付后重试` : '暂未查询到支付成功，请完成支付后重试'
     } catch (e) {
       commerceError = e instanceof Error ? e.message : '刷新到账失败，请重试'
     } finally { commerceBusy = false }
@@ -1495,6 +1528,7 @@
     up: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 20V8M7 12l5-5 5 5M5 4h14"/></svg>',
     refresh: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M20 11a8 8 0 1 0-1 5M20 5v6h-6"/></svg>',
     trash: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13"/></svg>',
+    target: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="4"/><circle cx="12" cy="12" r="1" fill="currentColor"/></svg>',
     plus: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>',
     imp: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3v10M8 9l4 4 4-4M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>',
     exp: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 13V3M8 7l4-4 4 4M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>',
@@ -1573,7 +1607,7 @@
       </form>
     {:else}
       <section class="member-center">
-        <header class="member-hero"><div><span class="member-eyebrow">MEMBERSHIP CENTER</span><h1>{license.deviceLimitReached ? '设备名额已满，请先解绑旧设备' : '选择适合你的会员套餐'}</h1><p>{license.deviceLimitReached ? '本机已安全登录，但尚未激活，代理无法启动。解绑下方任意一台旧设备后，本机会自动激活。' : `你好，${license.username}。当前账号暂无有效会员，完成支付后将在几秒内自动到账。`}</p></div><button class="ghost" on:click={logoutAccount}>退出账号</button></header>
+        <header class="member-hero"><div><span class="member-eyebrow">MEMBERSHIP CENTER</span><h1>{license.deviceLimitReached ? '设备名额已满，请先解绑旧设备' : '选择适合你的会员套餐'}</h1><p>{license.deviceLimitReached ? '本机已安全登录，但尚未激活，代理无法启动。解绑下方任意一台旧设备后，本机会自动激活。' : `你好，${license.username}。当前账号暂无有效会员，完成支付后将在几秒内自动到账。`}</p></div><button class="ghost-btn" on:click={logoutAccount}>退出账号</button></header>
         {#if license.deviceLimitReached}<div class="member-alert"><b>本机待激活</b>：已达到 {license.maxDevices} 台设备上限。请在此页面解绑一台旧设备；解绑成功后系统会自动绑定本机并恢复启动权限。</div>{/if}
         {#if commerceError}<div class="member-alert">{commerceError}</div>{/if}
         <section class="benefit-comparison">
@@ -1620,7 +1654,7 @@
           <section class="member-panel device-limit-panel"><div class="panel-title"><b>选择要解绑的旧设备</b><span>{accountDevices.length} / {license.maxDevices || '—'} 台</span></div>{#each accountDevices as device}<div class="member-row"><div><b>{device.name}</b><small>{device.appVersion} · 最近在线 {new Date(device.lastSeenAt).toLocaleString()}</small></div><div>{#if device.current}<span class="current-device">当前设备</span>{/if}<button disabled={device.current} title={device.current ? '请勿解绑当前正在使用的设备' : '解绑此旧设备'} on:click={() => unbindDevice(device.id)}>解绑</button></div></div>{:else}<p class="member-empty">暂无可解绑设备</p>{/each}</section>
         {/if}
         {#if announcements.length}<section class="member-panel announcements"><div class="panel-title"><b>公告与更新</b><span>{announcements.length} 条</span></div>{#each announcements.slice(0, 4) as item}<div class="member-row"><div><b>{item.title}</b><small>{item.summary || item.content}</small></div><time>{new Date(item.publishedAt).toLocaleDateString()}</time></div>{/each}</section>{/if}
-        {#if activeOrder}<div class="payment-sheet qr-payment">{#if paymentQR}<div class="payment-qr-box"><img src={paymentQR} alt="支付宝付款二维码" /><span>请使用支付宝扫码</span></div>{/if}<div class="payment-order-info"><span>支付宝安全支付</span><h3>{activeOrder.planName} · ¥{(activeOrder.amountCents / 100).toFixed(2)}</h3><p>打开手机支付宝扫描二维码完成付款，支付成功后点击刷新到账状态。</p><small>请在 {new Date(activeOrder.expiresAt).toLocaleString()} 前完成支付</small></div><div class="payment-actions"><button class="ghost" on:click={() => activeOrder?.payUrl && WOpenPaymentURL(activeOrder.payUrl)}>本机打开支付宝</button><button class="primary" disabled={commerceBusy} on:click={refreshPayment}>我已支付，刷新状态</button></div></div>{/if}
+        {#if activeOrder}<div class="payment-sheet qr-payment">{#if paymentQR}<div class="payment-qr-box"><img src={paymentQR} alt="支付宝付款二维码" /><span>请使用支付宝扫码</span></div>{/if}<div class="payment-order-info">{#if splitOrders.length > 1}<span class="split-badge">分 {splitOrders.length} 笔支付 · 第 {splitIdx + 1} 笔</span>{:else}<span>支付宝安全支付</span>{/if}<h3>{activeOrder.planName} · ¥{(activeOrder.amountCents / 100).toFixed(2)}</h3>{#if splitOrders.length > 1}<p>因支付渠道单笔限额，本单需分 {splitOrders.length} 笔支付。付完本笔（¥{(activeOrder.amountCents / 100).toFixed(2)}）会自动显示下一笔，全部付完即开通会员。</p>{:else}<p>打开手机支付宝扫描二维码完成付款，支付成功后点击刷新到账状态。</p>{/if}<small>请在 {new Date(activeOrder.expiresAt).toLocaleString()} 前完成支付</small></div><div class="payment-actions"><button class="ghost-btn" on:click={() => activeOrder?.payUrl && WOpenPaymentURL(activeOrder.payUrl)}>本机打开支付宝</button><button class="primary" disabled={commerceBusy} on:click={refreshPayment}>我已支付，刷新状态</button></div></div>{/if}
       </section>
     {/if}
   </main>
@@ -1875,7 +1909,7 @@
               <div class="tscroll">
                 <div class="rtable">
                   <div class="rhead"><span>应用程序</span><span>分流方式</span><span>节点</span><span class="ctr">启用</span><span class="ctr">操作</span></div>
-                  {#each rules as r}
+                  {#each rules as r, i}
                     <div class="rrow" class:off={!r.enabled}>
                       <div class="app-cell">
                         {#if ruleIcon(r)}
@@ -1883,7 +1917,7 @@
                         {:else}
                           <span class="app-icon-placeholder" title="未能读取该程序的原始图标"></span>
                         {/if}
-                        <div class="app-meta"><strong>{ruleName(r)} <span class="run-dot" class:on={isRunning(r)} title={isRunning(r) ? '正在运行' : '未运行'}></span></strong><small class="path" title={r.path}>{r.path}</small></div>
+                        <div class="app-meta"><strong>{ruleName(r)} <span class="run-dot" class:on={isRunning(r)} title={isRunning(r) ? '正在运行' : '未运行'}></span>{#if hasScope(r)}<span class="scope-badge" title="仅对指定目标生效">限定</span>{/if}</strong><small class="path" title={r.path}>{r.path}</small></div>
                       </div>
                       <select class="line-select" bind:value={r.line} on:change={onRuleLineChange} title="规则=智能分流(大陆直连)·全局=全走节点·直连=不走代理·拦截=断网">
                         <option value="rule">规则</option>
@@ -1898,9 +1932,20 @@
                       <label class="switch ctr"><input type="checkbox" checked={r.enabled} on:change={() => toggleRule(r)} /><i></i></label>
                       <div class="row-actions ctr">
                         <button class="mini test" class:ok={(appLat[r.match] ?? -100) >= 0} class:err={appLat[r.match] === -1 || appLat[r.match] === -2} on:click={() => testApp(r)} title="测试此应用的连通与延迟">{latText(appLat[r.match])}</button>
+                        <button class="icon-btn scope-btn" class:on={hasScope(r) || scopeOpen[i]} on:click={() => toggleScope(i)} title="目标条件：只对指定域名/IP/端口生效">{@html I.target}</button>
                         <button class="icon-btn danger" on:click={() => removeRule(r)} title="删除规则">{@html I.trash}</button>
                       </div>
                     </div>
+                    {#if scopeOpen[i]}
+                      <div class="scope-row">
+                        <div class="scope-grid">
+                          <label>域名后缀<input value={(r.domains || []).join(', ')} on:input={(e) => { r.domains = parseList(e.currentTarget.value) }} on:change={pushRules} placeholder="如 google.com, openai.com" /></label>
+                          <label>IP / 段<input value={(r.ips || []).join(', ')} on:input={(e) => { r.ips = parseList(e.currentTarget.value) }} on:change={pushRules} placeholder="如 1.1.1.1/32, 10.0.0.0/8" /></label>
+                          <label>端口<input value={(r.ports || []).join(', ')} on:input={(e) => { r.ports = parseList(e.currentTarget.value) }} on:change={pushRules} placeholder="如 443, 8000-9000" /></label>
+                        </div>
+                        <p class="scope-hint">填了条件后，<b>{ruleName(r)}</b> 只有访问这些目标的流量才按「{r.line === 'direct' ? '直连' : r.line === 'block' ? '拦截' : r.line === 'global' ? '全局' : '规则'}」走，其余流量按默认；三项全空 = 整个应用。多个用逗号分隔。</p>
+                      </div>
+                    {/if}
                   {/each}
                   {#if rules.length === 0}<div class="empty">还没有规则。点右上角「添加规则」，选择要走代理的程序即可。</div>{/if}
                 </div>
@@ -2271,8 +2316,8 @@
               </div>
               <div class="account-actions">
                 <button class="primary" on:click={openMembership}>续费 / 升级套餐</button>
-                <button class="ghost" on:click={async () => { const err = await WRefreshEntitlement(); if (err) toast(err); await refreshLicense() }}>刷新授权</button>
-                <button class="danger-soft" on:click={logoutAccount}>退出账号</button>
+                <button class="ghost-btn" on:click={async () => { const err = await WRefreshEntitlement(); if (err) toast(err); await refreshLicense() }}>刷新授权</button>
+                <button class="ghost-btn danger" on:click={logoutAccount}>退出账号</button>
               </div>
             </section>
           {/if}
@@ -2432,7 +2477,7 @@
         {:else}
           <div class="member-plans-empty"><b>{commerceLoading ? '正在加载套餐…' : '暂时无法显示套餐'}</b><span>{commerceLoading ? '请稍候。' : '请检查网络后重新加载。'}</span>{#if !commerceLoading}<button class="primary" on:click={loadCommerce}>重新加载</button>{/if}</div>
         {/if}
-        {#if activeOrder}<div class="payment-sheet qr-payment">{#if paymentQR}<div class="payment-qr-box"><img src={paymentQR} alt="支付宝付款二维码" /><span>支付宝扫码支付</span></div>{/if}<div class="payment-order-info"><span>支付宝安全支付</span><h3>{activeOrder.planName} · ¥{(activeOrder.amountCents / 100).toFixed(2)}</h3><p>打开手机支付宝扫描左侧二维码，付款完成后刷新到账状态。</p><small>请在 {new Date(activeOrder.expiresAt).toLocaleString()} 前完成支付</small></div><div class="payment-actions"><button class="ghost" on:click={() => activeOrder?.payUrl && WOpenPaymentURL(activeOrder.payUrl)}>本机打开支付宝</button><button class="primary" disabled={commerceBusy} on:click={refreshPayment}>我已支付，刷新到账</button></div></div>{/if}
+        {#if activeOrder}<div class="payment-sheet qr-payment">{#if paymentQR}<div class="payment-qr-box"><img src={paymentQR} alt="支付宝付款二维码" /><span>支付宝扫码支付</span></div>{/if}<div class="payment-order-info"><span>支付宝安全支付</span><h3>{activeOrder.planName} · ¥{(activeOrder.amountCents / 100).toFixed(2)}</h3><p>打开手机支付宝扫描左侧二维码，付款完成后刷新到账状态。</p><small>请在 {new Date(activeOrder.expiresAt).toLocaleString()} 前完成支付</small></div><div class="payment-actions"><button class="ghost-btn" on:click={() => activeOrder?.payUrl && WOpenPaymentURL(activeOrder.payUrl)}>本机打开支付宝</button><button class="primary" disabled={commerceBusy} on:click={refreshPayment}>我已支付，刷新到账</button></div></div>{/if}
       </section>
     </div>
   {/if}
@@ -2579,12 +2624,12 @@
   .run-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--muted-2); vertical-align: middle; margin-left: 2px; }
   .run-dot.on { background: var(--ok); box-shadow: 0 0 0 3px var(--ok-tint); }
   .row-actions.ctr { display: inline-flex; align-items: center; gap: 6px; justify-content: flex-end; }
-  .mini.test { min-width: 52px; padding: 5px 8px; font-variant-numeric: tabular-nums; background: var(--surface-3, #eef2f8); color: var(--muted); }
+  .mini.test { min-width: 52px; padding: 7px 8px; font-variant-numeric: tabular-nums; background: var(--surface-3, #eef2f8); color: var(--muted); }
   .mini.test.ok { background: var(--ok-tint); color: var(--ok-600); }
   .mini.test.err { background: var(--bad-bg, #fdecec); color: var(--danger); }
   /* Per-node 测TCP / 测Google / 测速度 — one visually-grouped segmented control. */
   .test-group { display: inline-flex; gap: 0; border-radius: 8px; overflow: hidden; box-shadow: inset 0 0 0 1px var(--line-2); }
-  .test-group .mini.test { min-width: 0; border-radius: 0; padding: 5px 9px; font-size: 12px; font-weight: 650; box-shadow: none; }
+  .test-group .mini.test { min-width: 0; border-radius: 0; padding: 7px 9px; font-size: 12px; font-weight: 650; box-shadow: none; }
   .test-group .mini.test + .mini.test { border-left: 1px solid var(--line-2); }
   .test-group .mini.test.tcp { color: #b45309; background: #fff7ed; }
   .test-group .mini.test.tcp:hover:not(:disabled) { background: #ffedd5; }
@@ -2643,7 +2688,7 @@
   .core-card small { display: block; font-size: 11px; color: var(--muted-2); margin-top: 2px; }
   .dot { width: 9px; height: 9px; flex: none; border-radius: 50%; background: #cbd5e1; transition: background var(--tr), box-shadow var(--tr); }
   .dot.on { background: var(--ok); box-shadow: 0 0 0 4px rgba(34,197,94,.14); }
-  .foot-icons { display: flex; gap: 8px; padding-left: 2px; }
+  .foot-icons { display: flex; gap: 8px; }
   .foot-icons button { width: 34px; height: 34px; border-radius: 9px; color: var(--muted-2); font-size: 18px; display: grid; place-items: center; }
   .foot-icons button:hover { background: var(--line-3); color: var(--ink-2); }
 
@@ -2672,9 +2717,9 @@
   .tb-label { font-size: 11px; color: var(--muted-2); display: flex; align-items: center; gap: 5px; font-weight: 600; letter-spacing: .01em; }
   .node-dot { width: 7px; height: 7px; border-radius: 50%; background: #cbd5e1; transition: background var(--tr); }
   .node-dot.on { background: var(--ok); }
-  .tb-field select { height: 34px; max-width: 240px; border: 1px solid #e2e8f0; border-radius: 9px; background: var(--soft); padding: 0 28px 0 12px; font-size: 13px; font-weight: 600; color: var(--ink-2);
+  .tb-field select { height: 34px; max-width: 240px; border: 1px solid var(--line); border-radius: 9px; background: var(--soft); padding: 0 28px 0 12px; font-size: 13px; font-weight: 600; color: var(--ink-2);
     appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2.5'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 9px center; transition: border-color var(--tr), box-shadow var(--tr); }
-  .tb-field select:hover { border-color: #cbd5e1; }
+  .tb-field select:hover { border-color: var(--muted-2); }
   .route-chip { align-self: flex-end; display: inline-flex; align-items: center; gap: 7px; height: 34px; padding: 0 13px; border-radius: 999px; font-size: 12.5px; font-weight: 650;
     background: #f1f5f9; color: var(--muted); border: 1px solid var(--line); }
   .route-chip .rc-dot { width: 8px; height: 8px; border-radius: 50%; background: #cbd5e1; transition: background var(--tr); }
@@ -2761,9 +2806,20 @@
   .node-select:disabled { opacity: .4; cursor: not-allowed; }
   .rhead { min-height: 40px; padding: 0 10px; font-size: 11.5px; color: var(--muted-2); border-bottom: 1px solid var(--line-2); font-weight: 700; letter-spacing: .02em; }
   .ctr { text-align: center; justify-content: center; }
+  .rrow > .switch { justify-self: center; }
   .rrow { min-width: 0; min-height: 62px; padding: 10px; border-bottom: 1px solid var(--line-3); border-radius: 8px; transition: background var(--tr); }
   .rrow:hover { background: var(--soft); }
   .rrow.off { opacity: .55; }
+  /* 应用规则目标条件（域名/IP/端口作用域） */
+  .scope-badge { margin-left: 6px; font-size: 10px; font-weight: 700; color: var(--brand-600, #2454d4); background: var(--brand-tint, #eef3ff); padding: 1px 6px; border-radius: 999px; vertical-align: middle; }
+  .icon-btn.scope-btn.on { color: var(--brand-600, #2454d4); background: var(--brand-tint, #eef3ff); }
+  .scope-row { padding: 10px 12px 14px; margin: -2px 0 4px; background: var(--soft); border-radius: 8px; border: 1px dashed var(--line-2); }
+  .scope-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+  .scope-grid label { display: flex; flex-direction: column; gap: 4px; font-size: 11.5px; color: var(--muted-2); font-weight: 600; }
+  .scope-grid input { height: 32px; border: 1px solid #e2e8f0; border-radius: 8px; background: var(--card); padding: 0 10px; font-size: 12.5px; color: var(--ink-2); }
+  .scope-grid input:focus { border-color: var(--brand); outline: none; }
+  .scope-hint { margin: 8px 0 0; font-size: 11.5px; color: var(--muted-2); line-height: 1.5; }
+  @media (max-width: 900px) { .scope-grid { grid-template-columns: 1fr; } }
   .app-cell { display: flex; align-items: center; gap: 10px; min-width: 0; }
   .app-meta { min-width: 0; display: flex; flex-direction: column; gap: 1px; }
   .app-icon-placeholder { width: 34px; height: 34px; flex: none; border-radius: 9px; background: var(--soft); border: 1px solid var(--line-2); }
@@ -2799,6 +2855,7 @@
   .proc-info small { display: block; font-size: 11px; color: var(--muted-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .proc-count { font-size: 12px; color: var(--muted-2); white-space: nowrap; }
   .picker-foot { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .picker-foot .mini { min-height: 36px; }
   .mini { background: var(--brand-tint); color: var(--brand); padding: 8px 13px; font-size: 12.5px; font-weight: 600; }
   .mini.danger { background: var(--bad-bg, #fdecec); color: var(--danger); }
   .mini:hover { background: #e0e7ff; }
@@ -3088,6 +3145,7 @@
   .toast.err { color: #dc2626; }
   .core-update { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
   .core-update .mini :global(svg) { width: 14px; height: 14px; }
+  .setting .mini :global(svg) { width: 14px; height: 14px; }
 
   /* ---------- logs ---------- */
   .log-full { min-height: calc(100vh - 180px); display: flex; flex-direction: column; }
@@ -3194,7 +3252,7 @@
   .member-plan-grid strong { display: flex; align-items: baseline; gap: 7px; margin: 17px 0 12px; font-size: 31px; letter-spacing: -.03em; }
   .member-plan-grid strong small { margin-right: 3px; font-size: 14px; }
   .member-plan-grid strong del { color: #71819e; font-size: 11px; font-weight: 500; letter-spacing: 0; }
-  .member-plan-grid article>.primary { width: 100%; justify-content: center; }
+  .member-plan-grid article>.primary { width: 100%; justify-content: center; margin-top: auto; }
   .member-lower { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-top: 16px; }
   .member-panel { overflow: hidden; border: 1px solid rgba(255,255,255,.11); border-radius: 16px; background: rgba(255,255,255,.055); }
   .panel-title { display: flex; justify-content: space-between; padding: 15px 17px; border-bottom: 1px solid rgba(255,255,255,.09); }
@@ -3230,11 +3288,12 @@
   .redeem-form { display: flex; gap: 8px; flex: 1; min-width: 260px; }
   .redeem-form input { flex: 1; min-height: 36px; padding: 0 12px; border: 1px solid rgba(255,255,255,.14); border-radius: 9px; background: rgba(8,16,30,.55); color: #e7eefb; font: inherit; font-size: 12px; }
   .redeem-form button { min-height: 36px; padding: 0 16px; border: 0; border-radius: 9px; background: #10b981; color: #04120c; font: inherit; font-size: 12px; font-weight: 800; cursor: pointer; }
+  .split-badge { display: inline-block; padding: 3px 9px; border-radius: 999px; background: rgba(255,120,60,.16); border: 1px solid rgba(255,120,60,.42); color: #ffb27a; font-size: 11px; font-weight: 800; }
   .redeem-form button:disabled { opacity: .55; cursor: not-allowed; }
   .redeem-form.vertical { flex-direction: column; }
   .redeem-form.vertical input, .redeem-form.vertical button { width: 100%; min-height: 42px; font-size: 13px; }
   /* 侧边栏常驻兑换入口 */
-  .redeem-entry { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; margin-bottom: 10px; min-height: 40px; padding: 0 12px; border: 1px solid rgba(52,211,153,.45); border-radius: 11px; background: linear-gradient(120deg,rgba(16,185,129,.18),rgba(16,185,129,.08)); color: #7ff0c6; font: inherit; font-size: 12.5px; font-weight: 700; cursor: pointer; transition: background .15s,border-color .15s; }
+  .redeem-entry { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; min-height: 40px; padding: 0 12px; border: 1px solid rgba(52,211,153,.45); border-radius: 11px; background: linear-gradient(120deg,rgba(16,185,129,.18),rgba(16,185,129,.08)); color: #7ff0c6; font: inherit; font-size: 12.5px; font-weight: 700; cursor: pointer; transition: background .15s,border-color .15s; }
   .redeem-entry:hover { background: rgba(16,185,129,.24); border-color: rgba(52,211,153,.7); }
   .redeem-entry i { display: inline-flex; width: 17px; height: 17px; }
   .redeem-entry i :global(svg) { width: 100%; height: 100%; }
@@ -3250,7 +3309,7 @@
   .member-refresh { min-height: 32px; padding: 0 11px; border: 1px solid rgba(143,182,255,.35); border-radius: 9px; color: #bfdbfe; background: rgba(255,255,255,.06); font: inherit; font-size: 11px; font-weight: 700; cursor: pointer; }
   .member-refresh:hover:not(:disabled) { background: rgba(59,130,246,.2); }
   .member-refresh:disabled { cursor: wait; opacity: .65; }
-  .member-modal .icon-btn { color: #dbe7ff; border-color: rgba(255,255,255,.15); }
+  .member-modal .icon-btn, .redeem-modal .icon-btn { color: #dbe7ff; border: 1px solid rgba(255,255,255,.15); }
   .member-account-summary { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 1px; margin: 0 0 16px; overflow: hidden; border: 1px solid rgba(255,255,255,.11); border-radius: 13px; background: rgba(255,255,255,.11); }
   .member-account-summary>div { min-width: 0; padding: 12px 14px; background: rgba(255,255,255,.045); }
   .member-account-summary span { display: block; margin-bottom: 5px; color: #8fa0bd; font-size: 10px; }
@@ -3348,6 +3407,8 @@
     .side-nav button { justify-content: center; padding: 0; gap: 0; }
     .side-nav button span { display: none; }
     .core-card > div, .foot-icons { display: none; }
+    .redeem-entry span { display: none; }
+    .redeem-entry { padding: 0; gap: 0; }
     .core-card { justify-content: center; padding: 11px 0; }
   }
   @media (max-width: 620px) {

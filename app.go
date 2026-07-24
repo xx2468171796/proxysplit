@@ -575,8 +575,11 @@ type OrdersResult struct {
 }
 
 type OrderResult struct {
-	Order license.Order `json:"order"`
-	Err   string        `json:"err,omitempty"`
+	Split   bool            `json:"split"`
+	GroupNo string          `json:"groupNo,omitempty"`
+	Orders  []license.Order `json:"orders"`
+	Order   license.Order   `json:"order"`
+	Err     string          `json:"err,omitempty"`
 }
 
 type AnnouncementsResult struct {
@@ -614,8 +617,8 @@ func (a *App) GetMyOrders() OrdersResult {
 }
 
 func (a *App) CreateMembershipOrder(planID string) OrderResult {
-	order, err := a.lic.CreateOrder(planID)
-	return OrderResult{Order: order, Err: errStr(err)}
+	checkout, err := a.lic.CreateOrder(planID)
+	return OrderResult{Split: checkout.Split, GroupNo: checkout.GroupNo, Orders: checkout.Orders, Order: checkout.Order, Err: errStr(err)}
 }
 
 // GetPaymentQR locally encodes the payment provider URL as a scannable PNG.

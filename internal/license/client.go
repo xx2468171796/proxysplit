@@ -85,6 +85,18 @@ type Order struct {
 	PaidAt      string `json:"paidAt"`
 	ExpiresAt   string `json:"expiresAt"`
 	CreatedAt   string `json:"createdAt"`
+	SplitIndex  int    `json:"splitIndex"`
+	SplitTotal  int    `json:"splitTotal"`
+}
+
+// Checkout is the result of creating an order. Split=true means the plan price
+// exceeds the gateway per-transaction cap, so Orders holds several sub-orders
+// that are paid one after another; the membership opens only after all are paid.
+type Checkout struct {
+	Split   bool    `json:"split"`
+	GroupNo string  `json:"groupNo"`
+	Orders  []Order `json:"orders"`
+	Order   Order   `json:"order"`
 }
 
 type Announcement struct {
@@ -548,11 +560,11 @@ func (c *Client) Orders() ([]Order, error) {
 	return result.Items, nil
 }
 
-func (c *Client) CreateOrder(planID string) (Order, error) {
+func (c *Client) CreateOrder(planID string) (Checkout, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	var result Order
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	var result Checkout
+	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
 	defer cancel()
 	err := c.authedRequestLocked(ctx, http.MethodPost, "/v1/orders", map[string]string{"planId": planID}, &result)
 	return result, err
