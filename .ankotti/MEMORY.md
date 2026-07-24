@@ -139,3 +139,9 @@
 - 🔴 发布流水线两个潜伏 bug（本机 core.autocrlf=true 触发）：①`git archive HEAD:server` 只读 server 子树的 .gitattributes，根目录 eol=lf 不生效 → api-entrypoint.sh 被写成 CRLF → 容器 `exec /app/deploy/api-entrypoint.sh: no such file or directory`。修复：新增 server/.gitattributes（子树自带 *.sh eol=lf）+ release-all.ps1 git archive 加 -c core.autocrlf=false。②release-all.ps1 Run 函数在 $ErrorActionPreference=Stop 下把 pnpm/go 的 stderr 横幅当成终止错误 → 改为仅按 $LASTEXITCODE 判定。③首次失败留下的 proxysplit-v1.9.35.exe 进程锁文件导致 Copy-Item 失败 → 需先杀占用进程。
 - 回归：go test/vet、svelte-check、pnpm typecheck/test/build 全过。正式产物 output/proxysplit-v1.9.35.exe，78.6MB，SHA256 3fc1ab71338282ee1bd78a870770b20e6fc3474b10b0721e6b410392639a9470。
 - 生产 API、官网、下载均已切换 v1.9.35；latest API=1.9.35，health ok，proxysplit-v1.9.35.exe 与 proxysplit-latest.exe 均 HTTP 200/78.6MB。站点目录 /opt/proxysplit/releases/20260724-203840-dec2549-v1.9.35，DB 备份 postgres-20260724-203840-dec2549-v1.9.35.sql.gz，commit dec254963309d9d982bc575f84dd51af01d7fa82。
+
+## 2026-07-24 v1.9.37 修复运营后台"数据全空"(设备名额锁死)
+- 事故：用户报后台用户/套餐全空、疑似数据丢失。真相：数据完好(库内 users=3/plans=12/orders=6/devices=12/licenses=4)。根因是 admin 账号既做后台登录又做发布自动化，历次发布用不同指纹登录把设备槽(默认 default_device_limit=3)占满(积累 10 个活跃设备)；用户后台会话重新认证时 bindDevice 撞上限 → 返回 pending token → 所有 /v1/admin/* 报 DEVICE_ACTIVATION_REQUIRED → admin 前端 catch 成空数组 → 看似数据丢失。
+- 应急：SQL 把 admin 名下 8 个一次性发布/测试设备 revoked=true + 撤销其会话，保留浏览器设备(运营后台 1e36fc5b)+发布器(317f69d9)，降到 2/3。实测 admin API 立即恢复(users=3/plans=12/dashboard 正常)。
+- 持久修复(v1.9.37)：① auth.ts login+activateDevice：admin 角色设备上限设为 Number.MAX_SAFE_INTEGER(免限)，普通账号不变。② admin/api.ts：login 遇 deviceLimitReached/无 token 抛错显示在登录页不再静默存 pending；api() 对 401/ACCESS_INVALID/DEVICE_ACTIVATION_REQUIRED 清 token+reload 回登录页。生产验证：全新指纹登录 admin 直接拿真实 deviceId、无 limit。
+- 教训：① bindDevice 按 revoked=false 计数、复用同 fingerprint_hash 设备；② 发布自动化复用 admin 账号会吃设备槽——新 release-all.ps1 已用固定指纹(codexreleasepublisher...)只占 1 槽；③ 前端列表 catch 成空会把"鉴权失败"伪装成"数据丢失"，务必区分。
