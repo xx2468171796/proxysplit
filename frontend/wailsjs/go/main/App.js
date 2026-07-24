@@ -14,6 +14,10 @@ export function AddSub(arg1, arg2, arg3) {
   return window['go']['main']['App']['AddSub'](arg1, arg2, arg3);
 }
 
+export function EditSub(arg1, arg2, arg3) {
+  return window['go']['main']['App']['EditSub'](arg1, arg2, arg3);
+}
+
 export function CheckAppUpdate() {
   return window['go']['main']['App']['CheckAppUpdate']();
 }

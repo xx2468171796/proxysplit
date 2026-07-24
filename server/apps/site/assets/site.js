@@ -79,7 +79,7 @@ if (planGrid) {
           ${countdown}
           <p>${escapeHTML(plan.description || '')}</p>
           <ul><li>${period}</li><li>${tier}</li>${limit}<li>服务端签名授权</li></ul>
-          <a href="/download/proxysplit-v1.9.31.exe" data-download>支付宝开通</a>
+          <a href="/download/proxysplit-v1.9.32.exe" data-download>支付宝开通</a>
         </article>`
       }).join('')
       latestRelease.then((release) => applyLatestDownload(release, planGrid))

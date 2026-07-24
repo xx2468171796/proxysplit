@@ -9,6 +9,7 @@ import (
 	"crypto/tls"
 	"encoding/base64"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"strconv"
@@ -20,10 +21,11 @@ import (
 	"proxysplit/internal/nodes"
 )
 
-// probeTarget is a lightweight, globally reachable endpoint used to measure true
-// end-to-end latency through the proxy. A bare TCP connect to :443 is enough to
-// exercise the full tunnel without transferring a payload.
-const probeTarget = "www.gstatic.com:443"
+// connectivityURL deliberately checks an actual Google HTTPS response. Opening
+// a TCP connection to a CDN edge is not sufficient: expired credentials,
+// broken protocol handshakes and captive/intercept pages can all produce a
+// plausible "latency" while the node cannot carry real traffic.
+const connectivityURL = "https://www.google.com/generate_204"
 
 // Result is a latency/speed measurement.
 type Result struct {
@@ -42,9 +44,16 @@ func Measure(n *nodes.Node, socksAddr string, timeout time.Duration) Result {
 		timeout = 5 * time.Second
 	}
 
-	start := time.Now()
+	if socksAddr != "" {
+		elapsed, err := measureHTTPThroughSOCKS(socksAddr, connectivityURL, timeout, nil)
+		if err != nil {
+			return Result{Latency: -1}
+		}
+		return Result{Latency: int(elapsed.Round(time.Millisecond) / time.Millisecond)}
+	}
 
-	conn, err := dial(n, socksAddr, timeout)
+	start := time.Now()
+	conn, err := dial(n, timeout)
 	if err != nil {
 		return Result{Latency: -1}
 	}
@@ -58,20 +67,7 @@ func Measure(n *nodes.Node, socksAddr string, timeout time.Duration) Result {
 // to the node. Direct WebSocket probes complete the HTTP Upgrade handshake:
 // merely opening the edge TCP port creates false positives for stale/disabled
 // subscriptions whose front door still accepts TCP but never serves WebSocket.
-func dial(n *nodes.Node, socksAddr string, timeout time.Duration) (net.Conn, error) {
-	if socksAddr != "" {
-		dialer, err := proxy.SOCKS5("tcp", socksAddr, nil, proxy.Direct)
-		if err != nil {
-			return nil, err
-		}
-		if cd, ok := dialer.(proxy.ContextDialer); ok {
-			ctx, cancel := context.WithTimeout(context.Background(), timeout)
-			defer cancel()
-			return cd.DialContext(ctx, "tcp", probeTarget)
-		}
-		return dialer.Dial("tcp", probeTarget)
-	}
-
+func dial(n *nodes.Node, timeout time.Duration) (net.Conn, error) {
 	addr := net.JoinHostPort(n.Server, strconv.Itoa(n.Port))
 	conn, err := net.DialTimeout("tcp", addr, timeout)
 	if err != nil {
@@ -111,6 +107,44 @@ func dial(n *nodes.Node, socksAddr string, timeout time.Duration) (net.Conn, err
 		}
 	}
 	return conn, nil
+}
+
+func measureHTTPThroughSOCKS(socksAddr, targetURL string, timeout time.Duration, tlsConfig *tls.Config) (time.Duration, error) {
+	dialer, err := proxy.SOCKS5("tcp", socksAddr, nil, proxy.Direct)
+	if err != nil {
+		return 0, fmt.Errorf("socks dialer: %w", err)
+	}
+	cd, ok := dialer.(proxy.ContextDialer)
+	if !ok {
+		return 0, fmt.Errorf("socks dialer does not support context cancellation")
+	}
+	tr := &http.Transport{
+		DialContext:         cd.DialContext,
+		TLSClientConfig:     tlsConfig,
+		TLSHandshakeTimeout: timeout,
+		DisableKeepAlives:   true,
+	}
+	defer tr.CloseIdleConnections()
+
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, targetURL, nil)
+	if err != nil {
+		return 0, err
+	}
+	req.Header.Set("User-Agent", "ProxySplit-Connectivity-Check")
+
+	start := time.Now()
+	resp, err := (&http.Client{Transport: tr}).Do(req)
+	if err != nil {
+		return 0, fmt.Errorf("google connectivity: %w", err)
+	}
+	defer resp.Body.Close()
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4<<10))
+	if resp.StatusCode != http.StatusNoContent {
+		return 0, fmt.Errorf("google connectivity: expected HTTP 204, got %s", resp.Status)
+	}
+	return time.Since(start), nil
 }
 
 func websocketUpgrade(conn net.Conn, n *nodes.Node) error {

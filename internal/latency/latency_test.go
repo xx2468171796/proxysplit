@@ -4,14 +4,108 @@ import (
 	"bufio"
 	"crypto/sha1"
 	"encoding/base64"
+	"encoding/binary"
 	"fmt"
+	"io"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 
 	"proxysplit/internal/nodes"
 )
+
+func startTestSOCKS5(t *testing.T) string {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+	go func() {
+		for {
+			client, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			go func() {
+				defer client.Close()
+				header := make([]byte, 2)
+				if _, err := io.ReadFull(client, header); err != nil {
+					return
+				}
+				methods := make([]byte, int(header[1]))
+				if _, err := io.ReadFull(client, methods); err != nil {
+					return
+				}
+				if _, err := client.Write([]byte{5, 0}); err != nil {
+					return
+				}
+				req := make([]byte, 4)
+				if _, err := io.ReadFull(client, req); err != nil || req[0] != 5 || req[1] != 1 {
+					return
+				}
+				var host string
+				switch req[3] {
+				case 1:
+					ip := make([]byte, 4)
+					if _, err := io.ReadFull(client, ip); err != nil {
+						return
+					}
+					host = net.IP(ip).String()
+				case 3:
+					size := make([]byte, 1)
+					if _, err := io.ReadFull(client, size); err != nil {
+						return
+					}
+					name := make([]byte, int(size[0]))
+					if _, err := io.ReadFull(client, name); err != nil {
+						return
+					}
+					host = string(name)
+				default:
+					return
+				}
+				portBytes := make([]byte, 2)
+				if _, err := io.ReadFull(client, portBytes); err != nil {
+					return
+				}
+				upstream, err := net.Dial("tcp", net.JoinHostPort(host, fmt.Sprint(binary.BigEndian.Uint16(portBytes))))
+				if err != nil {
+					_, _ = client.Write([]byte{5, 5, 0, 1, 0, 0, 0, 0, 0, 0})
+					return
+				}
+				defer upstream.Close()
+				if _, err := client.Write([]byte{5, 0, 0, 1, 0, 0, 0, 0, 0, 0}); err != nil {
+					return
+				}
+				go func() { _, _ = io.Copy(upstream, client); _ = upstream.Close() }()
+				_, _ = io.Copy(client, upstream)
+			}()
+		}
+	}()
+	return ln.Addr().String()
+}
+
+func TestGoogleConnectivityRequiresHTTP204ThroughSOCKS(t *testing.T) {
+	status := http.StatusNoContent
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(status)
+	}))
+	defer server.Close()
+	socksAddr := startTestSOCKS5(t)
+	tlsConfig := server.Client().Transport.(*http.Transport).TLSClientConfig
+
+	if _, err := measureHTTPThroughSOCKS(socksAddr, server.URL, time.Second, tlsConfig); err != nil {
+		t.Fatalf("HTTP 204 through SOCKS must be available: %v", err)
+	}
+	status = http.StatusOK
+	if _, err := measureHTTPThroughSOCKS(socksAddr, server.URL, time.Second, tlsConfig); err == nil {
+		t.Fatal("an intercepted/non-204 response must not be reported as available")
+	}
+}
 
 func TestMeasureWebSocketRequiresUpgrade(t *testing.T) {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")

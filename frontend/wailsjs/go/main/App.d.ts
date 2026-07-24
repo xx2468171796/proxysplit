@@ -14,6 +14,8 @@ export function AddNodes(arg1:string):Promise<main.AddResult>;
 
 export function AddSub(arg1:string,arg2:string,arg3:boolean):Promise<string>;
 
+export function EditSub(arg1:string,arg2:string,arg3:string):Promise<string>;
+
 export function CheckAppUpdate():Promise<updater.Status>;
 
 export function CreateMembershipOrder(arg1:string):Promise<main.OrderResult>;

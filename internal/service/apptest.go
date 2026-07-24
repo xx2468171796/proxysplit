@@ -42,7 +42,7 @@ func (s *Service) TestApp(match string) int {
 		return -1
 	}
 	snap := *node
-	return s.measureNode(&snap, 5*time.Second).Latency
+	return s.measureNode(&snap, 8*time.Second).Latency
 }
 
 // ExportAll returns the entire config as pretty JSON for backup/migration.

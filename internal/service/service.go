@@ -80,6 +80,10 @@ type Config struct {
 	Settings    Settings      `json:"settings"`
 	LogLevel    string        `json:"logLevel"`
 	CorePort    int           `json:"corePort"`
+	// ConnectivityProbeVersion invalidates cached latency values whenever the
+	// definition of "available" becomes stricter. Version 2 means a successful
+	// Google HTTPS /generate_204 response through the complete node tunnel.
+	ConnectivityProbeVersion int `json:"connectivityProbeVersion,omitempty"`
 
 	ClashMode    string           `json:"clashMode,omitempty"`    // rule|global|direct (persisted across restarts)
 	SysProxyLast string           `json:"sysProxyLast,omitempty"` // exact host:port we last set as OS proxy (crash-recovery marker)
@@ -319,7 +323,17 @@ func (s *Service) load() {
 	// come from the user's import, subscription, or manual entry.
 	placeholdersDropped := s.dropPlaceholderNodesLocked()
 	refsHealed := s.healDanglingNodeRefsLocked()
-	if placeholdersDropped || refsHealed {
+	probeMigrated := false
+	if s.cfg.ConnectivityProbeVersion < 2 {
+		for _, n := range s.cfg.Nodes {
+			if n != nil {
+				n.Latency = 0
+			}
+		}
+		s.cfg.ConnectivityProbeVersion = 2
+		probeMigrated = true
+	}
+	if placeholdersDropped || refsHealed || probeMigrated {
 		s.save()
 	}
 }
@@ -451,9 +465,6 @@ func (s *Service) mergeNodesLocked(list []*nodes.Node, subID string) int {
 			continue
 		}
 		n.SubID = subID
-		if n.Latency == 0 {
-			n.Latency = -1
-		}
 		s.cfg.Nodes = append(s.cfg.Nodes, n)
 		existing[n.ID] = true
 		added++
@@ -539,10 +550,9 @@ func (s *Service) nodeByID(id string) *nodes.Node {
 	return nil
 }
 
-// TestLatency measures one node and stores the result. The core's tunnel is
-// pinned to the selected node, so end-to-end measurement through SOCKS is only
-// meaningful for that node; other nodes fall back to a direct TCP probe to their
-// edge (measuring a snapshot copy so no shared Node struct is read unlocked).
+// TestLatency measures one node and stores the result. measureNode starts an
+// isolated core when necessary, then requires a real Google HTTPS 204 response
+// through the complete protocol tunnel.
 func (s *Service) TestLatency(id string) int {
 	s.mu.Lock()
 	n := s.nodeByID(id)
@@ -554,7 +564,7 @@ func (s *Service) TestLatency(id string) int {
 	if n == nil {
 		return -1
 	}
-	res := s.measureNode(&snap, 5*time.Second)
+	res := s.measureNode(&snap, 8*time.Second)
 	s.mu.Lock()
 	if current := s.nodeByID(id); current != nil {
 		current.Latency = res.Latency
@@ -594,7 +604,7 @@ func (s *Service) TestAllLatency() {
 		go func() {
 			defer wg.Done()
 			for n := range jobs {
-				results <- measured{id: n.ID, latency: s.measureNode(&n, 5*time.Second).Latency}
+				results <- measured{id: n.ID, latency: s.measureNode(&n, 8*time.Second).Latency}
 			}
 		}()
 	}
@@ -852,17 +862,28 @@ func (s *Service) GetSubs() []Sub {
 
 // AddSub adds a subscription, fetches it and merges its nodes.
 func (s *Service) AddSub(name, url string, autoUpdate bool) error {
+	name, url = strings.TrimSpace(name), strings.TrimSpace(url)
+	if name == "" || url == "" {
+		return fmt.Errorf("订阅名称和地址不能为空")
+	}
+	list, err := s.fetchSubscription(url)
+	if err != nil {
+		return err
+	}
 	sub := Sub{ID: subID(url), Name: name, URL: url, AutoUpdate: autoUpdate}
 	s.mu.Lock()
 	for _, e := range s.cfg.Subs {
-		if e.ID == sub.ID {
+		if e.ID == sub.ID || strings.EqualFold(strings.TrimSpace(e.URL), url) {
 			s.mu.Unlock()
-			return fmt.Errorf("subscription already exists")
+			return fmt.Errorf("订阅地址已存在")
 		}
 	}
 	s.cfg.Subs = append(s.cfg.Subs, sub)
+	s.replaceSubscriptionNodesLocked(sub.ID, list)
+	s.save()
 	s.mu.Unlock()
-	return s.UpdateSub(sub.ID)
+	s.applyLive()
+	return nil
 }
 
 // UpdateSub re-fetches a subscription and replaces its nodes.
@@ -877,23 +898,100 @@ func (s *Service) UpdateSub(id string) error {
 			found = true
 		}
 	}
+	s.mu.Unlock()
+	if !found {
+		return fmt.Errorf("订阅不存在")
+	}
+
+	list, err := s.fetchSubscription(url)
+	if err != nil {
+		return err
+	}
+	s.mu.Lock()
+	if !s.subscriptionExistsLocked(id) {
+		s.mu.Unlock()
+		return fmt.Errorf("订阅不存在")
+	}
+	s.replaceSubscriptionNodesLocked(id, list)
+	s.save()
+	s.mu.Unlock()
+	s.applyLive()
+	return nil
+}
+
+// EditSub changes a subscription's display name/address and validates the new
+// address before mutating any saved state. A failed fetch therefore leaves the
+// old subscription and all of its nodes intact.
+func (s *Service) EditSub(id, name, url string) error {
+	name, url = strings.TrimSpace(name), strings.TrimSpace(url)
+	if name == "" || url == "" {
+		return fmt.Errorf("订阅名称和地址不能为空")
+	}
+	s.mu.Lock()
+	found := false
+	for _, sub := range s.cfg.Subs {
+		if sub.ID == id {
+			found = true
+		} else if strings.EqualFold(strings.TrimSpace(sub.URL), url) {
+			s.mu.Unlock()
+			return fmt.Errorf("订阅地址已存在")
+		}
+	}
+	s.mu.Unlock()
+	if !found {
+		return fmt.Errorf("订阅不存在")
+	}
+
+	list, err := s.fetchSubscription(url)
+	if err != nil {
+		return err
+	}
+	s.mu.Lock()
+	index := -1
+	for i := range s.cfg.Subs {
+		if s.cfg.Subs[i].ID == id {
+			index = i
+		} else if strings.EqualFold(strings.TrimSpace(s.cfg.Subs[i].URL), url) {
+			s.mu.Unlock()
+			return fmt.Errorf("订阅地址已存在")
+		}
+	}
+	if index < 0 {
+		s.mu.Unlock()
+		return fmt.Errorf("订阅不存在")
+	}
+	s.cfg.Subs[index].Name = name
+	s.cfg.Subs[index].URL = url
+	s.replaceSubscriptionNodesLocked(id, list)
+	s.save()
+	s.mu.Unlock()
+	s.applyLive()
+	return nil
+}
+
+func (s *Service) fetchSubscription(url string) ([]*nodes.Node, error) {
+	s.mu.Lock()
 	via := ""
 	if s.core.Running() && s.core.Port() > 0 {
 		via = fmt.Sprintf("127.0.0.1:%d", s.core.Port())
 	}
 	s.mu.Unlock()
-	if !found {
-		return fmt.Errorf("subscription not found")
-	}
+	return subs.Fetch(url, via)
+}
 
-	list, err := subs.Fetch(url, via)
-	if err != nil {
-		return err
+func (s *Service) subscriptionExistsLocked(id string) bool {
+	for i := range s.cfg.Subs {
+		if s.cfg.Subs[i].ID == id {
+			return true
+		}
 	}
-	s.mu.Lock()
-	// A provider may return universal share links to ProxySplit and Clash YAML
-	// to Clash-compatible clients. Preserve IDs across equivalent formats so a
-	// subscription refresh never breaks selected nodes or per-app overrides.
+	return false
+}
+
+// replaceSubscriptionNodesLocked atomically swaps a fetched subscription while
+// preserving stable node identities and repairing every dependent selection.
+// The caller must hold s.mu.
+func (s *Service) replaceSubscriptionNodesLocked(id string, list []*nodes.Node) {
 	var oldNodes []*nodes.Node
 	for _, n := range s.cfg.Nodes {
 		if n.SubID == id {
@@ -901,7 +999,6 @@ func (s *Service) UpdateSub(id string) error {
 		}
 	}
 	reconcileSubscriptionNodes(oldNodes, list)
-	// Drop old nodes from this sub, then merge fresh ones.
 	kept := s.cfg.Nodes[:0]
 	for _, n := range s.cfg.Nodes {
 		if n.SubID != id {
@@ -914,13 +1011,10 @@ func (s *Service) UpdateSub(id string) error {
 		if s.cfg.Subs[i].ID == id {
 			s.cfg.Subs[i].NodeCount = added
 			s.cfg.Subs[i].LastUpdate = time.Now().Format("2006-01-02 15:04")
+			break
 		}
 	}
 	s.healDanglingNodeRefsLocked()
-	s.save()
-	s.mu.Unlock()
-	s.applyLive()
-	return nil
 }
 
 // reconcileSubscriptionNodes preserves identity across provider format changes.

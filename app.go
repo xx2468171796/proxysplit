@@ -310,6 +310,9 @@ func (a *App) GetSubs() []service.Sub { return a.svc.GetSubs() }
 func (a *App) AddSub(name, url string, autoUpdate bool) string {
 	return errStr(a.svc.AddSub(name, url, autoUpdate))
 }
+func (a *App) EditSub(id, name, url string) string {
+	return errStr(a.svc.EditSub(id, name, url))
+}
 func (a *App) UpdateSub(id string) string          { return errStr(a.svc.UpdateSub(id)) }
 func (a *App) RemoveSub(id string)                 { a.svc.RemoveSub(id) }
 func (a *App) SetSubAutoUpdate(id string, on bool) { a.svc.SetSubAutoUpdate(id, on) }

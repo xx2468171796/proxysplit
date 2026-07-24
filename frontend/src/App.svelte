@@ -22,6 +22,7 @@
     GetAppIcon as WGetAppIcon,
     GetSubs as WGetSubs,
     AddSub as WAddSub,
+    EditSub as WEditSub,
     UpdateSub as WUpdateSub,
     RemoveSub as WRemoveSub,
     SetSubAutoUpdate as WSetSubAutoUpdate,
@@ -243,6 +244,9 @@
   let subUrl = ''
   let subAuto = false
   let subMsg: Record<string, string> = {} // per-row update status keyed by sub id
+  let editingSubId = ''
+  let editSubName = ''
+  let editSubUrl = ''
   let coreVersion = '1.13.14'
   let coreMsg = ''
   let appUpdate: AppUpdateStatus = { enabled: false, current: 'dev', available: false }
@@ -929,7 +933,7 @@
       await WTestAllLatency()
       await refreshNodes()
     } catch (e) {
-      toast('节点延迟测试失败：' + e)
+      toast('Google 连通性检测失败：' + e)
       await refreshNodes()
     } finally {
       latencyTesting = false
@@ -943,7 +947,7 @@
       await WTestLatency(n.id)
       await refreshNodes()
     } catch (e) {
-      toast('节点延迟测试失败：' + e)
+      toast('Google 连通性检测失败：' + e)
       await refreshNodes()
     } finally {
       latencyTestingId = ''
@@ -1098,6 +1102,37 @@
     await refreshSubs(); await refreshNodes()
   }
   function clearSubMsg(id: string) { const m = { ...subMsg }; delete m[id]; subMsg = m }
+  function startEditSub(s: Sub) {
+    editingSubId = s.id
+    editSubName = s.name
+    editSubUrl = s.url
+    clearSubMsg(s.id)
+  }
+  function cancelEditSub() {
+    editingSubId = ''
+    editSubName = ''
+    editSubUrl = ''
+  }
+  async function saveSubEdit(s: Sub) {
+    const name = editSubName.trim(), url = editSubUrl.trim()
+    if (!name || !url || subMsg[s.id] === '保存中…') return
+    subMsg = { ...subMsg, [s.id]: '保存中…' }
+    if (useDemo || !isWailsReady()) {
+      subs = subs.map((x) => x.id === s.id ? { ...x, name, url } : x)
+      cancelEditSub()
+      clearSubMsg(s.id)
+      return
+    }
+    const err = await WEditSub(s.id, name, url)
+    if (err) {
+      subMsg = { ...subMsg, [s.id]: '保存失败：' + err }
+      return
+    }
+    cancelEditSub()
+    subMsg = { ...subMsg, [s.id]: '已保存' }
+    await refreshSubs(); await refreshNodes()
+    setTimeout(() => clearSubMsg(s.id), 3000)
+  }
   async function updateSub(id: string) {
     if (subMsg[id] === '更新中…') return
     subMsg = { ...subMsg, [id]: '更新中…' }
@@ -1385,9 +1420,9 @@
     dash: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="8" height="8" rx="2"/><rect x="13" y="3" width="8" height="5" rx="2"/><rect x="13" y="10" width="8" height="11" rx="2"/><rect x="3" y="13" width="8" height="8" rx="2"/></svg>',
   }
   function latencyText(ms?: number): string {
-    if (ms === -99) return '测速中…'
-    if (ms === undefined || ms === 0) return '未测速'
-    if (ms < 0) return '不可用'
+    if (ms === -99) return '检测中…'
+    if (ms === undefined || ms === 0) return '未检测'
+    if (ms < 0) return 'Google 不通'
     return `${ms} ms`
   }
   function nodeOptionLabel(n: Node): string { return `${n.name} · ${latencyText(n.latency)}` }
@@ -1773,7 +1808,7 @@
 
           <aside class="col-rail">
             <section class="card">
-              <div class="card-head sm"><h3>节点延迟 / 速度</h3><button class="link" on:click={testAllLatency} disabled={latencyTesting}>{@html I.refresh} {latencyTesting ? '测速中…' : '测延迟'}</button></div>
+              <div class="card-head sm"><h3>节点连通 / 速度</h3><button class="link" on:click={testAllLatency} disabled={latencyTesting}>{@html I.refresh} {latencyTesting ? '检测中…' : '测 Google'}</button></div>
               <div class="nrail-head"><span>节点名称</span><span>延迟</span><span>下载速度</span></div>
               {#each (useDemo ? demoNodes : nodes).slice(0, 6) as n}
                 <div class="nrail-row" class:sel={n.id === status?.selectedId} on:dblclick={() => selectNode(n.id)}>
@@ -1805,7 +1840,7 @@
       {:else if tab === 'nodes'}
         <div class="page-head">
           <div><h1>节点管理</h1><p>导入区域和节点列表左右分栏，减少空白并提升操作效率。</p></div>
-          <div class="head-actions"><button class="btn" on:click={testAllLatency} disabled={latencyTesting}>⟳ {latencyTesting ? '延迟测试中…' : '测全部延迟'}</button><button class="btn" on:click={runSpeedTest} disabled={speedTesting}>{speedTesting ? '下载测速中…' : '测活动节点速度'}</button><button class="btn primary" on:click={() => (tab = 'subs')}>＋ 添加订阅</button></div>
+          <div class="head-actions"><button class="btn" on:click={testAllLatency} disabled={latencyTesting}>⟳ {latencyTesting ? 'Google 检测中…' : '检测全部可用性'}</button><button class="btn" on:click={runSpeedTest} disabled={speedTesting}>{speedTesting ? '下载测速中…' : '测活动节点速度'}</button><button class="btn primary" on:click={() => (tab = 'subs')}>＋ 添加订阅</button></div>
         </div>
         <section class="node-manager-v2">
           <div class="card node-import-card">
@@ -1841,10 +1876,10 @@
             </div>
           {/if}
           </div></div>
-          <div class="card node-list-card"><div class="card-head"><div><h3>节点列表 <span class="status-pill gray">{nodes.length} 个</span></h3><p class="sub">活动节点会优先用于规则与全局代理</p></div><div class="searchbar"><span>⌕</span><input bind:value={query} placeholder="搜索节点名称、地址或类型" /></div></div>
+          <div class="card node-list-card"><div class="card-head"><div><h3>节点列表 <span class="status-pill gray">{nodes.length} 个</span></h3><p class="sub">“可用”表示已通过该节点访问 Google HTTPS 并收到 HTTP 204</p></div><div class="searchbar"><span>⌕</span><input bind:value={query} placeholder="搜索节点名称、地址或类型" /></div></div>
           <div class="tscroll">
             <div class="ntable">
-              <div class="nhead"><span>节点</span><span>延迟</span><span>速度</span><span class="ctr">操作</span></div>
+              <div class="nhead"><span>节点</span><span>Google 连通</span><span>速度</span><span class="ctr">操作</span></div>
               {#each nodes.filter((n) => !query || `${n.name}${n.server}${n.type}`.toLowerCase().includes(query.toLowerCase())) as n}
                 <div class="nrow" class:sel={n.id === status?.selectedId} on:dblclick={() => selectNode(n.id)}>
                   <div class="ncell">
@@ -1853,7 +1888,7 @@
                   </div>
                   <span class="lat" data-q={qual(n.latency)}>{latencyText(n.latency)}</span>
                   <span class="nspd">{n.speed?.toFixed(2) ?? '—'} MB/s</span>
-                  <div class="row-actions ctr"><button class="mini test" on:click={() => testNodeLatency(n)} disabled={!!latencyTestingId}>{latencyTestingId === n.id ? '测速中…' : '测延迟'}</button><button class="mini" on:click={() => selectNode(n.id)}>设为活动</button><button class="icon-btn" on:click={() => showQR(n)} title="分享二维码">{@html I.qr}</button><button class="icon-btn danger" on:click={() => removeNode(n.id)} title="删除节点">{@html I.trash}</button></div>
+                  <div class="row-actions ctr"><button class="mini test" on:click={() => testNodeLatency(n)} disabled={!!latencyTestingId}>{latencyTestingId === n.id ? '检测中…' : '测 Google'}</button><button class="mini" on:click={() => selectNode(n.id)}>设为活动</button><button class="icon-btn" on:click={() => showQR(n)} title="分享二维码">{@html I.qr}</button><button class="icon-btn danger" on:click={() => removeNode(n.id)} title="删除节点">{@html I.trash}</button></div>
                 </div>
               {/each}
               {#if nodes.length === 0}<div class="empty">还没有节点。粘贴分享链接点「从链接添加」，或点「手动添加」填 SOCKS5 / HTTP 代理。</div>{/if}
@@ -2027,16 +2062,29 @@
           {/if}
           <div class="sub-list">
             {#each subs as s}
-              <div class="sub-row">
-                <div class="sub-meta"><strong>{s.name}</strong><small title={s.url}>{s.url}</small></div>
+              <div class="sub-row" class:editing={editingSubId === s.id}>
+                {#if editingSubId === s.id}
+                  <div class="sub-edit-fields">
+                    <label>订阅名称<input bind:value={editSubName} placeholder="订阅名称" /></label>
+                    <label>订阅地址<input bind:value={editSubUrl} placeholder="https://..." on:keydown={(e) => e.key === 'Enter' && saveSubEdit(s)} /></label>
+                  </div>
+                {:else}
+                  <div class="sub-meta"><strong>{s.name}</strong><small title={s.url}>{s.url}</small></div>
+                {/if}
                 <span class="sub-count">{s.nodeCount} 节点</span>
                 <span class="muted">{s.lastUpdate || '手动'}</span>
                 <div class="row-actions">
                   <span class="node-col">自动更新</span>
                   <label class="switch"><input type="checkbox" checked={s.autoUpdate} on:change={() => toggleSubAuto(s)} /><i></i></label>
-                  {#if subMsg[s.id]}<span class="rs-msg" class:err={subMsg[s.id] === '失败'}>{subMsg[s.id]}</span>{/if}
-                  <button class="mini" on:click={() => updateSub(s.id)} disabled={subMsg[s.id] === '更新中…'}>更新</button>
-                  <button class="icon-btn danger" on:click={() => removeSub(s.id)} title="删除订阅">{@html I.trash}</button>
+                  {#if subMsg[s.id]}<span class="rs-msg" class:err={subMsg[s.id].includes('失败')}>{subMsg[s.id]}</span>{/if}
+                  {#if editingSubId === s.id}
+                    <button class="mini primary" on:click={() => saveSubEdit(s)} disabled={subMsg[s.id] === '保存中…'}>保存并更新</button>
+                    <button class="mini" on:click={cancelEditSub}>取消</button>
+                  {:else}
+                    <button class="mini" on:click={() => startEditSub(s)}>编辑</button>
+                    <button class="mini" on:click={() => updateSub(s.id)} disabled={subMsg[s.id] === '更新中…'}>更新</button>
+                    <button class="icon-btn danger" on:click={() => removeSub(s.id)} title="删除订阅">{@html I.trash}</button>
+                  {/if}
                 </div>
               </div>
             {/each}
@@ -2654,6 +2702,10 @@
   .sub-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto; gap: 8px 14px; align-items: center; padding: 12px 14px; border: 1px solid var(--line); border-radius: 11px; transition: border-color var(--tr), box-shadow var(--tr); }
   .sub-row:hover { border-color: #d7dee8; box-shadow: var(--sh-1); }
   .sub-meta { min-width: 0; }
+  .sub-edit-fields { display: grid; gap: 9px; width: 100%; }
+  .sub-edit-fields label { display: grid; gap: 5px; color: var(--muted); font-size: 11.5px; font-weight: 700; }
+  .sub-edit-fields input { width: 100%; min-height: 36px; padding: 0 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); color: var(--ink); outline: none; }
+  .sub-edit-fields input:focus { border-color: var(--brand); box-shadow: 0 0 0 3px var(--brand-tint); }
   .sub-row strong { font-size: 14px; color: var(--ink); } .sub-row small { display: block; font-size: 12px; color: var(--muted-2); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .sub-count { font-size: 13px; color: var(--muted); white-space: nowrap; }
 
@@ -2789,6 +2841,7 @@
   .subs-page-v2 .picker { margin: 17px; }
   .subs-page-v2 .sub-list { padding: 17px; display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 16px; }
   .subs-page-v2 .sub-row { min-height: 145px; padding: 17px; display: flex; flex-direction: column; align-items: stretch; border: 1px solid var(--line); border-radius: 13px; box-shadow: var(--sh-1); }
+  .subs-page-v2 .sub-row.editing { min-height: 225px; border-color: var(--brand); }
   .subs-page-v2 .sub-meta { width: 100%; } .subs-page-v2 .sub-count { margin-top: 12px; color: var(--brand); font-weight: 750; }
   .subs-page-v2 .row-actions { width: 100%; margin-top: auto; padding-top: 12px; border-top: 1px solid var(--line); }
   .log-full { padding: 0; overflow: hidden; }
