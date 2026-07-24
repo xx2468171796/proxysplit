@@ -35,9 +35,21 @@ type AppRule struct {
 	Node    string `json:"node,omitempty"` // node id for rule/global apps; "" = active/selected node
 	Enabled bool   `json:"enabled"`
 
+	// Optional target scoping (Proxifier-style per-rule destination match). When
+	// any is non-empty the rule applies ONLY to this app's traffic to the given
+	// targets; the app's other traffic follows the default. Empty = whole app.
+	Domains []string `json:"domains,omitempty"` // domain suffix, e.g. "google.com" (matches *.google.com)
+	IPs     []string `json:"ips,omitempty"`     // ip / CIDR, e.g. "1.1.1.1/32", "10.0.0.0/8"
+	Ports   []string `json:"ports,omitempty"`   // port or range, e.g. "443", "8000-9000"
+
 	// Legacy fields (migrated to Line on load).
 	Action string `json:"action,omitempty"`
 	Follow *bool  `json:"follow,omitempty"`
+}
+
+// Scoped reports whether this rule is narrowed to specific targets.
+func (r AppRule) Scoped() bool {
+	return len(r.Domains) > 0 || len(r.IPs) > 0 || len(r.Ports) > 0
 }
 
 // builtinLines are always present and cannot be edited/deleted.

@@ -73,7 +73,7 @@ export async function buildApp(config:ApiConfig,provided?:Core){
     paymentReconcileTimer.unref()
     setTimeout(()=>void reconcilePayments(),1_000).unref()
   }
-  app.get('/v1/releases/latest',async()=>({release:await core.store.latestRelease()}))
+  app.get('/v1/releases/latest',async(req)=>({release:await core.store.latestRelease((req.query as {channel?:string}).channel==='beta'?'beta':'stable')}))
   app.get('/v1/releases',async()=>({items:(await core.store.listReleases({limit:100})).items}))
   // Tracked download: log one event (hashed IP + visitor id + UA), then 302 to
   // the real Nginx-served file. Only known-shaped filenames are allowed so this

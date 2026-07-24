@@ -557,6 +557,9 @@ export namespace service {
 	    line: string;
 	    node?: string;
 	    enabled: boolean;
+	    domains?: string[];
+	    ips?: string[];
+	    ports?: string[];
 	    action?: string;
 	    follow?: boolean;
 	
@@ -571,6 +574,9 @@ export namespace service {
 	        this.line = source["line"];
 	        this.node = source["node"];
 	        this.enabled = source["enabled"];
+	        this.domains = source["domains"];
+	        this.ips = source["ips"];
+	        this.ports = source["ports"];
 	        this.action = source["action"];
 	        this.follow = source["follow"];
 	    }

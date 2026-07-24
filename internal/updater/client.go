@@ -90,7 +90,9 @@ func (c *Client) Check(ctx context.Context) Status {
 		status.Error = "自动更新服务地址无效"
 		return status
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.apiURL+"/v1/releases/latest", nil)
+	// Stable clients must only ever be offered stable releases; the server
+	// isolates channels so a higher-versioned beta never auto-updates them.
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.apiURL+"/v1/releases/latest?channel=stable", nil)
 	if err != nil {
 		status.Error = err.Error()
 		return status

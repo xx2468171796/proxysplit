@@ -1569,8 +1569,28 @@
 
 <svelte:head><title>ProxySplit</title></svelte:head>
 
+<!-- 强制升级：mandatory 版本覆盖全屏、不可关闭，且渲染在登录/会员闸机之外，
+     未登录或试用到期的用户同样能收到并完成升级（否则更新横幅只在主界面可见）。 -->
+{#if appUpdate.available && appUpdate.release && appUpdate.release.mandatory}
+  <div class="update-force-mask" role="alertdialog" aria-modal="true">
+    <div class="update-force">
+      <span class="uf-badge">必须升级</span>
+      <h2>请升级到 v{appUpdate.release.version}</h2>
+      <p>当前版本 v{appUpdate.current} 已停止支持，需完成升级后才能继续使用。升级包已通过 Ed25519 签名与 SHA256 双重校验，升级后自动重启且不会改动你的节点与规则。</p>
+      <button class="primary" on:click={installAppUpdate} disabled={appUpdateBusy || !isWailsReady()}>{appUpdateBusy ? '下载并验证中…' : '立即安全升级'}</button>
+    </div>
+  </div>
+{/if}
+
 {#if license.enabled && !license.authenticated}
   <main class:license-login={!license.signedIn} class:member-gate={license.signedIn}>
+    {#if appUpdate.available && appUpdate.release && !appUpdate.release.mandatory}
+      <div class="updatebar gate-updatebar">
+        <span class="updatebar-icon">↗</span>
+        <div><strong>发现新版本 v{appUpdate.release.version}</strong><small>当前 v{appUpdate.current} · 已通过 Ed25519 签名与 SHA256 双重校验</small></div>
+        <button on:click={installAppUpdate} disabled={appUpdateBusy || !isWailsReady()}>{appUpdateBusy ? '下载并验证中…' : '立即安全升级'}</button>
+      </div>
+    {/if}
     {#if !license.signedIn}
       <form class="license-login-card" on:submit|preventDefault={authMode === 'login' ? submitLogin : submitRegister}>
         <div class="license-mark">◑</div>
@@ -2580,6 +2600,15 @@
   .updatebar small { display: block; color: var(--muted); margin-top: 2px; font-size: 11.5px; }
   .updatebar button { height: 32px; border: 0; border-radius: 9px; padding: 0 14px; color: #fff; background: var(--brand); font: inherit; font-size: 12px; font-weight: 750; cursor: pointer; }
   .updatebar button:disabled { opacity: .65; cursor: wait; }
+  /* 登录/闸机页里的更新条改成卡片样式，与该页留白协调 */
+  .gate-updatebar { margin: 0 0 16px; border: 1px solid rgba(40,100,232,.22); border-radius: 12px; }
+  /* 强制升级全屏遮罩：覆盖一切、不可关闭 */
+  .update-force-mask { position: fixed; inset: 0; z-index: 400; display: grid; place-items: center; padding: 24px; background: rgba(6,12,24,.72); backdrop-filter: blur(4px); }
+  .update-force { width: min(440px, 92vw); padding: 26px; border: 1px solid var(--line); border-radius: 18px; background: var(--card); color: var(--ink); box-shadow: 0 30px 90px rgba(0,0,0,.4); text-align: center; }
+  .update-force .uf-badge { display: inline-block; margin-bottom: 12px; padding: 3px 12px; border-radius: 999px; background: #fee2e2; color: #dc2626; font-size: 12px; font-weight: 800; }
+  .update-force h2 { margin: 0 0 10px; font-size: 20px; }
+  .update-force p { margin: 0 0 20px; color: var(--muted); font-size: 13px; line-height: 1.7; }
+  .update-force .primary { width: 100%; min-height: 42px; justify-content: center; font-size: 14px; }
 
   /* capture badge + line health */
   .cap-badge { font-size: 12px; font-weight: 700; padding: 3px 11px; border-radius: 999px; white-space: nowrap; }

@@ -306,8 +306,12 @@ export class PgStore {
     await this.pool.query('INSERT INTO audit_logs(actor_user_id,action,target_type,target_id,ip,result,metadata) VALUES($1,$2,$3,$4,$5,$6,$7)',[actor,action,targetType,targetId,ip,result,metadata])
   }
 
-  async latestRelease():Promise<ReleaseRecord|null>{
-    const r=await this.pool.query('SELECT version,minimum_version AS "minimumVersion",url,sha256,signature,mandatory,title,summary,changelog,channel,published_at AS "publishedAt" FROM releases ORDER BY published_at DESC LIMIT 1')
+  // 返回指定通道的“最新版”。按语义版本(而非发布时间)取最高，避免误发一个更旧
+  // 版本号后顶替真正的最新版；channel 隔离让 beta 不会被推给稳定版客户端。
+  async latestRelease(channel:'stable'|'beta'='stable'):Promise<ReleaseRecord|null>{
+    const r=await this.pool.query(`SELECT version,minimum_version AS "minimumVersion",url,sha256,signature,mandatory,title,summary,changelog,channel,published_at AS "publishedAt"
+      FROM releases WHERE channel=$1
+      ORDER BY string_to_array(version,'.')::int[] DESC,published_at DESC LIMIT 1`,[channel])
     return r.rows[0]??null
   }
   // 是否存在该版本号的正式发布（用于下载接口过滤伪造版本，避免污染下载统计）。

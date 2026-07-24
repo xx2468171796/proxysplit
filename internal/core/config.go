@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"proxysplit/internal/nodes"
@@ -92,6 +93,22 @@ type Options struct {
 	SplitDirect []string
 	SplitBlock  []string
 	ExtraNodes  []ExtraNode
+	// SplitScoped are per-app rules narrowed to specific targets (domain/IP/port):
+	// only that process's traffic to those targets follows the rule; the rest of
+	// the process falls through to the default. Evaluated before the broad
+	// process_name groups.
+	SplitScoped []ScopedRule
+}
+
+// ScopedRule is one app-rule narrowed to specific destinations. Only the named
+// process's traffic to the given domains/IPs/ports uses Outbound ("proxy" /
+// "node-<id>" node tag, "direct", or "reject"); its other traffic is unaffected.
+type ScopedRule struct {
+	Name     string
+	Domains  []string // domain_suffix
+	IPs      []string // ip_cidr
+	Ports    []string // port numbers or "a-b" ranges
+	Outbound string
 }
 
 // SplitGroup is a set of processes routed the same way: Mode is "rule" (smart
@@ -446,6 +463,12 @@ func BuildTUNConfig(node *nodes.Node, logLevel string, opts Options) ([]byte, er
 		if len(opts.SplitDirect) > 0 {
 			rules = append(rules, M{"process_name": opts.SplitDirect, "outbound": "direct"})
 		}
+		// Scoped per-app rules (process + destination) — more specific than the
+		// broad process_name groups below, so they come first. geoNeeded stays as
+		// is; these use explicit domain/ip/port, no geo rule-sets.
+		for _, sc := range opts.SplitScoped {
+			rules = append(rules, scopedRuleEntries(sc, clashExp != nil)...)
+		}
 		if opts.SplitWhitelist {
 			// Whitelist: ONLY the rule/global apps are eligible; everything else
 			// (incl. unlisted) falls through to route.final = direct. Each group
@@ -623,6 +646,103 @@ func ruleMatch(r RouteRule) M {
 		return M{"ip_cidr": []string{v}}
 	}
 	return nil
+}
+
+// scopedRuleEntries turns one ScopedRule into sing-box route rules. Domains and
+// IPs become separate rules (a connection matches a domain OR an IP, never both
+// as an AND); ports narrow each. When clashDirect is set an extra clash_mode
+// "direct" override is prepended so the top-bar 直连 (panic) still wins over the
+// scoped rule.
+func scopedRuleEntries(sc ScopedRule, clashDirect bool) []M {
+	name := strings.TrimSpace(sc.Name)
+	if name == "" {
+		return nil
+	}
+	ports, ranges := splitPorts(sc.Ports)
+	var bases []M
+	addBase := func(cond M) {
+		cond["process_name"] = []string{name}
+		if len(ports) > 0 {
+			cond["port"] = ports
+		}
+		if len(ranges) > 0 {
+			cond["port_range"] = ranges
+		}
+		bases = append(bases, cond)
+	}
+	if d := cleanList(sc.Domains); len(d) > 0 {
+		addBase(M{"domain_suffix": d})
+	}
+	if ip := cleanList(sc.IPs); len(ip) > 0 {
+		addBase(M{"ip_cidr": ip})
+	}
+	if len(bases) == 0 && (len(ports) > 0 || len(ranges) > 0) {
+		addBase(M{}) // port-only scope
+	}
+	if len(bases) == 0 {
+		return nil
+	}
+	out := make([]M, 0, len(bases)*2)
+	for _, base := range bases {
+		if clashDirect {
+			d := cloneMatch(base)
+			d["clash_mode"] = "direct"
+			d["outbound"] = "direct"
+			out = append(out, d)
+		}
+		act := cloneMatch(base)
+		if sc.Outbound == "reject" || sc.Outbound == "block" {
+			act["action"] = "reject"
+		} else {
+			act["outbound"] = sc.Outbound
+		}
+		out = append(out, act)
+	}
+	return out
+}
+
+func cloneMatch(m M) M {
+	c := make(M, len(m)+2)
+	for k, v := range m {
+		c[k] = v
+	}
+	return c
+}
+
+func cleanList(in []string) []string {
+	out := make([]string, 0, len(in))
+	for _, s := range in {
+		if s = strings.TrimSpace(s); s != "" {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+// splitPorts separates single ports ("443" -> int list) from ranges
+// ("8000-9000" / "8000:9000" -> "8000:9000" for sing-box port_range).
+func splitPorts(in []string) (nums []int, ranges []string) {
+	for _, p := range in {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		if i := strings.IndexAny(p, "-:"); i > 0 && i < len(p)-1 {
+			a := strings.TrimSpace(p[:i])
+			b := strings.TrimSpace(p[i+1:])
+			if _, ea := strconv.Atoi(a); ea == nil {
+				if _, eb := strconv.Atoi(b); eb == nil {
+					ranges = append(ranges, a+":"+b)
+					continue
+				}
+			}
+			continue
+		}
+		if n, err := strconv.Atoi(p); err == nil && n > 0 && n < 65536 {
+			nums = append(nums, n)
+		}
+	}
+	return
 }
 
 // srsPath joins the geo dir and a rule-set file name (forward slashes so the JSON

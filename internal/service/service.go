@@ -1358,6 +1358,7 @@ func (s *Service) Start() error {
 	groups := map[gkey]groupValue{}
 	extraByTag := map[string]*nodes.Node{}
 	var directApps, blockApps []string
+	var scopedRules []core.ScopedRule
 	for _, r := range s.cfg.Rules {
 		if !r.Enabled {
 			continue
@@ -1376,6 +1377,33 @@ func (s *Service) Start() error {
 		line := lineByID(allLines, lineID)
 		if line == nil {
 			line = lineByID(allLines, LineRule)
+		}
+		// Target-scoped rule (process + domain/IP/port): emit as a ScopedRule that
+		// only catches the app's matching traffic; the rest follows the default.
+		if r.Scoped() {
+			var outbound string
+			switch line.ID {
+			case LineDirect:
+				outbound = "direct"
+			case LineBlock:
+				outbound = "reject"
+			default:
+				nodeID := r.Node
+				if !line.Builtin {
+					nodeID = line.Node
+				}
+				outbound = "proxy"
+				if nodeID != "" && nodeID != "active" && nodeID != activeID {
+					if n, ok := nodeByID[nodeID]; ok {
+						outbound = "node-" + nodeID
+						extraByTag[outbound] = n
+					}
+				}
+			}
+			scopedRules = append(scopedRules, core.ScopedRule{
+				Name: name, Domains: r.Domains, IPs: r.IPs, Ports: r.Ports, Outbound: outbound,
+			})
+			continue
 		}
 		switch line.ID {
 		case LineDirect:
@@ -1451,6 +1479,7 @@ func (s *Service) Start() error {
 	opts.SplitWhitelist = mode != "blacklist"
 	opts.SplitGroups = splitGroups
 	opts.SplitDirect, opts.SplitBlock = directApps, blockApps
+	opts.SplitScoped = scopedRules
 	opts.ExtraNodes = extraNodes
 	if err := s.core.StartTUN(node, level, tunRoute, nil, opts); err != nil {
 		return fmt.Errorf("core(应用分流 TUN): %w", err)

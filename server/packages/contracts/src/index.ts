@@ -57,7 +57,10 @@ export const downloadStatsQuery = z.object({
 })
 export const releaseCreateSchema = z.object({
   version: z.string().regex(/^\d+\.\d+\.\d+$/), minimumVersion: z.string().regex(/^\d+\.\d+\.\d+$/),
-  url: z.string().url(), sha256: z.string().regex(/^[a-f0-9]{64}$/), signature: z.string().min(32),
+  // 必须与客户端 updater.verifyRelease 一致：https 直链且路径以 .exe 结尾，
+  // 否则签名再正确客户端也会静默判为“更新下载地址无效”，表现为一直收不到更新。
+  url: z.string().url().refine((s)=>{try{const u=new URL(s);return u.protocol==='https:'&&u.pathname.toLowerCase().endsWith('.exe')}catch{return false}},'下载地址必须是以 .exe 结尾的 https 直链'),
+  sha256: z.string().regex(/^[a-f0-9]{64}$/), signature: z.string().min(32),
   mandatory: z.boolean().default(false), title:z.string().trim().max(120).default(''),
   summary:z.string().trim().max(500).default(''), changelog:z.string().trim().max(20000).default(''),
   channel:z.enum(['stable','beta']).default('stable'),

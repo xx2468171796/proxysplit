@@ -69,10 +69,12 @@ const channelLabel = (c: string) => (c === 'beta' ? '测试版' : c === 'stable'
 const SEMVER = /^\d+\.\d+\.\d+$/
 const SHA256 = /^[a-f0-9]{64}$/
 
+// 必须与服务端 releaseCreateSchema 及客户端 updater.verifyRelease 一致：
+// https 直链且路径以 .exe 结尾，否则客户端会静默拒绝、一直收不到更新。
 function isValidUrl(s: string) {
   try {
-    new URL(s)
-    return true
+    const u = new URL(s)
+    return u.protocol === 'https:' && u.pathname.toLowerCase().endsWith('.exe')
   } catch {
     return false
   }
@@ -327,7 +329,7 @@ function CreateReleaseDialog({
     url: !url.trim()
       ? '请填写下载地址'
       : !isValidUrl(url.trim())
-        ? '必须是合法 URL（含 http/https）'
+        ? '必须是以 .exe 结尾的 https 直链'
         : '',
     sha256: !sha256.trim()
       ? '请填写 SHA-256'
