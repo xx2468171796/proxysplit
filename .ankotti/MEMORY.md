@@ -152,3 +152,9 @@
 - 🔴 部署踩坑：admin 新增依赖(radix/recharts/react-table)使 docker pnpm-install 缓存失效，服务器(深圳)直连 npmjs.org 拉包 403s 超时致部署失败两次。修复：Dockerfile 加 `pnpm config set registry https://registry.npmmirror.com` + fetch-timeout 600s + fetch-retries 5(npmmirror 是 npm 完整镜像，integrity 一致不影响 --frozen-lockfile)。以后依赖变更不再卡。
 - 教训：多会话/多agent 同仓库并发编辑会让发布预检(要求工作区干净)失败——先确认对方开发完成，独立复验合并树(typecheck/test/build 全绿)后统一提交，避免 stash 破坏对方进度。
 - 生产验证：latest=1.9.38，health ok；实测 users分页/orders筛选+amountSum(3180)/analytics/audit分页/redeem maxUses·usedCount/download 302/delete 404 全部正常。commit 158bda0，SHA256 570a9f65586c3d1408bfba06051ac10a600d15105dbe4580cdb250ea0c71729c，站点 /opt/proxysplit/releases/20260724-222507-158bda0-v1.9.38。
+
+## 2026-07-24 v1.9.39 运营后台 UI 统一打磨 + 兑换/下载加固
+- UI 打磨(多智能体 workflow，13 agent，11 页并行)：统一页头(app-shell 单一数据源)、DataTable 用法、状态徽章 label+variant 配色(启用绿/待黄/失败红/停用灰)、按钮规范(工具栏 icon+文案/行操作 dropdown/破坏性二次确认)、空/加载/错误态、dashboard+downloads 共用图表范式。功能全保留(搜索/筛选/分页/CRUD)。兑换码弹窗保留"发放方式"分组+预设(一人一码/一码多人)+实时说明。
+- 并发会话兑换/下载收尾加固一并合入：下载接口 releaseExists 拒伪造版本(防污染统计)、track/view 限流收紧；deleteRedeemCode 对 used_count>0 的多人码拦截删除(防 CASCADE 抹兑换台账)。
+- 🔴 迁移隐患修复：migrate.ts 按文件名(schema_migrations.name)记录、已应用即跳过、不校验内容 hash。并发会话把新索引加进已部署的 0008 → 现有生产库不会重跑该索引。改用独立 0009_download_events_time_idx.sql(IF NOT EXISTS 幂等)让索引正确落库。教训：改已部署迁移无效(按名跳过)，schema 变更必须新迁移文件。
+- 生产验证：latest=1.9.39，0009 applied，admin/site 200；回归 users分页/orders amountSum(3180)/analytics/downloads(200)/下载伪造版本404/真实302 全过。commit e31e289，SHA256 ed2dc69e199d904a994c4547f25857868e86f169a356be44034b50f9fc05d1b0，站点 /opt/proxysplit/releases/20260724-225941-e31e289-v1.9.39。
