@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"proxysplit/internal/nodes"
@@ -77,6 +78,46 @@ func TestTUNConfig(t *testing.T) {
 		}
 		t.Logf("TUN %s -> OK", mode)
 	}
+}
+
+// TestSplitScopedConfig verifies that per-app target-scoped rules (process +
+// domain/IP/port) emit valid sing-box route rules across all four action kinds
+// and the clash 直连 override path.
+func TestSplitScopedConfig(t *testing.T) {
+	bin := singboxPath(t)
+	dir := t.TempDir()
+	geoDir, _ := filepath.Abs(filepath.Join("..", "..", "bin"))
+	node, err := nodes.ParseLink(sampleLinks["vless-reality"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	opts := Options{
+		GeoDir:          geoDir,
+		Split:           true,
+		SplitWhitelist:  true,
+		ClashController: "127.0.0.1:19090", // enables the clash_mode 直连 override branch
+		SplitScoped: []ScopedRule{
+			{Name: "chrome.exe", Domains: []string{"google.com", "openai.com"}, Ports: []string{"443"}, Outbound: "proxy"},
+			{Name: "code.exe", IPs: []string{"1.1.1.1/32", "10.0.0.0/8"}, Outbound: "direct"},
+			{Name: "ads.exe", Domains: []string{"doubleclick.net"}, Outbound: "reject"},
+			{Name: "game.exe", Ports: []string{"8000-9000"}, Outbound: "proxy"},
+		},
+	}
+	cfg, err := BuildTUNConfig(node, "info", opts)
+	if err != nil {
+		t.Fatalf("build scoped: %v", err)
+	}
+	path := filepath.Join(dir, "tun-scoped.json")
+	os.WriteFile(path, cfg, 0o600)
+	if out, err := exec.Command(bin, "check", "-c", path).CombinedOutput(); err != nil {
+		t.Fatalf("sing-box check rejected scoped config:\n%s\n%s", out, cfg)
+	}
+	for _, want := range []string{"domain_suffix", "ip_cidr", "port_range", "process_name"} {
+		if !strings.Contains(string(cfg), want) {
+			t.Errorf("scoped config missing %q", want)
+		}
+	}
+	t.Logf("scoped TUN -> OK")
 }
 
 func TestMultiLine(t *testing.T) {

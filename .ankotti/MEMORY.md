@@ -168,3 +168,9 @@
 - 同赛道竞品(Proxifier 替代品/按进程分流)，但技术栈无关：原生 C + WinDivert(Win)/NetworkExtension(mac)/NFQUEUE(Linux)，上游仅 SOCKS5/HTTP。跨平台但一平台一套原生实现。
 - 我们优势：现代协议(reality/hysteria2/vless/vmess/trojan/tuic)、产品完整度(订阅/测速/TUN/系统代理/LAN/AI控制/商业后台/运行诊断)。方向领先，不用改路线。
 - 唯一可借鉴点：它每条规则可按 进程+IP+端口+协议+主机名(通配)组合匹配 allow/block；我们应用规则主要按进程名。sing-box 路由底层已支持 domain/ip/port，可把应用规则升级为"进程 + 目标(域名/IP/端口)"条件，让分流更精细（待用户确认是否做）。[[proxysplit-project]]
+
+## 2026-07-24 v1.9.41 应用规则目标条件(进程+域名/IP/端口精细分流) + 拆单支付 + 渠道隔离
+- 借鉴 ProxyBridge：应用规则可选带 domains/ips/ports 目标条件=作用域规则(该应用只有去这些目标的流量按规则走，其余走默认；全空=整个应用，向后兼容)。core.ScopedRule + config.go scopedRuleEntries(域名/IP 分开成规则、端口收窄、尊重顶栏直连急停)，置于广义 process_name 组前；service.Start 把 r.Scoped() 的规则分流为 SplitScoped(direct/reject/节点tag)；App.svelte 应用规则行可展开"目标条件"编辑器+限定徽章。TestSplitScopedConfig 过 sing-box check(域名+端口/IP段/拦截/端口段四类)。
+- 并发会话(已确认做完，本会话核对合并树后合入)：①支付拆单(价超网关单笔上限拆多子订单顺序扫码，迁移 0008_split_orders 加 orders.group_id/split_index/split_total，client.CreateOrder 返回 Checkout)②发布渠道隔离(/v1/releases/latest?channel 过滤 + string_to_array 版本数字排序，修 1.9.40<1.9.9 字典序)。
+- 🔴 教训：并发会话改了 CreateOrder 返回类型(Order→Checkout)但漏改 internal/license/retry_test.go，我核对时只跑了 core/service/latency 没跑完整 go test ./... 漏过，预检才炸。**核对合并树必须跑完整 `go test ./...`**。已修 retry_test(mock 返 Checkout、断言 order.Order.OrderNo)。
+- 生产 latest=1.9.41，migration 0008_split_orders applied，channel 隔离生效(beta=null)。commit f8904ef，SHA256 fd7b490148964be6ec8d88ef99d9c1cef16ca1c7d1b072bc901effa6782878e1。注意 migrations 有两个 0008 前缀(multiuse + split_orders)，按名各自记录、幂等、无碍。
