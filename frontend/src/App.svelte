@@ -76,6 +76,7 @@
     OpenPaymentURL as WOpenPaymentURL,
     GetAnnouncements as WGetAnnouncements,
     RefreshEntitlement as WRefreshEntitlement,
+    RedeemCode as WRedeemCode,
   } from '../wailsjs/go/main/App.js'
   import { EventsOn } from '../wailsjs/runtime/runtime.js'
   import donateQR from './assets/images/donate.png'
@@ -219,6 +220,8 @@
   let appUpdateTimer: ReturnType<typeof setInterval> | null = null
   let activeOrder: MemberOrder | null = null
   let paymentQR = ''
+  let redeemInput = ''
+  let redeemBusy = false
   let paymentPoll: ReturnType<typeof setInterval> | null = null
   let paymentPollVis: (() => void) | null = null
   let paymentPollBusy = false
@@ -625,6 +628,17 @@
   // 已有有效权益时，关闭会员弹窗才停止轮询。无有效权益用户使用的是整页购买
   // 界面（showMembership=false），不能因此误停付款查单。
   $: if (license.authenticated && !showMembership && paymentPoll) stopPaymentPolling()
+  async function redeem() {
+    const code = redeemInput.trim()
+    if (!code) { commerceError = '请输入兑换码'; return }
+    redeemBusy = true; commerceError = ''
+    const err = await WRedeemCode(code)
+    redeemBusy = false
+    if (err) { commerceError = err; return }
+    redeemInput = ''
+    await refreshLicense(); await loadCommerce()
+    toast('兑换成功，会员权益已开通')
+  }
   async function refreshPayment() {
     commerceBusy = true; commerceError = ''
     try {
@@ -2140,6 +2154,13 @@
           <div><span>授权到期</span><b>{license.expiresAt ? new Date(license.expiresAt).toLocaleString() : '以支付后授权为准'}</b></div>
           <div><span>已绑设备</span><b>{accountDevices.length} / {license.maxDevices || '—'} 台</b></div>
         </section>
+        <section class="redeem-box">
+          <div class="redeem-copy"><b>有兑换码 / 授权码？</b><small>输入后立即开通对应会员与时长，无需支付。</small></div>
+          <form class="redeem-form" on:submit|preventDefault={redeem}>
+            <input placeholder="输入兑换码，如 PS-XXXX-XXXX-XXXX" bind:value={redeemInput} disabled={redeemBusy} maxlength="64" />
+            <button type="submit" disabled={redeemBusy || !redeemInput.trim()}>{redeemBusy ? '兑换中…' : '立即兑换'}</button>
+          </form>
+        </section>
         {#if commerceError}<div class="member-alert">{commerceError}</div>{/if}
         {#if planLoadError}<div class="member-alert plan-load-alert"><span>{planLoadError}</span><button class="member-refresh" on:click={loadCommerce}>重新读取</button></div>{/if}
         <section class="benefit-comparison compact">
@@ -2940,6 +2961,13 @@
   .payment-actions { flex: none; display: grid!important; align-self: stretch; align-content: center; gap: 8px!important; }
   .member-modal-mask { z-index: 180; overflow: auto; padding: 28px; align-items: flex-start; }
   .member-modal { width: min(1120px,96vw); margin: auto; padding: 24px; border: 1px solid #243655; border-radius: 20px; color: #eaf1ff; background: linear-gradient(150deg,#0b1730,#111f3d); box-shadow: 0 30px 90px rgba(0,0,0,.45); }
+  .redeem-box { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 14px; padding: 13px 16px; border: 1px solid rgba(52,211,153,.32); border-radius: 12px; background: rgba(16,185,129,.08); }
+  .redeem-copy b { display: block; font-size: 13px; }
+  .redeem-copy small { color: #9aacca; font-size: 11px; }
+  .redeem-form { display: flex; gap: 8px; flex: 1; min-width: 260px; }
+  .redeem-form input { flex: 1; min-height: 36px; padding: 0 12px; border: 1px solid rgba(255,255,255,.14); border-radius: 9px; background: rgba(8,16,30,.55); color: #e7eefb; font: inherit; font-size: 12px; }
+  .redeem-form button { min-height: 36px; padding: 0 16px; border: 0; border-radius: 9px; background: #10b981; color: #04120c; font: inherit; font-size: 12px; font-weight: 800; cursor: pointer; }
+  .redeem-form button:disabled { opacity: .55; cursor: not-allowed; }
   .member-modal-head { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 18px; }
   .member-modal-head h2 { margin: 5px 0; }
   .member-head-actions { display: flex; align-items: center; gap: 8px; }

@@ -194,6 +194,10 @@ export function RefreshEntitlement() {
   return window['go']['main']['App']['RefreshEntitlement']();
 }
 
+export function RedeemCode(arg1) {
+  return window['go']['main']['App']['RedeemCode'](arg1);
+}
+
 export function Register(arg1, arg2, arg3) {
   return window['go']['main']['App']['Register'](arg1, arg2, arg3);
 }

@@ -649,6 +649,19 @@ func (a *App) RefreshEntitlement() string {
 	return errStr(a.lic.RefreshEntitlement())
 }
 
+// RedeemCode applies a redeem / activation code to the signed-in account and
+// refreshes the membership. Returns "" on success or an error message.
+func (a *App) RedeemCode(code string) string {
+	if a.lic == nil {
+		return "商业授权未启用"
+	}
+	code = strings.TrimSpace(code)
+	if code == "" {
+		return "请输入兑换码"
+	}
+	return errStr(a.lic.Redeem(code))
+}
+
 func (a *App) Logout() string {
 	if a.lic == nil {
 		return ""

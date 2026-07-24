@@ -103,6 +103,8 @@ export function PreviewAppRulesImport(arg1:string):Promise<service.RuleImportPre
 
 export function RefreshEntitlement():Promise<string>;
 
+export function RedeemCode(arg1:string):Promise<string>;
+
 export function Register(arg1:string,arg2:string,arg3:string):Promise<string>;
 
 export function RemoveNode(arg1:string):Promise<void>;

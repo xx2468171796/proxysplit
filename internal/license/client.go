@@ -483,6 +483,29 @@ func (c *Client) UnbindDevice(id string) error {
 	return nil
 }
 
+// Redeem applies a redeem / activation code to the signed-in account, then
+// refreshes the entitlement and lease so the new membership takes effect
+// immediately (same path a paid order uses).
+func (c *Client) Redeem(code string) error {
+	if !c.Enabled() {
+		return errors.New("商业授权未启用")
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	if err := c.authedRequestLocked(ctx, http.MethodPost, "/v1/me/redeem", map[string]any{"code": code}, nil); err != nil {
+		return err
+	}
+	if err := c.refreshLocked(ctx); err != nil {
+		return err
+	}
+	if err := c.acquireLeaseLocked(ctx); err != nil {
+		return err
+	}
+	return c.saveLocked()
+}
+
 // ActivateCurrentDevice converts the short-lived "名额已满" login into a real
 // device binding after the user removes an old device. Until this succeeds no
 // lease is held, therefore Service.Start remains blocked.
