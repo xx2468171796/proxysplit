@@ -18,7 +18,7 @@ describe('zhongzhuan payment adapter',()=>{
       return new Response(JSON.stringify({code:0,data:{qr_code:'https://cashier.invalid/q/1',out_trade_no:'gateway-1'}}),{status:200,headers:{'content-type':'application/json'}})
     }))
     const store={
-      createOrder:async()=>order,getProvider:async()=>provider,
+      createOrders:async()=>[order],getProvider:async()=>provider,
       setOrderPayment:vi.fn(async()=>({orderNo:order.orderNo})),failOrder:vi.fn(),
     }
     const service=new PaymentService(store as unknown as PgStore,'https://proxysplit.invalid')
@@ -27,7 +27,8 @@ describe('zhongzhuan payment adapter',()=>{
     expect(requestBody.notify_url).toBe('https://proxysplit.invalid/v1/payments/zhongzhuan/notify')
     const {sign:signature,...params}=requestBody
     expect(signature).toBe(sign(params))
-    expect(result.payUrl).toBe('https://cashier.invalid/q/1')
+    expect(result.order?.payUrl).toBe('https://cashier.invalid/q/1')
+    expect(result.split).toBe(false)
     expect(store.setOrderPayment).toHaveBeenCalledWith(order.orderNo,'gateway-1','https://cashier.invalid/q/1')
     expect(store.failOrder).not.toHaveBeenCalled()
   })
@@ -39,14 +40,14 @@ describe('zhongzhuan payment adapter',()=>{
       code:0,data:{qr_code:'https://cashier.invalid/q/fast',out_trade_no:'gateway-fast'},
     }),{status:200,headers:{'content-type':'application/json'}})))
     const store={
-      createOrder:async()=>order,getProvider:async()=>provider,
+      createOrders:async()=>[order],getProvider:async()=>provider,
       setOrderPayment:vi.fn(async()=>null),
       getOrderForCallback:vi.fn(async()=>({...order,status:'paid'})),
       failOrder:vi.fn(),
     }
     const service=new PaymentService(store as unknown as PgStore,'https://proxysplit.invalid')
     await expect(service.createOrder('user-id','plan-id','alice')).resolves.toMatchObject({
-      status:'paid',providerOrderNo:'gateway-fast',payUrl:'https://cashier.invalid/q/fast',
+      order:{status:'paid',providerOrderNo:'gateway-fast',payUrl:'https://cashier.invalid/q/fast'},
     })
     expect(store.failOrder).not.toHaveBeenCalled()
   })
@@ -56,7 +57,7 @@ describe('zhongzhuan payment adapter',()=>{
     process.env.PAYMENT_TEST_APP_SECRET='test-secret'
     vi.stubGlobal('fetch',vi.fn(async()=>{throw new Error('connection reset')}))
     const store={
-      createOrder:async()=>order,getProvider:async()=>provider,
+      createOrders:async()=>[order],getProvider:async()=>provider,
       setOrderPayment:vi.fn(),failOrder:vi.fn(),
     }
     const service=new PaymentService(store as unknown as PgStore,'https://proxysplit.invalid')
@@ -72,7 +73,7 @@ describe('zhongzhuan payment adapter',()=>{
       status:400,headers:{'content-type':'application/json'},
     })))
     const store={
-      createOrder:async()=>order,getProvider:async()=>provider,
+      createOrders:async()=>[order],getProvider:async()=>provider,
       setOrderPayment:vi.fn(),failOrder:vi.fn(),
     }
     const service=new PaymentService(store as unknown as PgStore,'https://proxysplit.invalid')

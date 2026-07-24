@@ -28,19 +28,34 @@ export class PaymentService{
   private syncCache=new Map<string,{at:number;promise:Promise<SyncOrderResult>}>()
   constructor(private store:PgStore,private publicBaseUrl:string){}
 
+  // A checkout is one or more orders. Plans above the split cap create a group
+  // of sub-orders, each with its own gateway QR, paid separately.
   async createOrder(userId:string,planId:string,username:string){
-    const order=await this.store.createOrder(userId,planId)
-    const provider=await this.store.getProvider(order.providerCode)
+    let orders
+    try{orders=await this.store.createOrders(userId,planId)}
+    catch(error){if((error as Error).message==='AMOUNT_TOO_LARGE')throw new AppError('AMOUNT_TOO_LARGE','订单金额过大，请联系客服',400);throw error}
+    const provider=await this.store.getProvider(orders[0]!.providerCode)
     if(!provider||!provider.enabled)throw new AppError('PAYMENT_UNAVAILABLE','支付通道暂不可用',503)
     if(provider.adapter!=='zhongzhuan'){
-      await this.store.failOrder(order.orderNo)
+      for(const o of orders)await this.store.failOrder(o.orderNo)
       throw new AppError('PAYMENT_UNSUPPORTED','支付通道适配器不可用',503)
     }
+    const paid=[]
+    for(const order of orders){
+      const withUrl=await this.createGatewayOrder(provider,order,username)
+      paid.push(withUrl)
+    }
+    const split=orders.length>1
+    return {split,groupNo:orders[0]!.groupId??null,orders:paid,order:paid[0]}
+  }
+
+  private async createGatewayOrder(provider:PaymentProviderRecord,order:{orderNo:string;amountCents:number;planName:string;groupId:string|null;splitIndex:number|null;splitTotal:number|null;providerOrderNo:string|null;payUrl:string|null;status:string},username:string){
     const appId=credential(provider,'APP_ID'),secret=credential(provider,'APP_SECRET')
     const timestamp=Math.floor(Date.now()/1000)
+    const subject=order.splitTotal&&order.splitTotal>1?`ProxySplit ${order.planName}（${order.splitIndex}/${order.splitTotal}）`:`ProxySplit ${order.planName}`
     const params:Record<string,Scalar>={
       app_id:appId,timestamp,app_order_no:order.orderNo,amount:order.amountCents/100,
-      subject:`ProxySplit ${order.planName}`,order_type:'recharge',
+      subject,order_type:'recharge',
       notify_url:`${this.publicBaseUrl}/v1/payments/zhongzhuan/notify`,buyer_name:username,
     }
     const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),15_000)
@@ -55,17 +70,12 @@ export class PaymentService{
       if(!response.ok||data.code!==0||!data.data?.qr_code)throw new Error(data.message||`HTTP ${response.status}`)
       const providerOrderNo=data.data.out_trade_no||data.data.trade_no||order.orderNo
       if(!await this.store.setOrderPayment(order.orderNo,providerOrderNo,data.data.qr_code)){
-        // A very fast verified callback can commit the paid order before the
-        // create response reaches us. That is success, not a create failure.
         const current=await this.store.getOrderForCallback(order.orderNo)
         if(current?.status==='paid')return {...order,status:'paid',providerOrderNo,payUrl:data.data.qr_code}
         throw new Error('本地订单状态已变化，请刷新订单状态')
       }
       return {...order,providerOrderNo,payUrl:data.data.qr_code}
     }catch(error){
-      // A timeout/connection reset is ambiguous: the gateway may already have
-      // accepted the order. Keep it pending so callback/reconciliation can
-      // still honor a later confirmed payment.
       if(definitiveFailure)await this.store.failOrder(order.orderNo)
       throw new AppError('PAYMENT_CREATE_FAILED',`支付下单失败：${error instanceof Error?error.message:'网关通讯异常'}`,502)
     }finally{clearTimeout(timer)}

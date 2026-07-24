@@ -2,6 +2,7 @@ import { createHash, randomBytes } from 'node:crypto'
 import { createDatabase } from '@proxysplit/db'
 import type { AnnouncementListQuery, AnnouncementUpsertInput, AuditListQuery, DeviceListQuery, OrderListQuery, PlanListQuery, PlanPatchInput, PlanUpsertInput, ProviderUpsertInput, RedeemListQuery, ReleaseListQuery, UserListQuery } from '@proxysplit/contracts'
 import { AppError } from '@proxysplit/shared'
+import { planSplit } from './split.js'
 
 export type UserRecord = {
   id:string; username:string; passwordHash:string; role:'user'|'admin';
@@ -42,7 +43,8 @@ export type OrderRecord = {
   tier:string; billingCycle:string; durationDays:number|null; lifetime:boolean;
   amountCents:number; currency:string; status:string; providerCode:string;
   providerOrderNo:string|null; payUrl:string|null; paidAt:Date|null;
-  expiresAt:Date; createdAt:Date
+  expiresAt:Date; createdAt:Date;
+  groupId:string|null; splitIndex:number|null; splitTotal:number|null
 }
 
 const sha256=(value:string)=>createHash('sha256').update(value).digest('hex')
@@ -547,7 +549,9 @@ export class PgStore {
     return r.rows[0]
   }
 
-  async createOrder(userId:string,planId:string):Promise<OrderRecord>{
+  // Create the order(s) for a checkout. Plans whose price exceeds the split cap
+  // return a group of sub-orders (paid separately); everything else returns one.
+  async createOrders(userId:string,planId:string):Promise<OrderRecord[]>{
     const settings=await this.getCommerceSettings()
     const provider=await this.getProvider(settings.activePaymentProvider)
     if(!provider||!provider.enabled)throw new Error('PAYMENT_UNAVAILABLE')
@@ -564,19 +568,28 @@ export class PgStore {
         FROM plans WHERE id=$1 AND active=true AND public=true AND (sale_starts_at IS NULL OR sale_starts_at<=now()) AND (sale_ends_at IS NULL OR sale_ends_at>now())`,[planId])).rows[0]
       if(!plan)throw new Error('PLAN_NOT_AVAILABLE')
       if(plan.purchase_limit_per_user){
-        const count=await client.query(`SELECT count(*)::int AS n FROM orders
+        // A split checkout creates several sub-orders; count order GROUPS, not rows.
+        const count=await client.query(`SELECT count(DISTINCT coalesce(group_id,id))::int AS n FROM orders
           WHERE user_id=$1 AND plan_id=$2 AND (status='paid' OR (status='pending' AND expires_at>now()))`,[userId,planId])
         if(count.rows[0].n>=plan.purchase_limit_per_user)throw new Error('PURCHASE_LIMIT')
       }
-      const no=orderNo()
-      const r=await client.query(`INSERT INTO orders(order_no,user_id,plan_id,plan_name,tier,billing_cycle,duration_days,lifetime,amount_cents,currency,provider_code,expires_at)
-        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
-        RETURNING id,order_no AS "orderNo",user_id AS "userId",plan_id AS "planId",plan_name AS "planName",tier,billing_cycle AS "billingCycle",
+      const split=planSplit(plan.price_cents/100)
+      if(split.kind==='tooLarge')throw new Error('AMOUNT_TOO_LARGE')
+      const amounts=split.kind==='split'?split.pieces.map(p=>Math.round(p*100)):[plan.price_cents as number]
+      const groupId=amounts.length>1?(await client.query('SELECT gen_random_uuid() AS id')).rows[0].id as string:null
+      const ret=`RETURNING id,order_no AS "orderNo",user_id AS "userId",plan_id AS "planId",plan_name AS "planName",tier,billing_cycle AS "billingCycle",
         duration_days AS "durationDays",lifetime,amount_cents AS "amountCents",currency,status,provider_code AS "providerCode",
-        provider_order_no AS "providerOrderNo",pay_url AS "payUrl",paid_at AS "paidAt",expires_at AS "expiresAt",created_at AS "createdAt"`,
-        [no,userId,plan.id,plan.name,plan.tier,plan.billing_cycle,plan.duration_days,plan.lifetime,plan.price_cents,plan.currency,provider.code,expiresAt])
+        provider_order_no AS "providerOrderNo",pay_url AS "payUrl",paid_at AS "paidAt",expires_at AS "expiresAt",created_at AS "createdAt",
+        group_id AS "groupId",split_index AS "splitIndex",split_total AS "splitTotal"`
+      const orders:OrderRecord[]=[]
+      for(let i=0;i<amounts.length;i++){
+        const r=await client.query(`INSERT INTO orders(order_no,user_id,plan_id,plan_name,tier,billing_cycle,duration_days,lifetime,amount_cents,currency,provider_code,expires_at,group_id,split_index,split_total)
+          VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) ${ret}`,
+          [orderNo(),userId,plan.id,plan.name,plan.tier,plan.billing_cycle,plan.duration_days,plan.lifetime,amounts[i],plan.currency,provider.code,expiresAt,groupId,groupId?i+1:null,groupId?amounts.length:null])
+        orders.push(r.rows[0])
+      }
       await client.query('COMMIT')
-      return r.rows[0]
+      return orders
     }catch(e){await client.query('ROLLBACK');throw e}finally{client.release()}
   }
   async setOrderPayment(orderNoValue:string,providerOrderNo:string,payUrl:string){
@@ -601,7 +614,8 @@ export class PgStore {
   }
   async listUserOrders(userId:string){
     const r=await this.pool.query(`SELECT order_no AS "orderNo",plan_name AS "planName",amount_cents AS "amountCents",currency,status,
-      pay_url AS "payUrl",paid_at AS "paidAt",expires_at AS "expiresAt",created_at AS "createdAt"
+      pay_url AS "payUrl",paid_at AS "paidAt",expires_at AS "expiresAt",created_at AS "createdAt",
+      group_id AS "groupId",split_index AS "splitIndex",split_total AS "splitTotal"
       FROM orders WHERE user_id=$1 ORDER BY created_at DESC LIMIT 100`,[userId])
     return r.rows
   }
@@ -669,6 +683,26 @@ export class PgStore {
       // callback/query must still grant what the customer paid for.
       if(order.status!=='pending'&&order.status!=='failed')throw new Error('ORDER_NOT_PAYABLE')
       if(order.provider_order_no&&order.provider_order_no!==input.providerOrderNo)throw new Error('PROVIDER_ORDER_MISMATCH')
+      if(order.group_id){
+        // Split sub-order: mark THIS sub-order paid; grant the plan once, when
+        // every sub-order in the group is paid (guarded by a group-level event
+        // so concurrent last-payments cannot double-grant).
+        await client.query(`UPDATE orders SET status='paid',provider_order_no=$2,paid_at=$3,updated_at=now() WHERE id=$1`,
+          [order.id,input.providerOrderNo,input.paidAt??new Date()])
+        const siblings=(await client.query(`SELECT status FROM orders WHERE group_id=$1 FOR UPDATE`,[order.group_id])).rows as Array<{status:string}>
+        const allPaid=siblings.length>0&&siblings.every(s=>s.status==='paid')
+        if(allPaid){
+          const groupEvent=await client.query(`INSERT INTO payment_events(provider_code,event_id,order_no,payload_hash,verified,result)
+            VALUES($1,$2,$3,'group',true,'fulfilled') ON CONFLICT(provider_code,event_id) DO NOTHING RETURNING id`,
+            [input.providerCode,`group:${order.group_id}`,order.order_no])
+          if(groupEvent.rows[0]){
+            await this.grantWithinTx(client,{userId:order.user_id,planId:order.plan_id,durationDays:order.duration_days,lifetime:order.lifetime,source:'order',orderId:order.id})
+          }
+        }
+        await client.query(`UPDATE payment_events SET result='fulfilled' WHERE id=$1`,[event.rows[0].id])
+        await client.query('COMMIT')
+        return {ok:true,duplicate:false,groupAllPaid:allPaid}
+      }
       // Lock the logical user+tier slot before checking whether a license row
       // exists. FOR UPDATE cannot lock an absent row, so without this lock two
       // first payments can insert parallel 30-day licenses and lose one term.
