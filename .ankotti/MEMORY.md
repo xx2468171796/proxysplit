@@ -4,6 +4,7 @@
 - 2026-07-24：第三轮“支付 / 认证 / 客户端”多智能体对抗审计已完成，修复版本为 `v1.9.20`，源码提交 `322c4f4bff26ca54ff0b3d1e251023f86f0ef506`。
 - 服务端当前部署：`/opt/proxysplit/releases/20260724-124715-322c4f4`；API、PostgreSQL、Redis 均 healthy，公网 `/health`、套餐目录、后台和官网正常。
 - 客户端产物：`output/proxysplit-v1.9.20.exe`，大小 `80,241,664` 字节，SHA256 `974c356460a959d7aa9f814647c9a1ac074578a2c51a011cd53e5a39217a3528`；正式下载和 `/v1/releases/latest` 已切至 1.9.20，线上下载哈希一致。
+- 本机曾仍从 `C:/Users/Administrator/Downloads/Programs/proxysplit-v1.9.19.exe` 启动，所以标题显示 1.9.19；这不是 1.9.20 构建错误。已备份旧文件、把该真实启动目标原地替换为 1.9.20 并重启，窗口标题与文件 ProductVersion 均已实测为 1.9.20。
 - 完整验证通过：`go test ./...`、`go vet ./...`、前端 `npm run check/build`、服务端 `pnpm typecheck/test/build`；服务端共 20 项测试（core 18 + API 2），前端 0 error / 0 warning。
 
 ## 本轮关键修复
