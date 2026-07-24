@@ -50,3 +50,14 @@ select,textarea{font:inherit;color:inherit}
 .table-wrap table th:first-child,.table-wrap table td:first-child{padding-left:17px}
 .detail-mask{position:fixed;inset:0;z-index:30;padding:28px;background:rgba(15,23,42,.42);display:flex;justify-content:flex-end}.user-detail{width:min(960px,calc(100vw - 56px));height:100%;overflow:auto;background:#f6f8fc;border-radius:18px;box-shadow:-18px 0 50px rgba(15,23,42,.25);padding:22px}.user-detail>header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px}.user-detail>header span{font-size:10px;color:#2864e8;font-weight:800;letter-spacing:.1em}.user-detail h2{margin:5px 0;font-size:23px}.user-detail header p{margin:0;color:#8a97aa;font:10px Consolas,monospace}.user-detail>header button{border:1px solid #d9e1ec;background:#fff;border-radius:8px;padding:7px 11px;color:#58677e}.detail-kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px}.detail-kpis>div{min-height:67px;padding:12px;border-radius:10px;background:#fff;border:1px solid #e6ebf2}.detail-kpis small{display:block;color:#8a97aa;font-size:10px}.detail-kpis b{display:block;margin-top:6px;font-size:16px}.user-detail>section{margin:13px 0;background:#fff;border:1px solid #e6ebf2;border-radius:12px;overflow:hidden}.user-detail h3{margin:0;padding:12px 14px;border-bottom:1px solid #e6ebf2;font-size:12px}.user-detail dl{display:grid;grid-template-columns:repeat(3,1fr);margin:0}.user-detail dl>div{padding:11px 14px;border-right:1px solid #edf0f5;border-bottom:1px solid #edf0f5}.user-detail dt{color:#8a97aa;font-size:10px}.user-detail dd{margin:5px 0 0;font-size:11px;word-break:break-all}.detail-table table{table-layout:auto}.detail-table td{height:47px;font-size:10px}.detail-table th{font-size:9px}.detail-table .table-wrap{max-height:260px}
 @media(max-width:1300px){.kpis{grid-template-columns:repeat(3,1fr)}.plan-grid,.provider-grid{grid-template-columns:repeat(2,1fr)}}
+
+/* 手动发放 / 兑换码 */
+.grant-modal{max-width:520px}
+.grant-modal .editor-grid{padding:20px}
+td .muted,.actions .muted{color:#8297b0}
+.minted{margin-top:14px;padding:14px;border:1px solid rgba(34,197,94,.35);border-radius:12px;background:rgba(34,197,94,.06)}
+.minted-head{display:flex;align-items:center;gap:10px;margin-bottom:8px}
+.minted-head b{font-size:13px}
+.minted-head small{flex:1;color:#8297b0}
+.minted-head button{padding:5px 10px;border-radius:8px}
+.minted textarea{width:100%;resize:vertical;border-radius:8px;padding:10px;background:#0b1524;color:#cfe0f5;border:1px solid rgba(255,255,255,.1)}
