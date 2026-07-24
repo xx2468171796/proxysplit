@@ -61,7 +61,31 @@ func Fetch(url string, viaProxy string) ([]*nodes.Node, error) {
 
 	text := decodeBody(string(body))
 	out, _ := nodes.ParseMany(text)
-	return out, nil
+	filtered := out[:0]
+	for _, node := range out {
+		if !isMetadataNode(node.Name) {
+			filtered = append(filtered, node)
+		}
+	}
+	return filtered, nil
+}
+
+// Providers often encode traffic/expiry notices as valid-looking proxy links.
+// They are account metadata, not selectable nodes, and otherwise create three
+// confusing duplicates that can never be expected to represent real routes.
+func isMetadataNode(name string) bool {
+	compact := strings.ToLower(strings.Join(strings.Fields(strings.TrimSpace(name)), ""))
+	markers := []string{
+		"剩余流量", "流量剩余", "套餐到期", "到期时间", "过期时间",
+		"过滤掉", "官网", "官方网站", "telegram", "电报群", "客服",
+		"traffic:", "traffic：", "expire:", "expire：",
+	}
+	for _, marker := range markers {
+		if strings.Contains(compact, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 // decodeBody returns the usable share-link text from a subscription body.

@@ -69,7 +69,7 @@ if (planGrid) {
           <strong><small>¥</small>${(Number(plan.priceCents) / 100).toFixed(2)}${Number(plan.originalPriceCents) > Number(plan.priceCents) ? `<del>¥${(Number(plan.originalPriceCents) / 100).toFixed(2)}</del>` : ''}</strong>
           <p>${escapeHTML(plan.description || '')}</p>
           <ul><li>${period}</li><li>${tier}</li><li>服务端签名授权</li></ul>
-          <a href="/download/proxysplit-v1.9.25.exe" data-download>支付宝开通</a>
+          <a href="/download/proxysplit-v1.9.26.exe" data-download>支付宝开通</a>
         </article>`
       }).join('')
       latestRelease.then((release) => applyLatestDownload(release, planGrid))
