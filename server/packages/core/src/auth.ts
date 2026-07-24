@@ -77,7 +77,11 @@ export class AuthService{
     const entitlement=await this.store.entitlement(user.id)
     const license=this.license(entitlement,user)
     const settings=await this.store.getCommerceSettings()
-    let device;try{device=await this.store.bindDevice(user.id,hashFingerprint(input.device.fingerprint),hashFingerprint(input.device.hardwareHash??input.device.fingerprint),input.device.name,input.device.platform,input.device.appVersion,license?.maxDevices??settings.defaultDeviceLimit)}catch(e){
+    // Admins run the operator console AND release automation from one account, so
+    // their device slots (default 3) fill up and lock them out. Admins are exempt
+    // from the per-account device limit; regular accounts stay capped.
+    const deviceLimit=user.role==='admin'?Number.MAX_SAFE_INTEGER:(license?.maxDevices??settings.defaultDeviceLimit)
+    let device;try{device=await this.store.bindDevice(user.id,hashFingerprint(input.device.fingerprint),hashFingerprint(input.device.hardwareHash??input.device.fingerprint),input.device.name,input.device.platform,input.device.appVersion,deviceLimit)}catch(e){
       if((e as Error).message==='DEVICE_LIMIT'){
         // 不签发租约和刷新令牌：此令牌仅能在 15 分钟内查看/解绑本账号设备，不能启动代理。
         await this.store.audit(user.id,'auth.login.device_limit','device','pending',ip,'success')
@@ -91,8 +95,9 @@ export class AuthService{
   async activateDevice(userId:string,device:ActivateDeviceInput['device'],ip=''){
     const user=await this.store.findUserById(userId);if(!user||user.status!=='active')throw new AppError('ACCOUNT_UNAVAILABLE','Account is unavailable',403)
     const entitlement=await this.store.entitlement(userId),license=this.license(entitlement,user),settings=await this.store.getCommerceSettings()
+    const deviceLimit=user.role==='admin'?Number.MAX_SAFE_INTEGER:(license?.maxDevices??settings.defaultDeviceLimit)
     try{
-      const bound=await this.store.bindDevice(userId,hashFingerprint(device.fingerprint),hashFingerprint(device.hardwareHash??device.fingerprint),device.name,device.platform,device.appVersion,license?.maxDevices??settings.defaultDeviceLimit)
+      const bound=await this.store.bindDevice(userId,hashFingerprint(device.fingerprint),hashFingerprint(device.hardwareHash??device.fingerprint),device.name,device.platform,device.appVersion,deviceLimit)
       await this.store.audit(userId,'auth.device.activate','device',bound.id,ip,'success')
       return {...await this.issue(user,bound.id),license}
     }catch(error){
