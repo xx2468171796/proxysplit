@@ -161,7 +161,12 @@ $stage = Join-Path $temp 'server'
 New-Item -ItemType Directory -Path $stage -Force | Out-Null
 try {
     $sourceTar = Join-Path $temp 'source.tar'
-    Run 'git' @('-C', $root, 'archive', '--format=tar', '-o', $sourceTar, 'HEAD:server')
+    # -c core.autocrlf=false: `git archive HEAD:server` reads .gitattributes from
+    # the server subtree only; without this, a Windows autocrlf=true dev machine
+    # would still rewrite shell scripts to CRLF and break Linux container
+    # entrypoints (`exec ...: no such file or directory`). Belt-and-suspenders
+    # alongside server/.gitattributes.
+    Run 'git' @('-c', 'core.autocrlf=false', '-C', $root, 'archive', '--format=tar', '-o', $sourceTar, 'HEAD:server')
     Run 'tar' @('-xf', $sourceTar, '-C', $stage)
     $adminDist = Join-Path $root 'server\apps\admin\dist'
     if (-not (Test-Path (Join-Path $adminDist 'index.html'))) { throw 'Admin dist was not built' }

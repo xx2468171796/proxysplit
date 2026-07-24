@@ -1,0 +1,8 @@
+# The release pipeline assembles the server via `git archive HEAD:server`, which
+# archives THIS subtree and therefore only reads .gitattributes files inside it —
+# the repository-root .gitattributes does NOT apply. Without these rules, a
+# Windows dev machine with core.autocrlf=true bakes CRLF into shell scripts, and
+# a container entrypoint like `#!/bin/sh\r` fails with
+# "exec ...: no such file or directory". Keep POSIX scripts LF here.
+* text=auto eol=lf
+*.sh text eol=lf
