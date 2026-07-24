@@ -1,6 +1,7 @@
 package license
 
 import (
+	"context"
 	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/sha256"
@@ -9,6 +10,10 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -123,5 +128,128 @@ func TestClearOnlineSessionPreservesOfflineLease(t *testing.T) {
 	}
 	if c.state.Lease != "signed-offline-lease" || c.state.Username != "member" || c.state.Plan != "Standard" || c.state.MaxDevices != 3 {
 		t.Fatalf("offline entitlement metadata was unexpectedly cleared: %+v", c.state)
+	}
+}
+
+func TestLoadMigratesLegacyStateAndPersistsVersion(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "license.dat")
+	legacy, err := json.Marshal(state{Username: "legacy-user", RefreshToken: "legacy-refresh", Lease: "offline-lease"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sealed, err := protect(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, sealed, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	c := &Client{path: path}
+	c.load()
+	if c.state.SchemaVersion != stateSchemaVersion || c.state.Username != "legacy-user" || c.state.Lease != "offline-lease" {
+		t.Fatalf("legacy cache migration failed: %+v", c.state)
+	}
+
+	persisted, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plain, err := unprotect(persisted)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var migrated state
+	if err := json.Unmarshal(plain, &migrated); err != nil {
+		t.Fatal(err)
+	}
+	if migrated.SchemaVersion != stateSchemaVersion {
+		t.Fatalf("migrated schema version was not persisted: %+v", migrated)
+	}
+}
+
+func TestLoadPreservesUnsupportedFutureStateForNewerClient(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "license.dat")
+	future, err := json.Marshal(state{SchemaVersion: stateSchemaVersion + 1, Username: "future-user", RefreshToken: "future-refresh"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sealed, err := protect(future)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, sealed, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	c := &Client{path: path}
+	c.load()
+	if c.state.Username != "" {
+		t.Fatalf("older client loaded unsupported future cache: %+v", c.state)
+	}
+	after, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(after) != string(sealed) {
+		t.Fatal("older client modified a future-version cache")
+	}
+}
+
+func TestReconcileSessionClearsRejectedSessionButKeepsLease(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/auth/refresh" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"error":{"message":"session revoked"}}`))
+	}))
+	defer server.Close()
+
+	c := &Client{
+		path:   filepath.Join(t.TempDir(), "license.dat"),
+		apiURL: server.URL,
+		http:   server.Client(),
+		state: state{
+			SchemaVersion:      stateSchemaVersion,
+			Username:           "member",
+			AccessToken:        "expired",
+			RefreshToken:       "revoked",
+			DeviceID:           "old-device",
+			Lease:              "signed-offline-lease",
+			SessionValidatedAt: time.Now().Add(-time.Hour).Unix(),
+		},
+	}
+
+	err := c.ReconcileSession(context.Background())
+	if err == nil {
+		t.Fatal("rejected refresh unexpectedly succeeded")
+	}
+	if c.state.AccessToken != "" || c.state.RefreshToken != "" || c.state.DeviceID != "" || c.state.SessionValidatedAt != 0 {
+		t.Fatalf("rejected online session was not cleared: %+v", c.state)
+	}
+	if c.state.Lease != "signed-offline-lease" || c.state.Username != "member" {
+		t.Fatalf("offline entitlement was cleared: %+v", c.state)
+	}
+}
+
+func TestReconcileSessionKeepsCacheOnNetworkFailure(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	c := &Client{
+		path:   filepath.Join(t.TempDir(), "license.dat"),
+		apiURL: server.URL,
+		http:   server.Client(),
+		state:  state{SchemaVersion: stateSchemaVersion, AccessToken: "access", RefreshToken: "refresh", DeviceID: "device", Lease: "lease"},
+	}
+	server.Close()
+
+	if err := c.ReconcileSession(context.Background()); err == nil {
+		t.Fatal("closed server unexpectedly reconciled")
+	}
+	if c.state.AccessToken != "access" || c.state.RefreshToken != "refresh" || c.state.DeviceID != "device" || c.state.Lease != "lease" {
+		t.Fatalf("network failure destroyed cached state: %+v", c.state)
 	}
 }

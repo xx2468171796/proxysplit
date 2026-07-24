@@ -99,18 +99,22 @@ type Announcement struct {
 }
 
 type state struct {
-	Username      string   `json:"username"`
-	RefreshToken  string   `json:"refreshToken"`
-	AccessToken   string   `json:"accessToken"`
-	Lease         string   `json:"lease"`
-	DeviceID      string   `json:"deviceId"`
-	Plan          string   `json:"plan"`
-	PlanCode      string   `json:"planCode"`
-	Tier          string   `json:"tier"`
-	MaxDevices    int      `json:"maxDevices"`
-	Features      []string `json:"features"`
-	PendingDevice bool     `json:"pendingDevice"`
+	SchemaVersion      int      `json:"schemaVersion"`
+	Username           string   `json:"username"`
+	RefreshToken       string   `json:"refreshToken"`
+	AccessToken        string   `json:"accessToken"`
+	Lease              string   `json:"lease"`
+	DeviceID           string   `json:"deviceId"`
+	Plan               string   `json:"plan"`
+	PlanCode           string   `json:"planCode"`
+	Tier               string   `json:"tier"`
+	MaxDevices         int      `json:"maxDevices"`
+	Features           []string `json:"features"`
+	PendingDevice      bool     `json:"pendingDevice"`
+	SessionValidatedAt int64    `json:"sessionValidatedAt,omitempty"`
 }
+
+const stateSchemaVersion = 1
 
 type leaseClaims struct {
 	Subject            string   `json:"sub"`
@@ -228,12 +232,42 @@ func (c *Client) load() {
 		return
 	}
 	plain, err := unprotect(raw)
-	if err == nil {
-		_ = json.Unmarshal(plain, &c.state)
+	if err != nil {
+		c.quarantineStateFile()
+		return
 	}
+	var loaded state
+	if err := json.Unmarshal(plain, &loaded); err != nil {
+		c.quarantineStateFile()
+		return
+	}
+	// Version 0 is the pre-versioning format shipped through v1.9.23. Its
+	// fields are structurally compatible, so migrate it in place. A cache from
+	// a newer client is deliberately left untouched so downgrading cannot
+	// destroy credentials that the newer version still understands.
+	if loaded.SchemaVersion > stateSchemaVersion {
+		return
+	}
+	if loaded.SchemaVersion < 0 {
+		c.quarantineStateFile()
+		return
+	}
+	if loaded.SchemaVersion == 0 {
+		loaded.SchemaVersion = stateSchemaVersion
+		c.state = loaded
+		_ = c.saveLocked()
+		return
+	}
+	c.state = loaded
+}
+
+func (c *Client) quarantineStateFile() {
+	suffix := time.Now().UTC().Format("20060102T150405.000000000Z")
+	_ = os.Rename(c.path, c.path+".corrupt-"+suffix+".bak")
 }
 
 func (c *Client) saveLocked() error {
+	c.state.SchemaVersion = stateSchemaVersion
 	raw, err := json.Marshal(c.state)
 	if err != nil {
 		return err
@@ -331,7 +365,7 @@ func (c *Client) authenticate(path, username, email, password string) error {
 	if err != nil {
 		return err
 	}
-	c.state = state{Username: strings.TrimSpace(username), AccessToken: result.AccessToken, RefreshToken: result.RefreshToken, DeviceID: result.DeviceID, PendingDevice: result.DeviceLimitReached}
+	c.state = state{SchemaVersion: stateSchemaVersion, Username: strings.TrimSpace(username), AccessToken: result.AccessToken, RefreshToken: result.RefreshToken, DeviceID: result.DeviceID, PendingDevice: result.DeviceLimitReached, SessionValidatedAt: time.Now().Unix()}
 	if result.License != nil {
 		c.state.Plan, c.state.PlanCode, c.state.Tier, c.state.MaxDevices, c.state.Features = result.License.Plan, result.License.PlanCode, result.License.Tier, result.License.MaxDevices, result.License.Features
 		if !result.DeviceLimitReached {
@@ -414,6 +448,7 @@ func (c *Client) clearOnlineSessionLocked() {
 	c.state.RefreshToken = ""
 	c.state.DeviceID = ""
 	c.state.PendingDevice = false
+	c.state.SessionValidatedAt = 0
 }
 
 func (c *Client) Devices() ([]Device, error) {
@@ -521,10 +556,33 @@ func (c *Client) refreshLocked(ctx context.Context) error {
 		return err
 	}
 	c.state.AccessToken, c.state.RefreshToken = result.AccessToken, result.RefreshToken
+	c.state.SessionValidatedAt = time.Now().Unix()
 	// Refresh tokens are one-time credentials. Persist the rotated token before
 	// any subsequent lease request so a lease/network failure cannot leave the
 	// old, already-consumed token on disk.
 	return c.saveLocked()
+}
+
+// ReconcileSession validates cached online credentials against the server
+// before the first UI snapshot is rendered. Network failures keep the cache
+// for offline use; a definitive 4xx rejection clears only the online session,
+// never the independently signed offline lease.
+func (c *Client) ReconcileSession(ctx context.Context) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if !c.Enabled() || c.state.RefreshToken == "" {
+		return nil
+	}
+	err := c.refreshLocked(ctx)
+	if err == nil {
+		return nil
+	}
+	var apiErr *APIError
+	if errors.As(err, &apiErr) && apiErr.Status >= 400 && apiErr.Status < 500 {
+		c.clearOnlineSessionLocked()
+		_ = c.saveLocked()
+	}
+	return err
 }
 
 func (c *Client) acquireLeaseLocked(ctx context.Context) error {

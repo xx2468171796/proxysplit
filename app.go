@@ -76,6 +76,15 @@ func (a *App) startup(ctx context.Context) {
 	}
 	a.svc = svc
 	a.lic = license.New(dataDir(), appVersion)
+	// Validate persisted online credentials before exposing the first UI
+	// snapshot. A short timeout avoids delaying offline startup; network
+	// failures retain the signed offline lease, while revoked/stale sessions
+	// are removed so upgrades cannot resurrect a false "signed in" state.
+	reconcileCtx, reconcileCancel := context.WithTimeout(ctx, 4*time.Second)
+	if err := a.lic.ReconcileSession(reconcileCtx); err != nil {
+		runtime.LogWarning(ctx, "license session reconcile: "+err.Error())
+	}
+	reconcileCancel()
 	svc.SetStartGuard(a.commercialStartGuard)
 	svc.SetLogSink(func(line string) {
 		runtime.EventsEmit(ctx, "log", line)
