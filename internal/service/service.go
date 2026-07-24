@@ -20,7 +20,6 @@ import (
 	"proxysplit/internal/engine"
 	"proxysplit/internal/geoupdate"
 	"proxysplit/internal/icon"
-	"proxysplit/internal/latency"
 	"proxysplit/internal/nodes"
 	"proxysplit/internal/proc"
 	"proxysplit/internal/subs"
@@ -549,10 +548,6 @@ func (s *Service) nodeByID(id string) *nodes.Node {
 func (s *Service) TestLatency(id string) int {
 	s.mu.Lock()
 	n := s.nodeByID(id)
-	socks := ""
-	if s.core.Running() && s.core.Port() > 0 && id == s.cfg.SelectedID {
-		socks = fmt.Sprintf("127.0.0.1:%d", s.core.Port())
-	}
 	var snap nodes.Node
 	if n != nil {
 		snap = *n
@@ -561,22 +556,71 @@ func (s *Service) TestLatency(id string) int {
 	if n == nil {
 		return -1
 	}
-	res := latency.Measure(&snap, socks, 5*time.Second)
+	res := s.measureNode(&snap, 5*time.Second)
 	s.mu.Lock()
-	n.Latency = res.Latency
-	if res.Speed > 0 {
-		n.Speed = res.Speed
+	if current := s.nodeByID(id); current != nil {
+		current.Latency = res.Latency
+		if res.Speed > 0 {
+			current.Speed = res.Speed
+		}
+		s.save()
 	}
-	s.save()
 	s.mu.Unlock()
 	return res.Latency
 }
 
 // TestAllLatency measures every node.
 func (s *Service) TestAllLatency() {
-	for _, n := range s.Nodes() {
-		s.TestLatency(n.ID)
+	s.mu.Lock()
+	snaps := make([]nodes.Node, 0, len(s.cfg.Nodes))
+	for _, n := range s.cfg.Nodes {
+		if n != nil {
+			snaps = append(snaps, *n)
+		}
 	}
+	s.mu.Unlock()
+
+	type measured struct {
+		id      string
+		latency int
+	}
+	jobs := make(chan nodes.Node)
+	results := make(chan measured, len(snaps))
+	workers := 4
+	if len(snaps) < workers {
+		workers = len(snaps)
+	}
+	var wg sync.WaitGroup
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for n := range jobs {
+				results <- measured{id: n.ID, latency: s.measureNode(&n, 5*time.Second).Latency}
+			}
+		}()
+	}
+	go func() {
+		for _, n := range snaps {
+			jobs <- n
+		}
+		close(jobs)
+		wg.Wait()
+		close(results)
+	}()
+
+	measuredResults := make([]measured, 0, len(snaps))
+	for r := range results {
+		measuredResults = append(measuredResults, r)
+	}
+	s.mu.Lock()
+	for _, r := range measuredResults {
+		if n := s.nodeByID(r.id); n != nil {
+			n.Latency = r.latency
+		}
+	}
+	s.save()
+	s.mu.Unlock()
 }
 
 // --- App rules ---

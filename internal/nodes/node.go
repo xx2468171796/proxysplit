@@ -16,7 +16,7 @@ type Node struct {
 	Password string `json:"password,omitempty"` // trojan / ss / hysteria2 / tuic / socks / http
 	Username string `json:"username,omitempty"` // socks / http
 	Method   string `json:"method,omitempty"`   // shadowsocks cipher
-	AlterID  int    `json:"alterId,omitempty"`   // vmess
+	AlterID  int    `json:"alterId,omitempty"`  // vmess
 	Cipher   string `json:"cipher,omitempty"`   // vmess security (auto/none/...)
 	CC       string `json:"cc,omitempty"`       // tuic congestion control
 
@@ -31,13 +31,14 @@ type Node struct {
 	Insecure    bool     `json:"insecure,omitempty"`
 
 	// Transport
-	Network     string `json:"network,omitempty"` // tcp | ws | grpc | http
-	Path        string `json:"path,omitempty"`    // ws/http path or grpc serviceName
-	Host        string `json:"host,omitempty"`    // ws/http Host header
+	Network string `json:"network,omitempty"` // tcp | ws | grpc | http
+	Path    string `json:"path,omitempty"`    // ws/http path or grpc serviceName
+	Host    string `json:"host,omitempty"`    // ws/http Host header
 
-	// Runtime measurements (populated by latency/speed tests; -1 = unknown).
-	Latency int     `json:"latency"` // ms
-	Speed   float64 `json:"speed"`   // MB/s
+	// Runtime measurements (populated by latency/speed tests).
+	// Latency: 0 = not measured, -1 = unreachable, positive = milliseconds.
+	Latency int     `json:"latency"`         // ms
+	Speed   float64 `json:"speed"`           // MB/s
 	SubID   string  `json:"subId,omitempty"` // owning subscription, if any
 
 	Raw string `json:"raw,omitempty"` // original share link

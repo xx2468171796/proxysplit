@@ -17,6 +17,7 @@
     SetAppRules as WSetAppRules,
     GetRuleMode as WGetRuleMode,
     SetRuleMode as WSetRuleMode,
+    TestLatency as WTestLatency,
     TestAllLatency as WTestAllLatency,
     GetAppIcon as WGetAppIcon,
     GetSubs as WGetSubs,
@@ -253,6 +254,8 @@
   let sysProxy = false // Windows system proxy on/off
   let speedMsg = '' // download speed test result / status
   let speedTesting = false
+  let latencyTesting = false
+  let latencyTestingId = ''
   let qrData = '' // PNG data URI for the QR overlay ('' = hidden)
   let qrName = ''
   // 赞赏码：每次启动强制弹出，先倒计时 3 秒（期间不可关闭），倒计时结束后
@@ -919,9 +922,32 @@
     toast('已导入配置备份')
   }
   async function testAllLatency() {
-    if (useDemo || !isWailsReady()) return
-    try { await WTestAllLatency() } catch {}
-    await refreshNodes()
+    if (latencyTesting || useDemo || !isWailsReady()) return
+    latencyTesting = true
+    nodes = nodes.map((n) => ({ ...n, latency: -99 }))
+    try {
+      await WTestAllLatency()
+      await refreshNodes()
+    } catch (e) {
+      toast('节点延迟测试失败：' + e)
+      await refreshNodes()
+    } finally {
+      latencyTesting = false
+    }
+  }
+  async function testNodeLatency(n: Node) {
+    if (latencyTestingId || useDemo || !isWailsReady()) return
+    latencyTestingId = n.id
+    nodes = nodes.map((x) => x.id === n.id ? { ...x, latency: -99 } : x)
+    try {
+      await WTestLatency(n.id)
+      await refreshNodes()
+    } catch (e) {
+      toast('节点延迟测试失败：' + e)
+      await refreshNodes()
+    } finally {
+      latencyTestingId = ''
+    }
   }
 
   // --- 一键切模式 (clash mode: 规则/全局/直连, no restart) ---
@@ -1358,7 +1384,14 @@
     gauge: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 18a8 8 0 1 1 16 0"/><path d="M12 18l4-5"/><circle cx="12" cy="18" r="1.2" fill="currentColor"/></svg>',
     dash: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="8" height="8" rx="2"/><rect x="13" y="3" width="8" height="5" rx="2"/><rect x="13" y="10" width="8" height="11" rx="2"/><rect x="3" y="13" width="8" height="8" rx="2"/></svg>',
   }
-  function qual(ms?: number) { return !ms ? 0 : ms < 80 ? 4 : ms < 130 ? 3 : ms < 200 ? 2 : 1 }
+  function latencyText(ms?: number): string {
+    if (ms === -99) return '测速中…'
+    if (ms === undefined || ms === 0) return '未测速'
+    if (ms < 0) return '不可用'
+    return `${ms} ms`
+  }
+  function nodeOptionLabel(n: Node): string { return `${n.name} · ${latencyText(n.latency)}` }
+  function qual(ms?: number) { return !ms || ms < 0 ? 0 : ms < 80 ? 4 : ms < 130 ? 3 : ms < 200 ? 2 : 1 }
 </script>
 
 <svelte:head><title>ProxySplit</title></svelte:head>
@@ -1492,7 +1525,7 @@
         <div class="tb-field">
           <span class="tb-label">活动节点 <span class="node-dot" class:on={running}></span></span>
           <select on:change={onNodeChange}>
-            {#each nodes as n}<option value={n.id} selected={n.id === status?.selectedId}>{n.name}</option>{/each}
+            {#each nodes as n}<option value={n.id} selected={n.id === status?.selectedId}>{nodeOptionLabel(n)}</option>{/each}
           </select>
         </div>
         <div class="tb-field">
@@ -1547,7 +1580,7 @@
 
         <div class="grid kpis">
           <section class="card kpi"><span class="kpi-icon">{@html I.wifi}</span><div><div class="kpi-label">核心状态</div><div class="kpi-value">{running ? '运行中' : '已停止'}</div></div></section>
-          <section class="card kpi"><span class="kpi-icon green">{@html I.server}</span><div><div class="kpi-label">活动节点</div><div class="kpi-value ellipsis">{activeNodeObj?.name || '未选择'} {#if activeNodeObj?.latency}<small>{activeNodeObj.latency} ms</small>{/if}</div></div></section>
+          <section class="card kpi"><span class="kpi-icon green">{@html I.server}</span><div><div class="kpi-label">活动节点</div><div class="kpi-value ellipsis">{activeNodeObj?.name || '未选择'} {#if activeNodeObj}<small>{latencyText(activeNodeObj.latency)}</small>{/if}</div></div></section>
           <section class="card kpi"><span class="kpi-icon orange">{@html I.apps}</span><div><div class="kpi-label">应用规则</div><div class="kpi-value">{ruleCount}<small>{proxyCount} 条代理</small></div></div></section>
           <section class="card kpi"><span class="kpi-icon">{@html I.users}</span><div><div class="kpi-label">活动连接</div><div class="kpi-value">{activeConns}<small>{running ? uptime : '未运行'}</small></div></div></section>
         </div>
@@ -1588,12 +1621,12 @@
             <section class="card"><div class="card-head"><div><div class="card-title">快速操作</div><div class="card-sub">常用功能一步到达</div></div></div><div class="card-body quick-grid">
               <button class="quick" on:click={() => (tab = 'nodes')}><b>＋ 添加节点</b><small>链接导入或手动添加</small></button>
               <button class="quick" on:click={() => { tab = 'apps'; openPicker() }}><b>＋ 添加应用</b><small>选择进程或程序文件</small></button>
-              <button class="quick" on:click={testAllLatency}><b>⟳ 全部测速</b><small>检测节点连接延迟</small></button>
+              <button class="quick" on:click={testAllLatency} disabled={latencyTesting}><b>⟳ {latencyTesting ? '测速中…' : '全部测速'}</b><small>逐个验证完整代理链路</small></button>
               <button class="quick" on:click={() => (tab = 'logs')}><b>✓ 网络诊断</b><small>检查核心与运行日志</small></button>
             </div></section>
             <section class="card"><div class="card-head"><div><div class="card-title">节点健康</div><div class="card-sub">最近一次检测结果</div></div><button class="btn sm" on:click={() => (tab = 'nodes')}>全部节点</button></div><div class="card-body health-list">
               {#each nodes.slice(0, 4) as n}
-                <button class="health-item" on:click={() => selectNode(n.id)}><div class="health-info"><b>{n.name}</b><small>{n.id === status?.selectedId ? '活动节点' : n.type.toUpperCase()}</small><div class="health-bar"><i style={`width:${n.latency ? Math.max(12, 100 - Math.min(n.latency, 500) / 5) : 8}%`}></i></div></div><span class="latency">{n.latency ?? '—'} ms</span></button>
+                <button class="health-item" on:click={() => selectNode(n.id)}><div class="health-info"><b>{n.name}</b><small>{n.id === status?.selectedId ? '活动节点' : n.type.toUpperCase()}</small><div class="health-bar"><i style={`width:${n.latency && n.latency > 0 ? Math.max(12, 100 - Math.min(n.latency, 500) / 5) : 8}%`}></i></div></div><span class="latency">{latencyText(n.latency)}</span></button>
               {/each}
               {#if nodes.length === 0}<div class="empty sm">还没有节点</div>{/if}
             </div></section>
@@ -1717,8 +1750,8 @@
                         <option value="block">拦截</option>
                       </select>
                       <select class="line-select node-select" bind:value={r.node} on:change={onRuleLineChange} disabled={r.line === 'direct' || r.line === 'block'} title="该应用走哪个节点">
-                        <option value="">活动节点</option>
-                        {#each nodes as n}<option value={n.id}>{n.name}</option>{/each}
+                        <option value="">活动节点{activeNodeObj ? ` · ${latencyText(activeNodeObj.latency)}` : ''}</option>
+                        {#each nodes as n}<option value={n.id}>{nodeOptionLabel(n)}</option>{/each}
                       </select>
                       <label class="switch ctr"><input type="checkbox" checked={r.enabled} on:change={() => toggleRule(r)} /><i></i></label>
                       <div class="row-actions ctr">
@@ -1740,12 +1773,12 @@
 
           <aside class="col-rail">
             <section class="card">
-              <div class="card-head sm"><h3>节点延迟 / 速度</h3><button class="link" on:click={testAllLatency}>{@html I.refresh} 测延迟</button></div>
+              <div class="card-head sm"><h3>节点延迟 / 速度</h3><button class="link" on:click={testAllLatency} disabled={latencyTesting}>{@html I.refresh} {latencyTesting ? '测速中…' : '测延迟'}</button></div>
               <div class="nrail-head"><span>节点名称</span><span>延迟</span><span>下载速度</span></div>
               {#each (useDemo ? demoNodes : nodes).slice(0, 6) as n}
                 <div class="nrail-row" class:sel={n.id === status?.selectedId} on:dblclick={() => selectNode(n.id)}>
                   <div class="nrail-name"><span class="flag {n.region || 'x'}"></span>{n.name}{#if n.id === status?.selectedId}<span class="active-badge">活动</span>{/if}</div>
-                  <span class="lat" data-q={qual(n.latency)}>{n.latency ?? '—'} ms</span>
+                  <span class="lat" data-q={qual(n.latency)}>{latencyText(n.latency)}</span>
                   <div class="spd"><b>{n.speed?.toFixed(2) ?? '—'}</b> MB/s <span class="bars" data-q={qual(n.latency)}>{@html I.bars}</span></div>
                 </div>
               {/each}
@@ -1772,7 +1805,7 @@
       {:else if tab === 'nodes'}
         <div class="page-head">
           <div><h1>节点管理</h1><p>导入区域和节点列表左右分栏，减少空白并提升操作效率。</p></div>
-          <div class="head-actions"><button class="btn" on:click={testAllLatency}>⟳ 测延迟</button><button class="btn" on:click={runSpeedTest} disabled={speedTesting}>{speedTesting ? '测速中…' : '测速'}</button><button class="btn primary" on:click={() => (tab = 'subs')}>＋ 添加订阅</button></div>
+          <div class="head-actions"><button class="btn" on:click={testAllLatency} disabled={latencyTesting}>⟳ {latencyTesting ? '延迟测试中…' : '测全部延迟'}</button><button class="btn" on:click={runSpeedTest} disabled={speedTesting}>{speedTesting ? '下载测速中…' : '测活动节点速度'}</button><button class="btn primary" on:click={() => (tab = 'subs')}>＋ 添加订阅</button></div>
         </div>
         <section class="node-manager-v2">
           <div class="card node-import-card">
@@ -1818,9 +1851,9 @@
                     <span class="badge">{n.type}</span>
                     <div class="nmeta"><strong>{n.name}</strong><small class="muted">{n.server}:{n.port}</small></div>
                   </div>
-                  <span class="lat" data-q={qual(n.latency)}>{n.latency ?? '—'} ms</span>
+                  <span class="lat" data-q={qual(n.latency)}>{latencyText(n.latency)}</span>
                   <span class="nspd">{n.speed?.toFixed(2) ?? '—'} MB/s</span>
-                  <div class="row-actions ctr"><button class="mini" on:click={() => selectNode(n.id)}>设为活动</button><button class="icon-btn" on:click={() => showQR(n)} title="分享二维码">{@html I.qr}</button><button class="icon-btn danger" on:click={() => removeNode(n.id)} title="删除节点">{@html I.trash}</button></div>
+                  <div class="row-actions ctr"><button class="mini test" on:click={() => testNodeLatency(n)} disabled={!!latencyTestingId}>{latencyTestingId === n.id ? '测速中…' : '测延迟'}</button><button class="mini" on:click={() => selectNode(n.id)}>设为活动</button><button class="icon-btn" on:click={() => showQR(n)} title="分享二维码">{@html I.qr}</button><button class="icon-btn danger" on:click={() => removeNode(n.id)} title="删除节点">{@html I.trash}</button></div>
                 </div>
               {/each}
               {#if nodes.length === 0}<div class="empty">还没有节点。粘贴分享链接点「从链接添加」，或点「手动添加」填 SOCKS5 / HTTP 代理。</div>{/if}
@@ -1930,7 +1963,7 @@
                 <label class="lf-field"><span>出口</span>
                   <select bind:value={lineForm.node}>
                     <option value="active">跟随活动节点</option>
-                    {#each nodes as n}<option value={n.id}>{n.name}</option>{/each}
+                    {#each nodes as n}<option value={n.id}>{nodeOptionLabel(n)}</option>{/each}
                     <option value="direct">直连</option>
                   </select>
                 </label>
