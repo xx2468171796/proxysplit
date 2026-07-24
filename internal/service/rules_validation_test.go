@@ -1,10 +1,14 @@
 package service
 
 import (
+	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"proxysplit/internal/core"
+	"proxysplit/internal/nodes"
 )
 
 func TestRuleSetTogglePersists(t *testing.T) {
@@ -92,6 +96,64 @@ func TestRuleUpdatesAreValidatedAtomically(t *testing.T) {
 	got := s.GetAppRules()
 	if len(got) != 1 || got[0].Line != LineRule {
 		t.Fatalf("deleted line left a dangling app mapping: %+v", got)
+	}
+}
+
+func TestLoadHealsDanglingNodeReferences(t *testing.T) {
+	dir := t.TempDir()
+	cfg := Config{
+		Nodes:      []*nodes.Node{{ID: "node-live", Name: "live", Type: "socks", Server: "127.0.0.1", Port: 1080}},
+		SelectedID: "node-gone",
+		Rules: []AppRule{{
+			Match: "chrome.exe", Path: `C:\Chrome\chrome.exe`, Line: LineRule, Node: "node-gone", Enabled: true,
+		}},
+		Lines: []Line{{
+			ID: "custom", Name: "custom", Node: "node-gone", Routing: Routing{Mode: core.RouteGlobal},
+		}},
+		RuleMode:    "whitelist",
+		DefaultLine: LineRule,
+		Settings:    defaultSettings(),
+	}
+	raw, err := json.Marshal(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "config.json"), raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s, err := New(dir, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := s.Status().SelectedID; got != "node-live" {
+		t.Fatalf("selected node was not healed: %q", got)
+	}
+	if got := s.GetAppRules(); len(got) != 1 || got[0].Node != "" {
+		t.Fatalf("stale app override was not healed: %+v", got)
+	}
+	if line := lineByID(s.GetLines(), "custom"); line == nil || line.Node != "active" {
+		t.Fatalf("stale custom line was not healed: %+v", line)
+	}
+}
+
+func TestReconcileSubscriptionNodesPreservesLogicalIdentity(t *testing.T) {
+	old := []*nodes.Node{
+		{ID: "old-exact", Name: "JP-1", Type: "vmess", Server: "old.example", Port: 443, UUID: "u1", Latency: 88, Speed: 3.2},
+		{ID: "old-moved", Name: "JP-2", Type: "vmess", Server: "old.example", Port: 444, UUID: "u2", Latency: 99, Speed: 4.2},
+	}
+	fresh := []*nodes.Node{
+		{ID: "fresh-exact", Name: "JP-1", Type: "vmess", Server: "old.example", Port: 443, UUID: "u1"},
+		{ID: "fresh-moved", Name: "JP-2", Type: "vmess", Server: "new.example", Port: 8443, UUID: "u2"},
+	}
+	reconcileSubscriptionNodes(old, fresh)
+	if fresh[0].ID != "old-exact" || fresh[0].Latency != 88 || fresh[0].Speed != 3.2 {
+		t.Fatalf("exact endpoint identity/measurements not preserved: %+v", fresh[0])
+	}
+	if fresh[1].ID != "old-moved" {
+		t.Fatalf("logical node identity not preserved: %+v", fresh[1])
+	}
+	if fresh[1].Latency != 0 || fresh[1].Speed != 0 {
+		t.Fatalf("changed endpoint retained stale measurements: %+v", fresh[1])
 	}
 }
 

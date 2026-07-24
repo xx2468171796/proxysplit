@@ -317,7 +317,9 @@ func (s *Service) load() {
 	// Never resurrect design-preview endpoints from an old/hand-edited backup.
 	// The desktop client has no built-in nodes: every displayed node must have
 	// come from the user's import, subscription, or manual entry.
-	if s.dropPlaceholderNodesLocked() {
+	placeholdersDropped := s.dropPlaceholderNodesLocked()
+	refsHealed := s.healDanglingNodeRefsLocked()
+	if placeholdersDropped || refsHealed {
 		s.save()
 	}
 }
@@ -497,7 +499,6 @@ func (s *Service) Nodes() []*nodes.Node {
 // RemoveNode deletes a node by id.
 func (s *Service) RemoveNode(id string) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	kept := s.cfg.Nodes[:0]
 	for _, n := range s.cfg.Nodes {
 		if n.ID != id {
@@ -505,13 +506,10 @@ func (s *Service) RemoveNode(id string) {
 		}
 	}
 	s.cfg.Nodes = kept
-	if s.cfg.SelectedID == id {
-		s.cfg.SelectedID = ""
-		if len(s.cfg.Nodes) > 0 {
-			s.cfg.SelectedID = s.cfg.Nodes[0].ID
-		}
-	}
+	s.healDanglingNodeRefsLocked()
 	s.save()
+	s.mu.Unlock()
+	s.applyLive()
 }
 
 // SelectNode sets the active node (and restarts if a running line follows it).
@@ -893,23 +891,16 @@ func (s *Service) UpdateSub(id string) error {
 		return err
 	}
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	// A provider may return universal share links to ProxySplit and Clash YAML
 	// to Clash-compatible clients. Preserve IDs across equivalent formats so a
 	// subscription refresh never breaks selected nodes or per-app overrides.
-	oldByEndpoint := make(map[string]*nodes.Node)
+	var oldNodes []*nodes.Node
 	for _, n := range s.cfg.Nodes {
 		if n.SubID == id {
-			oldByEndpoint[nodeEndpointKey(n)] = n
+			oldNodes = append(oldNodes, n)
 		}
 	}
-	for _, n := range list {
-		if old := oldByEndpoint[nodeEndpointKey(n)]; old != nil {
-			n.ID = old.ID
-			n.Latency = old.Latency
-			n.Speed = old.Speed
-		}
-	}
+	reconcileSubscriptionNodes(oldNodes, list)
 	// Drop old nodes from this sub, then merge fresh ones.
 	kept := s.cfg.Nodes[:0]
 	for _, n := range s.cfg.Nodes {
@@ -925,8 +916,57 @@ func (s *Service) UpdateSub(id string) error {
 			s.cfg.Subs[i].LastUpdate = time.Now().Format("2006-01-02 15:04")
 		}
 	}
+	s.healDanglingNodeRefsLocked()
 	s.save()
+	s.mu.Unlock()
+	s.applyLive()
 	return nil
+}
+
+// reconcileSubscriptionNodes preserves identity across provider format changes.
+// Exact endpoint matches retain measurements. If the endpoint changed but the
+// provider still exposes one uniquely named node of the same protocol, its ID
+// is retained so per-app selections follow that logical node; measurements are
+// intentionally reset because the actual endpoint changed.
+func reconcileSubscriptionNodes(oldNodes, freshNodes []*nodes.Node) {
+	oldByEndpoint := make(map[string]*nodes.Node, len(oldNodes))
+	oldByLogical := make(map[string]*nodes.Node, len(oldNodes))
+	oldDuplicates := make(map[string]bool)
+	freshCounts := make(map[string]int, len(freshNodes))
+	for _, old := range oldNodes {
+		oldByEndpoint[nodeEndpointKey(old)] = old
+		key := nodeLogicalKey(old)
+		if _, exists := oldByLogical[key]; exists {
+			oldDuplicates[key] = true
+		} else {
+			oldByLogical[key] = old
+		}
+	}
+	for _, fresh := range freshNodes {
+		freshCounts[nodeLogicalKey(fresh)]++
+	}
+	for _, fresh := range freshNodes {
+		if old := oldByEndpoint[nodeEndpointKey(fresh)]; old != nil {
+			fresh.ID = old.ID
+			fresh.Latency = old.Latency
+			fresh.Speed = old.Speed
+			continue
+		}
+		key := nodeLogicalKey(fresh)
+		if !oldDuplicates[key] && freshCounts[key] == 1 {
+			if old := oldByLogical[key]; old != nil {
+				fresh.ID = old.ID
+			}
+		}
+	}
+}
+
+func nodeLogicalKey(n *nodes.Node) string {
+	if n == nil {
+		return ""
+	}
+	return strings.ToLower(strings.TrimSpace(n.Type)) + "\x00" +
+		strings.ToLower(strings.TrimSpace(n.Name))
 }
 
 func nodeEndpointKey(n *nodes.Node) string {
@@ -948,7 +988,6 @@ func nodeEndpointKey(n *nodes.Node) string {
 // RemoveSub deletes a subscription and its nodes.
 func (s *Service) RemoveSub(id string) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	subsKept := s.cfg.Subs[:0]
 	for _, e := range s.cfg.Subs {
 		if e.ID != id {
@@ -963,7 +1002,10 @@ func (s *Service) RemoveSub(id string) {
 		}
 	}
 	s.cfg.Nodes = nodesKept
+	s.healDanglingNodeRefsLocked()
 	s.save()
+	s.mu.Unlock()
+	s.applyLive()
 }
 
 // --- Routing (in-tunnel split) ---

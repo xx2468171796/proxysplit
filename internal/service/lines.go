@@ -183,12 +183,50 @@ func (s *Service) normalizeAppRulesLocked(rules []AppRule) ([]AppRule, error) {
 			// not be silently overridden by an app-level stale selection.
 			rule.Node = ""
 		} else if rule.Node != "" && rule.Node != "active" && !nodeIDs[rule.Node] {
-			return nil, fmt.Errorf("应用“%s”引用了不存在的节点: %s", rule.Match, rule.Node)
+			// Subscription providers may remove or rename a node between
+			// refreshes. A stale optional app override must not make every
+			// subsequent rule edit fail; fall back to the active node.
+			rule.Node = ""
 		}
 		rule.Action, rule.Follow = "", nil
 		out = append(out, rule)
 	}
 	return out, nil
+}
+
+// healDanglingNodeRefsLocked repairs persisted references after a subscription
+// refresh or an upgrade from a version that generated different node IDs.
+// Caller holds s.mu (or calls it during single-threaded load).
+func (s *Service) healDanglingNodeRefsLocked() bool {
+	nodeIDs := make(map[string]bool, len(s.cfg.Nodes))
+	for _, node := range s.cfg.Nodes {
+		if node != nil {
+			nodeIDs[node.ID] = true
+		}
+	}
+	changed := false
+	if s.cfg.SelectedID != "" && !nodeIDs[s.cfg.SelectedID] {
+		s.cfg.SelectedID = ""
+		if len(s.cfg.Nodes) > 0 && s.cfg.Nodes[0] != nil {
+			s.cfg.SelectedID = s.cfg.Nodes[0].ID
+		}
+		changed = true
+	}
+	for i := range s.cfg.Rules {
+		nodeID := s.cfg.Rules[i].Node
+		if nodeID != "" && nodeID != "active" && !nodeIDs[nodeID] {
+			s.cfg.Rules[i].Node = ""
+			changed = true
+		}
+	}
+	for i := range s.cfg.Lines {
+		nodeID := s.cfg.Lines[i].Node
+		if nodeID != "" && nodeID != "active" && nodeID != "direct" && !nodeIDs[nodeID] {
+			s.cfg.Lines[i].Node = "active"
+			changed = true
+		}
+	}
+	return changed
 }
 
 // routingPlan is the fully-resolved routing derived from the current config: the
