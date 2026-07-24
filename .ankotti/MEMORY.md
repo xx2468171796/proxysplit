@@ -104,3 +104,4 @@
 - 实机完整协议验证：DMIT-HiNet-Fixed(VLESS) 295 ms、日本JP-HY2(Hysteria2) 562 ms；Go test/vet、Svelte check/build 全部通过。
 - 正式客户端 `output/proxysplit-v1.9.30.exe`，81,723,392 字节，SHA256 `db05f4b991e6e1d63b59c5c6e176f0a1cdfa3ee74985978f696facb8557b590f`；本机已启动 ProductVersion/FileVersion 1.9.30。
 - 生产发布 API、下载和官网均已切换 v1.9.30；站点版本目录 `/opt/proxysplit/releases/20260724-184000-bd11c3f`。
+- 用户点名复测“日本-优化3”：ProxySplit/sing-box 真实 HTTPS 出站失败，远端 `t.cnmjcn.cyou` 解析到 `162.19.192.89:16617` 后超时/强制断开；使用官方 Mihomo v1.19.28 直接加载机场 Clash 配置同样失败，排除 ProxySplit 解析和 Clash 兼容问题。该订阅的“日本-优化”“日本-优化2”“日本-优化3”均失败，`日本JP-HY2` 实测 HTTP 204 成功。
