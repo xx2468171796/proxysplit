@@ -306,6 +306,10 @@ func (a *App) TestLatency(id string) int { return a.svc.TestLatency(id) }
 func (a *App) TestTCP(id string) int     { return a.svc.TestTCP(id) }
 func (a *App) TestAllLatency()           { a.svc.TestAllLatency() }
 
+// GetConnections returns the live per-connection routing trace (进程 → 目标 →
+// 命中规则 → 出口) for the diagnostics view.
+func (a *App) GetConnections() []service.ConnInfo { return a.svc.Connections() }
+
 // Subscriptions.
 func (a *App) GetSubs() []service.Sub { return a.svc.GetSubs() }
 func (a *App) AddSub(name, url string, autoUpdate bool) string {

@@ -575,6 +575,34 @@ export namespace service {
 	        this.follow = source["follow"];
 	    }
 	}
+	export class ConnInfo {
+	    process: string;
+	    host: string;
+	    dest: string;
+	    network: string;
+	    rule: string;
+	    outTag: string;
+	    outbound: string;
+	    upload: number;
+	    download: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new ConnInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.process = source["process"];
+	        this.host = source["host"];
+	        this.dest = source["dest"];
+	        this.network = source["network"];
+	        this.rule = source["rule"];
+	        this.outTag = source["outTag"];
+	        this.outbound = source["outbound"];
+	        this.upload = source["upload"];
+	        this.download = source["download"];
+	    }
+	}
 	export class LineHealth {
 	    id: string;
 	    name: string;

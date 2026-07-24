@@ -78,6 +78,10 @@ export function GetClashMode() {
   return window['go']['main']['App']['GetClashMode']();
 }
 
+export function GetConnections() {
+  return window['go']['main']['App']['GetConnections']();
+}
+
 export function GetCoreVersion() {
   return window['go']['main']['App']['GetCoreVersion']();
 }

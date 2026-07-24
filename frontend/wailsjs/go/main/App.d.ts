@@ -46,6 +46,8 @@ export function GetBootstrapState():Promise<main.BootstrapState>;
 
 export function GetClashMode():Promise<string>;
 
+export function GetConnections():Promise<Array<service.ConnInfo>>;
+
 export function GetCoreVersion():Promise<string>;
 
 export function GetCustomRules():Promise<Array<core.RouteRule>>;

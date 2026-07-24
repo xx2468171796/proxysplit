@@ -61,6 +61,7 @@
     ExportConfig as WExportConfig,
     ImportConfig as WImportConfig,
     GetHealth as WGetHealth,
+    GetConnections as WGetConnections,
     GetRuleSets as WGetRuleSets,
     SetRuleSetEnabled as WSetRuleSetEnabled,
     ResetConfig as WResetConfig,
@@ -282,6 +283,10 @@
   let appLat: Record<string, number> = {} // rule.match -> latency ms (-99 testing, -1 fail, 0 direct, -2 block)
   let runningExes = new Set<string>() // lowercased basenames of currently-running processes
   let health: Health = { running: false, capturing: false, capturedPkts: 0, warning: '', lines: [] }
+  // 实时连接诊断：每条连接命中的规则与最终出口（来自 sing-box clash_api /connections）
+  type Conn = { process: string; host: string; dest: string; network: string; rule: string; outbound: string; outTag: string; upload: number; download: number }
+  let conns: Conn[] = []
+  let connFilter = ''
   let warnDismissed = '' // the warning text the user dismissed (hide banner until it changes)
   let ruleSets: RuleSet[] = [] // routing rule-sets (geosite/geoip) for the 规则 page
   let themePref = 'light' // 'light' | 'dark' | 'system'
@@ -709,6 +714,30 @@
              { id: 'global', name: '全局', node: 'JP | Tokyo - 01', latency: 48, ok: true },
              { id: 'us', name: '美区-全局', node: 'US | Los Angeles - 02', latency: 126, ok: true } ] }
   async function refreshHealth() { health = await safe<Health>(() => WGetHealth() as Promise<Health>, demoHealth) }
+  const demoConns: Conn[] = [
+    { process: 'Code.exe', host: 'api.githubcopilot.com', dest: '140.82.113.22:443', network: 'tcp', rule: 'process_name Code.exe', outbound: 'JP | Tokyo - 01', outTag: 'proxy', upload: 20480, download: 512000 },
+    { process: 'chrome.exe', host: 'www.baidu.com', dest: '110.242.68.66:443', network: 'tcp', rule: 'rule_set geosite-cn', outbound: '直连', outTag: 'direct', upload: 8192, download: 102400 },
+    { process: 'msedge.exe', host: 'doubleclick.net', dest: '—', network: 'tcp', rule: 'rule_set geosite-ads', outbound: '拦截', outTag: 'reject', upload: 0, download: 0 },
+  ]
+  async function refreshConns() {
+    if (useDemo) { conns = demoConns; return }
+    if (!isWailsReady()) return
+    conns = await safe<Conn[]>(() => WGetConnections() as Promise<Conn[]>, [])
+  }
+  function fmtBytes(n: number): string {
+    if (!(n > 0)) return '0'
+    if (n >= 1048576) return (n / 1048576).toFixed(1) + 'M'
+    if (n >= 1024) return (n / 1024).toFixed(0) + 'K'
+    return n + 'B'
+  }
+  // 出口着色：拦截=红、直连=灰、走节点=品牌色
+  function outClass(c: Conn): string {
+    if (c.outTag === 'reject' || c.outTag === 'block') return 'block'
+    if (c.outTag === 'direct') return 'direct'
+    return 'proxy'
+  }
+  $: filteredConns = conns.filter((c) => !connFilter || `${c.process} ${c.host} ${c.dest} ${c.rule} ${c.outbound}`.toLowerCase().includes(connFilter.toLowerCase()))
+  $: if (tab === 'logs') refreshConns() // 进入日志页立即拉一次连接
   async function refreshRules() {
     if (!isWailsReady()) { useDemo = true; rules = demoRules; recent = demoLogs; return }
     // Real backend path: fall back to EMPTY (not demoRules) so a genuinely
@@ -1439,7 +1468,7 @@
         }
       }, 2000)
     }
-    timer = setInterval(() => { refreshStatus(); refreshHealth() }, 1000)
+    timer = setInterval(() => { refreshStatus(); refreshHealth(); if (tab === 'logs') refreshConns() }, 1000)
     if (!license.enabled || license.authenticated) openDonate()
   })
   onDestroy(() => {
@@ -2174,9 +2203,26 @@
 
       {:else if tab === 'logs'}
         <div class="page-head">
-          <div><h1>运行日志</h1><p>查看核心、分流引擎和连接运行记录。</p></div>
+          <div><h1>运行诊断</h1><p>每条连接命中了哪条规则、走了哪个出口，一目了然；下方是原始日志。</p></div>
           <div class="head-actions"><button class="btn" on:click={() => (logs = [])}>清空日志</button></div>
         </div>
+        <section class="card">
+          <div class="card-head"><div><h3>实时连接 · 诊断</h3><p class="sub">进程 → 目标 → 命中规则 → 出口（{filteredConns.length} 条活动连接）</p></div><div class="actions"><input bind:value={connFilter} placeholder="按进程 / 目标 / 规则过滤" /></div></div>
+          <div class="conn-table">
+            <div class="conn-head"><span>进程</span><span>目标</span><span>命中规则</span><span>出口</span><span class="r">↑ / ↓</span></div>
+            {#each filteredConns as c}
+              <div class="conn-row">
+                <span class="conn-proc" title={c.process}>{c.process || '—'}</span>
+                <span class="conn-dest" title={c.dest}>{c.host || c.dest || '—'}{#if c.network}<small>{c.network}</small>{/if}</span>
+                <span class="conn-rule" title={c.rule}>{c.rule || '—'}</span>
+                <span class="conn-out" data-o={outClass(c)}>{c.outbound || '—'}</span>
+                <span class="conn-tx r">↑{fmtBytes(c.upload)} ↓{fmtBytes(c.download)}</span>
+              </div>
+            {/each}
+            {#if filteredConns.length === 0}<div class="lg-empty">{running ? (connFilter ? '无匹配连接' : '暂无活动连接（产生流量后自动出现）') : '核心未运行 —— 到概览启动分流后这里显示实时连接'}</div>{/if}
+          </div>
+        </section>
+
         <section class="card log-full">
           <div class="card-head"><div><h3>实时日志</h3><p class="sub">核心 + 分流引擎 + 每条连接</p></div><div class="actions"><input bind:value={logFilter} placeholder="过滤（支持关键字）" /><button class="ghost-btn" on:click={() => (logs = [])}>清空</button></div></div>
           <div class="logbox">
@@ -3062,6 +3108,23 @@
   .lg-line.error .lg-msg { color: #fca5a5; }
   .lg-line.warn .lg-msg { color: #fcd77f; }
   .lg-empty { padding: 16px; text-align: center; color: #64748b; }
+
+  /* ---------- 实时连接诊断表 ---------- */
+  .conn-table { max-height: 300px; overflow: auto; }
+  .conn-head, .conn-row { display: grid; grid-template-columns: minmax(90px,1fr) minmax(120px,1.4fr) minmax(120px,1.4fr) 96px 118px; gap: 10px; align-items: center; padding: 7px 12px; }
+  .conn-head { position: sticky; top: 0; background: var(--card); font-size: 11px; color: var(--muted-2); font-weight: 600; border-bottom: 1px solid var(--line-2); z-index: 1; }
+  .conn-row { border-bottom: 1px solid var(--line-3); font-size: 12.5px; }
+  .conn-row:hover { background: var(--soft); }
+  .conn-head .r, .conn-tx.r { text-align: right; justify-self: end; }
+  .conn-proc { font-weight: 600; color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .conn-dest, .conn-rule { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--ink-2); }
+  .conn-dest small { margin-left: 6px; font-size: 10px; color: var(--muted-2); text-transform: uppercase; }
+  .conn-rule { color: var(--muted); font-family: ui-monospace, Consolas, monospace; font-size: 11.5px; }
+  .conn-out { font-weight: 700; font-size: 12px; padding: 2px 9px; border-radius: 999px; text-align: center; white-space: nowrap; }
+  .conn-out[data-o="proxy"] { color: var(--brand-600, #2454d4); background: var(--brand-tint, #eef3ff); }
+  .conn-out[data-o="direct"] { color: var(--muted); background: var(--line-3); }
+  .conn-out[data-o="block"] { color: var(--danger); background: var(--bad-bg, #fdecec); }
+  .conn-tx { font-variant-numeric: tabular-nums; color: var(--muted-2); font-size: 11.5px; white-space: nowrap; }
 
   /* ---------- bottom status bar ---------- */
   .statusbar { min-height: 40px; flex: none; display: flex; align-items: center; justify-content: space-between; gap: 8px 16px; flex-wrap: wrap; padding: 6px 22px; background: var(--card); border-top: 1px solid var(--line); font-size: 12.5px; color: var(--muted); }

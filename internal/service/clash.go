@@ -7,7 +7,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -130,4 +132,158 @@ func clashTrafficURL(url, secret string) (Stats, error) {
 		UpBytes:     payload.UploadTotal,
 		DownBytes:   payload.DownloadTotal,
 	}, nil
+}
+
+// ConnInfo is one live connection surfaced to the diagnostics view: which
+// process opened it, where it is heading, which routing rule it matched and
+// which outbound (exit) sing-box finally used. This is exactly the "命中了哪条
+// 规则 / 走了哪个出口" answer that raw logs only hint at — sourced from the same
+// Clash API /connections snapshot that already feeds the traffic counters.
+type ConnInfo struct {
+	Process  string `json:"process"`  // exe basename, e.g. chrome.exe
+	Host     string `json:"host"`     // target host (or destination IP)
+	Dest     string `json:"dest"`     // ip:port
+	Network  string `json:"network"`  // tcp | udp
+	Rule     string `json:"rule"`     // matched rule, e.g. "process_name chrome.exe"
+	OutTag   string `json:"outTag"`   // raw outbound tag (proxy|direct|reject|node-<id>)
+	Outbound string `json:"outbound"` // friendly exit label (直连/拦截/<节点名>)
+	Upload   int64  `json:"upload"`
+	Download int64  `json:"download"`
+}
+
+func baseName(p string) string {
+	if i := strings.LastIndexAny(p, `/\`); i >= 0 {
+		return p[i+1:]
+	}
+	return p
+}
+
+// clashConnections fetches and parses the live connection list from sing-box's
+// Clash API. Unlike clashTraffic (which only counts them) it keeps each
+// connection's process / target / rule / outbound-chain.
+func clashConnections(port int, secret string) ([]ConnInfo, error) {
+	if port <= 0 {
+		return nil, fmt.Errorf("clash_api is not running")
+	}
+	url := fmt.Sprintf("http://127.0.0.1:%d/connections", port)
+	req, err := http.NewRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+	if secret != "" {
+		req.Header.Set("Authorization", "Bearer "+secret)
+	}
+	resp, err := (&http.Client{Timeout: 800 * time.Millisecond}).Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1024))
+		return nil, fmt.Errorf("clash_api status %d", resp.StatusCode)
+	}
+	var payload struct {
+		Connections []struct {
+			Metadata struct {
+				Network         string `json:"network"`
+				Host            string `json:"host"`
+				DestinationIP   string `json:"destinationIP"`
+				DestinationPort string `json:"destinationPort"`
+				Process         string `json:"process"`
+				ProcessPath     string `json:"processPath"`
+			} `json:"metadata"`
+			Upload      int64    `json:"upload"`
+			Download    int64    `json:"download"`
+			Chains      []string `json:"chains"`
+			Rule        string   `json:"rule"`
+			RulePayload string   `json:"rulePayload"`
+		} `json:"connections"`
+	}
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 16<<20)).Decode(&payload); err != nil {
+		return nil, err
+	}
+	out := make([]ConnInfo, 0, len(payload.Connections))
+	for _, c := range payload.Connections {
+		proc := c.Metadata.Process
+		if proc == "" {
+			proc = baseName(c.Metadata.ProcessPath)
+		}
+		host := c.Metadata.Host
+		if host == "" {
+			host = c.Metadata.DestinationIP
+		}
+		dest := c.Metadata.DestinationIP
+		if c.Metadata.DestinationPort != "" && c.Metadata.DestinationIP != "" {
+			dest = net.JoinHostPort(c.Metadata.DestinationIP, c.Metadata.DestinationPort)
+		}
+		rule := c.Rule
+		if c.RulePayload != "" {
+			rule = strings.TrimSpace(c.Rule + " " + c.RulePayload)
+		}
+		// The last element of the chain is the real outbound sing-box used.
+		tag := ""
+		if n := len(c.Chains); n > 0 {
+			tag = c.Chains[n-1]
+		}
+		out = append(out, ConnInfo{
+			Process: proc, Host: host, Dest: dest, Network: c.Metadata.Network,
+			Rule: rule, OutTag: tag, Upload: c.Upload, Download: c.Download,
+		})
+	}
+	return out, nil
+}
+
+// Connections returns the live per-connection routing trace (process → target →
+// matched rule → exit) for the diagnostics view. Empty when the core / clash_api
+// is not running.
+func (s *Service) Connections() []ConnInfo {
+	s.mu.Lock()
+	port, secret := s.clashPort, s.clashSecret
+	labels := s.outboundLabelsLocked()
+	s.mu.Unlock()
+	conns, err := clashConnections(port, secret)
+	if err != nil {
+		return []ConnInfo{}
+	}
+	for i := range conns {
+		conns[i].Outbound = labelOutbound(conns[i].OutTag, labels)
+	}
+	return conns
+}
+
+// outboundLabelsLocked maps outbound tags to friendly node names: "proxy" = the
+// active node, "node-<id>" = that specific node. Caller holds s.mu.
+func (s *Service) outboundLabelsLocked() map[string]string {
+	m := make(map[string]string, len(s.cfg.Nodes)+1)
+	for _, n := range s.cfg.Nodes {
+		if n == nil {
+			continue
+		}
+		if n.ID == s.cfg.SelectedID {
+			m["proxy"] = n.Name
+		}
+		m["node-"+n.ID] = n.Name
+	}
+	return m
+}
+
+// labelOutbound turns a raw outbound tag into a user-facing exit label.
+func labelOutbound(tag string, labels map[string]string) string {
+	switch tag {
+	case "", "final":
+		return "—"
+	case "direct":
+		return "直连"
+	case "block", "reject":
+		return "拦截"
+	case "dns", "dns-out":
+		return "DNS"
+	}
+	if name := labels[tag]; name != "" {
+		return name
+	}
+	if tag == "proxy" {
+		return "节点"
+	}
+	return tag
 }
