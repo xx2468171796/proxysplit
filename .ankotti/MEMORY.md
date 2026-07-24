@@ -1,44 +1,33 @@
 # ProxySplit 项目状态
-- 2026-07-24：完成第二轮全代码审计，确认并修复 5 类问题：① 限购套餐原先只统计已付订单且下单无事务锁，并发请求可绕过每人限购；现使用 user+plan 事务 advisory lock，并统计已付及未过期 pending 订单。② 同等级永久权益后再购买短期套餐会把 lifetime 改回 false 并替换套餐元数据；现永久权益绝不降级、不改名，已增 3 项回归测试。③ 自动对账固定取 updated_at 最早 20 笔但未在未变更时更新该时间，高并发时会饿饿后续已付订单；现每次对账后轮转到队尾。④ 官网 6 处下载入口仍硬编码 v1.9.2；现首屏、导航、注册、底部及套餐按钮都通过 `/v1/releases/latest` 自动指向最新正式版。⑤ 付款界面仍向普通用户显示内部订单号，现已移除；后台用户档案补充显示注册邮箱。全量 `go test ./...`、`go vet ./...`、前端 check/build、服务端 typecheck/test/build 全通过（core 13 项 + API 1 项）。服务端已部署 `/opt/proxysplit/releases/20260724-012623-45ab91e`，客户端 v1.9.19 已发布：`output/proxysplit-v1.9.19.exe`，大小 `81,123,840` 字节，SHA256 `d9b5f4b61745aebc932a2d9f965c86039d3f3990335c934fed6c5fedbef4617a`，最新版本 API 已切到 v1.9.19。
-- 2026-07-23：已完成付款到账全链路审计和生产修复。核心问题是无有效权益用户使用整页购买界面时 `showMembership=false`，旧前端会立即停掉付款轮询；同时服务端缺少独立自动对账，回调丢失后依赖客户端查单。现已修正前端停轮询条件，服务端每 15 秒主动对账近 24 小时待付订单，并加入 5 秒并发合并、接口限流、通道超时同步、下单通讯结果不明时保留补单能力。服务端已部署 `/opt/proxysplit/releases/20260723-233625-3bbd507`，健康检查正常。自动对账找回同一用户第二笔真实已付月卡 `PS20260723115254CA606319C5`，订单与支付事件均已幂等落地，标准月卡权益已叠加到 `2026-09-21 23:07:41 +08:00`；跨一个后台周期复查时到期时间和事件数保持不变，确认不会重复加权。正式客户端 `v1.9.18` 已构建并发布，产物 `output/proxysplit-v1.9.18.exe`，大小 `80,892,928` 字节，SHA256 `f6c2be3c57a272742c6a9c269510e6eecde46ead31002608b8b72ee328ba50e9`，Windows 版本和 Ed25519 发布签名已校验，下载与最新版本 API 已切到 v1.9.18。部署时若运行 migrate，必须先 `docker compose build migrate` 或使用 `run --build`，避免复用旧 migrate 镜像。
-- 2026-07-23：已处理真实付款后权益未到账故障。根因是桌面端虽然每 3 秒轮询订单，但深圳生产 API 仍停留在旧发布 `/opt/proxysplit/releases/20260723-194500-851230a`，未包含已提交的网关主动查单 `PaymentService.syncOrder()`，同时支付网关异步回调没有生成任何 `payment_events`。服务端完整测试（8 项 core + 1 项 API）、类型检查和构建通过后，已部署至 `/opt/proxysplit/releases/20260723-230600-6869aee`；生产 `/health` 正常。网关主动查单确认订单 `PS202607231501563782AE24F3` 已付款，现已通过幂等 `fulfillPaidOrder` 将订单置为 `paid`，生成 verified/fulfilled 支付事件并发放普通会员月卡，有效期至 `2026-08-22 23:07:41 +08:00`；随后客户端自动刷新 token 并成功请求 `/v1/license/lease`（HTTP 200），权益已在客户端侧重新签发。
-- 2026-07-23：会员购买界面已按普通用户视角重做并发布为正式商业版 `v1.9.17`：移除后台同步时间、自动刷新说明、订单编号和常规设备明细，设备名额满时才显示必要的解绑入口；普通会员与超级会员分别按月卡/季卡/年卡固定三列排列，限时买断版使用独立横向活动卡，按钮和提示统一改为用户语言。产物 `output/proxysplit-v1.9.17.exe`，大小 `80,728,064` 字节，SHA256 `422db37338fda2a2ac0e4d8f2494c652b3d82da4ecf501d3982fa17182185df2`，源码提交 `6869aeef2b0e8a2ae6f265000e70c9db436a18fa`、构建时工作区 clean；清单大小/哈希、快捷副本、Ed25519 发布签名及 Windows `FileVersion/ProductVersion=1.9.17` 全部校验通过。前端 `npm run check` 为 0 errors / 0 warnings / 0 hints，`npm run build` 和 `go test ./...` 通过。
-- 2026-07-23：正式客户端打包资料已标准化进仓库：`build/release-kit/` 保存生产 API、下载地址、授权/更新公钥、TLS SPKI 和本机私钥引用，`scripts/build-commercial.ps1` 提供一键预检及正式商业构建。发布私钥继续保存在被 Git 忽略的 `server/secrets/shenzhen-release-private.pem`，包装脚本会校验 SHA256，避免把可伪造自动更新的私钥推入远程仓库；其他本机 AI 可直接执行 `.\scripts\build-commercial.ps1 -Version <版本号>`。
-- 2026-07-23：会员商业化界面完成一轮补强：创建订单后不再只跳转网页，而是在客户端本地把支付服务返回的支付宝链接编码为 PNG 二维码，用户可直接用手机支付宝扫码；二维码内容不经过第三方二维码服务。保留“本机打开支付宝”和“刷新到账”作为辅助入口。
-- 2026-07-23：会员页新增普通/超级会员权益对比（设备数、协议、应用分流、自定义线路、支持级别）；设置页“账户与设备授权”内直接展示服务端设备列表并支持解绑旧设备；顶部账号状态展示会员身份和剩余天/小时时间。剩余时间现取会员权益真实到期时间，不再误用短期租约到期时间。
-- 2026-07-23：上述功能已发布为桌面端 `v1.9.14`，产物 `output/proxysplit-v1.9.14.exe`，SHA256 `38ae1805069a6525968fe9f006547584f0b1333ef6f0be193b6adb192429ee0f`，已上传 `/download/proxysplit-v1.9.14.exe` 并在本机启动。
-- 2026-07-23：修复客户端登录提示“授权签名公钥未配置或租约格式无效”。根因是生产构建注入 `base64(PEM)` 公钥，而旧解析器只接受 `base64(DER)`，账号和服务端租约本身均正常。解析器现同时接受 DER/PEM，新增两种格式测试；生产 `/v1/auth/public-key` 与构建所用公钥已核对一致。
-- 2026-07-23：修复版桌面端 `v1.9.13` 已输出为 `output/proxysplit-v1.9.13.exe`，SHA256 `4a426acc72f0748a1edf06e379544ae018ca3f1a474318187940677957e2e66d`，已上传 `/download/proxysplit-v1.9.13.exe` 并在本机启动。
-- 2026-07-23：试用资格与账号注册已彻底解耦。同一硬件仍只允许领取一次免费试用，但领取过后继续注册其他用户名不会再报错；新账号正常登录、绑定设备但不发放试用授权，客户端立即进入实时套餐购买页，并可退出后继续注册其他账号。生产已用同一硬件连续注册两个账号验证：首账号获得 `trial`，第二账号 access token 正常且 license 为空，数据库无第二份试用记录，测试数据已清理。
-- 2026-07-23：该修复已部署至 `/opt/proxysplit/releases/20260723-194500-851230a`。桌面端 `v1.9.12` 已输出为 `output/proxysplit-v1.9.12.exe`，SHA256 `fd5db5818360384879af697c540b7b282413f3f7bc0634bf1fa2b328853fd072`，已上传 `/download/proxysplit-v1.9.12.exe` 并在本机启动。
-- 2026-07-23：注册凭据已拆分为“用户名 + 邮箱 + 密码”，用户名为唯一主登录凭据，邮箱独立保存且当前不验证；后续开启邮箱验证无需改变用户名密码登录。旧账号允许邮箱为空。生产迁移 `0005_user_email.sql` 已应用，注册、再次登录和邮箱落库已端到端验证，测试账号已清理。
-- 2026-07-23：上述注册改造已部署到 `/opt/proxysplit/releases/20260723-193000-f5e0f5b`。桌面端 `v1.9.11` 已构建到 `output/proxysplit-v1.9.11.exe`，SHA256 `c4ff57f88e80987ad09d861f7d7bac97ce2c071c833536c76404fb8a4680bfc2`，生产下载地址 `/download/proxysplit-v1.9.11.exe`；本机当前已启动该版本。
-- 2026-07-23：账号连续输错密码 5 次后锁定 5 分钟；后续每累计 5 次错误依次增加 5 分钟。管理员可从后台重置任意用户密码，重置后旧会话立即失效；管理员生产密码已按需求轮换，明文不入库、不入仓。
-- 2026-07-23：上述账号安全功能已部署至深圳生产环境 `/opt/proxysplit/releases/20260723-174000-f9eb1e0`；`/health` 与 `/admin/` 已验证正常。生产数据库迁移 `0004_login_lockout.sql` 已应用。
-- 2026-07-23：客户端“刷新套餐”空白根因已确认：生产 TLS 证书更新后，旧客户端（含 v1.9.6）内置的 SPKI 固定值失配，商业 API 请求被 TLS 拒绝；服务端目录 `/v1/catalog/plans` 本身正常返回 7 个已启用套餐。已构建并发布 `output/proxysplit-v1.9.7.exe`（SHA256 `6195c22cabaaa9f2dd0c97e0aa90201b469f5120ace28fe848b7b5ab1ca288f2`），更新为当前证书固定值并上传至 `/download/proxysplit-v1.9.7.exe`。该版本须手工替换旧版；旧发布签名私钥未在当前受控环境中，不能伪造自动更新签名。
-- 2026-07-23：进一步确认商业混淆构建会把 `window.go.main.App` 替换成数字 `ObfuscatedCall`，旧前端的桥接探测因此让刷新套餐、刷新授权、退出账号等操作直接静默返回。已改为直接调用生成绑定并由既有异常处理兜底；v1.9.10 使用 Go TLS 实测得到的生产 SPKI `ba4e822c...cd795` 构建。生产日志已复现客户端主动请求 `/v1/catalog/plans`、`/v1/announcements` 且均为 HTTP 200。产物 `output/proxysplit-v1.9.10.exe`，SHA256 `63e32c08a61c5e38db5583962657107d3b5b0072a7e3fb2da36910ce8e6e933e`，已上传 `/download/proxysplit-v1.9.10.exe`。
-- 当前正式桌面版本：`v1.9.6`，产物为 `output/proxysplit-v1.9.6.exe`，SHA256 `fc3e93747ef298ed1d597d94c7295824c6b9f71a9801c5d2e351f75aaea971d3`；已登记生产最新版本。v1.9.5 修复停止竞态、清理 `example.*` 假节点、配置导入/导出事务化和会员中心；v1.9.6 禁止字母/伪造应用图标，只显示从真实 EXE 提取的 Windows Shell 原始图标。
-- 2026-07-23 曾因发布目录从 `git archive` 提取而不含被忽略的 `server/apps/admin/dist`，导致 `/admin/` 返回 404；已重新构建并同步 dist，后台和 API 均正常。后续切换 `/opt/proxysplit/current` 前必须同步构建后的 `apps/admin/dist`。
-- 管理后台“用户与会员”已支持点击“详情”查看完整用户档案：账号状态、注册/试用信息、授权历史、设备绑定与活跃会话、订单及近期审计操作；接口刻意不返回密码、令牌、硬件原始序列号或指纹哈希。生产 API 已验证。
-- v1.9.3 新增满额换机闭环：设备数满时新电脑可短期安全登录，仅可管理本账号旧设备且不能获取授权租约/启动代理；解绑一台旧设备后客户端自动绑定并激活本机。硬件识别继续仅使用 MachineGuid、主板/BIOS/系统 UUID 等组合摘要，不上传原始硬件序列号。
 
-- 当前正式桌面版本：`v1.9.2`。产物为 `output/proxysplit-v1.9.2.exe`，快捷副本为 `output/proxysplit.exe`；发布清单为 `output/proxysplit-v1.9.2.manifest.json`。
-- v1.9.2 EXE 大小 `81,098,752` 字节，SHA256 为 `b057cfb24224ff4ffab3c1c43384daae6634483a8872c4f0d2e6722fd937b00b`；已用独立 Ed25519 发布密钥签名并通过 Garble 混淆构建，暂未做 Windows Authenticode 签名。
-- 桌面端节点、订阅、应用规则继续持久化到 `%APPDATA%/proxysplit/config.json`，保留原子写入、`.bak` 和便携数据迁移；升级不会覆盖节点或规则。
-- 应用分流使用 sing-box 原生 TUN + `process_name` 路由，不使用 WinDivert 抓包重定向。支持 HTTP、HTTPS、SOCKS5、VLESS、VMess、Trojan、Shadowsocks、Hysteria2、TUIC、AnyTLS 的常用分享链接和 sing-box 配置变体。
-- 客户端支持直接注册/登录；注册填写用户名、邮箱和至少 8 位密码，邮箱当前不验证，登录使用用户名和密码；注册成功后自动登录、绑定当前电脑并免费试用 3 天，未付费但已登录的用户可进入会员中心开通。
-- 商业权益真源在服务端。普通会员/超级会员、月卡/季卡/年卡/永久套餐、价格、原价、活动时间、购买次数、设备上限和功能列表均由运营后台配置。
-- 新账号默认免费试用 3 天，后台可调整；同一硬件只允许领取一次。硬件指纹组合 MachineGuid、主板/BIOS/系统 UUID 后哈希上传，不上传原始序列号。
-- 授权租约采用 Ed25519 签名，当前默认 60 分钟，离线宽限 6 小时且不超过会员硬到期时间；租约绑定账号、设备 ID、硬件指纹、套餐、功能和到期时间。所有 `Service.Start` 路径统一经过权益守卫，运行中每 5 分钟复查，失效即停服。
-- 支付适配器已按 5ff 生产链路接入 `https://zf.zygskins.cn`，当前收款仍进入同一“收钱吧”商户。生产凭据仅在深圳机 `/opt/proxysplit/secrets/payment-zhongzhuan.env`（0600）中保存，后台数据库只存 `PAYMENT_ZHONGZHUAN` 引用，可切换支付渠道。
-- 支付创建金额只取服务端套餐快照；回调校验 HMAC-SHA256、AppID、时间窗、订单号、渠道、金额和事件幂等，会员发放与订单置为已支付在同一事务完成。没有执行真实扣款测试。
-- 数据库迁移 `0003_official_catalog.sql` 已在生产应用。普通会员月卡 ¥15.90/3 台、季卡 ¥42.93、年卡 ¥143.10；超级会员月卡 ¥25.90/8 台、季卡 ¥69.93、年卡 ¥233.10。季卡相对月卡总价优惠 10%，年卡优惠 25%。
-- 两个月限时买断版已启用：¥299.00、超级会员权益、8 台设备、每个账号限购一次，活动结束时间由生产迁移执行时起算两个月。
-- 当前客户端支付方式配置仅为 `alipay`，支付渠道后台显示为“支付宝”；网关继续使用既有中转和同一收钱吧商户。
-- 深圳生产站点：`https://proxysplit.zygskins.cn`；管理端：`/admin/`；健康检查：`/health`；v1.9.2 下载：`/download/proxysplit-v1.9.2.exe`。v1.9.2 发布日志已登记。
-- 当前部署目录：`/opt/proxysplit/releases/20260723-194500-851230a`，`/opt/proxysplit/current` 已指向该目录。
-- API、PostgreSQL、Redis 均为 healthy；公网 `/health`、官网、后台静态资源、v1.9.2 下载、最新版本接口、支付配置引用和非法回调拒绝均已验证。
-- 验证结果：`go test ./...` 全通过；桌面 `npm run check` 为 0 errors / 0 warnings / 0 hints 且 `npm run build` 通过；服务端 `pnpm typecheck`、`pnpm test`（6 项测试）、`pnpm build` 全通过。
-- 生产管理员为 `admin`，密码收据只保存在 `C:/Users/Administrator/.config/proxysplit/shenzhen-admin.txt`。SSH 别名为 `proxysplit-shenzhen`。
-- 生产已实测使用独立用户名、`@example.com` 邮箱和 8 位以上密码注册，注册后立即获得 access token、免费试用、trial 计划和设备授权；随后使用同一用户名和密码再次登录成功，邮箱字段也已核对落库，测试账号及审计记录已清理。
-- 后续待办：支付提供方后续可给 ProxySplit 单独创建 AppID 并映射到同一商户；补充 Windows Authenticode 证书。
+## 当前发布
+- 2026-07-24：第三轮“支付 / 认证 / 客户端”多智能体对抗审计已完成，修复版本为 `v1.9.20`，源码提交 `322c4f4bff26ca54ff0b3d1e251023f86f0ef506`。
+- 服务端当前部署：`/opt/proxysplit/releases/20260724-124715-322c4f4`；API、PostgreSQL、Redis 均 healthy，公网 `/health`、套餐目录、后台和官网正常。
+- 客户端产物：`output/proxysplit-v1.9.20.exe`，大小 `80,241,664` 字节，SHA256 `974c356460a959d7aa9f814647c9a1ac074578a2c51a011cd53e5a39217a3528`；正式下载和 `/v1/releases/latest` 已切至 1.9.20，线上下载哈希一致。
+- 完整验证通过：`go test ./...`、`go vet ./...`、前端 `npm run check/build`、服务端 `pnpm typecheck/test/build`；服务端共 20 项测试（core 18 + API 2），前端 0 error / 0 warning。
+
+## 本轮关键修复
+- 支付到账：同一用户同等级首次并发到账增加事务 advisory lock，避免生成两条并行权益而丢失一段时长；付款事件、订单和权益继续在同一事务幂等落地。
+- 补偿对账：失败订单 7 天内每 5 分钟继续回查；历史订单即使支付通道停用也能查单；网关真实 `paid_at` 落库；创建订单与极速回调竞态按已付款成功处理。
+- 客户端到账恢复：关闭付款窗口或重启后，只要订单已付且本机尚无有效租约，会自动刷新权益；付款轮询改为 single-flight。
+- 防止重复扣单：认证请求仅在 HTTP 401 时刷新并重试，超时或 5xx 不再自动重放 `POST /v1/orders`；轮换后的单次 refresh token 立即持久化。
+- 认证与设备：访问令牌每次请求实时复核账号状态、数据库角色和设备撤销状态；pending 换机令牌只允许查看、解绑和激活设备；refresh 轮换改为数据库行锁事务；套餐设备数降额后禁止超额设备继续取租约。
+- 套餐一致性：部分 PATCH 合并后重新校验永久标记、周期和有效天数；已有订单或授权引用的套餐禁止修改等级、周期、设备数和权益，防止历史订单权益被后台“变质”。
+- 客户端安全与数据：支付链接只允许 HTTPS/支付宝协议并在系统浏览器边界二次校验；sing-box 核心更新必须匹配官方 SHA256 清单；字段类型错误的本地 JSON 配置会回退 `.bak`，不再部分解码后覆盖用户数据。
+- 代理可信链：Fastify 只信任一个反向代理 hop，Nginx 强制覆盖 `X-Forwarded-For` 为 `$remote_addr`；生产配置已 reload，两个 API location 均生效。
+
+## 生产核验
+- 生产库当前已付订单 2 笔、失败或过期订单 4 笔；同一用户同等级的有效权益重复组数为 0；最新发布记录为 1.9.20。
+- 自动对账已把历史失败订单重新查询为真实的 expired/cancelled，未触碰两笔已付订单，API 日志无 error、fatal 或 uncaught。
+- 本次服务器直接重建镜像时 npm registry 元数据查询连续两次超时；已按既有锁文件与旧镜像依赖做无网络 overlay 镜像，仅覆盖本提交源码，并先在 18781 临时实例验证健康与真实数据库对账，再切换生产。Windows `git archive` 解包出的 `api-entrypoint.sh` 需要在 Linux 侧先去除 CRLF。
+
+## 稳定架构事实
+- 商业权益真源在服务端 PostgreSQL；授权租约为 Ed25519 签名，绑定账号、设备、硬件指纹、套餐和到期时间。
+- 支付通道为统一收款 5ff 的中转适配器，生产密钥仅保存在深圳机 `/opt/proxysplit/secrets/payment-zhongzhuan.env`，仓库不保存密钥。
+- 生产站点：`https://proxysplit.zygskins.cn`；SSH 别名 `proxysplit-shenzhen`；管理员凭据只在 `C:/Users/Administrator/.config/proxysplit/shenzhen-admin.txt`。
+- 正式客户端构建：`.\scripts\build-commercial.ps1 -Version <版本>`；发布私钥为 Git 忽略文件 `server/secrets/shenzhen-release-private.pem`。
+
+## 后续待办 / 已知设计风险
+- 支付退款或撤销尚未设计自动回收策略；现有订单模型会把多次购买累计到同一权益，不能简单按单笔退款倒扣，需单独设计权益流水账后再实现。
+- 免费试用硬件标识仍依赖客户端上报摘要；离线宽限仍无法完全抵御系统时间回拨或整机快照恢复。这两项属于架构级风控，不是本轮付款到账故障。
+- 支付提供方后续可给 ProxySplit 单独创建 AppID 并映射到同一商户；客户端仍待补 Windows Authenticode 证书。
