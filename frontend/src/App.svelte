@@ -211,6 +211,7 @@
   let commerceBusy = false
   let commerceLoading = false
   let commerceError = ''
+  let deviceLoadError = ''
   let planLoadError = ''
   let showMembership = false
   let membershipPrompted = false
@@ -501,9 +502,16 @@
       }
       const announcementResult = await WGetAnnouncements() as any
       if (!announcementResult?.err) announcements = Array.isArray(announcementResult?.items) ? announcementResult.items : []
-      if (!license.signedIn) { accountDevices = []; memberOrders = []; return }
+      if (!license.signedIn) { accountDevices = []; memberOrders = []; deviceLoadError = ''; return }
       const [deviceResult, orderResult] = await Promise.all([WGetMyDevices(), WGetMyOrders()]) as any[]
-      if (!deviceResult?.err) accountDevices = Array.isArray(deviceResult?.items) ? deviceResult.items : []
+      if (deviceResult?.err) {
+        accountDevices = []
+        deviceLoadError = '设备读取失败，当前登录会话可能已失效。请退出账号后重新登录，设备数据会从服务端恢复。'
+        await refreshLicense()
+      } else {
+        deviceLoadError = ''
+        accountDevices = Array.isArray(deviceResult?.items) ? deviceResult.items : []
+      }
       if (!orderResult?.err) {
         memberOrders = Array.isArray(orderResult?.items) ? orderResult.items : []
         // A payment may finish after the user closes the payment sheet or the
@@ -2029,14 +2037,16 @@
               </div>
               <div class="settings-devices">
                 <div class="settings-devices-head"><div><b>设备管理</b><small>{accountDevices.length} / {license.maxDevices || '—'} 台，旧设备可在这里直接解绑</small></div><button class="mini" on:click={loadCommerce} disabled={commerceLoading}>{commerceLoading ? '刷新中…' : '刷新设备'}</button></div>
-                {#each accountDevices as device}
+                {#if deviceLoadError}
+                  <div class="settings-device-error"><span>{deviceLoadError}</span><button class="mini danger" on:click={logoutAccount}>退出并重新登录</button></div>
+                {:else}{#each accountDevices as device}
                   <div class="settings-device-row">
                     <div><b>{device.name}</b><small>{device.platform || 'Windows'} · v{device.appVersion || '未知'} · 最近在线 {new Date(device.lastSeenAt).toLocaleString()}</small></div>
                     <div>{#if device.current}<span class="current-device-light">本机</span>{/if}<button class="mini danger" disabled={device.current} title={device.current ? '当前正在使用的本机不能解绑' : '解绑此旧设备'} on:click={() => unbindDevice(device.id)}>解绑</button></div>
                   </div>
                 {:else}
                   <div class="settings-device-empty">暂无已绑定设备，点击“刷新设备”重新读取服务端状态。</div>
-                {/each}
+                {/each}{/if}
               </div>
               <div class="account-actions">
                 <button class="primary" on:click={openMembership}>续费 / 升级套餐</button>
@@ -2770,6 +2780,7 @@
   .settings-device-row>div:last-child { display: flex; flex: none; align-items: center; gap: 8px; }
   .current-device-light { padding: 4px 7px; border-radius: 999px; color: var(--ok-600); background: var(--ok-tint); font-size: 10px; font-weight: 700; }
   .settings-device-empty { padding: 18px; color: var(--muted-2); font-size: 11px; text-align: center; }
+  .settings-device-error { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 14px 16px; color: #a85b08; background: #fff8eb; font-size: 11px; }
   .account-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
 
   /* ---------- line manager ---------- */

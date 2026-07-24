@@ -391,6 +391,15 @@ func (c *Client) authedRequestLocked(ctx context.Context, method, path string, i
 		return err
 	}
 	if err := c.refreshLocked(ctx); err != nil {
+		// A refresh token is a server-side session credential, not an offline
+		// license. If the server definitively rejects it, stop presenting the
+		// cached session as "signed in". Keep the signed lease so temporary
+		// offline entitlement can still be evaluated independently.
+		var refreshErr *APIError
+		if errors.As(err, &refreshErr) && refreshErr.Status >= 400 && refreshErr.Status < 500 {
+			c.clearOnlineSessionLocked()
+			_ = c.saveLocked()
+		}
 		return err
 	}
 	if err := c.request(ctx, method, path, input, output, c.state.AccessToken); err != nil {
@@ -398,6 +407,13 @@ func (c *Client) authedRequestLocked(ctx context.Context, method, path string, i
 	}
 	_ = c.saveLocked()
 	return nil
+}
+
+func (c *Client) clearOnlineSessionLocked() {
+	c.state.AccessToken = ""
+	c.state.RefreshToken = ""
+	c.state.DeviceID = ""
+	c.state.PendingDevice = false
 }
 
 func (c *Client) Devices() ([]Device, error) {

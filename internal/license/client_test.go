@@ -102,3 +102,26 @@ func TestProtectedStateRoundTrip(t *testing.T) {
 		t.Fatalf("round-trip mismatch: %q", plain)
 	}
 }
+
+func TestClearOnlineSessionPreservesOfflineLease(t *testing.T) {
+	c, _ := testClient(t)
+	c.state = state{
+		Username:      "member",
+		AccessToken:   "expired-access",
+		RefreshToken:  "revoked-refresh",
+		DeviceID:      "old-device",
+		PendingDevice: true,
+		Lease:         "signed-offline-lease",
+		Plan:          "Standard",
+		MaxDevices:    3,
+	}
+
+	c.clearOnlineSessionLocked()
+
+	if c.state.AccessToken != "" || c.state.RefreshToken != "" || c.state.DeviceID != "" || c.state.PendingDevice {
+		t.Fatalf("stale online session was not cleared: %+v", c.state)
+	}
+	if c.state.Lease != "signed-offline-lease" || c.state.Username != "member" || c.state.Plan != "Standard" || c.state.MaxDevices != 3 {
+		t.Fatalf("offline entitlement metadata was unexpectedly cleared: %+v", c.state)
+	}
+}
