@@ -686,6 +686,11 @@
   // 已有有效权益时，关闭会员弹窗才停止轮询。无有效权益用户使用的是整页购买
   // 界面（showMembership=false），不能因此误停付款查单。
   $: if (license.authenticated && !showMembership && paymentPoll) stopPaymentPolling()
+  // 关闭付款浮层：停止轮询并清空当前订单（订单本身仍在服务端，到期自动失效）。
+  function closePayment() {
+    stopPaymentPolling()
+    activeOrder = null; paymentQR = ''; splitOrders = []; splitIdx = 0
+  }
   async function changePassword() {
     if (!pwCurrent || pwNext.length < 8) return
     pwBusy = true; pwMsg = ''; pwErr = false
@@ -1698,7 +1703,7 @@
           <section class="member-panel device-limit-panel"><div class="panel-title"><b>选择要解绑的旧设备</b><span>{accountDevices.length} / {license.maxDevices || '—'} 台</span></div>{#each accountDevices as device}<div class="member-row"><div><b>{device.name}</b><small>{device.appVersion} · 最近在线 {new Date(device.lastSeenAt).toLocaleString()}</small></div><div>{#if device.current}<span class="current-device">当前设备</span>{/if}<button disabled={device.current} title={device.current ? '请勿解绑当前正在使用的设备' : '解绑此旧设备'} on:click={() => unbindDevice(device.id)}>解绑</button></div></div>{:else}<p class="member-empty">暂无可解绑设备</p>{/each}</section>
         {/if}
         {#if announcements.length}<section class="member-panel announcements"><div class="panel-title"><b>公告与更新</b><span>{announcements.length} 条</span></div>{#each announcements.slice(0, 4) as item}<div class="member-row"><div><b>{item.title}</b><small>{item.summary || item.content}</small></div><time>{new Date(item.publishedAt).toLocaleDateString()}</time></div>{/each}</section>{/if}
-        {#if activeOrder}<div class="payment-sheet qr-payment">{#if paymentQR}<div class="payment-qr-box"><img src={paymentQR} alt="支付宝付款二维码" /><span>请使用支付宝扫码</span></div>{/if}<div class="payment-order-info">{#if splitOrders.length > 1}<span class="split-badge">分 {splitOrders.length} 笔支付 · 第 {splitIdx + 1} 笔</span>{:else}<span>支付宝安全支付</span>{/if}<h3>{activeOrder.planName} · ¥{(activeOrder.amountCents / 100).toFixed(2)}</h3>{#if splitOrders.length > 1}<p class="split-note">⚠️ 本单金额较大，因支付渠道单笔限额，需<b>分 {splitOrders.length} 笔分别支付</b>。请先扫码付本笔 <b>¥{(activeOrder.amountCents / 100).toFixed(2)}</b>，付完会<b>自动跳出下一笔二维码</b>，{splitOrders.length} 笔全部付完才会开通会员，中途请勿关闭。</p>{:else}<p>打开手机支付宝扫描二维码完成付款，支付成功后点击刷新到账状态。</p>{/if}<small>请在 {new Date(activeOrder.expiresAt).toLocaleString()} 前完成支付</small></div><div class="payment-actions"><button class="ghost-btn" on:click={() => activeOrder?.payUrl && WOpenPaymentURL(activeOrder.payUrl)}>本机打开支付宝</button><button class="primary" disabled={commerceBusy} on:click={refreshPayment}>我已支付，刷新状态</button></div></div>{/if}
+        {#if activeOrder}<div class="pay-overlay" role="button" tabindex="0" aria-label="关闭付款" on:click|self={closePayment} on:keydown={(e) => e.key === 'Escape' && closePayment()}><div class="pay-modal"><button class="pay-close" title="关闭" on:click={closePayment}>✕</button><div class="payment-sheet qr-payment">{#if paymentQR}<div class="payment-qr-box"><img src={paymentQR} alt="支付宝付款二维码" /><span>请使用支付宝扫码</span></div>{/if}<div class="payment-order-info">{#if splitOrders.length > 1}<span class="split-badge">分 {splitOrders.length} 笔支付 · 第 {splitIdx + 1} 笔</span>{:else}<span>支付宝安全支付</span>{/if}<h3>{activeOrder.planName} · ¥{(activeOrder.amountCents / 100).toFixed(2)}</h3>{#if splitOrders.length > 1}<p class="split-note">⚠️ 本单金额较大，因支付渠道单笔限额，需<b>分 {splitOrders.length} 笔分别支付</b>。请先扫码付本笔 <b>¥{(activeOrder.amountCents / 100).toFixed(2)}</b>，付完会<b>自动跳出下一笔二维码</b>，{splitOrders.length} 笔全部付完才会开通会员，中途请勿关闭。</p>{:else}<p>打开手机支付宝扫描二维码完成付款，支付成功后点击刷新到账状态。</p>{/if}<small>请在 {new Date(activeOrder.expiresAt).toLocaleString()} 前完成支付</small></div><div class="payment-actions"><button class="ghost-btn" on:click={() => activeOrder?.payUrl && WOpenPaymentURL(activeOrder.payUrl)}>本机打开支付宝</button><button class="primary" disabled={commerceBusy} on:click={refreshPayment}>我已支付，刷新状态</button></div></div></div></div>{/if}
       </section>
     {/if}
   </main>
@@ -2537,7 +2542,7 @@
         {:else}
           <div class="member-plans-empty"><b>{commerceLoading ? '正在加载套餐…' : '暂时无法显示套餐'}</b><span>{commerceLoading ? '请稍候。' : '请检查网络后重新加载。'}</span>{#if !commerceLoading}<button class="primary" on:click={loadCommerce}>重新加载</button>{/if}</div>
         {/if}
-        {#if activeOrder}<div class="payment-sheet qr-payment">{#if paymentQR}<div class="payment-qr-box"><img src={paymentQR} alt="支付宝付款二维码" /><span>支付宝扫码支付</span></div>{/if}<div class="payment-order-info"><span>支付宝安全支付</span><h3>{activeOrder.planName} · ¥{(activeOrder.amountCents / 100).toFixed(2)}</h3><p>打开手机支付宝扫描左侧二维码，付款完成后刷新到账状态。</p><small>请在 {new Date(activeOrder.expiresAt).toLocaleString()} 前完成支付</small></div><div class="payment-actions"><button class="ghost-btn" on:click={() => activeOrder?.payUrl && WOpenPaymentURL(activeOrder.payUrl)}>本机打开支付宝</button><button class="primary" disabled={commerceBusy} on:click={refreshPayment}>我已支付，刷新到账</button></div></div>{/if}
+        {#if activeOrder}<div class="pay-overlay" role="button" tabindex="0" aria-label="关闭付款" on:click|self={closePayment} on:keydown={(e) => e.key === 'Escape' && closePayment()}><div class="pay-modal"><button class="pay-close" title="关闭" on:click={closePayment}>✕</button><div class="payment-sheet qr-payment">{#if paymentQR}<div class="payment-qr-box"><img src={paymentQR} alt="支付宝付款二维码" /><span>支付宝扫码支付</span></div>{/if}<div class="payment-order-info"><span>支付宝安全支付</span><h3>{activeOrder.planName} · ¥{(activeOrder.amountCents / 100).toFixed(2)}</h3><p>打开手机支付宝扫描左侧二维码，付款完成后刷新到账状态。</p><small>请在 {new Date(activeOrder.expiresAt).toLocaleString()} 前完成支付</small></div><div class="payment-actions"><button class="ghost-btn" on:click={() => activeOrder?.payUrl && WOpenPaymentURL(activeOrder.payUrl)}>本机打开支付宝</button><button class="primary" disabled={commerceBusy} on:click={refreshPayment}>我已支付，刷新到账</button></div></div></div></div>{/if}
       </section>
     </div>
   {/if}
@@ -3376,6 +3381,28 @@
   .pw-form button:disabled { opacity: .5; cursor: not-allowed; }
   .pw-msg { margin: 8px 0 0; color: #16a34a; font-size: 12px; }
   .pw-msg.bad { color: #dc2626; }
+  /* 付款浮层：二维码始终显示在屏幕正中，窗口小的时候浮层内部自己滚动。 */
+  .pay-overlay { position: fixed; inset: 0; z-index: 500; display: grid; place-items: center; padding: 24px;
+    background: rgba(4,10,22,.72); backdrop-filter: blur(5px); overflow-y: auto; }
+  .pay-modal { position: relative; width: min(760px, 100%); max-height: 92vh; overflow-y: auto;
+    border: 1px solid rgba(255,255,255,.12); border-radius: 18px; background: #0d1a30;
+    box-shadow: 0 30px 90px rgba(0,0,0,.55); }
+  /* 浮层内取消原来的 sticky 吸底布局，并把二维码放大到扫码舒适的尺寸。 */
+  .pay-modal .payment-sheet { position: static; margin: 0; padding: 26px 26px 22px; border: 0; border-radius: 18px;
+    background: transparent; box-shadow: none; align-items: flex-start; gap: 22px; }
+  .pay-modal .payment-qr-box { padding: 12px; border-radius: 14px; }
+  .pay-modal .payment-qr-box img { width: 220px; height: 220px; }
+  .pay-modal .payment-qr-box span { font-size: 12px; }
+  .pay-modal .payment-order-info h3 { margin: 8px 0 6px; font-size: 18px; }
+  .pay-modal .payment-actions { align-self: center; }
+  @media (max-width: 640px) {
+    .pay-modal .payment-sheet { flex-direction: column; align-items: stretch; }
+    .pay-modal .payment-qr-box { justify-self: center; margin: 0 auto; }
+  }
+  .pay-close { position: absolute; top: 10px; right: 12px; z-index: 2; width: 30px; height: 30px; padding: 0;
+    border: 1px solid rgba(255,255,255,.16); border-radius: 8px; background: rgba(255,255,255,.08);
+    color: #cfe0f5; font-size: 14px; line-height: 1; cursor: pointer; }
+  .pay-close:hover { background: rgba(255,255,255,.16); }
   .split-badge { display: inline-block; padding: 3px 9px; border-radius: 999px; background: rgba(255,120,60,.16); border: 1px solid rgba(255,120,60,.42); color: #ffb27a; font-size: 11px; font-weight: 800; }
   .split-note { margin: 8px 0 0!important; padding: 9px 11px; border-radius: 10px; background: rgba(255,120,60,.12); border: 1px solid rgba(255,120,60,.4); color: #ffcaa0!important; font-size: 12px; line-height: 1.7; }
   .split-note b { color: #fff; }
