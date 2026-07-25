@@ -4,6 +4,7 @@ import (
 	"context"
 	"embed"
 	"encoding/json"
+	"fmt"
 	"net"
 	"net/url"
 	"os"
@@ -105,18 +106,38 @@ func (a *App) commercialStartGuard() error {
 // suspension, payment revocation or device unbinding. The same validation is
 // also installed directly on Service.Start for every restart path.
 func (a *App) licenseWatchdog() {
-	ticker := time.NewTicker(5 * time.Minute)
+	// Poll every minute REGARDLESS of whether the proxy is running: an operator
+	// resetting a password, granting a plan or suspending an account must take
+	// effect quickly, not only on the next manual refresh. The UI is told about
+	// every change so it can re-render without the user clicking anything.
+	ticker := time.NewTicker(60 * time.Second)
 	defer ticker.Stop()
+	var last string
 	for {
 		select {
 		case <-ticker.C:
-			if a.svc == nil || a.lic == nil || !a.svc.Status().CoreRunning {
+			if a.svc == nil || a.lic == nil || !a.lic.Enabled() || !a.lic.Status().SignedIn {
 				continue
 			}
-			if err := a.lic.EnsureEntitled(); err != nil {
-				a.svc.Stop()
+			err := a.lic.EnsureEntitled()
+			if err != nil {
+				// Revoked session / expired or removed membership: stop the proxy
+				// (if running) and send the user back to the login/purchase gate.
+				if a.svc.Status().CoreRunning {
+					a.svc.Stop()
+				}
 				runtime.EventsEmit(a.ctx, "license-expired", err.Error())
-				runtime.LogWarning(a.ctx, "commercial entitlement stopped the proxy core: "+err.Error())
+				runtime.LogWarning(a.ctx, "commercial entitlement check failed: "+err.Error())
+				last = "revoked:" + err.Error()
+				continue
+			}
+			// Entitlement is valid; push a refresh only when something actually
+			// changed (plan, expiry, device allowance, sign-in state).
+			status := a.lic.Status()
+			current := fmt.Sprintf("%v|%s|%s|%s|%d|%v", status.Authenticated, status.PlanCode, status.Plan, status.ExpiresAt, status.MaxDevices, status.DeviceLimitReached)
+			if current != last {
+				last = current
+				runtime.EventsEmit(a.ctx, "license-changed", status)
 			}
 		case <-a.ctx.Done():
 			return

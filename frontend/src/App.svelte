@@ -1458,7 +1458,8 @@
       dataReloading = false
     }
   }
-  const onVisible = () => { if (document.visibilityState === 'visible') reloadData() }
+  // 切回前台时顺带刷新授权：后台刚改过密码/发过会员时，用户看到的立刻是最新状态。
+  const onVisible = () => { if (document.visibilityState === 'visible') { reloadData(); refreshLicense() } }
 
   onMount(async () => {
     // Register before the first await. If Go already ran OnDomReady, consume the
@@ -1479,6 +1480,13 @@
       EventsOn('license-expired', async (message: string) => {
         toast('会员授权已停止：' + message)
         await refreshLicense(); await refreshStatus(); await loadCommerce()
+      })
+      // 服务端状态变化（后台改密/发放会员/暂停账号等）由看门狗每分钟推送，
+      // 界面直接跟着刷新，用户不需要手动点「刷新授权」。
+      EventsOn('license-changed', async () => {
+        const before = license.plan
+        await refreshLicense(); await loadCommerce()
+        if (license.plan && license.plan !== before) toast('会员权益已更新：' + license.plan)
       })
     }
     if (!loaded && !bootstrapLoaded) useDemo = true
