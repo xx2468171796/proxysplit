@@ -95,6 +95,7 @@ export const orderCreateSchema = z.object({planId:z.string().uuid()})
 export const settingPatchSchema = z.object({
   registrationEnabled:z.boolean().optional(),
   trialDays:z.number().int().min(0).max(365).optional(),
+  maxAccountsPerDevice:z.number().int().min(0).max(100).optional(),
   trialPlanCode:z.string().min(2).max(64).optional(),
   defaultDeviceLimit:z.number().int().min(1).max(100).optional(),
   licenseLeaseMinutes:z.number().int().min(15).max(1440).optional(),

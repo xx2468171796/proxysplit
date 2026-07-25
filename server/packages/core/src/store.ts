@@ -31,7 +31,7 @@ export type CommerceSettings = {
   registrationEnabled:boolean; trialDays:number; trialPlanCode:string;
   defaultDeviceLimit:number; licenseLeaseMinutes:number;
   offlineGraceHours:number; activePaymentProvider:string;
-  paymentMethods:Array<'alipay'>
+  paymentMethods:Array<'alipay'>; maxAccountsPerDevice:number
 }
 export type PaymentProviderRecord = {
   code:string; displayName:string; adapter:string; endpoint:string;
@@ -91,11 +91,12 @@ const settingMap:Record<keyof CommerceSettings,string>={
   offlineGraceHours:'offline_grace_hours',
   activePaymentProvider:'active_payment_provider',
   paymentMethods:'payment_methods',
+  maxAccountsPerDevice:'max_accounts_per_device',
 }
 const settingsDefaults:CommerceSettings={
   registrationEnabled:true,trialDays:3,trialPlanCode:'trial',
   defaultDeviceLimit:3,licenseLeaseMinutes:60,offlineGraceHours:6,
-  activePaymentProvider:'zhongzhuan-prod',paymentMethods:['alipay'],
+  activePaymentProvider:'zhongzhuan-prod',paymentMethods:['alipay'],maxAccountsPerDevice:3,
 }
 
 // ---- Admin list helpers: parameterized paging + whitelisted sorting ----
@@ -163,11 +164,17 @@ export class PgStore {
     try{
       await client.query('BEGIN')
       await client.query('SELECT pg_advisory_xact_lock(hashtext($1))',[input.hardwareHash])
-      const settings=await client.query(`SELECT key,value FROM system_settings WHERE key IN ('registration_enabled','trial_days','trial_plan_code')`)
+      const settings=await client.query(`SELECT key,value FROM system_settings WHERE key IN ('registration_enabled','trial_days','trial_plan_code','max_accounts_per_device')`)
       const map=new Map(settings.rows.map(x=>[x.key,x.value]))
       if((map.get('registration_enabled')??true)!==true)throw new Error('REGISTRATION_DISABLED')
       const trialDays=Number(map.get('trial_days')??3)
       const trialPlanCode=String(map.get('trial_plan_code')??'trial')
+      // 同一设备的注册账号数上限（防刷试用）。hardwareHash 由 auth.register 保证非空。
+      const maxPerDevice=Number(map.get('max_accounts_per_device')??3)
+      if(input.hardwareHash&&maxPerDevice>0){
+        const cnt=await client.query('SELECT count(*)::int AS n FROM users WHERE registration_hardware_hash=$1',[input.hardwareHash])
+        if(cnt.rows[0].n>=maxPerDevice)throw new Error('DEVICE_ACCOUNT_LIMIT')
+      }
       // 同一硬件只能领取一次试用，但不能因此阻止共享电脑上的其他用户注册。
       // 已领取过试用时仍创建正常账号，只是不发放试用授权，由客户端引导购买套餐。
       const claimed=trialDays>0
@@ -175,9 +182,9 @@ export class PgStore {
         :null
       const grantTrial=trialDays>0&&!claimed?.rowCount
       const now=new Date(),trialEnds=new Date(now.getTime()+trialDays*86400000)
-      const user=await client.query(`INSERT INTO users(username,email,password_hash,role,status,trial_started_at,trial_ends_at,registration_ip_hash)
-        VALUES($1,$2,$3,'user','active',$4,$5,$6) RETURNING id,username,email,role,status`,
-        [input.username,input.email,input.passwordHash,grantTrial?now:null,grantTrial?trialEnds:null,sha256('proxysplit-ip-v1:'+input.ip)])
+      const user=await client.query(`INSERT INTO users(username,email,password_hash,role,status,trial_started_at,trial_ends_at,registration_ip_hash,registration_hardware_hash)
+        VALUES($1,$2,$3,'user','active',$4,$5,$6,$7) RETURNING id,username,email,role,status`,
+        [input.username,input.email,input.passwordHash,grantTrial?now:null,grantTrial?trialEnds:null,sha256('proxysplit-ip-v1:'+input.ip),input.hardwareHash||''])
       if(grantTrial){
         const plan=await client.query('SELECT id FROM plans WHERE code=$1 AND active=true',[trialPlanCode])
         if(!plan.rows[0])throw new Error('TRIAL_PLAN_NOT_FOUND')
@@ -749,6 +756,19 @@ export class PgStore {
     const durationDays=lifetime?null:(opts.durationDays??plan.duration_days)
     const grant=resolvePaidLicenseGrant(existing?{planId:existing.planId,expiresAt:existing.expiresAt,lifetime:existing.lifetime}:null,
       {planId:opts.planId,durationDays,lifetime})
+    // 试用叠加：购买正式会员（非试用套餐）时，把剩余试用时长加到会员到期，
+    // 并把试用授权消费掉，避免白白损失试用天数或试用/会员并存。
+    if(plan.tier!=='trial'){
+      const trial=(await client.query(`SELECT l.id,l.expires_at AS "expiresAt" FROM licenses l JOIN plans p ON p.id=l.plan_id
+        WHERE l.user_id=$1 AND l.status='active' AND p.tier='trial' AND l.expires_at>now() ORDER BY l.expires_at DESC LIMIT 1 FOR UPDATE`,[opts.userId])).rows[0]
+      if(trial){
+        if(!grant.lifetime){
+          const remainingMs=new Date(trial.expiresAt).getTime()-Date.now()
+          if(remainingMs>0)grant.expiresAt=new Date(grant.expiresAt.getTime()+remainingMs)
+        }
+        await client.query(`UPDATE licenses SET status='expired' WHERE id=$1`,[trial.id])
+      }
+    }
     if(existing){
       if(grant.changed)await client.query(`UPDATE licenses SET plan_id=$2,expires_at=$3,lifetime=$4,status='active',source=$5,order_id=$6 WHERE id=$1`,
         [existing.id,grant.planId,grant.expiresAt,grant.lifetime,opts.source,opts.orderId??null])

@@ -47,6 +47,7 @@ export class AuthService{
       const message=(error as Error).message
       if(code==='23505')throw new AppError('IDENTITY_TAKEN','用户名或邮箱已被使用',409)
       if(message==='REGISTRATION_DISABLED')throw new AppError('REGISTRATION_DISABLED','当前暂停开放注册',403)
+      if(message==='DEVICE_ACCOUNT_LIMIT')throw new AppError('DEVICE_ACCOUNT_LIMIT','该设备注册的账号已达上限，请使用已有账号登录',429)
       if(message==='TRIAL_PLAN_NOT_FOUND')throw new AppError('TRIAL_UNAVAILABLE','试用套餐暂不可用',503)
       throw error
     }

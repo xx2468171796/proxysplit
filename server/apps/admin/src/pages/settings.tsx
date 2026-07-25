@@ -36,6 +36,7 @@ type CommerceSettings = {
   registrationEnabled: boolean
   trialDays: number
   trialPlanCode: string
+  maxAccountsPerDevice: number
   defaultDeviceLimit: number
   licenseLeaseMinutes: number
   offlineGraceHours: number
@@ -233,6 +234,20 @@ export default function SettingsPage() {
               value={form.trialPlanCode}
               onChange={(e) => setField('trialPlanCode', e.target.value)}
               placeholder="trial"
+            />
+          </SettingRow>
+          <SettingRow
+            label="每设备注册上限"
+            hint="同一台设备最多可注册的账号数，防止刷试用；0 表示不限制（范围 0–100）。"
+            htmlFor="maxAccountsPerDevice"
+          >
+            <Input
+              id="maxAccountsPerDevice"
+              type="number"
+              min={0}
+              max={100}
+              value={form.maxAccountsPerDevice}
+              onChange={numHandler('maxAccountsPerDevice')}
             />
           </SettingRow>
         </CardContent>
