@@ -439,3 +439,53 @@ func TestParseAndCheck(t *testing.T) {
 		})
 	}
 }
+
+// The commercial API is hosted domestically: its traffic must leave the tunnel
+// before any other rule, including 全局 mode, or login/lease renewal would be
+// routed through an overseas node.
+func TestDirectDomainsBypassTunnelFirst(t *testing.T) {
+	bin := singboxPath(t)
+	node, err := nodes.Manual("socks", "Test", "1.2.3.4", 1080, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := BuildConfig(node, 17890, "info", Options{
+		RouteMode:     RouteGlobal,
+		DirectDomains: []string{"proxysplit.example.cn"},
+		ClashMode:     "global",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var parsed struct {
+		Route struct {
+			Rules []map[string]any `json:"rules"`
+		} `json:"route"`
+	}
+	if err := json.Unmarshal(cfg, &parsed); err != nil {
+		t.Fatal(err)
+	}
+	idx := -1
+	for i, r := range parsed.Route.Rules {
+		if out, _ := r["outbound"].(string); out == "direct" {
+			if d, ok := r["domain"].([]any); ok && len(d) == 1 && d[0] == "proxysplit.example.cn" {
+				idx = i
+				break
+			}
+		}
+	}
+	if idx < 0 {
+		t.Fatalf("API direct rule missing: %s", cfg)
+	}
+	// Only the mandatory sniff action may precede it.
+	for i := 0; i < idx; i++ {
+		if _, isSniff := parsed.Route.Rules[i]["action"]; !isSniff {
+			t.Fatalf("rule %d precedes the API direct rule: %v", i, parsed.Route.Rules[i])
+		}
+	}
+	p := filepath.Join(t.TempDir(), "direct.json")
+	os.WriteFile(p, cfg, 0o600)
+	if out, err := exec.Command(bin, "check", "-c", p).CombinedOutput(); err != nil {
+		t.Fatalf("sing-box rejected the config: %s", out)
+	}
+}

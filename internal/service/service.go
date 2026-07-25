@@ -129,20 +129,21 @@ type Service struct {
 	// Stop clicked while TUN is still coming up must win over that in-flight
 	// Start; without this lock the late Start could leave sing-box running after
 	// the UI had already changed to the stopped state.
-	lifecycleMu  sync.Mutex
-	cfg          Config
-	core         *core.Manager
-	onLog        func(string)
-	startedAt    time.Time
-	activeFP     map[string]string // running line id -> content fingerprint (change detection)
-	clashPort    int               // clash_api external controller port of the running core
-	clashSecret  string            // clash_api bearer secret
-	trafficStats Stats             // last successful clash_api counter snapshot
-	clashMode    string            // last-applied clash mode: rule|global|direct (default rule)
-	sysProxyOn   bool              // the Windows system proxy is currently applied by us
-	sysProxyWant bool              // user wants system proxy on — re-applied (new port) each Start
-	startGuard   func() error      // commercial entitlement gate for every start/restart path
-	healthCache  atomic.Value      // []LineHealth — refreshed by the background health loop
+	lifecycleMu      sync.Mutex
+	cfg              Config
+	core             *core.Manager
+	onLog            func(string)
+	startedAt        time.Time
+	activeFP         map[string]string // running line id -> content fingerprint (change detection)
+	clashPort        int               // clash_api external controller port of the running core
+	clashSecret      string            // clash_api bearer secret
+	trafficStats     Stats             // last successful clash_api counter snapshot
+	clashMode        string            // last-applied clash mode: rule|global|direct (default rule)
+	sysProxyOn       bool              // the Windows system proxy is currently applied by us
+	sysProxyWant     bool              // user wants system proxy on — re-applied (new port) each Start
+	startGuard       func() error      // commercial entitlement gate for every start/restart path
+	directDomainList []string          // hosts always routed outside the tunnel (our API)
+	healthCache      atomic.Value      // []LineHealth — refreshed by the background health loop
 }
 
 // New loads (or initializes) config from dataDir.
@@ -169,6 +170,19 @@ func (s *Service) SetStartGuard(guard func() error) {
 	s.mu.Lock()
 	s.startGuard = guard
 	s.mu.Unlock()
+}
+
+// SetDirectDomains marks hosts that must never be tunnelled (our own commercial
+// API: the backend is hosted domestically, so routing it through an overseas
+// node would slow down or break login and lease renewal).
+func (s *Service) SetDirectDomains(domains []string) {
+	s.mu.Lock()
+	s.directDomainList = append([]string(nil), domains...)
+	s.mu.Unlock()
+}
+
+func (s *Service) directDomains() []string {
+	return append([]string(nil), s.directDomainList...)
 }
 
 // startScheduler periodically auto-updates subscriptions that opt in.
@@ -1312,7 +1326,7 @@ func (s *Service) Start() error {
 		}
 		return core.Options{RemoteDNS: set.RemoteDNS, GeoDir: s.binDir, ClashController: ctl, ClashSecret: clashSecret, ClashMode: wantMode,
 			LanShare: set.LanShare, LanPort: set.LanPort, LanType: set.LanType, LanUser: set.LanUser, LanPass: set.LanPass,
-			CustomRules: custom, RuleSets: &ruleSets}
+			CustomRules: custom, RuleSets: &ruleSets, DirectDomains: s.directDomains()}
 	}
 
 	// System-wide mode: sing-box TUN routes the whole machine.

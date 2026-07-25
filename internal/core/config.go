@@ -75,6 +75,12 @@ type Options struct {
 	// "rule" clash mode before the geo-based bypass-CN rules).
 	CustomRules []RouteRule
 
+	// DirectDomains always bypass the tunnel, ahead of every other rule
+	// (including 全局 mode and user rules). This keeps our own commercial API
+	// reachable: the backend is hosted domestically, so tunnelling its traffic
+	// through an overseas node would make login / lease renewal slow or fail.
+	DirectDomains []string
+
 	// Split selects per-app (application-split) routing on the TUN inbound using
 	// sing-box's own process_name matcher instead of the WinDivert engine. Only
 	// the listed processes are eligible for the proxy; every other process goes
@@ -165,6 +171,21 @@ func selectedRuleSets(opts Options) RuleSetOptions {
 		return RuleSetOptions{GeoSiteCN: true, GeoIPCN: true, Ads: true}
 	}
 	return *opts.RuleSets
+}
+
+// directDomainRules forces Options.DirectDomains (and their subdomains) out of
+// the tunnel. Returns nil when nothing is configured.
+func directDomainRules(opts Options) []M {
+	names := make([]string, 0, len(opts.DirectDomains))
+	for _, d := range opts.DirectDomains {
+		if d = strings.TrimSpace(strings.ToLower(d)); d != "" {
+			names = append(names, d)
+		}
+	}
+	if len(names) == 0 {
+		return nil
+	}
+	return []M{{"domain": names, "domain_suffix": names, "outbound": "direct"}}
 }
 
 // bypassRules builds the optional ads/CN smart-routing entries and applies the
@@ -366,6 +387,11 @@ func BuildMultiConfig(lines []LineConfig, logLevel string, opts Options) ([]byte
 		rules = append(rules, M{"action": "sniff"}) // must be first
 	}
 
+	// Our own API must never be tunnelled (domestic backend): put it ahead of the
+	// clash_mode overrides so even 全局 mode keeps it direct.
+	if r := directDomainRules(opts); r != nil {
+		rules = append(rules, r...)
+	}
 	// clash_mode overrides (Direct/Global) — checked before the per-line rules.
 	if exp := clashExperimental(opts); exp != nil {
 		cfg["experimental"] = exp
