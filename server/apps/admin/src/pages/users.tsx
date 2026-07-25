@@ -647,6 +647,14 @@ function GrantDialog({
   )
 }
 
+// 便于口头/文字转达的随机密码：去掉 0/O/1/l/I 等易混字符。
+function randomPassword(length = 12) {
+  const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789'
+  const bytes = new Uint32Array(length)
+  crypto.getRandomValues(bytes)
+  return Array.from(bytes, (n) => alphabet[n % alphabet.length]).join('')
+}
+
 // ---------- 修改密码 ----------
 function PasswordDialog({ row, onOpenChange }: { row: Row | null; onOpenChange: (o: boolean) => void }) {
   const [password, setPassword] = React.useState('')
@@ -689,15 +697,31 @@ function PasswordDialog({ row, onOpenChange }: { row: Row | null; onOpenChange: 
               新密码
               <Req />
             </Label>
-            <Input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder={`至少 ${RESET_PWD_MIN} 位`}
-              autoFocus
-            />
+            <div className="flex gap-2">
+              <Input
+                type="text"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder={`至少 ${RESET_PWD_MIN} 位`}
+                autoFocus
+              />
+              <Button type="button" variant="outline" onClick={() => setPassword(randomPassword())}>
+                随机生成
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={!password}
+                onClick={() => {
+                  navigator.clipboard?.writeText(password)
+                  toast.success('密码已复制，可直接发给用户')
+                }}
+              >
+                复制
+              </Button>
+            </div>
             <p className="text-xs text-muted-foreground">
-              至少 {RESET_PWD_MIN} 位；保存后该用户所有已登录设备需重新登录。
+              至少 {RESET_PWD_MIN} 位；密码以明文显示，方便复制后发给用户。保存后该用户所有已登录设备需重新登录（客户端最多 5 分钟内被强制退出）。
             </p>
           </div>
           <DialogFooter>
