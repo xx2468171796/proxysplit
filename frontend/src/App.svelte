@@ -3118,7 +3118,7 @@
   .settings-grid > .card { padding: 20px; }
 
   /* ---------- account / license ---------- */
-  .license-login { min-height: 100vh; display: grid; place-items: center; padding: 28px; background: radial-gradient(circle at 50% -10%, #dbeafe 0, transparent 42%), var(--page); }
+  .license-login { height: 100vh; overflow-y: auto; display: grid; place-items: center; padding: 28px; background: radial-gradient(circle at 50% -10%, #dbeafe 0, transparent 42%), var(--page); }
   .license-login-card { width: min(390px, 100%); display: grid; gap: 17px; padding: 34px; border: 1px solid var(--line); border-radius: 22px; background: rgba(255, 255, 255, .94); box-shadow: 0 24px 70px rgba(15, 23, 42, .13); }
   .license-mark { width: 54px; height: 54px; display: grid; place-items: center; margin: 0 auto -4px; border-radius: 15px; color: #fff; background: linear-gradient(135deg, var(--brand), #6366f1); box-shadow: 0 10px 24px rgba(37, 99, 235, .27); font-size: 28px; }
   .license-login-title { display: grid; gap: 5px; text-align: center; }
@@ -3271,7 +3271,7 @@
   .auth-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 4px; border-radius: 10px; background: var(--soft); }
   .auth-tabs button { height: 34px; border: 0; border-radius: 8px; background: transparent; color: var(--muted); font-weight: 700; }
   .auth-tabs button.active { color: var(--brand); background: var(--card); box-shadow: 0 2px 8px rgba(15,23,42,.08); }
-  .member-gate { min-height: 100vh; overflow: auto; padding: 38px; background: radial-gradient(circle at 85% -5%, rgba(37,99,235,.22), transparent 34%), linear-gradient(145deg,#081329,#101d3c 62%,#07111f); }
+  .member-gate { height: 100vh; overflow-y: auto; padding: 38px; background: radial-gradient(circle at 85% -5%, rgba(37,99,235,.22), transparent 34%), linear-gradient(145deg,#081329,#101d3c 62%,#07111f); }
   .member-center { width: min(1240px,100%); margin: 0 auto; color: #eaf1ff; }
   .member-hero { display: flex; justify-content: space-between; align-items: flex-start; gap: 20px; margin-bottom: 26px; }
   .member-eyebrow { color: #72a4ff; font-size: 11px; font-weight: 800; letter-spacing: .16em; }

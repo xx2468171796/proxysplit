@@ -66,6 +66,11 @@ func (a *App) beforeClose(ctx context.Context) bool {
 	if a.forceQuit || a.svc == nil {
 		return false
 	}
+	// Never trap a user who can't use the app yet (not signed in / no valid
+	// membership) in the tray: on the login/购买 gate, closing the window quits.
+	if a.lic == nil || !a.lic.Status().Authenticated {
+		return false
+	}
 	// Only hide to the tray if the tray icon actually came up — otherwise the
 	// window would vanish with no way to bring it back.
 	if a.trayUp && a.svc.GetSettings().TrayClose {
