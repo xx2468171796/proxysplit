@@ -27,7 +27,16 @@ export async function buildApp(config:ApiConfig,provided?:Core){
   if(config.REDIS_URL){redis=new Redis(config.REDIS_URL,{maxRetriesPerRequest:1,enableOfflineQueue:false});redis.on('error',()=>{})}
   await app.register(cors,{origin:[config.ADMIN_ORIGIN],credentials:false})
   await app.register(rateLimit,{global:false,max:10,timeWindow:'1 minute',...(redis?{redis}:{})})
-  app.setErrorHandler((error,_req,reply)=>{if(error instanceof AppError)return reply.code(error.status).send({error:{code:error.code,message:error.message}});if((error as {issues?:unknown}).issues)return reply.code(400).send({error:{code:'VALIDATION_ERROR',message:'Invalid request'}});app.log.error(error);return reply.code(500).send({error:{code:'INTERNAL_ERROR',message:'Service temporarily unavailable'}})})
+  app.setErrorHandler((error,_req,reply)=>{
+    if(error instanceof AppError)return reply.code(error.status).send({error:{code:error.code,message:error.message}})
+    if((error as {issues?:unknown}).issues)return reply.code(400).send({error:{code:'VALIDATION_ERROR',message:'Invalid request'}})
+    // 限流等框架级 4xx 必须原样透出：包成 500「服务不可用」会让用户以为服务坏了。
+    const status=(error as {statusCode?:number}).statusCode
+    if(status===429)return reply.code(429).send({error:{code:'RATE_LIMITED',message:'操作过于频繁，请稍后再试'}})
+    if(typeof status==='number'&&status>=400&&status<500)return reply.code(status).send({error:{code:'BAD_REQUEST',message:(error as {message?:string}).message||'请求无效'}})
+    app.log.error(error)
+    return reply.code(500).send({error:{code:'INTERNAL_ERROR',message:'Service temporarily unavailable'}})
+  })
   const auth=async(req:FastifyRequest,allowPending=false)=>{
     const principal=await core.auth.verifyAccess(bearer(req.headers.authorization))
     if(principal.deviceId==='pending'&&!allowPending)throw new AppError('DEVICE_ACTIVATION_REQUIRED','请先解绑旧设备并激活本机',403)
