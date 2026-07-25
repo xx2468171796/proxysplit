@@ -3,7 +3,7 @@ import cors from '@fastify/cors'
 import rateLimit from '@fastify/rate-limit'
 import { Redis } from 'ioredis'
 import { AppError, normalizeUsername } from '@proxysplit/shared'
-import { activateDeviceSchema, adminGrantSchema, analyticsQuerySchema, announcementListQuery, announcementUpsertSchema, auditListQuery, deviceListQuery, downloadStatsQuery, leaseSchema, licenseExtendSchema, loginSchema, orderCreateSchema, orderListQuery, planListQuery, planPatchSchema, planUpsertSchema, providerUpsertSchema, redeemCodeCreateSchema, redeemListQuery, redeemSchema, refreshSchema, registerSchema, releaseCreateSchema, releaseListQuery, settingPatchSchema, trackViewSchema, userCreateSchema, userListQuery, userPasswordSchema, userStatusSchema } from '@proxysplit/contracts'
+import { activateDeviceSchema, adminGrantSchema, selfPasswordSchema, webRegisterSchema, analyticsQuerySchema, announcementListQuery, announcementUpsertSchema, auditListQuery, deviceListQuery, downloadStatsQuery, leaseSchema, licenseExtendSchema, loginSchema, orderCreateSchema, orderListQuery, planListQuery, planPatchSchema, planUpsertSchema, providerUpsertSchema, redeemCodeCreateSchema, redeemListQuery, redeemSchema, refreshSchema, registerSchema, releaseCreateSchema, releaseListQuery, settingPatchSchema, trackViewSchema, userCreateSchema, userListQuery, userPasswordSchema, userStatusSchema } from '@proxysplit/contracts'
 import { createCommercialCore, hashPassword, PaymentService, type AuthService, type PgStore } from '@proxysplit/core'
 import type { ApiConfig } from './config.js'
 
@@ -38,6 +38,7 @@ export async function buildApp(config:ApiConfig,provided?:Core){
   app.get('/health',async()=>({ok:true,service:'proxysplit-commercial-api'}))
   app.get('/v1/auth/public-key',async()=>({algorithm:'Ed25519',kid:'proxysplit-license-v1',publicKeyPem:core.auth.publicKeyPem}))
   app.post('/v1/auth/register',{config:{rateLimit:{max:3,timeWindow:'1 hour'}}},async(req)=>core.auth.register(registerSchema.parse(req.body),req.ip))
+  app.post('/v1/auth/register/web',{config:{rateLimit:{max:5,timeWindow:'1 hour'}}},async(req)=>core.auth.registerWeb(webRegisterSchema.parse(req.body),req.ip))
   app.post('/v1/auth/login',{config:{rateLimit:{max:30,timeWindow:'1 minute'}}},async(req)=>core.auth.login(loginSchema.parse(req.body),req.ip))
   app.post('/v1/auth/refresh',{config:{rateLimit:{max:10,timeWindow:'1 minute'}}},async(req)=>core.auth.rotate(refreshSchema.parse(req.body),req.ip))
   app.post('/v1/me/device/activate',{config:{rateLimit:{max:10,timeWindow:'1 minute'}}},async(req)=>{const p=await auth(req,true);if(p.deviceId!=='pending')throw new AppError('DEVICE_ALREADY_ACTIVE','当前设备已激活',409);return core.auth.activateDevice(p.userId,activateDeviceSchema.parse(req.body).device,req.ip)})
@@ -101,6 +102,7 @@ export async function buildApp(config:ApiConfig,provided?:Core){
   app.get('/v1/catalog/plans',async()=>({items:(await core.store.listPlans({publicOnly:true,limit:100})).items,paymentMethods:(await core.store.getCommerceSettings()).paymentMethods}))
   app.get('/v1/announcements',async()=>({items:(await core.store.listAnnouncements({publicOnly:true,limit:200})).items}))
   app.get('/v1/me',async(req)=>{const p=await auth(req,true);const user=await core.store.findUserById(p.userId);return {user:user&&{id:user.id,username:user.username,status:user.status},membership:await core.store.entitlement(p.userId),devices:await core.store.listUserDevices(p.userId)}})
+  app.post('/v1/me/password',{config:{rateLimit:{max:5,timeWindow:'10 minutes'}}},async(req)=>{const p=await auth(req,true);return core.auth.changeOwnPassword(p.userId,selfPasswordSchema.parse(req.body),req.ip)})
   app.post('/v1/me/redeem',{config:{rateLimit:{max:10,timeWindow:'1 minute'}}},async(req)=>{const p=await auth(req,true);const input=redeemSchema.parse(req.body);const result=await core.store.redeemCode(p.userId,input.code);await core.store.audit(p.userId,'user.redeem','redeem-code',input.code.trim().toUpperCase(),req.ip,'success');return {...result,membership:await core.store.entitlement(p.userId)}})
   app.get('/v1/me/devices',async(req)=>{const p=await auth(req,true);return {items:await core.store.listUserDevices(p.userId)}})
   app.delete('/v1/me/devices/:id',async(req)=>{const p=await auth(req,true);const id=(req.params as {id:string}).id;const row=await core.store.unbindDevice(id,p.userId);if(!row)throw new AppError('NOT_FOUND','设备不存在',404);await core.store.audit(p.userId,'user.device.unbind','device',id,req.ip,'success');return {ok:true}})

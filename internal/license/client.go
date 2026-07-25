@@ -520,6 +520,21 @@ func (c *Client) Redeem(code string) error {
 	return c.saveLocked()
 }
 
+// ChangePassword updates the signed-in account's password after verifying the
+// current one server-side. The local session stays valid.
+func (c *Client) ChangePassword(current, next string) error {
+	if !c.Enabled() {
+		return errors.New("商业授权未启用")
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	return c.authedRequestLocked(ctx, http.MethodPost, "/v1/me/password", map[string]any{
+		"currentPassword": current, "newPassword": next,
+	}, nil)
+}
+
 // ActivateCurrentDevice converts the short-lived "名额已满" login into a real
 // device binding after the user removes an old device. Until this succeeds no
 // lease is held, therefore Service.Start remains blocked.

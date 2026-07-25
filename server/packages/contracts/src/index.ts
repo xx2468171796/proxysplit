@@ -15,6 +15,17 @@ export const registerSchema = z.object({
   password: z.string().min(8).max(256),
   device: deviceSchema,
 })
+// 官网注册：没有设备指纹，按 IP 限制注册数；试用在首次用客户端登录时按硬件发放。
+export const webRegisterSchema = z.object({
+  username: z.string().trim().min(3).max(32).refine(value=>!/[\s@]/u.test(value),'用户名不能包含空格或 @'),
+  email: z.string().trim().email().max(254),
+  password: z.string().min(8).max(256),
+})
+// 用户自助修改密码：需验证原密码。
+export const selfPasswordSchema = z.object({
+  currentPassword: z.string().min(1).max(256),
+  newPassword: z.string().min(8).max(256),
+})
 export const refreshSchema = z.object({ refreshToken: z.string().min(40), deviceFingerprint: z.string().min(32).max(128) })
 // 已登录但设备名额满时，允许仅使用短期访问令牌在新电脑上腾出一个名额。
 export const activateDeviceSchema = z.object({ device: deviceSchema })
@@ -96,6 +107,7 @@ export const settingPatchSchema = z.object({
   registrationEnabled:z.boolean().optional(),
   trialDays:z.number().int().min(0).max(365).optional(),
   maxAccountsPerDevice:z.number().int().min(0).max(100).optional(),
+  maxAccountsPerIp:z.number().int().min(0).max(100).optional(),
   trialPlanCode:z.string().min(2).max(64).optional(),
   defaultDeviceLimit:z.number().int().min(1).max(100).optional(),
   licenseLeaseMinutes:z.number().int().min(15).max(1440).optional(),
@@ -196,6 +208,8 @@ export const redeemCodeStatusSchema = z.object({ status: z.enum(['active','disab
 
 export type LoginInput = z.infer<typeof loginSchema>
 export type RegisterInput = z.infer<typeof registerSchema>
+export type WebRegisterInput = z.infer<typeof webRegisterSchema>
+export type SelfPasswordInput = z.infer<typeof selfPasswordSchema>
 export type DeviceInput = z.infer<typeof deviceSchema>
 export type RefreshInput = z.infer<typeof refreshSchema>
 export type ActivateDeviceInput = z.infer<typeof activateDeviceSchema>

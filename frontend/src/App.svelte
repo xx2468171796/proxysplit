@@ -85,6 +85,7 @@
     GetAnnouncements as WGetAnnouncements,
     RefreshEntitlement as WRefreshEntitlement,
     RedeemCode as WRedeemCode,
+    ChangeAccountPassword as WChangeAccountPassword,
   } from '../wailsjs/go/main/App.js'
   import { EventsOn } from '../wailsjs/runtime/runtime.js'
   import donateQR from './assets/images/donate.png'
@@ -237,6 +238,7 @@
   let splitIdx = 0
   let redeemInput = ''
   let redeemBusy = false
+  let pwCurrent = '', pwNext = '', pwBusy = false, pwMsg = '', pwErr = false
   let showRedeemDialog = false
   let paymentPoll: ReturnType<typeof setInterval> | null = null
   let paymentPollVis: (() => void) | null = null
@@ -684,6 +686,16 @@
   // 已有有效权益时，关闭会员弹窗才停止轮询。无有效权益用户使用的是整页购买
   // 界面（showMembership=false），不能因此误停付款查单。
   $: if (license.authenticated && !showMembership && paymentPoll) stopPaymentPolling()
+  async function changePassword() {
+    if (!pwCurrent || pwNext.length < 8) return
+    pwBusy = true; pwMsg = ''; pwErr = false
+    const err = await WChangeAccountPassword(pwCurrent, pwNext)
+    pwBusy = false
+    if (err) { pwMsg = err; pwErr = true; return }
+    pwCurrent = ''; pwNext = ''
+    pwMsg = '密码已修改，其它设备需重新登录'
+    toast('密码修改成功')
+  }
   async function redeem() {
     const code = redeemInput.trim()
     if (!code) { commerceError = '请输入兑换码'; return }
@@ -2332,6 +2344,15 @@
                 <div><span>授权到期</span><b>{license.expiresAt ? new Date(license.expiresAt).toLocaleString() : '以服务端为准'}</b></div>
                 <div><span>离线可用至</span><b>{license.offlineUntil ? new Date(license.offlineUntil).toLocaleString() : '需在线校验'}</b></div>
               </div>
+              <div class="pw-block">
+                <div class="pw-head"><div><b>修改密码</b><small>输入原密码即可修改，修改后其它设备需重新登录</small></div></div>
+                <form class="pw-form" on:submit|preventDefault={changePassword}>
+                  <input type="password" placeholder="原密码" bind:value={pwCurrent} disabled={pwBusy} autocomplete="current-password" />
+                  <input type="password" placeholder="新密码（至少 8 位）" bind:value={pwNext} disabled={pwBusy} autocomplete="new-password" />
+                  <button type="submit" disabled={pwBusy || !pwCurrent || pwNext.length < 8}>{pwBusy ? '修改中…' : '确认修改'}</button>
+                </form>
+                {#if pwMsg}<p class="pw-msg" class:bad={pwErr}>{pwMsg}</p>{/if}
+              </div>
               <div class="settings-devices">
                 <div class="settings-devices-head"><div><b>设备管理</b><small>{accountDevices.length} / {license.maxDevices || '—'} 台，旧设备可在这里直接解绑</small></div><button class="mini" on:click={loadCommerce} disabled={commerceLoading}>{commerceLoading ? '刷新中…' : '刷新设备'}</button></div>
                 {#if deviceLoadError}
@@ -3338,6 +3359,15 @@
   .redeem-form { display: flex; gap: 8px; flex: 1; min-width: 260px; }
   .redeem-form input { flex: 1; min-height: 36px; padding: 0 12px; border: 1px solid rgba(255,255,255,.14); border-radius: 9px; background: rgba(8,16,30,.55); color: #e7eefb; font: inherit; font-size: 12px; }
   .redeem-form button { min-height: 36px; padding: 0 16px; border: 0; border-radius: 9px; background: #10b981; color: #04120c; font: inherit; font-size: 12px; font-weight: 800; cursor: pointer; }
+  .pw-block { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line); }
+  .pw-head b { font-size: 13px; }
+  .pw-head small { display: block; margin-top: 2px; color: var(--muted); font-size: 11.5px; }
+  .pw-form { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+  .pw-form input { flex: 1; min-width: 150px; min-height: 34px; padding: 0 11px; border: 1px solid var(--line); border-radius: 9px; background: var(--soft); color: var(--ink); font: inherit; font-size: 12.5px; }
+  .pw-form button { min-height: 34px; padding: 0 16px; border: 0; border-radius: 9px; background: var(--brand); color: #fff; font: inherit; font-size: 12.5px; font-weight: 700; cursor: pointer; }
+  .pw-form button:disabled { opacity: .5; cursor: not-allowed; }
+  .pw-msg { margin: 8px 0 0; color: #16a34a; font-size: 12px; }
+  .pw-msg.bad { color: #dc2626; }
   .split-badge { display: inline-block; padding: 3px 9px; border-radius: 999px; background: rgba(255,120,60,.16); border: 1px solid rgba(255,120,60,.42); color: #ffb27a; font-size: 11px; font-weight: 800; }
   .split-note { margin: 8px 0 0!important; padding: 9px 11px; border-radius: 10px; background: rgba(255,120,60,.12); border: 1px solid rgba(255,120,60,.4); color: #ffcaa0!important; font-size: 12px; line-height: 1.7; }
   .split-note b { color: #fff; }

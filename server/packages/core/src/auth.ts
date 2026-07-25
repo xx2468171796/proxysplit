@@ -2,7 +2,7 @@ import { createHash, createPublicKey, randomUUID } from 'node:crypto'
 import { argon2id, hash, verify } from 'argon2'
 import { exportSPKI, generateKeyPair, importPKCS8, jwtVerify, SignJWT } from 'jose'
 import { AppError, normalizeUsername } from '@proxysplit/shared'
-import type { ActivateDeviceInput, DeviceInput, LoginInput, RefreshInput, RegisterInput } from '@proxysplit/contracts'
+import type { ActivateDeviceInput, DeviceInput, LoginInput, RefreshInput, RegisterInput, SelfPasswordInput, WebRegisterInput } from '@proxysplit/contracts'
 import type { PgStore, UserRecord } from './store.js'
 
 const encoder=new TextEncoder()
@@ -53,6 +53,38 @@ export class AuthService{
     }
     return this.login(input,ip)
   }
+  // 官网注册：只建账号，不绑定设备、不发试用（试用在首次客户端登录时发放）。
+  async registerWeb(input:WebRegisterInput,ip=''){
+    const passwordHash=await hashPassword(input.password)
+    try{
+      const user=await this.store.registerWebUser({
+        username:normalizeUsername(input.username),email:input.email.trim().toLowerCase(),passwordHash,ip,
+      })
+      await this.store.audit(user.id,'auth.register.web','user',user.id,ip,'success')
+      return {ok:true,username:user.username}
+    }catch(error){
+      const code=(error as {code?:string}).code
+      const message=(error as Error).message
+      if(code==='23505')throw new AppError('IDENTITY_TAKEN','用户名或邮箱已被使用',409)
+      if(message==='REGISTRATION_DISABLED')throw new AppError('REGISTRATION_DISABLED','当前暂停开放注册',403)
+      if(message==='IP_ACCOUNT_LIMIT')throw new AppError('IP_ACCOUNT_LIMIT','当前网络注册的账号已达上限，请直接登录或联系客服',429)
+      throw error
+    }
+  }
+  // 用户自助改密：校验原密码后更新，并撤销该账号其它会话。
+  async changeOwnPassword(userId:string,input:SelfPasswordInput,ip=''){
+    const user=await this.store.findUserById(userId)
+    if(!user)throw new AppError('NOT_FOUND','用户不存在',404)
+    const valid=await verify(user.passwordHash,input.currentPassword).catch(()=>false)
+    if(!valid){
+      await this.store.audit(userId,'user.password','user',userId,ip,'denied')
+      throw new AppError('PASSWORD_INVALID','原密码不正确',401)
+    }
+    if(input.currentPassword===input.newPassword)throw new AppError('PASSWORD_SAME','新密码不能与原密码相同',400)
+    await this.store.setUserPassword(userId,await hashPassword(input.newPassword))
+    await this.store.audit(userId,'user.password','user',userId,ip,'success')
+    return {ok:true}
+  }
   async login(input:LoginInput,ip=''){
     const user=await this.store.findUser(normalizeUsername(input.username))
     const lockedUntil=user?.lockedUntil?new Date(user.lockedUntil):null
@@ -75,6 +107,9 @@ export class AuthService{
     }
     await this.store.recordLoginSuccess(user.id)
     if(user.status!=='active')throw new AppError('ACCOUNT_UNAVAILABLE','Account is unavailable',403)
+    // 官网注册的账号在这里补发试用：注册时没有设备信息，首次客户端登录才知道硬件。
+    // 内部已做「一机一次 / 一号一次 / 已有权益不发」判断，失败不阻断登录。
+    try{await this.store.claimTrialOnLogin(user.id,hashFingerprint(input.device.hardwareHash??input.device.fingerprint),ip)}catch{/* 发放试用失败绝不能挡住登录 */}
     const entitlement=await this.store.entitlement(user.id)
     const license=this.license(entitlement,user)
     const settings=await this.store.getCommerceSettings()

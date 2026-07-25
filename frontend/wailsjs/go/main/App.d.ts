@@ -116,6 +116,8 @@ export function PreviewAppRulesImport(arg1:string):Promise<service.RuleImportPre
 
 export function QQGroup():Promise<string>;
 
+export function ChangeAccountPassword(arg1:string,arg2:string):Promise<string>;
+
 export function RedeemCode(arg1:string):Promise<string>;
 
 export function RefreshEntitlement():Promise<string>;

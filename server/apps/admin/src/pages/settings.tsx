@@ -37,6 +37,7 @@ type CommerceSettings = {
   trialDays: number
   trialPlanCode: string
   maxAccountsPerDevice: number
+  maxAccountsPerIp: number
   defaultDeviceLimit: number
   licenseLeaseMinutes: number
   offlineGraceHours: number
@@ -238,7 +239,7 @@ export default function SettingsPage() {
           </SettingRow>
           <SettingRow
             label="每设备注册上限"
-            hint="同一台设备最多可注册的账号数，防止刷试用；0 表示不限制（范围 0–100）。"
+            hint="同一台设备最多可注册的账号数（客户端注册），防止刷试用；0 表示不限制（范围 0–100）。"
             htmlFor="maxAccountsPerDevice"
           >
             <Input
@@ -248,6 +249,20 @@ export default function SettingsPage() {
               max={100}
               value={form.maxAccountsPerDevice}
               onChange={numHandler('maxAccountsPerDevice')}
+            />
+          </SettingRow>
+          <SettingRow
+            label="每 IP 注册上限"
+            hint="同一网络 IP 最多可注册的账号数（官网注册）；0 表示不限制（范围 0–100）。"
+            htmlFor="maxAccountsPerIp"
+          >
+            <Input
+              id="maxAccountsPerIp"
+              type="number"
+              min={0}
+              max={100}
+              value={form.maxAccountsPerIp}
+              onChange={numHandler('maxAccountsPerIp')}
             />
           </SettingRow>
         </CardContent>

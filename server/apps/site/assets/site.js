@@ -171,3 +171,51 @@ document.querySelectorAll('[data-copy]').forEach((btn) => {
     setTimeout(() => { btn.innerHTML = btn.dataset.original; btn.classList.remove('copied') }, 1800)
   })
 })
+
+// 官网注册：只建账号（无设备指纹），试用在首次用客户端登录时按硬件发放。
+const registerForm = document.querySelector('[data-register-form]')
+const registerMsg = document.querySelector('[data-register-msg]')
+if (registerForm && registerMsg) {
+  const show = (text, ok) => {
+    registerMsg.textContent = text
+    registerMsg.classList.toggle('ok', !!ok)
+    registerMsg.classList.toggle('bad', !ok)
+    registerMsg.hidden = false
+  }
+  registerForm.addEventListener('submit', async (event) => {
+    event.preventDefault()
+    const button = registerForm.querySelector('button')
+    const data = new FormData(registerForm)
+    const body = {
+      username: String(data.get('username') || '').trim(),
+      email: String(data.get('email') || '').trim(),
+      password: String(data.get('password') || ''),
+    }
+    if (body.username.length < 3 || !body.email.includes('@') || body.password.length < 8) {
+      show('请填写完整：用户名至少 3 位、邮箱有效、密码至少 8 位。', false)
+      return
+    }
+    button.disabled = true
+    const original = button.textContent
+    button.textContent = '注册中…'
+    try {
+      const response = await fetch('/v1/auth/register/web', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      const result = await response.json().catch(() => ({}))
+      if (response.ok) {
+        registerForm.reset()
+        show('注册成功！现在下载客户端，用该账号登录即可领取 3 天免费试用。', true)
+      } else {
+        show(result?.error?.message || '注册失败，请稍后重试。', false)
+      }
+    } catch {
+      show('网络异常，请稍后重试。', false)
+    } finally {
+      button.disabled = false
+      button.textContent = original
+    }
+  })
+}

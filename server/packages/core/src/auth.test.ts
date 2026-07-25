@@ -19,6 +19,7 @@ class FakeStore {
     return { failedLoginCount: this.user.failedLoginCount, lockoutLevel: this.user.lockoutLevel, lockedUntil: this.user.lockedUntil }
   }
   async recordLoginSuccess() { this.user.failedLoginCount = 0; this.user.lockedUntil = null }
+  async claimTrialOnLogin() { return null }
   async findUser(username: string) { return username === this.user.username ? this.user : null }
   async findUserById(id: string) { return id === this.user.id ? this.user : null }
   async entitlement() { return this.entitlementValue }

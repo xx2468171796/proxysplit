@@ -218,6 +218,10 @@ export function QQGroup() {
   return window['go']['main']['App']['QQGroup']();
 }
 
+export function ChangeAccountPassword(arg1, arg2) {
+  return window['go']['main']['App']['ChangeAccountPassword'](arg1, arg2);
+}
+
 export function RedeemCode(arg1) {
   return window['go']['main']['App']['RedeemCode'](arg1);
 }

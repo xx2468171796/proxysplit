@@ -31,7 +31,7 @@ export type CommerceSettings = {
   registrationEnabled:boolean; trialDays:number; trialPlanCode:string;
   defaultDeviceLimit:number; licenseLeaseMinutes:number;
   offlineGraceHours:number; activePaymentProvider:string;
-  paymentMethods:Array<'alipay'>; maxAccountsPerDevice:number
+  paymentMethods:Array<'alipay'>; maxAccountsPerDevice:number; maxAccountsPerIp:number
 }
 export type PaymentProviderRecord = {
   code:string; displayName:string; adapter:string; endpoint:string;
@@ -92,11 +92,12 @@ const settingMap:Record<keyof CommerceSettings,string>={
   activePaymentProvider:'active_payment_provider',
   paymentMethods:'payment_methods',
   maxAccountsPerDevice:'max_accounts_per_device',
+  maxAccountsPerIp:'max_accounts_per_ip',
 }
 const settingsDefaults:CommerceSettings={
   registrationEnabled:true,trialDays:3,trialPlanCode:'trial',
   defaultDeviceLimit:3,licenseLeaseMinutes:60,offlineGraceHours:6,
-  activePaymentProvider:'zhongzhuan-prod',paymentMethods:['alipay'],maxAccountsPerDevice:3,
+  activePaymentProvider:'zhongzhuan-prod',paymentMethods:['alipay'],maxAccountsPerDevice:3,maxAccountsPerIp:3,
 }
 
 // ---- Admin list helpers: parameterized paging + whitelisted sorting ----
@@ -195,6 +196,61 @@ export class PgStore {
       }
       await client.query('COMMIT')
       return {...user.rows[0],trialDays:grantTrial?trialDays:0,trialEndsAt:grantTrial?trialEnds:null,trialGranted:grantTrial}
+    }catch(e){await client.query('ROLLBACK');throw e}finally{client.release()}
+  }
+
+  // 官网注册：没有设备指纹，因此按注册来源 IP 限制账号数；不发放试用，
+  // 试用留到首次用客户端登录时按硬件发放（见 claimTrialOnLogin）。
+  async registerWebUser(input:{username:string;email:string;passwordHash:string;ip:string}){
+    const ipHash=sha256('proxysplit-ip-v1:'+input.ip)
+    const client=await this.pool.connect()
+    try{
+      await client.query('BEGIN')
+      await client.query('SELECT pg_advisory_xact_lock(hashtext($1))',[`webreg:${ipHash}`])
+      const settings=await client.query(`SELECT key,value FROM system_settings WHERE key IN ('registration_enabled','max_accounts_per_ip')`)
+      const map=new Map(settings.rows.map(x=>[x.key,x.value]))
+      if((map.get('registration_enabled')??true)!==true)throw new Error('REGISTRATION_DISABLED')
+      const maxPerIp=Number(map.get('max_accounts_per_ip')??3)
+      if(maxPerIp>0){
+        const cnt=await client.query('SELECT count(*)::int AS n FROM users WHERE registration_ip_hash=$1',[ipHash])
+        if(cnt.rows[0].n>=maxPerIp)throw new Error('IP_ACCOUNT_LIMIT')
+      }
+      const user=await client.query(`INSERT INTO users(username,email,password_hash,role,status,registration_ip_hash,registration_hardware_hash)
+        VALUES($1,$2,$3,'user','active',$4,'') RETURNING id,username,email,role,status`,
+        [input.username,input.email,input.passwordHash,ipHash])
+      await client.query('COMMIT')
+      return user.rows[0]
+    }catch(e){await client.query('ROLLBACK');throw e}finally{client.release()}
+  }
+
+  // 首次用客户端登录时补发试用：官网注册的账号没有设备信息，登录时才知道硬件。
+  // 仍遵守「一台设备只发一次试用」「一个账号只领一次试用」。
+  async claimTrialOnLogin(userId:string,hardwareHash:string,ip:string){
+    if(!hardwareHash)return null
+    const client=await this.pool.connect()
+    try{
+      await client.query('BEGIN')
+      await client.query('SELECT pg_advisory_xact_lock(hashtext($1))',[hardwareHash])
+      const settings=await client.query(`SELECT key,value FROM system_settings WHERE key IN ('trial_days','trial_plan_code')`)
+      const map=new Map(settings.rows.map(x=>[x.key,x.value]))
+      const trialDays=Number(map.get('trial_days')??3)
+      if(!(trialDays>0)){await client.query('ROLLBACK');return null}
+      const user=(await client.query('SELECT id,trial_started_at FROM users WHERE id=$1 FOR UPDATE',[userId])).rows[0]
+      if(!user||user.trial_started_at){await client.query('ROLLBACK');return null}
+      const claimed=await client.query('SELECT 1 FROM trial_claims WHERE hardware_hash=$1',[hardwareHash])
+      if(claimed.rowCount){await client.query('ROLLBACK');return null}
+      // 已有有效授权（付费/兑换）时不再发试用。
+      const active=await client.query(`SELECT 1 FROM licenses WHERE user_id=$1 AND status='active' AND expires_at>now()`,[userId])
+      if(active.rowCount){await client.query('ROLLBACK');return null}
+      const plan=(await client.query('SELECT id FROM plans WHERE code=$1 AND active=true',[String(map.get('trial_plan_code')??'trial')])).rows[0]
+      if(!plan){await client.query('ROLLBACK');return null}
+      const now=new Date(),trialEnds=new Date(now.getTime()+trialDays*86400000)
+      await client.query(`INSERT INTO licenses(user_id,plan_id,starts_at,expires_at,source) VALUES($1,$2,$3,$4,'trial')`,[userId,plan.id,now,trialEnds])
+      await client.query(`INSERT INTO trial_claims(hardware_hash,user_id,expires_at,ip_hash) VALUES($1,$2,$3,$4)`,
+        [hardwareHash,userId,trialEnds,sha256('proxysplit-ip-v1:'+ip)])
+      await client.query(`UPDATE users SET trial_started_at=$2,trial_ends_at=$3 WHERE id=$1`,[userId,now,trialEnds])
+      await client.query('COMMIT')
+      return {trialDays,trialEndsAt:trialEnds}
     }catch(e){await client.query('ROLLBACK');throw e}finally{client.release()}
   }
 

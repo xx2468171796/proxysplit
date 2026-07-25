@@ -689,6 +689,22 @@ func (a *App) RefreshEntitlement() string {
 	return errStr(a.lic.RefreshEntitlement())
 }
 
+// ChangeAccountPassword lets the signed-in user change their own password by
+// providing the current one. Returns "" on success or an error message.
+func (a *App) ChangeAccountPassword(current, next string) string {
+	if a.lic == nil {
+		return "商业授权未启用"
+	}
+	current, next = strings.TrimSpace(current), strings.TrimSpace(next)
+	if current == "" {
+		return "请输入原密码"
+	}
+	if len(next) < 8 {
+		return "新密码至少 8 位"
+	}
+	return errStr(a.lic.ChangePassword(current, next))
+}
+
 // RedeemCode applies a redeem / activation code to the signed-in account and
 // refreshes the membership. Returns "" on success or an error message.
 func (a *App) RedeemCode(code string) string {
