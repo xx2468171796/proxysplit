@@ -5,7 +5,9 @@ param(
     [Parameter(Mandatory = $true)]
     [ValidatePattern('^\d+\.\d+\.\d+$')]
     [string]$Version,
-    [switch]$CheckOnly
+    [switch]$CheckOnly,
+    [string]$SigningThumbprint = "",
+    [string]$SignToolPath = ""
 )
 
 $ErrorActionPreference = 'Stop'
@@ -49,9 +51,6 @@ $wails = Join-Path $env:USERPROFILE 'go\bin\wails.exe'
 if (-not (Test-Path -LiteralPath $wails) -and -not (Get-Command wails -ErrorAction SilentlyContinue)) {
     throw 'Wails CLI is unavailable'
 }
-if (-not (Get-Command garble -ErrorAction SilentlyContinue)) {
-    throw 'Garble is unavailable. Run: go install mvdan.cc/garble@latest'
-}
 
 Write-Host "Production profile: $($profile.name)" -ForegroundColor Cyan
 Write-Host "Version: v$Version" -ForegroundColor Cyan
@@ -72,7 +71,9 @@ if ($CheckOnly) {
     -ReleasePublicKeyFile $releasePublicKey `
     -ReleaseSigningPrivateKeyFile $releasePrivateKey `
     -TLSSPKISHA256 $tlsSpki `
-    -DownloadBaseURL $profile.downloadBaseUrl
+    -DownloadBaseURL $profile.downloadBaseUrl `
+    -SigningThumbprint $SigningThumbprint `
+    -SignToolPath $SignToolPath
 
 if ($LASTEXITCODE -ne 0) {
     throw "Production release build failed with exit code $LASTEXITCODE"

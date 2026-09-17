@@ -63,7 +63,11 @@ func (m *Manager) Port() int {
 
 // Version returns the bundled sing-box version (e.g. "1.13.14"), best effort.
 func (m *Manager) Version() string {
-	out, err := exec.Command(m.binPath, "version").Output()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, m.binPath, "version")
+	hideWindow(cmd)
+	out, err := cmd.Output()
 	if err != nil {
 		return ""
 	}
@@ -352,8 +356,10 @@ func (m *Manager) killStrays() {
 		"Get-CimInstance Win32_Process -Filter \"Name='sing-box.exe'\" | "+
 			"Where-Object { $_.ExecutablePath -and ($_.ExecutablePath -ieq '%s') } | "+
 			"ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }",
-		p)
-	cmd := exec.Command("powershell", "-NoProfile", "-NonInteractive", "-Command", ps)
+		strings.ReplaceAll(p, "'", "''"))
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "powershell", "-NoProfile", "-NonInteractive", "-Command", ps)
 	hideWindow(cmd)
 	_ = cmd.Run()
 }

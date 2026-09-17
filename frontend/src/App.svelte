@@ -1305,15 +1305,18 @@
     await WRemoveSub(id); clearSubMsg(id); await refreshSubs()
   }
   async function refreshCoreVersion() {
-    coreVersion = await safe<string>(() => WGetCoreVersion(), '1.13.14')
-    if (!coreVersion) coreVersion = '1.13.14'
+    coreVersion = await safe<string>(() => WGetCoreVersion(), '') || '未知'
   }
   async function updateCore() {
     if (coreMsg === '检查中…') return
     coreMsg = '检查中…'
-    const res = await safe<string>(() => WUpdateCore(), coreVersion)
-    if (res.indexOf('ERR:') === 0) { coreMsg = '失败：' + res.slice(4) }
-    else { coreVersion = res || coreVersion; coreMsg = '已更新到 v' + coreVersion + '（重启生效）' }
+    try {
+      const res = await WUpdateCore()
+      if (!res || res.indexOf('ERR:') === 0) { coreMsg = '失败：' + (res ? res.slice(4) : '内核更新未返回版本') }
+      else { coreVersion = res; coreMsg = '已更新到 v' + coreVersion + '（重启生效）' }
+    } catch (err) {
+      coreMsg = '失败：' + String(err)
+    }
     setTimeout(() => (coreMsg = ''), 4500)
   }
 

@@ -17,6 +17,7 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"golang.org/x/net/proxy"
@@ -24,6 +25,8 @@ import (
 
 // releaseURL is the GitHub API endpoint for the latest sing-box release.
 const releaseURL = "https://api.github.com/repos/SagerNet/sing-box/releases/latest"
+
+var installMu sync.Mutex
 
 // maxZipBytes caps how much of the release zip we will read into memory. The
 // windows-amd64 build is a few MB; 80MB is a generous safety ceiling.
@@ -46,10 +49,11 @@ type release struct {
 	Assets  []struct {
 		Name        string `json:"name"`
 		DownloadURL string `json:"browser_download_url"`
+		Digest      string `json:"digest"`
 	} `json:"assets"`
 }
 
-// newClient builds an *http.Client with a 60s timeout. When viaProxy
+// newClient builds an *http.Client with a bounded download timeout. When viaProxy
 // (host:port SOCKS5) is non-empty, requests are routed THROUGH it (essential:
 // GitHub is blocked behind the GFW, so we fetch through the running node).
 func newClient(viaProxy string) (*http.Client, error) {
@@ -67,7 +71,7 @@ func newClient(viaProxy string) (*http.Client, error) {
 		// SOCKS handshake (otherwise the dial goroutine/conn would leak).
 		tr.DialContext = cd.DialContext
 	}
-	return &http.Client{Transport: tr, Timeout: 60 * time.Second}, nil
+	return &http.Client{Transport: tr, Timeout: 5 * time.Minute}, nil
 }
 
 // fetchRelease GETs the latest release JSON and decodes it.
@@ -102,6 +106,7 @@ func LatestVersion(viaProxy string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	defer client.CloseIdleConnections()
 	rel, err := fetchRelease(client)
 	if err != nil {
 		return "", err
@@ -120,21 +125,32 @@ func LatestVersion(viaProxy string) (string, error) {
 // atomically (temp file + os.Rename), so a failed or partial download never
 // corrupts the existing binary on disk.
 func Update(destDir, viaProxy string) (string, error) {
+	installMu.Lock()
+	defer installMu.Unlock()
 	client, err := newClient(viaProxy)
 	if err != nil {
 		return "", err
 	}
+	defer client.CloseIdleConnections()
+	return updateWithClient(destDir, client)
+}
+
+func updateWithClient(destDir string, client *http.Client) (string, error) {
 	rel, err := fetchRelease(client)
 	if err != nil {
 		return "", err
 	}
 	version := strings.TrimPrefix(rel.TagName, "v")
+	if _, err := needsBundledUpgrade("", version); err != nil {
+		return "", err
+	}
 
 	// Pick the windows-amd64 zip that is NOT the "legacy" (older-CPU) build.
-	var downloadURL, assetName, checksumURL string
+	var downloadURL, assetName, checksumURL, digest string
 	for _, a := range rel.Assets {
 		if strings.HasSuffix(a.Name, "windows-amd64.zip") && !strings.Contains(a.Name, "legacy") {
 			downloadURL, assetName = a.DownloadURL, a.Name
+			digest = a.Digest
 		}
 		if strings.Contains(strings.ToLower(a.Name), "checksums") && strings.HasSuffix(strings.ToLower(a.Name), ".txt") {
 			checksumURL = a.DownloadURL
@@ -143,20 +159,13 @@ func Update(destDir, viaProxy string) (string, error) {
 	if downloadURL == "" {
 		return "", fmt.Errorf("no windows-amd64 asset found in release %s", rel.TagName)
 	}
-	if checksumURL == "" {
-		return "", fmt.Errorf("release %s has no checksum manifest", rel.TagName)
+	expected, err := releaseChecksum(client, digest, checksumURL, assetName)
+	if err != nil {
+		return "", err
 	}
 
 	// Download the zip into memory (bounded).
 	zipBytes, err := download(client, downloadURL)
-	if err != nil {
-		return "", err
-	}
-	checksums, err := download(client, checksumURL)
-	if err != nil {
-		return "", fmt.Errorf("download checksum manifest: %w", err)
-	}
-	expected, err := checksumForAsset(checksums, assetName)
 	if err != nil {
 		return "", err
 	}
@@ -183,21 +192,74 @@ func Update(destDir, viaProxy string) (string, error) {
 	// is locked and cannot be deleted, but a running image CAN be renamed aside —
 	// so move the current binary to .old first, then move the new one into place.
 	// The .old file is cleaned up on the next launch (it may still be locked now).
-	tmp := filepath.Join(destDir, "sing-box.exe.tmp")
+	if err := installBinary(destDir, exe); err != nil {
+		return "", err
+	}
+	return version, nil
+}
+
+// GitHub now publishes a SHA256 digest on each release asset. Older releases
+// may have only a checksum file. Missing or malformed integrity data fails closed.
+func releaseChecksum(client *http.Client, digest, checksumURL, assetName string) (string, error) {
+	if digest != "" {
+		hash := strings.TrimPrefix(digest, "sha256:")
+		if !strings.HasPrefix(digest, "sha256:") || len(hash) != 64 {
+			return "", fmt.Errorf("invalid release asset SHA256 digest")
+		}
+		if _, err := hex.DecodeString(hash); err != nil {
+			return "", fmt.Errorf("invalid release asset SHA256 digest: %w", err)
+		}
+		return strings.ToLower(hash), nil
+	}
+	if checksumURL == "" {
+		return "", fmt.Errorf("release has neither a SHA256 digest nor a checksum manifest")
+	}
+	checksums, err := download(client, checksumURL)
+	if err != nil {
+		return "", fmt.Errorf("download checksum manifest: %w", err)
+	}
+	return checksumForAsset(checksums, assetName)
+}
+
+func installBinary(destDir string, exe []byte) error {
+	if err := os.MkdirAll(destDir, 0o755); err != nil {
+		return err
+	}
+	f, err := os.CreateTemp(destDir, "sing-box-*.tmp")
+	if err != nil {
+		return err
+	}
+	tmp := f.Name()
+	defer os.Remove(tmp)
+	_, writeErr := f.Write(exe)
+	closeErr := f.Close()
+	if writeErr != nil {
+		return writeErr
+	}
+	if closeErr != nil {
+		return closeErr
+	}
 	dst := filepath.Join(destDir, "sing-box.exe")
 	old := dst + ".old"
-	if err := os.WriteFile(tmp, exe, 0o644); err != nil {
-		return "", fmt.Errorf("write temp: %w", err)
+	if err := os.Remove(old); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("previous core still in use; restart before updating: %w", err)
+	}
+	moved := false
+	if err := os.Rename(dst, old); err == nil {
+		moved = true
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("backup core: %w", err)
+	}
+	if err := os.Rename(tmp, dst); err != nil {
+		if moved {
+			if rollbackErr := os.Rename(old, dst); rollbackErr != nil {
+				return fmt.Errorf("replace core: %v; restore from %s: %w", err, old, rollbackErr)
+			}
+		}
+		return fmt.Errorf("replace core: %w", err)
 	}
 	_ = os.Remove(old)
-	_ = os.Rename(dst, old) // ignore error if dst is absent
-	if err := os.Rename(tmp, dst); err != nil {
-		_ = os.Rename(old, dst) // roll back
-		_ = os.Remove(tmp)
-		return "", fmt.Errorf("replace sing-box.exe: %w", err)
-	}
-	_ = os.Remove(old) // best-effort; if still locked it is removed on next start
-	return version, nil
+	return nil
 }
 
 func checksumForAsset(manifest []byte, assetName string) (string, error) {

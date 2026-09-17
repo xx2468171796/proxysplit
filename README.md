@@ -7,7 +7,7 @@
 为不同应用设置规则、直连、拦截或指定线路；所有匹配与路由由 sing-box
 在本机完成，节点、订阅和应用规则优先保存在本机。
 
-[![下载](https://img.shields.io/badge/⬇_下载_v1.9.21-2563eb?style=for-the-badge)](https://proxysplit.zygskins.cn/download/proxysplit-v1.9.21.exe)
+[![下载](https://img.shields.io/badge/⬇_下载_v1.9.52-2563eb?style=for-the-badge)](https://proxysplit.zygskins.cn/download/proxysplit-v1.9.52.exe)
 &nbsp;
 ![平台](https://img.shields.io/badge/Windows_10/11-x64-334155?style=for-the-badge)
 ![内核](https://img.shields.io/badge/core-sing--box-16a34a?style=for-the-badge)
@@ -47,7 +47,7 @@ ProxySplit **不提供任何翻墙、VPN、代理节点、订阅或网络线路�
 ## 下载与使用
 
 前往 **[ProxySplit 官网](https://proxysplit.zygskins.cn)** 下载
-`proxysplit-v1.9.21.exe`。这是便携式单文件版本：
+`proxysplit-v1.9.52.exe`。这是便携式单文件版本：
 
 1. 在「节点」页添加你有权使用的合法网络配置。
 2. 在「应用分流」页选择应用并分配规则或线路。
@@ -114,9 +114,12 @@ sing-box outbound，并按进程名分别路由。
 
 ## 从源码构建
 
-前置依赖：Go、Wails v2、Node.js、Garble。
+前置依赖：Go 1.26.8+、Wails v2.16.0、Node.js。正式版默认不加壳、不混淆。
 
 ```powershell
+# 获取固定版本官方内核（SHA256 校验）
+.\scripts\fetch-core.ps1
+
 # 开发
 wails dev
 

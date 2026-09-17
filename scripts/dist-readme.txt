@@ -8,5 +8,6 @@ ProxySplit 便携版
 升级：用新版 exe 覆盖旧文件即可。配置与订阅数据（config.json / proxysplit-data.json）
 保留在 %APPDATA%\proxysplit，覆盖前会自动备份为 .bak。
 
-本程序内置 sing-box 内核；正式发布包经 Garble 混淆并附带 Ed25519 自动更新签名。
+本程序内置官方 sing-box 内核；默认不加壳、不混淆，并附带 Ed25519 自动更新签名。
+Ed25519 更新签名不等于 Windows Authenticode 代码签名。若出现安全告警，请记录威胁名称和文件路径，联系发布者核查。
 各版本的 SHA256 记录在对应的 proxysplit-v<版本>.manifest.json 中。

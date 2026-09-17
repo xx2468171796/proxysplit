@@ -18,6 +18,7 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 
 	"proxysplit/internal/core"
+	"proxysplit/internal/coreupdate"
 	"proxysplit/internal/license"
 	"proxysplit/internal/nodes"
 	"proxysplit/internal/proc"
@@ -27,7 +28,7 @@ import (
 
 // payloadFS bundles sing-box and its rule sets into the portable executable.
 //
-//go:embed bin/sing-box.exe bin/geoip-cn.srs bin/geosite-cn.srs bin/geosite-category-ads-all.srs
+//go:embed bin/sing-box.exe bin/core-release.json bin/geoip-cn.srs bin/geosite-cn.srs bin/geosite-category-ads-all.srs
 var payloadFS embed.FS
 
 // App is the Wails-bound application object.
@@ -66,6 +67,10 @@ func (a *App) startup(ctx context.Context) {
 	bin, err := ensurePayload()
 	if err != nil {
 		runtime.LogError(ctx, "extract payload: "+err.Error())
+		if appVersion != "dev" {
+			a.finishStartup(fmt.Errorf("内核初始化失败：%w", err))
+			return
+		}
 		bin = binDir() // dev fallback: use ./bin
 	}
 	svc, err := service.New(bin, dataDir())
@@ -212,7 +217,7 @@ func (a *App) domReady(ctx context.Context) {
 		script := "window.__PROXYSPLIT_BOOTSTRAP__=" + string(data) + ";" +
 			"window.dispatchEvent(new CustomEvent('proxysplit:bootstrap',{detail:window.__PROXYSPLIT_BOOTSTRAP__}));"
 		runtime.WindowExecJS(ctx, script)
-		if a.svc.GetSettings().AutoUpdateApp {
+		if a.svc != nil && a.svc.GetSettings().AutoUpdateApp {
 			update := a.CheckAppUpdate()
 			runtime.EventsEmit(ctx, "app-update", update)
 		}
@@ -240,8 +245,7 @@ func (a *App) onSecondInstance(_ options.SecondInstanceData) {
 }
 
 // ensurePayload extracts the embedded runtime binaries into a stable directory
-// and returns it. Files are (re)written only when missing or a different size,
-// so normal launches are cheap.
+// and returns it. Upgrade older cores; preserve newer cores and updated rule sets.
 func ensurePayload() (string, error) {
 	dir := filepath.Join(dataDir(), "bin")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -257,7 +261,25 @@ func ensurePayload() (string, error) {
 	_ = os.Remove(filepath.Join(dir, "WinDivert.dll"))
 	_ = os.Remove(filepath.Join(dir, "WinDivert64.sys"))
 
-	for _, name := range []string{"sing-box.exe", "geoip-cn.srs", "geosite-cn.srs", "geosite-category-ads-all.srs"} {
+	metadata, err := payloadFS.ReadFile("bin/core-release.json")
+	if err != nil {
+		return "", err
+	}
+	var bundled struct {
+		Version string `json:"version"`
+		SHA256  string `json:"sha256"`
+	}
+	if err := json.Unmarshal(metadata, &bundled); err != nil {
+		return "", err
+	}
+	exe, err := payloadFS.ReadFile("bin/sing-box.exe")
+	if err != nil {
+		return "", err
+	}
+	if err := coreupdate.EnsureBundled(dir, exe, bundled.Version, bundled.SHA256); err != nil {
+		return "", err
+	}
+	for _, name := range []string{"geoip-cn.srs", "geosite-cn.srs", "geosite-category-ads-all.srs"} {
 		dst := filepath.Join(dir, name)
 		// Extract only when missing — never overwrite, so a GitHub-updated
 		// sing-box.exe / rule-set is preserved across restarts.

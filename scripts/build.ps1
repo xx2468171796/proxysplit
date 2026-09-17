@@ -67,8 +67,15 @@ if ($commercialEnabled) {
         if ($TLSSPKISHA256) { $ldflags += "-X main.updateTLSSPKISHA256=$TLSSPKISHA256" }
     }
     if ($ReleaseSigningPrivateKeyFile -and -not $ReleasePublicKeyFile) { throw 'ReleasePublicKeyFile is required when signing releases' }
-    $obfuscateEnabled = $true
 }
+
+# Every build must embed the reviewed upstream core, never an untracked stale
+# download. Fetch the pinned release first if setting up a fresh checkout.
+$coreRelease = Get-Content -Raw -Encoding UTF8 (Join-Path $root 'bin\core-release.json') | ConvertFrom-Json
+$coreExe = Join-Path $root 'bin\sing-box.exe'
+if (-not (Test-Path -LiteralPath $coreExe)) { throw 'Missing core: run scripts\fetch-core.ps1 first' }
+$coreHash = (Get-FileHash -LiteralPath $coreExe -Algorithm SHA256).Hash.ToLowerInvariant()
+if ($coreHash -ne $coreRelease.sha256) { throw 'Bundled core does not match bin/core-release.json; run scripts\fetch-core.ps1' }
 
 $env:Path = "C:\Program Files\Go\bin;$env:USERPROFILE\go\bin;$env:Path"
 $env:CGO_ENABLED = "0"
@@ -161,20 +168,15 @@ $manifest = [ordered]@{
     commercial = $commercialEnabled; obfuscated = $obfuscateEnabled
     authenticodeSigned = -not [string]::IsNullOrWhiteSpace($SigningThumbprint)
     windowsProductVersion = $Version
+    coreVersion = $coreRelease.version
+    coreSha256 = $coreHash
     sourceCommit = $sourceCommit
     sourceDirty = $sourceDirty
     builtAt = [DateTime]::UtcNow.ToString('o')
 }
 $manifest | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $out "proxysplit-v$Version.manifest.json") -Encoding utf8
 
-# A successful release supersedes older binaries/manifests, while user data and
-# the confirmed UI prototype are deliberately retained.
-Get-ChildItem -LiteralPath $out -File | Where-Object {
-    $_.Name -match '^proxysplit-v.*\.(exe|manifest\.json)$' -and $_.Name -notin @("proxysplit-v$Version.exe", "proxysplit-v$Version.manifest.json")
-} | ForEach-Object {
-    try { Remove-Item -LiteralPath $_.FullName -Force -ErrorAction Stop }
-    catch { Write-Warning "Old release is still in use and was retained: $($_.Name)" }
-}
+# Keep prior versioned artifacts for rollback and false-positive comparisons.
 
 $mb = [math]::Round((Get-Item -LiteralPath $versionedExe).Length / 1MB, 1)
 Write-Host "==> release: $versionedExe ($mb MB)" -ForegroundColor Green

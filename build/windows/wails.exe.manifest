@@ -15,7 +15,7 @@
     <trustInfo xmlns="urn:schemas-microsoft-com:asm.v3">
         <security>
             <requestedPrivileges>
-                <!-- WinDivert loads a kernel driver; the app must run elevated. -->
+                <!-- sing-box TUN configures a virtual adapter and system routes. -->
                 <requestedExecutionLevel level="requireAdministrator" uiAccess="false"/>
             </requestedPrivileges>
         </security>
