@@ -12,11 +12,18 @@
 在实际出现告警的 Windows 机器上，记录保护历史中的威胁名称、文件完整路径、检测时间。扫描前保留正式发布清单，用哈希区分客户端、内核及被篡改的下载。
 
 ```powershell
+# 文件已被删，或不清楚哪一个文件：采集本产品最近 14 天的检测记录
+.\scripts\diagnose-defender.ps1
+# 已知道被隔离路径：即使文件不存在也能查询历史记录
+.\scripts\diagnose-defender.ps1 -File 'C:\原安装目录\proxysplit.exe'
+# 文件仍存在时，才可选择扫描
 .\scripts\diagnose-defender.ps1 -File .\output\proxysplit-v1.9.52.exe -Scan
 .\scripts\diagnose-defender.ps1 -File .\bin\sing-box.exe -Scan
 ```
 
-报告会保存在目标旁边的 `.defender.json`，包括 SHA256、签名状态、Defender 状态及检测记录。扫描可能按现有策略隔离文件。Defender 不可用时报告标明未验证，不能视为通过。
+报告默认保存在当前目录的 `proxysplit-defender-日期时间.json`，可用 `-Output` 指定位置。文件存在时记录 SHA256 和签名状态；文件已被删时仍独立查询检测历史、威胁名称及 Defender 1116–1119 事件。一个来源失败不阻断其他来源。扫描可能按现有策略隔离文件。Defender 不可用时报告标明未验证，不能视为通过。
+
+诊断报告可能包含本机用户名及安装路径，只交给排查人员；不包含节点配置、授权票据或账号密码。记录中出现 PowerShell、TUN 或未签名等事实，不足以单独认定为检测根因。需要把检测名称、时间、文件路径、版本及哈希对应后分析。
 
 ## 正式代码签名
 
