@@ -11,6 +11,7 @@
 - Go 完整测试/vet、前端 check/build、官方内核配置 check 已通过；全项目 govulncheck 结果 No vulnerabilities found。
 - 本机实启 v1.9.52，18088 本地控制 API 正常，运行目录旧内核 1.13.14 已自动升级为 1.14.1；测试时未开启代理。
 - scripts/verify-release.mjs 独立核对产物大小/SHA256/Ed25519；正式构建末尾自动执行。完整更新后的 Wails 绑定已生成。
+- 最终产物 output/proxysplit-v1.9.52.exe：96,397,824 字节；SHA256 3852b85580e6e4d9370572800e6dae85f5b57ac44a582b0629ba262c2db2b204；构建 commit f8a4bef；商业授权开启、混淆关闭、Ed25519 已验签、Authenticode 未签。
 
 ## 架构与部署
 - 客户端：Go + Wails + Svelte，sing-box 原生 TUN + process_name；早期 WinDivert 已移除。
