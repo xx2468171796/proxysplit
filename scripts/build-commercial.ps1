@@ -78,3 +78,6 @@ if ($CheckOnly) {
 if ($LASTEXITCODE -ne 0) {
     throw "Production release build failed with exit code $LASTEXITCODE"
 }
+
+& node (Join-Path $root 'scripts\verify-release.mjs') (Join-Path $root "output\proxysplit-v$Version.manifest.json")
+if ($LASTEXITCODE -ne 0) { throw 'Final release signature/hash verification failed' }

@@ -81,6 +81,8 @@ export namespace license {
 	    paidAt: string;
 	    expiresAt: string;
 	    createdAt: string;
+	    splitIndex: number;
+	    splitTotal: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new Order(source);
@@ -97,6 +99,8 @@ export namespace license {
 	        this.paidAt = source["paidAt"];
 	        this.expiresAt = source["expiresAt"];
 	        this.createdAt = source["createdAt"];
+	        this.splitIndex = source["splitIndex"];
+	        this.splitTotal = source["splitTotal"];
 	    }
 	}
 	export class Plan {
@@ -329,6 +333,9 @@ export namespace main {
 		}
 	}
 	export class OrderResult {
+	    split: boolean;
+	    groupNo?: string;
+	    orders: license.Order[];
 	    order: license.Order;
 	    err?: string;
 	
@@ -338,6 +345,9 @@ export namespace main {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.split = source["split"];
+	        this.groupNo = source["groupNo"];
+	        this.orders = this.convertValues(source["orders"], license.Order);
 	        this.order = this.convertValues(source["order"], license.Order);
 	        this.err = source["err"];
 	    }

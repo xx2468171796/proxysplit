@@ -2,13 +2,15 @@
 > 当前快照，最后更新：2026-09-17。历史发布过程见 Git，不在此重复堆积。
 
 ## 当前状态
-- 线上最新版本已实查为 v1.9.51；本轮准备 v1.9.52，尚未发布。
+- 线上最新版本已实查为 v1.9.51；本轮 v1.9.52 已完成本地构建与启动验证，尚未线上发布。
 - 本轮：官方 sing-box 1.13.14 → 1.14.1，Wails 2.12.0 → 2.16.0，Go x/net、x/crypto、x/sys、x/text 更新；当前项目工具链及 go.mod 最低版本为 Go 1.26.8，修复旧工具链 5 个可达标准库漏洞。
 - 已修复官方无 checksums 文本导致内核升级失败：优先使用 GitHub asset.digest SHA256，兼容旧清单，无有效校验数据拒绝安装。
 - 客户端升级自动更新旧内核、保留更高版本和用户规则库；内核替换串行执行，失败保护旧文件。
 - 核心版本查询与清理子进程加超时；路径单引号转义；界面更新异常不再显示成功；发行版内核初始化失败明确报错。
 - 商业构建默认不混淆、不加壳，保留 Ed25519 更新验签和授权；固定内核来源/双重 SHA256，保留旧产物可回滚。
-- Go 完整测试/vet、前端 check/build、官方内核配置 check 已通过；全项目 govulncheck 结果 No vulnerabilities found。v1.9.52 待正式构建。
+- Go 完整测试/vet、前端 check/build、官方内核配置 check 已通过；全项目 govulncheck 结果 No vulnerabilities found。
+- 本机实启 v1.9.52，18088 本地控制 API 正常，运行目录旧内核 1.13.14 已自动升级为 1.14.1；测试时未开启代理。
+- scripts/verify-release.mjs 独立核对产物大小/SHA256/Ed25519；正式构建末尾自动执行。完整更新后的 Wails 绑定已生成。
 
 ## 架构与部署
 - 客户端：Go + Wails + Svelte，sing-box 原生 TUN + process_name；早期 WinDivert 已移除。

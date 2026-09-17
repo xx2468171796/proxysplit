@@ -18,6 +18,10 @@ export function AddSub(arg1, arg2, arg3) {
   return window['go']['main']['App']['AddSub'](arg1, arg2, arg3);
 }
 
+export function ChangeAccountPassword(arg1, arg2) {
+  return window['go']['main']['App']['ChangeAccountPassword'](arg1, arg2);
+}
+
 export function CheckAppUpdate() {
   return window['go']['main']['App']['CheckAppUpdate']();
 }
@@ -216,10 +220,6 @@ export function PreviewAppRulesImport(arg1) {
 
 export function QQGroup() {
   return window['go']['main']['App']['QQGroup']();
-}
-
-export function ChangeAccountPassword(arg1, arg2) {
-  return window['go']['main']['App']['ChangeAccountPassword'](arg1, arg2);
 }
 
 export function RedeemCode(arg1) {

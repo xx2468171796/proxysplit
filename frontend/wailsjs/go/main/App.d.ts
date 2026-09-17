@@ -16,6 +16,8 @@ export function AddNodes(arg1:string):Promise<main.AddResult>;
 
 export function AddSub(arg1:string,arg2:string,arg3:boolean):Promise<string>;
 
+export function ChangeAccountPassword(arg1:string,arg2:string):Promise<string>;
+
 export function CheckAppUpdate():Promise<updater.Status>;
 
 export function CopyToClipboard(arg1:string):Promise<string>;
@@ -115,8 +117,6 @@ export function PickExeFiles():Promise<Array<string>>;
 export function PreviewAppRulesImport(arg1:string):Promise<service.RuleImportPreview>;
 
 export function QQGroup():Promise<string>;
-
-export function ChangeAccountPassword(arg1:string,arg2:string):Promise<string>;
 
 export function RedeemCode(arg1:string):Promise<string>;
 
