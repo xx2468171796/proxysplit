@@ -16,6 +16,8 @@
 - 本轮仅发布已验签客户端文件和更新记录：公网完整下载 SHA256、版本/最新别名、发布清单均一致；官网 HTTP 200，下载统计入口 302，API /health 正常，容器 healthy。
 - 发布落点 /opt/proxysplit/incoming/client-v1.9.52-f8a4bef；previous/ 保留旧 latest EXE/清单，版本化 v1.9.51 文件也保留。服务端及官网 current 仍为 20260725-183748-4001718-v1.9.51（本轮无服务端变更）。
 
+- 2026-09-17 按用户“先上线”要求发布诊断附件 /download/proxysplit-defender-diagnostics-a9609fa.zip（脚本、说明、README）；公网下载 SHA256 cbda8ead11e064f2c430e0fad11a3614c41ccb7f81a2105acb5fd8290da8f101 已核验。客户端仍 v1.9.52，本轮无运行时修复，隔离原因仍待真实记录。
+
 ## 架构与部署
 - 客户端：Go + Wails + Svelte，sing-box 原生 TUN + process_name；早期 WinDivert 已移除。
 - 服务端：Fastify + PostgreSQL + Redis；会员真源在服务端，Ed25519 离线租约绑定账号/设备/硬件/期限。
