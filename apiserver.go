@@ -104,7 +104,10 @@ func (a *App) startAPIServer() {
 			writeJSON(w, 400, map[string]string{"error": "id required"})
 			return
 		}
-		a.svc.SelectNode(b.ID)
+		if msg := a.svc.SelectNode(b.ID); msg != "" {
+			writeJSON(w, 200, map[string]any{"ok": false, "error": msg})
+			return
+		}
 		writeJSON(w, 200, map[string]any{"ok": true})
 	}))
 
@@ -280,7 +283,9 @@ func (a *App) mcpCall(name string, args json.RawMessage) string {
 		if str("id") == "" {
 			return "错误: 需要 id"
 		}
-		a.svc.SelectNode(str("id"))
+		if msg := a.svc.SelectNode(str("id")); msg != "" {
+			return "已选择节点 " + str("id") + "，" + msg
+		}
 		return "已选择节点 " + str("id")
 	case "proxysplit_set_app":
 		if str("match") == "" {

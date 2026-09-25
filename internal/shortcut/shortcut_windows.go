@@ -5,6 +5,7 @@ package shortcut
 
 import (
 	"context"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -29,19 +30,22 @@ func ensureIn(dir, name, exePath string) error {
 	// Windows stores the long form (C:UsersAdministrator, not ADMINI~1);
 	// compare in that form or an up-to-date shortcut is rewritten every launch.
 	exePath = LongPath(exePath)
-	q := func(s string) string { return "'" + strings.ReplaceAll(s, "'", "''") + "'" }
+	// The paths reach PowerShell through environment variables, never through
+	// the script text: PowerShell also ends a '…' string at typographic quotes
+	// (‘ ’ ‚ ‛), so escaping only ' would break on a path like C:O’Brien.
 	// GetFolderPath follows a Desktop redirected to OneDrive / another drive.
 	script := "$ErrorActionPreference='Stop';" +
-		"$t=" + q(exePath) + ";" +
-		"$d=" + q(dir) + ";if(-not $d){$d=[Environment]::GetFolderPath('Desktop')};" +
-		"$l=Join-Path $d " + q(name+".lnk") + ";" +
+		"$t=$env:PS_SHORTCUT_TARGET;" +
+		"$d=$env:PS_SHORTCUT_DIR;if(-not $d){$d=[Environment]::GetFolderPath('Desktop')};" +
+		"$l=Join-Path $d ($env:PS_SHORTCUT_NAME+'.lnk');" +
 		"$w=New-Object -ComObject WScript.Shell;" +
 		"if(Test-Path -LiteralPath $l){$s=$w.CreateShortcut($l);if($s.TargetPath -ieq $t){exit 0}};" +
 		"$s=$w.CreateShortcut($l);$s.TargetPath=$t;$s.WorkingDirectory=(Split-Path -Parent $t);" +
-		"$s.IconLocation=$t+',0';$s.Description=" + q(name) + ";$s.Save()"
+		"$s.IconLocation=$t+',0';$s.Description=$env:PS_SHORTCUT_NAME;$s.Save()"
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-WindowStyle", "Hidden", "-Command", script)
+	cmd.Env = append(os.Environ(), "PS_SHORTCUT_TARGET="+exePath, "PS_SHORTCUT_DIR="+dir, "PS_SHORTCUT_NAME="+name)
 	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return &Error{err: err, output: strings.TrimSpace(string(out))}

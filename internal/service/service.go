@@ -527,7 +527,7 @@ func (s *Service) Nodes() []*nodes.Node {
 }
 
 // RemoveNode deletes a node by id.
-func (s *Service) RemoveNode(id string) {
+func (s *Service) RemoveNode(id string) string {
 	s.mu.Lock()
 	kept := s.cfg.Nodes[:0]
 	for _, n := range s.cfg.Nodes {
@@ -539,16 +539,16 @@ func (s *Service) RemoveNode(id string) {
 	s.healDanglingNodeRefsLocked()
 	s.save()
 	s.mu.Unlock()
-	s.applyLive()
+	return restartMsg(s.applyLive())
 }
 
 // SelectNode sets the active node (and restarts if a running line follows it).
-func (s *Service) SelectNode(id string) {
+func (s *Service) SelectNode(id string) string {
 	s.mu.Lock()
 	s.cfg.SelectedID = id
 	s.save()
 	s.mu.Unlock()
-	s.applyLive()
+	return restartMsg(s.applyLive())
 }
 
 func (s *Service) selectedNode() *nodes.Node {
@@ -827,7 +827,8 @@ func (s *Service) SetRuleMode(mode string) string {
 	return restartMsg(s.applyLive())
 }
 
-// GetDefaultLine / SetDefaultLine manage the line for unlisted apps (whitelist).
+// GetDefaultLine / SetDefaultLine manage the line for unlisted apps in
+// 默认全走代理 (blacklist); in 只代理列出的 unlisted apps always go direct.
 func (s *Service) GetDefaultLine() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -843,9 +844,18 @@ func (s *Service) SetDefaultLine(id string) string {
 		s.mu.Unlock()
 		return "默认线路不存在: " + id
 	}
+	if id == LineBlock {
+		s.mu.Unlock()
+		return "没列出的程序不能设为拦截（会断开整台电脑的网络）"
+	}
+	changed := s.cfg.DefaultLine != id
 	s.cfg.DefaultLine = id
 	s.save()
+	blacklist := s.cfg.RuleMode == "blacklist"
 	s.mu.Unlock()
+	if !changed || !blacklist {
+		return "" // only 默认全走代理 routes unlisted apps by it
+	}
 	return restartMsg(s.applyLive())
 }
 
@@ -854,15 +864,24 @@ func (s *Service) SetDefaultLine(id string) string {
 // so a change is applied by regenerating + reloading the config (restart while
 // running).
 func (s *Service) applyLive() error {
-	if !s.core.Running() {
-		return nil
-	}
-	s.Stop()
-	if err := s.Start(); err != nil {
+	if err := s.restart(); err != nil {
 		s.log("[service] reload after rule change failed: " + err.Error())
 		return err
 	}
 	return nil
+}
+
+// restart stops and starts a running core under one lifecycle lock, so a Stop
+// from the user cannot slip in between and be undone by the Start, and
+// concurrent changes restart one after the other. No-op when stopped.
+func (s *Service) restart() error {
+	s.lifecycleMu.Lock()
+	defer s.lifecycleMu.Unlock()
+	if !s.core.Running() {
+		return nil
+	}
+	s.stopLocked()
+	return s.startLocked()
 }
 
 // applyAppRules makes an app-rule change take effect on the running core.
@@ -876,9 +895,10 @@ func (s *Service) applyAppRules() error {
 	s.mu.Lock()
 	run := s.run
 	if run == nil {
+		// Stopped (nothing to apply), or 整机全局 where app rules have no effect.
 		s.mu.Unlock()
 		s.lifecycleMu.Unlock()
-		return s.applyLive()
+		return nil
 	}
 	opts := run.base
 	sum := s.splitOptionsLocked(&opts, run.node)
@@ -897,9 +917,44 @@ func (s *Service) applyAppRules() error {
 	run.targets = sum.targets
 	s.mu.Unlock()
 	s.lifecycleMu.Unlock()
-	closed := closeProcessConnections(port, secret, changed)
-	s.log(fmt.Sprintf("[service] 应用规则已实时生效(未重启): %d 个应用变动, 断开其旧连接 %d 条", len(changed), closed))
+	if len(changed) == 0 {
+		s.log("[service] 应用规则已实时生效(未重启)")
+		return nil
+	}
+	// sing-box reloads a rewritten rule-set file asynchronously (file watcher,
+	// ~0.1 s measured). Closing right away lets an app that reconnects at once
+	// (browsers, WebSockets) come back on its old route and keep it, so wait
+	// for the reload before cutting the old connections.
+	go func() {
+		time.Sleep(ruleSetReloadWait)
+		closed := closeProcessConnections(port, secret, changed)
+		s.log(fmt.Sprintf("[service] 应用规则已实时生效(未重启): %d 个应用变动, 断开其旧连接 %d 条", len(changed), closed))
+	}()
 	return nil
+}
+
+// ruleSetReloadWait is how long to give sing-box to pick up rewritten app
+// lists before closing the affected apps' connections.
+var ruleSetReloadWait = 600 * time.Millisecond
+
+// lineOutbound resolves a line's (or an app's) node choice to an outbound tag:
+// "proxy" for the active node, "direct" for a custom line whose exit is 直连,
+// or "node-<id>" (registered in extra) for another node. A node that no longer
+// exists falls back to the active node.
+func lineOutbound(nodeID, activeID string, nodeByID map[string]*nodes.Node, extra map[string]*nodes.Node) string {
+	if nodeID == LineDirect {
+		return "direct"
+	}
+	if nodeID == "" || nodeID == "active" || nodeID == activeID {
+		return "proxy"
+	}
+	n, ok := nodeByID[nodeID]
+	if !ok {
+		return "proxy"
+	}
+	tag := "node-" + nodeID
+	extra[tag] = n
+	return tag
 }
 
 // changedApps returns the app names (lower-case) whose routing differs.
@@ -1234,7 +1289,7 @@ func (s *Service) GetRouting() Routing {
 
 // SetRouting replaces the routing config. It takes effect on the next Start (a
 // core config regeneration), so the caller should restart if running.
-func (s *Service) SetRouting(r Routing) {
+func (s *Service) SetRouting(r Routing) string {
 	if r.Mode == "" {
 		r.Mode = core.RouteGlobal
 	}
@@ -1242,7 +1297,7 @@ func (s *Service) SetRouting(r Routing) {
 	s.cfg.Routing = r
 	s.save()
 	s.mu.Unlock()
-	s.applyLive() // master 分流 switch takes effect live
+	return restartMsg(s.applyLive()) // master 分流 switch takes effect live
 }
 
 // SetSubAutoUpdate toggles auto-update for a subscription.
@@ -1301,7 +1356,7 @@ func (s *Service) GetSettings() Settings {
 	return s.cfg.Settings
 }
 
-func (s *Service) SetSettings(st Settings) {
+func (s *Service) SetSettings(st Settings) string {
 	s.mu.Lock()
 	old := s.cfg.Settings
 	s.cfg.Settings = st
@@ -1313,11 +1368,12 @@ func (s *Service) SetSettings(st Settings) {
 		old.LanShare != st.LanShare || old.RemoteDNS != st.RemoteDNS ||
 		old.LanPort != st.LanPort || old.LanType != st.LanType || old.LanUser != st.LanUser || old.LanPass != st.LanPass ||
 		old.PrivateDirect != st.PrivateDirect || old.ExcludeSelf != st.ExcludeSelf) {
-		s.Stop()
-		if err := s.Start(); err != nil {
+		if err := s.restart(); err != nil {
 			s.log("[service] restart after settings change failed: " + err.Error())
+			return restartMsg(err)
 		}
 	}
+	return ""
 }
 
 // GetLogLevel / SetLogLevel control the core's log verbosity. Changing it takes
@@ -1331,7 +1387,7 @@ func (s *Service) GetLogLevel() string {
 	return s.cfg.LogLevel
 }
 
-func (s *Service) SetLogLevel(level string) {
+func (s *Service) SetLogLevel(level string) string {
 	switch level {
 	case "trace", "debug", "info", "warn", "error":
 	default:
@@ -1340,14 +1396,12 @@ func (s *Service) SetLogLevel(level string) {
 	s.mu.Lock()
 	s.cfg.LogLevel = level
 	s.save()
-	running := s.core.Running()
 	s.mu.Unlock()
-	if running {
-		s.Stop()
-		if err := s.Start(); err != nil {
-			s.log("[service] restart after log-level change failed: " + err.Error())
-		}
+	if err := s.restart(); err != nil {
+		s.log("[service] restart after log-level change failed: " + err.Error())
+		return restartMsg(err)
 	}
+	return ""
 }
 
 // --- Lifecycle ---
@@ -1357,7 +1411,11 @@ func (s *Service) SetLogLevel(level string) {
 func (s *Service) Start() error {
 	s.lifecycleMu.Lock()
 	defer s.lifecycleMu.Unlock()
+	return s.startLocked()
+}
 
+// startLocked starts the core; caller holds lifecycleMu.
+func (s *Service) startLocked() error {
 	s.mu.Lock()
 	guard := s.startGuard
 	s.mu.Unlock()
@@ -1539,13 +1597,7 @@ func (s *Service) splitOptionsLocked(opts *core.Options, node *nodes.Node) split
 				if !line.Builtin {
 					nodeID = line.Node
 				}
-				outbound = "proxy"
-				if nodeID != "" && nodeID != "active" && nodeID != activeID {
-					if n, ok := nodeByID[nodeID]; ok {
-						outbound = "node-" + nodeID
-						extraByTag[outbound] = n
-					}
-				}
+				outbound = lineOutbound(nodeID, activeID, nodeByID, extraByTag)
 			}
 			sc := core.ScopedRule{Name: name, Domains: r.Domains, IPs: r.IPs, Ports: r.Ports, Outbound: outbound}
 			scopedRules = append(scopedRules, sc)
@@ -1572,13 +1624,7 @@ func (s *Service) splitOptionsLocked(opts *core.Options, node *nodes.Node) split
 		if !line.Builtin {
 			nodeID = line.Node
 		}
-		tag := "proxy"
-		if nodeID != "" && nodeID != "active" && nodeID != activeID {
-			if n, ok := nodeByID[nodeID]; ok {
-				tag = "node-" + nodeID
-				extraByTag[tag] = n
-			}
-		}
+		tag := lineOutbound(nodeID, activeID, nodeByID, extraByTag)
 		k := gkey{line: line.ID, tag: tag, mode: mode}
 		value := groups[k]
 		value.names = append(value.names, name)
@@ -1609,6 +1655,26 @@ func (s *Service) splitOptionsLocked(opts *core.Options, node *nodes.Node) split
 		})
 		sum.proxied += len(value.names)
 	}
+	opts.SplitDefault = nil
+	if !opts.SplitWhitelist {
+		// 默认全走代理: the line for unlisted apps. 规则 on the active node is
+		// the built-in behaviour; 拦截 is refused by SetDefaultLine.
+		if line := lineByID(allLines, s.cfg.DefaultLine); line != nil && line.ID != LineRule && line.ID != LineBlock {
+			d := core.SplitGroup{Mode: line.Routing.Mode, NodeTag: "direct"}
+			if line.ID != LineDirect {
+				nodeID := ""
+				if !line.Builtin {
+					nodeID = line.Node
+				}
+				d.NodeTag = lineOutbound(nodeID, activeID, nodeByID, extraByTag)
+				d.Rules = append([]core.RouteRule{}, line.Routing.Rules...)
+			}
+			if d.Mode == "" {
+				d.Mode = core.RouteGlobal
+			}
+			opts.SplitDefault = &d
+		}
+	}
 	extraTags := make([]string, 0, len(extraByTag))
 	for tag := range extraByTag {
 		extraTags = append(extraTags, tag)
@@ -1630,7 +1696,11 @@ func (s *Service) splitOptionsLocked(opts *core.Options, node *nodes.Node) split
 func (s *Service) Stop() {
 	s.lifecycleMu.Lock()
 	defer s.lifecycleMu.Unlock()
+	s.stopLocked()
+}
 
+// stopLocked stops the core; caller holds lifecycleMu.
+func (s *Service) stopLocked() {
 	s.mu.Lock()
 	s.startedAt = time.Time{}
 	s.activeFP = nil

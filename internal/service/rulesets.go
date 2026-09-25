@@ -86,14 +86,10 @@ func (s *Service) SetRuleSetEnabled(name string, enabled bool) string {
 	}
 	s.cfg.RuleSets[name] = enabled
 	s.save()
-	running := s.core.Running()
 	s.mu.Unlock()
-	if running {
-		s.Stop()
-		if err := s.Start(); err != nil {
-			s.log("[rules] restart after rule-set change failed: " + err.Error())
-			return err.Error()
-		}
+	if err := s.restart(); err != nil {
+		s.log("[rules] restart after rule-set change failed: " + err.Error())
+		return restartMsg(err)
 	}
 	return ""
 }
@@ -202,14 +198,10 @@ func (s *Service) SetCustomRules(rules []core.RouteRule) string {
 	s.mu.Lock()
 	s.cfg.CustomRules = kept
 	s.save()
-	running := s.core.Running()
 	s.mu.Unlock()
-	if running {
-		s.Stop()
-		if err := s.Start(); err != nil {
-			s.log("[rules] restart after custom-rule change failed: " + err.Error())
-			return err.Error()
-		}
+	if err := s.restart(); err != nil {
+		s.log("[rules] restart after custom-rule change failed: " + err.Error())
+		return restartMsg(err)
 	}
 	return ""
 }

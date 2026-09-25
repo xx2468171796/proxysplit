@@ -36,13 +36,13 @@ type RuleImportPreview struct {
 func parseRulesBundle(data string) (rulesBundle, error) {
 	var bundle rulesBundle
 	if err := json.Unmarshal([]byte(data), &bundle); err != nil {
-		return bundle, fmt.Errorf("????????: %w", err)
+		return bundle, fmt.Errorf("规则文件格式不正确: %w", err)
 	}
 	if bundle.SchemaVersion < 0 || bundle.SchemaVersion > rulesSchemaVersion {
-		return bundle, fmt.Errorf("????????: %d", bundle.SchemaVersion)
+		return bundle, fmt.Errorf("规则文件版本不支持: %d（请升级软件后再导入）", bundle.SchemaVersion)
 	}
 	if len(bundle.Rules) == 0 && len(bundle.Lines) == 0 && bundle.CustomRules == nil && bundle.RuleSets == nil {
-		return bundle, fmt.Errorf("????????")
+		return bundle, fmt.Errorf("规则文件里没有可导入的内容")
 	}
 	return bundle, nil
 }
@@ -93,7 +93,7 @@ func (s *Service) validateRulesBundleLocked(bundle rulesBundle) (rules []AppRule
 	merged, added, skipped := mergeImportedLines(s.cfg.Lines, bundle.Lines)
 	lines, err = s.normalizeCustomLinesLocked(merged)
 	if err != nil {
-		err = fmt.Errorf("???????: %w", err)
+		err = fmt.Errorf("线路无效: %w", err)
 		return
 	}
 
@@ -102,26 +102,30 @@ func (s *Service) validateRulesBundleLocked(bundle rulesBundle) (rules []AppRule
 	rules, err = s.normalizeAppRulesLocked(bundle.Rules)
 	s.cfg.Lines = oldLines
 	if err != nil {
-		err = fmt.Errorf("?????????: %w", err)
+		err = fmt.Errorf("应用规则无效: %w", err)
 		return
 	}
 
 	if bundle.CustomRules != nil {
 		custom, err = normalizeRouteRules(bundle.CustomRules)
 		if err != nil {
-			err = fmt.Errorf("??????????: %w", err)
+			err = fmt.Errorf("自定义规则无效: %w", err)
 			return
 		}
 	}
 	if bundle.RuleMode != "" && bundle.RuleMode != "blacklist" && bundle.RuleMode != "whitelist" {
-		err = fmt.Errorf("???????????: %s", bundle.RuleMode)
+		err = fmt.Errorf("分流模式无效: %s", bundle.RuleMode)
 		return
 	}
 	defaultLine := bundle.DefaultLine
 	if defaultLine != "" {
 		all := append(builtinLines(), lines...)
 		if lineByID(all, defaultLine) == nil {
-			err = fmt.Errorf("??????????: %s", defaultLine)
+			err = fmt.Errorf("默认线路不存在: %s", defaultLine)
+			return
+		}
+		if defaultLine == LineBlock {
+			err = fmt.Errorf("默认线路不能是拦截（会断开整台电脑的网络）")
 			return
 		}
 	}
@@ -132,9 +136,9 @@ func (s *Service) validateRulesBundleLocked(bundle rulesBundle) (rules []AppRule
 		LineSkipped:   skipped,
 		CustomRules:   len(custom),
 	}
-	preview.Summary = fmt.Sprintf("??? %d ???????? %d ?????? %d ?? ID ??", preview.RuleCount, added, skipped)
+	preview.Summary = fmt.Sprintf("将导入 %d 条应用规则，新增 %d 条线路，跳过 %d 条同 ID 线路", preview.RuleCount, added, skipped)
 	if bundle.CustomRules != nil {
-		preview.Summary += fmt.Sprintf("??? %d ??????", len(custom))
+		preview.Summary += fmt.Sprintf("，替换为 %d 条自定义规则", len(custom))
 	}
 	return
 }

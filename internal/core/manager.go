@@ -413,15 +413,16 @@ func (m *Manager) CleanStrays() { m.killStrays() }
 // catches orphans left by a crash or a botched restart that would otherwise
 // keep the TUN adapter up (proxying) after Stop, or collide with a new Start.
 func (m *Manager) killStrays() {
-	p := filepath.Clean(m.binPath)
-	ps := fmt.Sprintf(
-		"Get-CimInstance Win32_Process -Filter \"Name='sing-box.exe'\" | "+
-			"Where-Object { $_.ExecutablePath -and ($_.ExecutablePath -ieq '%s') } | "+
-			"ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }",
-		strings.ReplaceAll(p, "'", "''"))
+	// The path comes from %APPDATA% (contains the user name) and is passed as an
+	// environment variable: PowerShell ends a '…' string at typographic quotes
+	// too, so quoting it into the script text would break on such names.
+	ps := "Get-CimInstance Win32_Process -Filter \"Name='sing-box.exe'\" | " +
+		"Where-Object { $_.ExecutablePath -and ($_.ExecutablePath -ieq $env:PS_SINGBOX_PATH) } | " +
+		"ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }"
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "powershell", "-NoProfile", "-NonInteractive", "-Command", ps)
+	cmd.Env = append(os.Environ(), "PS_SINGBOX_PATH="+filepath.Clean(m.binPath))
 	hideWindow(cmd)
 	_ = cmd.Run()
 }

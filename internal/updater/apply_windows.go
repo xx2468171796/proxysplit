@@ -12,7 +12,8 @@ import (
 )
 
 // ScheduleInstall starts a detached helper which waits for this process to
-// exit, atomically replaces the portable executable, and launches the new one.
+// exit, replaces the portable executable and launches the new one. If the new
+// version cannot be started it restores and relaunches the old one.
 func ScheduleInstall(downloaded string) error {
 	target, err := os.Executable()
 	if err != nil {
@@ -45,24 +46,63 @@ func ScheduleInstall(downloaded string) error {
 )
 $ErrorActionPreference = 'Stop'
 try { Wait-Process -Id $ParentPid -Timeout 45 -ErrorAction SilentlyContinue } catch {}
+# The app is quitting for this install; a shutdown that hangs must not keep the
+# old executable (and the single-instance lock) alive.
+# Check the path first: the PID may already belong to another program.
+try {
+  $parent = Get-Process -Id $ParentPid -ErrorAction SilentlyContinue
+  if ($parent -and $parent.Path -eq $Target) { Stop-Process -Id $ParentPid -Force }
+} catch {}
 $backup = $Target + '.old'
-for ($attempt = 0; $attempt -lt 60; $attempt++) {
+
+# 1. Swap the files; only this step is retried (the exe can stay locked briefly).
+$swapped = $false
+for ($attempt = 0; $attempt -lt 60 -and -not $swapped; $attempt++) {
   try {
     if (Test-Path -LiteralPath $backup) { Remove-Item -LiteralPath $backup -Force }
-    if (Test-Path -LiteralPath $Target) { Move-Item -LiteralPath $Target -Destination $backup -Force }
-    Move-Item -LiteralPath $Source -Destination $Target -Force
-    Start-Process -FilePath $Target -ArgumentList '--updated'
-    Start-Sleep -Milliseconds 500
-    if (Test-Path -LiteralPath $backup) { Remove-Item -LiteralPath $backup -Force -ErrorAction SilentlyContinue }
-    Remove-Item -LiteralPath $PSCommandPath -Force -ErrorAction SilentlyContinue
-    exit 0
-  } catch {
-    if (-not (Test-Path -LiteralPath $Target) -and (Test-Path -LiteralPath $backup)) {
-      Move-Item -LiteralPath $backup -Destination $Target -Force -ErrorAction SilentlyContinue
+    Move-Item -LiteralPath $Target -Destination $backup -Force
+    try {
+      Move-Item -LiteralPath $Source -Destination $Target -Force
+      $swapped = $true
+    } catch {
+      Move-Item -LiteralPath $backup -Destination $Target -Force
+      throw
     }
+  } catch {
     Start-Sleep -Milliseconds 500
   }
 }
+
+# 2. The new version must start and stay up; otherwise (quarantined by
+#    antivirus, crashes on launch) put the old version back.
+if ($swapped) {
+  $proc = $null
+  try {
+    $proc = Start-Process -FilePath $Target -ArgumentList '--updated' -PassThru
+    Start-Sleep -Seconds 8
+    if ($proc.HasExited) { throw 'new version exited during startup' }
+    Remove-Item -LiteralPath $backup -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $PSCommandPath -Force -ErrorAction SilentlyContinue
+    exit 0
+  } catch {
+    try { if ($proc -and -not $proc.HasExited) { Stop-Process -Id $proc.Id -Force } } catch {}
+    Start-Sleep -Milliseconds 500
+    for ($attempt = 0; $attempt -lt 20; $attempt++) {
+      try {
+        if (Test-Path -LiteralPath $Target) { Remove-Item -LiteralPath $Target -Force }
+        Move-Item -LiteralPath $backup -Destination $Target -Force
+        break
+      } catch { Start-Sleep -Milliseconds 500 }
+    }
+  }
+}
+
+# 3. Never leave the user without a running client. The old version notices the
+#    failed install from its resume marker and stops auto-installing this release.
+if (Test-Path -LiteralPath $Target) {
+  try { Start-Process -FilePath $Target } catch {}
+}
+Remove-Item -LiteralPath $PSCommandPath -Force -ErrorAction SilentlyContinue
 exit 1
 `
 	if err := os.WriteFile(script, []byte(content), 0o600); err != nil {

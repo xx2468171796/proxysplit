@@ -106,6 +106,9 @@ type Options struct {
 	// the process falls through to the default. Evaluated before the broad
 	// process_name groups.
 	SplitScoped []ScopedRule
+	// SplitDefault is the line for unlisted apps in blacklist mode (默认全走代理);
+	// nil = 规则 through the primary node. Its Names are unused.
+	SplitDefault *SplitGroup
 	// RuleDir holds the per-app process rule-set files of an app-split config
 	// (see SplitRuleSets). The core reloads them on change.
 	RuleDir string
@@ -187,6 +190,10 @@ func SplitRuleSets(opts Options) map[string][]byte {
 	return out
 }
 
+// processSet writes one app list. An empty list gets a placeholder name: an
+// empty rule would match everything, and sing-box decides once at start whether
+// to look up processes at all (from whether any rule-set has a process rule;
+// SagerNet/sing-box#4341), so every list must carry a process rule from the start.
 func processSet(names []string) []byte {
 	list := cleanList(names)
 	if len(list) == 0 {
@@ -241,9 +248,11 @@ type ExtraNode struct {
 //
 // ruleModeOnly adds clash_mode=rule to every entry: the UI promises custom rules
 // apply only when 代理策略 is 「规则」, so 直连 (pause) and 全局 must win over them.
-// In whitelist app-split a proxy entry is scoped to the listed apps (each group
-// through its own node): a custom rule must never pull an unlisted or removed app
-// into the tunnel. direct/block entries stay unscoped — they only take traffic out.
+// In app-split a proxy entry first sends each listed app's traffic through that
+// app's own node. In whitelist mode that is all it does — a custom rule must
+// never pull an unlisted or removed app into the tunnel; in blacklist mode an
+// unscoped entry follows for the unlisted apps. direct/block entries stay
+// unscoped — they only take traffic out.
 func customRoutingRules(opts Options, nodeTag string, ruleModeOnly bool, groupTags []string) []M {
 	var out []M
 	for _, r := range opts.CustomRules {
@@ -255,11 +264,13 @@ func customRoutingRules(opts Options, nodeTag string, ruleModeOnly bool, groupTa
 			m["clash_mode"] = "rule"
 		}
 		target := actionTarget(r.Action, nodeTag)
-		if target == nodeTag && opts.Split && opts.SplitWhitelist {
+		if target == nodeTag && opts.Split {
 			for i, g := range opts.SplitGroups {
 				out = append(out, emit(inSet(groupTags[i:i+1], cloneMatch(m)), g.NodeTag))
 			}
-			continue
+			if opts.SplitWhitelist {
+				continue
+			}
 		}
 		out = append(out, emit(m, target))
 	}
@@ -593,11 +604,12 @@ func BuildTUNConfig(node *nodes.Node, logLevel string, opts Options) ([]byte, er
 
 	// Rule order is the contract (first match wins):
 	//  1. housekeeping — sniff, DNS hijack, our own API, LAN addresses, ourselves;
-	//  2. per-app 拦截 / 直连 — explicit user choices that hold in every 代理策略;
+	//  2. per-app 拦截 / 直连 (whole app, or only for some targets) — explicit
+	//     user choices that hold in every 代理策略;
 	//  3. 代理策略 直连 — nothing else is proxied (LAN share included);
-	//  4. LAN share clients, QUIC blocking;
+	//  4. LAN share clients, QUIC blocking, per-app node for some targets;
 	//  5. 代理策略 全局 — everything else through the node (listed apps via their node);
-	//  6. 代理策略 规则 — scoped app rules, custom rules, per-app lines, then final.
+	//  6. 代理策略 规则 — custom rules, per-app lines, then final.
 	// Per-app process lists live in hot-reloaded rule-set files (SplitRuleSets),
 	// so adding/removing apps between existing lists needs no core restart.
 	rules := []M{
@@ -611,11 +623,19 @@ func BuildTUNConfig(node *nodes.Node, logLevel string, opts Options) ([]byte, er
 	if self := strings.TrimSpace(opts.SelfProcess); self != "" {
 		rules = append(rules, M{"process_name": []string{self}, "outbound": "direct"})
 	}
+	var scopedProxy []ScopedRule
 	if opts.Split {
 		rules = append(rules,
 			M{"rule_set": []string{appSetBlock}, "action": "reject"},
 			M{"rule_set": []string{appSetDirect}, "outbound": "direct"},
 		)
+		for _, sc := range opts.SplitScoped {
+			if scopedTakesOut(sc) {
+				rules = append(rules, scopedRuleEntries(sc, false)...)
+			} else {
+				scopedProxy = append(scopedProxy, sc)
+			}
+		}
 	}
 	if clashExp != nil {
 		rules = append(rules, M{"clash_mode": "direct", "outbound": "direct"})
@@ -637,6 +657,9 @@ func BuildTUNConfig(node *nodes.Node, logLevel string, opts Options) ([]byte, er
 			rules = append(rules, emit(quic, "reject"))
 		}
 	}
+	for _, sc := range scopedProxy {
+		rules = append(rules, scopedRuleEntries(sc, false)...)
+	}
 	if clashExp != nil {
 		for i, g := range opts.SplitGroups {
 			if opts.Split {
@@ -649,9 +672,6 @@ func BuildTUNConfig(node *nodes.Node, logLevel string, opts Options) ([]byte, er
 	finalOut := "proxy"
 	custom := customRoutingRules(opts, "proxy", clashExp != nil, groupTags)
 	if opts.Split {
-		for _, sc := range opts.SplitScoped {
-			rules = append(rules, scopedRuleEntries(sc, false)...)
-		}
 		rules = append(rules, custom...)
 		// Listed apps follow their own line in both split modes: 全局 = all via
 		// its node, 规则 = mainland direct / ads blocked / rest via its node, custom
@@ -678,7 +698,23 @@ func BuildTUNConfig(node *nodes.Node, logLevel string, opts Options) ([]byte, er
 		if opts.SplitWhitelist {
 			finalOut = "direct" // 只代理列出的: everything unlisted goes direct
 		} else {
-			rules = append(rules, bypassRules(opts, nil)...) // 默认全走代理: unlisted = 规则
+			// 默认全走代理: unlisted apps follow the default line (规则 unless set).
+			d := opts.SplitDefault
+			if d == nil {
+				d = &SplitGroup{Mode: RouteBypassCN, NodeTag: "proxy"}
+			}
+			switch d.Mode {
+			case RouteGlobal:
+			case RouteCustom:
+				for _, r := range d.Rules {
+					if m := ruleMatch(r); m != nil {
+						rules = append(rules, emit(m, actionTarget(r.Action, d.NodeTag)))
+					}
+				}
+			default:
+				rules = append(rules, bypassRules(opts, nil)...)
+			}
+			finalOut = d.NodeTag
 		}
 	} else {
 		// 整机全局: app rules do not apply; the whole machine follows routeMode.
@@ -794,6 +830,15 @@ func ruleMatch(r RouteRule) M {
 		return M{"ip_cidr": []string{v}}
 	}
 	return nil
+}
+
+// scopedTakesOut: the scoped rule sends its targets direct or blocks them.
+func scopedTakesOut(sc ScopedRule) bool {
+	switch sc.Outbound {
+	case "direct", "reject", "block":
+		return true
+	}
+	return false
 }
 
 // scopedRuleEntries turns one ScopedRule into sing-box route rules. Domains and

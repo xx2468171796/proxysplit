@@ -308,6 +308,9 @@ func TestRoutingMatrixCustomRules(t *testing.T) {
 		{"未列出", true, map[string]string{matrixCN: "direct", matrixForeign: "direct"}},
 		{"未列出", false, map[string]string{matrixCN: "proxy", matrixForeign: "direct"}},
 		{"直连", false, map[string]string{matrixCN: "direct", matrixForeign: "direct"}},
+		// 默认全走代理: a listed app's 走代理 custom rule uses the app's own node.
+		{"规则@节点X", false, map[string]string{matrixCN: "node-x", matrixForeign: "direct"}},
+		{"规则", false, map[string]string{matrixCN: "proxy", matrixForeign: "direct"}},
 	} {
 		name := fmt.Sprintf("自定义规则/白名单=%v/应用=%s", c.whitelist, c.where)
 		t.Run(name, func(t *testing.T) {
@@ -326,6 +329,60 @@ func TestRoutingMatrixCustomRules(t *testing.T) {
 	}
 }
 
+// TestRoutingMatrixScoped: a per-app rule limited to some targets (process +
+// domain) holds like the app's own choice: 直连 / 拦截 in every 代理策略, a node
+// in 规则 and 全局 (代理策略 直连 still pauses it).
+func TestRoutingMatrixScoped(t *testing.T) {
+	exe, _ := os.Executable()
+	proc := filepath.Base(exe)
+	for _, c := range []struct {
+		outbound, direct, global, rule string
+	}{
+		{"reject", "reject", "reject", "reject"},
+		{"direct", "direct", "direct", "direct"},
+		{"node-x", "direct", "node-x", "node-x"},
+	} {
+		for _, whitelist := range []bool{true, false} {
+			name := fmt.Sprintf("限定目标=%s/白名单=%v", c.outbound, whitelist)
+			t.Run(name, func(t *testing.T) {
+				opts := placement(matrixOpts(whitelist), proc, "规则")
+				opts.SplitScoped = []ScopedRule{{Name: proc, Domains: []string{matrixForeign}, Outbound: c.outbound}}
+				m := newMatrix(t, opts)
+				m.expect(name, "direct", map[string]string{matrixForeign: c.direct, matrixCN: "direct"})
+				m.expect(name, "global", map[string]string{matrixForeign: c.global, matrixCN: "proxy"})
+				m.expect(name, "rule", map[string]string{matrixForeign: c.rule, matrixCN: "direct"})
+			})
+		}
+	}
+}
+
+// TestRoutingMatrixDefaultLine: in 默认全走代理 unlisted apps follow the
+// default line; in 只代理列出的 it has no effect (unlisted = direct).
+func TestRoutingMatrixDefaultLine(t *testing.T) {
+	exe, _ := os.Executable()
+	proc := filepath.Base(exe)
+	custom := &SplitGroup{Mode: RouteCustom, NodeTag: "node-x", Rules: []RouteRule{{Type: "suffix", Value: matrixCN, Action: "direct"}}}
+	for _, c := range []struct {
+		name      string
+		def       *SplitGroup
+		whitelist bool
+		want      map[string]string
+	}{
+		{"未设置=规则", nil, false, map[string]string{matrixForeign: "proxy", matrixCN: "direct"}},
+		{"全局", &SplitGroup{Mode: RouteGlobal, NodeTag: "proxy"}, false, map[string]string{matrixForeign: "proxy", matrixCN: "proxy"}},
+		{"直连", &SplitGroup{Mode: RouteGlobal, NodeTag: "direct"}, false, map[string]string{matrixForeign: "direct", matrixCN: "direct"}},
+		{"自定义线路@节点X", custom, false, map[string]string{matrixForeign: "node-x", matrixCN: "direct"}},
+		{"白名单下不生效", custom, true, map[string]string{matrixForeign: "direct", matrixCN: "direct"}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			opts := placement(matrixOpts(c.whitelist), proc, "未列出")
+			opts.SplitDefault = c.def
+			m := newMatrix(t, opts)
+			m.expect("默认线路/"+c.name, "rule", c.want)
+		})
+	}
+}
+
 // TestRoutingMatrixHotReload: moving an app between per-app lists takes effect
 // on the running core by rewriting the rule-set files only — no restart.
 func TestRoutingMatrixHotReload(t *testing.T) {
@@ -339,16 +396,26 @@ func TestRoutingMatrixHotReload(t *testing.T) {
 	}
 	for _, s := range steps {
 		m.opts = placement(m.opts, proc, s.where)
-		m.writeSets()
+		start := time.Now()
+		if err := writeRuleSets(m.opts); err != nil { // the product's writer
+			t.Fatal(err)
+		}
 		var got string
-		for i := 0; i < 40; i++ { // the core reloads changed rule-set files within ~1s
+		for i := 0; i < 100; i++ {
 			if got = m.via(matrixForeign); got == s.want {
 				break
 			}
-			time.Sleep(100 * time.Millisecond)
+			time.Sleep(20 * time.Millisecond)
 		}
 		if got != s.want {
 			t.Fatalf("after moving the app to %s: got %s, want %s", s.where, got, s.want)
+		}
+		// service.ruleSetReloadWait (600 ms after this returns) closes the app's
+		// old connections; the new route must be live well before that.
+		if took := time.Since(start); took > 900*time.Millisecond {
+			t.Errorf("moving the app to %s took %v to take effect", s.where, took)
+		} else {
+			t.Logf("moved to %s: effective after %v", s.where, took)
 		}
 	}
 	select {
@@ -359,5 +426,47 @@ func TestRoutingMatrixHotReload(t *testing.T) {
 	}
 	if m.sb.Process.Pid != pid {
 		t.Fatal("core restarted during hot reload")
+	}
+}
+
+// TestHotReloadMoveHasNoGap: an app moved between two lists (two files change)
+// must never fall to the default route in between. In 默认全走代理 that would
+// send a 直连 / 拦截 app through the proxy for a moment.
+func TestHotReloadMoveHasNoGap(t *testing.T) {
+	exe, _ := os.Executable()
+	proc := filepath.Base(exe)
+	m := newMatrix(t, placement(matrixOpts(false), proc, "直连"))
+	m.mode("rule")
+	for _, mv := range []struct{ to, want string }{{"拦截", "reject"}, {"直连", "direct"}, {"拦截", "reject"}} {
+		stop := make(chan struct{})
+		seen := make(chan string, 4096)
+		go func() {
+			defer close(seen)
+			for {
+				select {
+				case <-stop:
+					return
+				default:
+					seen <- m.via(matrixForeign)
+				}
+			}
+		}()
+		m.opts = placement(m.opts, proc, mv.to)
+		if err := writeRuleSets(m.opts); err != nil {
+			t.Fatal(err)
+		}
+		time.Sleep(800 * time.Millisecond)
+		close(stop)
+		counts := map[string]int{}
+		for v := range seen {
+			counts[v]++
+		}
+		if counts["proxy"] > 0 {
+			t.Errorf("moving to %s: %d requests went through the proxy meanwhile (%v)", mv.to, counts["proxy"], counts)
+		}
+		if got := m.via(matrixForeign); got != mv.want {
+			t.Errorf("after moving to %s: got %s, want %s", mv.to, got, mv.want)
+		}
+		t.Logf("moving to %s: %v", mv.to, counts)
 	}
 }

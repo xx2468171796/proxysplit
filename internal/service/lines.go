@@ -125,7 +125,7 @@ func (s *Service) normalizeCustomLinesLocked(lines []Line) ([]Line, error) {
 		if line.Node == "" {
 			line.Node = "active"
 		}
-		if line.Node != "active" && !nodeIDs[line.Node] {
+		if line.Node != "active" && line.Node != LineDirect && !nodeIDs[line.Node] {
 			return nil, fmt.Errorf("线路“%s”引用了不存在的节点: %s", line.Name, line.Node)
 		}
 		switch line.Routing.Mode {

@@ -124,7 +124,7 @@ export function RefreshEntitlement():Promise<string>;
 
 export function Register(arg1:string,arg2:string,arg3:string):Promise<string>;
 
-export function RemoveNode(arg1:string):Promise<void>;
+export function RemoveNode(arg1:string):Promise<string>;
 
 export function RemoveSub(arg1:string):Promise<void>;
 
@@ -132,7 +132,7 @@ export function ResetConfig():Promise<void>;
 
 export function Restart():Promise<string>;
 
-export function SelectNode(arg1:string):Promise<void>;
+export function SelectNode(arg1:string):Promise<string>;
 
 export function SetAppRules(arg1:Array<service.AppRule>):Promise<string>;
 
@@ -148,15 +148,15 @@ export function SetDefaultLine(arg1:string):Promise<string>;
 
 export function SetLines(arg1:Array<service.Line>):Promise<string>;
 
-export function SetLogLevel(arg1:string):Promise<void>;
+export function SetLogLevel(arg1:string):Promise<string>;
 
-export function SetRouting(arg1:service.Routing):Promise<void>;
+export function SetRouting(arg1:service.Routing):Promise<string>;
 
 export function SetRuleMode(arg1:string):Promise<string>;
 
 export function SetRuleSetEnabled(arg1:string,arg2:boolean):Promise<string>;
 
-export function SetSettings(arg1:service.Settings):Promise<void>;
+export function SetSettings(arg1:service.Settings):Promise<string>;
 
 export function SetSubAutoUpdate(arg1:string,arg2:boolean):Promise<void>;
 

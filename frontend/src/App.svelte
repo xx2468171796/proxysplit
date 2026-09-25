@@ -329,7 +329,7 @@
   function normalizeRules(list: AppRule[] | null | undefined): AppRule[] {
     return (list ?? []).map((r) => ({
       match: r.match, path: r.path,
-      line: ['global', 'direct', 'block'].includes(r.line) ? r.line : 'rule',
+      line: r.line || 'rule', // built-in or custom line id; the backend validates it
       node: r.node || '', enabled: !!r.enabled,
       domains: r.domains ?? [], ips: r.ips ?? [], ports: r.ports ?? [],
     }))
@@ -512,6 +512,10 @@
     await Promise.all([refreshStatus(), refreshHealth(), refreshNodes(), refreshRules(), refreshLines(), refreshSubs()])
   }
   function nodeName(id: string): string { return nodes.find((n) => n.id === id)?.name || id }
+  const builtinLineNames: Record<string, string> = { rule: '规则', global: '全局', direct: '直连', block: '拦截' }
+  function lineLabel(id: string): string { return builtinLineNames[id] || lines.find((l) => l.id === id)?.name || '规则' }
+  $: customLines = lines.filter((l) => !l.builtin)
+  function customLineOf(id: string): Line | undefined { return builtinLineNames[id] ? undefined : customLines.find((l) => l.id === id) }
   function remainingLabel(expiresAt: string, planCode = '') {
     if (planCode.includes('lifetime') || planCode === 'admin') return '永久有效'
     if (!expiresAt) return '未开通'
@@ -940,11 +944,13 @@
   }
   async function removeNode(id: string) {
     if (useDemo) { nodes = nodes.filter((n) => n.id !== id); return }
-    await WRemoveNode(id); await refreshNodes(); await refreshStatus()
+    const err = await WRemoveNode(id); if (err) toast(err)
+    await refreshNodes(); await refreshStatus()
   }
   async function selectNode(id: string) {
     if (useDemo) { const n = nodes.find((x) => x.id === id); status = { ...(status || demoStatus), selectedId: id, nodeName: n?.name || '' }; return }
-    await WSelectNode(id); await refreshStatus()
+    const err = await WSelectNode(id); if (err) toast(err)
+    await refreshStatus()
   }
   function onNodeChange(e: Event) { selectNode((e.target as HTMLSelectElement).value) }
 
@@ -1162,7 +1168,7 @@
     settings.tunMode = tun
     if (useDemo || !isWailsReady()) { settings = settings; return }
     switchingMode = true
-    try { await WSetSettings(settings as any); await refreshStatus() } finally { switchingMode = false }
+    try { const err = await WSetSettings(settings as any); if (err) toast(err); await refreshStatus() } finally { switchingMode = false }
   }
 
   // --- 开机自启 (真实注册表) ---
@@ -1180,7 +1186,7 @@
   async function changeLogLevel(e: Event) {
     logLevel = (e.target as HTMLSelectElement).value
     if (useDemo || !isWailsReady()) return
-    await WSetLogLevel(logLevel)
+    const err = await WSetLogLevel(logLevel); if (err) toast(err)
   }
 
   // --- 规则导入 / 导出 ---
@@ -1369,7 +1375,9 @@
   }
   async function saveSettings() {
     if (useDemo || !isWailsReady()) return
-    await WSetSettings(settings as any)
+    const err = await WSetSettings(settings as any)
+    if (err) toast(err)
+    await refreshStatus()
   }
 
   async function openPicker() {
@@ -1852,7 +1860,7 @@
                       <span class="entity-icon app-icon-placeholder" title="未能读取该程序的原始图标"></span>
                     {/if}
                     <div class="entity-text"><b>{ruleName(r)}</b><small title={r.path}>{r.path}</small></div>
-                  </div></td><td><span class="tag">{r.line === 'direct' ? '直连' : r.line === 'block' ? '拦截' : r.line === 'global' ? '全局' : '规则'}</span></td><td>{r.node ? nodeName(r.node) : '活动节点'}</td><td><span class="status-pill" class:gray={!r.enabled}>{r.enabled ? '已启用' : '已停用'}</span></td></tr>
+                  </div></td><td><span class="tag">{lineLabel(r.line)}</span></td><td>{customLineOf(r.line) ? lineNodeLabel(customLineOf(r.line)?.node || 'active') : r.node ? nodeName(r.node) : '活动节点'}</td><td><span class="status-pill" class:gray={!r.enabled}>{r.enabled ? '已启用' : '已停用'}</span></td></tr>
                 {/each}
                 {#if rules.length === 0}<tr><td colspan="4"><div class="empty sm">暂无应用规则</div></td></tr>{/if}
               </tbody></table></div>
@@ -1883,7 +1891,7 @@
           <div class="summary-cell"><span>分流模式</span><div class="summary-mode"><button class:active={ruleMode === 'whitelist'} on:click={() => setRuleMode('whitelist')}>只代理列出的</button><button class:active={ruleMode === 'blacklist'} on:click={() => setRuleMode('blacklist')}>默认全代理</button></div></div>
           <div class="summary-cell"><span>应用规则</span><b>{ruleCount} 条</b></div>
           <div class="summary-cell"><span>已启用</span><b class="good">{rules.filter((r) => r.enabled).length} 条</b></div>
-          <div class="summary-cell"><span>未列出的应用</span><b>{ruleMode === 'whitelist' ? '直连' : activeNodeObj?.name || '活动节点'}</b></div>
+          <div class="summary-cell"><span>未列出的应用</span><b>{ruleMode === 'whitelist' || defaultLine === 'direct' ? '直连' : defaultLine === 'rule' || defaultLine === 'global' ? `${lineLabel(defaultLine)} · ${activeNodeObj?.name || '活动节点'}` : lineLabel(defaultLine)}</b></div>
         </div>
         {#if settings.tunMode}
           <div class="apps-notice warn">当前是「整机全局」：所有程序都走代理，下面的应用规则暂不生效。到<button class="linkbtn" on:click={() => (tab = 'settings')}>设置</button>把「代理范围」切回「应用分流」即可启用。</div>
@@ -1892,7 +1900,14 @@
         {:else if ruleMode === 'whitelist'}
           <div class="apps-notice">只有下面<b>已启用</b>的应用按各自的方式和节点走代理，其余程序一律直连。</div>
         {:else}
-          <div class="apps-notice">没列出的程序也走代理（按「规则」：大陆直连、境外走节点）；列出的应用按各自的方式和节点走。</div>
+          <div class="apps-notice">没列出的程序按
+            <select class="notice-select" bind:value={defaultLine} on:change={applyDefaultLine} title="默认全走代理时，没列出的程序走哪条线路">
+              <option value="rule">规则（大陆直连、境外走活动节点）</option>
+              <option value="global">全局（全部走活动节点）</option>
+              <option value="direct">直连</option>
+              {#each customLines as l}<option value={l.id}>{l.name}</option>{/each}
+            </select>
+            走；列出的应用按各自的方式和节点走。</div>
         {/if}
         <div class="cols apps-v2">
           <div class="col-main">
@@ -1996,11 +2011,20 @@
                         <option value="global">全局</option>
                         <option value="direct">直连</option>
                         <option value="block">拦截</option>
+                        {#if customLines.length}
+                          <optgroup label="自定义线路">
+                            {#each customLines as l}<option value={l.id}>{l.name}</option>{/each}
+                          </optgroup>
+                        {/if}
                       </select>
-                      <select class="line-select node-select" bind:value={r.node} on:change={onRuleLineChange} disabled={r.line === 'direct' || r.line === 'block'} title="该应用走哪个节点">
-                        <option value="">活动节点{activeNodeObj ? ` · ${latencyText(activeNodeObj.latency)}` : ''}</option>
-                        {#each nodes as n}<option value={n.id}>{nodeOptionLabel(n)}</option>{/each}
-                      </select>
+                      {#if customLineOf(r.line)}
+                        <select class="line-select node-select" disabled title="自定义线路自带出口，到「分流规则」页修改"><option>{lineNodeLabel(customLineOf(r.line)?.node || 'active')}（线路自带）</option></select>
+                      {:else}
+                        <select class="line-select node-select" bind:value={r.node} on:change={onRuleLineChange} disabled={r.line === 'direct' || r.line === 'block'} title="该应用走哪个节点">
+                          <option value="">活动节点{activeNodeObj ? ` · ${latencyText(activeNodeObj.latency)}` : ''}</option>
+                          {#each nodes as n}<option value={n.id}>{nodeOptionLabel(n)}</option>{/each}
+                        </select>
+                      {/if}
                       <label class="switch ctr"><input type="checkbox" checked={r.enabled} on:change={() => toggleRule(r)} /><i></i></label>
                       <div class="row-actions ctr">
                         <button class="mini test" class:ok={(appLat[r.match] ?? -100) >= 0} class:err={appLat[r.match] === -1 || appLat[r.match] === -2} on:click={() => testApp(r)} title="测试此应用的连通与延迟">{latText(appLat[r.match])}</button>
@@ -2015,7 +2039,7 @@
                           <label>IP / 段<input value={(r.ips || []).join(', ')} on:input={(e) => { r.ips = parseList(e.currentTarget.value) }} on:change={pushRules} placeholder="如 1.1.1.1/32, 10.0.0.0/8" /></label>
                           <label>端口<input value={(r.ports || []).join(', ')} on:input={(e) => { r.ports = parseList(e.currentTarget.value) }} on:change={pushRules} placeholder="如 443, 8000-9000" /></label>
                         </div>
-                        <p class="scope-hint">填了条件后，<b>{ruleName(r)}</b> 只有访问这些目标的流量才按「{r.line === 'direct' ? '直连' : r.line === 'block' ? '拦截' : r.line === 'global' ? '全局' : '规则'}」走，其余流量按默认；三项全空 = 整个应用。多个用逗号分隔。</p>
+                        <p class="scope-hint">填了条件后，<b>{ruleName(r)}</b> 只有访问这些目标的流量才按「{lineLabel(r.line)}」走，其余流量按默认；三项全空 = 整个应用。多个用逗号分隔。</p>
                       </div>
                     {/if}
                   {/each}
@@ -2073,7 +2097,6 @@
             <div><h3>添加节点</h3><p class="sub">链接导入或手动填写代理信息</p></div>
             <div class="actions">
               {#if speedMsg}<span class="speed-msg" class:err={speedMsg.indexOf('失败') === 0}>{speedMsg}</span>{/if}
-              <button class="ghost-btn" on:click={() => (showManual = !showManual)}>{@html I.plus} 手动添加</button>
             </div>
           </div>
           <div class="node-import-body"><div class="tabs"><button class:active={!showManual} on:click={() => (showManual = false)}>链接导入</button><button class:active={showManual} on:click={() => (showManual = true)}>手动添加</button></div>
@@ -2117,7 +2140,7 @@
                   <div class="row-actions ctr"><div class="test-group"><button class="mini test tcp" on:click={() => testNodeTCP(n)} disabled={!!tcpTestingId} title="测传输层 TCP 延迟（快，不启动核心）">{tcpTestingId === n.id ? '…' : '测TCP'}</button><button class="mini test" on:click={() => testNodeGoogle(n)} disabled={!!latencyTestingId} title="测完整代理链路访问 Google 的延迟">{latencyTestingId === n.id ? '…' : '测Google'}</button><button class="mini test spd" on:click={() => testNodeSpeed(n)} disabled={!!speedTestingId} title="测经该节点的下载速度">{speedTestingId === n.id ? '…' : '测速度'}</button></div><button class="mini" on:click={() => selectNode(n.id)}>设为活动</button><button class="icon-btn" on:click={() => showQR(n)} title="分享二维码">{@html I.qr}</button><button class="icon-btn danger" on:click={() => removeNode(n.id)} title="删除节点">{@html I.trash}</button></div>
                 </div>
               {/each}
-              {#if nodes.length === 0}<div class="empty">还没有节点。粘贴分享链接点「从链接添加」，或点「手动添加」填 SOCKS5 / HTTP 代理。</div>{/if}
+              {#if nodes.length === 0}<div class="empty">还没有节点。在左边粘贴分享链接点「解析并添加」，或切到「手动添加」填 SOCKS5 / HTTP 代理。</div>{/if}
             </div>
           </div>
           <div class="node-list-foot"><span class="hint">提示：点击“设为活动”即可切换当前节点</span></div></div>
@@ -3000,7 +3023,7 @@
   .toast { color: var(--ok-600); font-size: 13px; margin-top: 8px; }
   /* 表头和每一行必须共用同一组父级轨道。之前每行各算一次 `auto`
      操作列，表头的“操作”很窄、数据行按钮很宽，导致四列整体错位。 */
-  .ntable { display: grid; grid-template-columns: minmax(180px, 2fr) minmax(80px, .5fr) minmax(90px, .6fr) 90px auto; gap: 2px 12px; min-width: 760px; }
+  .ntable { display: grid; grid-template-columns: minmax(140px, 2fr) minmax(60px, .5fr) minmax(72px, .6fr) 76px auto; gap: 2px 12px; min-width: 700px; }
   .nhead, .nrow { display: grid; grid-template-columns: subgrid; grid-column: 1 / -1; column-gap: 12px; align-items: center; }
   .nhead { font-size: 11.5px; color: var(--muted-2); padding: 0 8px 10px; border-bottom: 1px solid var(--line-2); font-weight: 600; letter-spacing: .02em; }
   .nhead > span:not(.ctr) { justify-self: start; text-align: left; }
@@ -3128,6 +3151,7 @@
   .summary-mode button.active { background: var(--brand-tint); color: var(--brand); }
   .apps-v2 { display: block; }
   .apps-notice { margin: 0 0 -4px; padding: 10px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); color: var(--ink-2); font-size: 12.5px; line-height: 1.6; }
+  .notice-select { margin: 0 4px; padding: 3px 8px; border: 1px solid var(--line); border-radius: 7px; background: var(--card); color: var(--ink); font: inherit; font-weight: 650; }
   .apps-notice.warn { border-color: #f5c77e; background: #fff8eb; color: #8a5300; }
   :global(:root[data-theme="dark"]) .apps-notice.warn { border-color: #6b4a12; background: #2a2112; color: #f3c77a; }
   .apps-v2 .col-main { display: block; }
@@ -3139,7 +3163,7 @@
   .apps-v2 .rrow { min-height: 58px; border-radius: 0; }
   .apps-v2 .rfoot { margin: 0; padding: 13px 17px; border-top: 1px solid var(--line); }
 
-  .node-manager-v2 { display: grid; grid-template-columns: minmax(310px, .72fr) minmax(0, 1.65fr); gap: 16px; align-items: start; }
+  .node-manager-v2 { display: grid; grid-template-columns: minmax(290px, .55fr) minmax(0, 1.8fr); gap: 16px; align-items: start; }
   .node-manager-v2 > .card { padding: 0; overflow: hidden; }
   .node-import-body { padding: 17px; }
   .hint { color: var(--muted-2); font-size: 12px; line-height: 1.6; }

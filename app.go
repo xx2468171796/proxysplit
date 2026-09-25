@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/energye/systray"
@@ -33,16 +34,17 @@ var payloadFS embed.FS
 
 // App is the Wails-bound application object.
 type App struct {
-	ctx       context.Context
-	svc       *service.Service
-	lic       *license.Client
-	upd       *updater.Client
-	forceQuit bool // set when the user picks 退出 from the tray (allow real close)
-	trayUp    bool // the tray icon initialized OK (only then may we hide to it)
-	apiUp     bool // the local AI-control HTTP API is listening
-	ready     chan struct{}
-	readyOnce sync.Once
-	initErr   error
+	ctx        context.Context
+	svc        *service.Service
+	lic        *license.Client
+	upd        *updater.Client
+	forceQuit  bool        // set when the user picks 退出 from the tray (allow real close)
+	installing atomic.Bool // an update install is in progress (auto and manual must not race)
+	trayUp     bool        // the tray icon initialized OK (only then may we hide to it)
+	apiUp      bool        // the local AI-control HTTP API is listening
+	ready      chan struct{}
+	readyOnce  sync.Once
+	initErr    error
 }
 
 // NewApp creates the App.
@@ -321,10 +323,10 @@ func (a *App) AddManualNode(nodeType, name, server string, port int, username, p
 }
 
 // RemoveNode deletes a node by id.
-func (a *App) RemoveNode(id string) { a.svc.RemoveNode(id) }
+func (a *App) RemoveNode(id string) string { return a.svc.RemoveNode(id) }
 
 // SelectNode sets the active node.
-func (a *App) SelectNode(id string) { a.svc.SelectNode(id) }
+func (a *App) SelectNode(id string) string { return a.svc.SelectNode(id) }
 
 // GetApps / SetApps are legacy string-based accessors (kept for compatibility).
 func (a *App) GetApps() []string     { return a.svc.Apps() }
@@ -399,13 +401,18 @@ func (a *App) InstallAppUpdate(release updater.Release) string {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
+	if !a.installing.CompareAndSwap(false, true) {
+		return "正在安装更新，请稍候"
+	}
 	path, err := a.upd.Download(ctx, release)
 	if err != nil {
+		a.installing.Store(false)
 		return err.Error()
 	}
-	a.rememberProxyForUpdate()
+	a.rememberProxyForUpdate(release.Version)
 	if err := updater.ScheduleInstall(path); err != nil {
 		_ = os.Remove(resumePath())
+		a.installing.Store(false)
 		return err.Error()
 	}
 	// runtime.Quit would otherwise be intercepted by the user's
@@ -421,12 +428,12 @@ func (a *App) InstallAppUpdate(release updater.Release) string {
 }
 
 // Settings.
-func (a *App) GetSettings() service.Settings  { return a.svc.GetSettings() }
-func (a *App) SetSettings(s service.Settings) { a.svc.SetSettings(s) }
+func (a *App) GetSettings() service.Settings         { return a.svc.GetSettings() }
+func (a *App) SetSettings(s service.Settings) string { return a.svc.SetSettings(s) }
 
 // Routing (in-tunnel domain/IP split).
-func (a *App) GetRouting() service.Routing  { return a.svc.GetRouting() }
-func (a *App) SetRouting(r service.Routing) { a.svc.SetRouting(r) }
+func (a *App) GetRouting() service.Routing         { return a.svc.GetRouting() }
+func (a *App) SetRouting(r service.Routing) string { return a.svc.SetRouting(r) }
 
 // UpdateRuleSets refreshes the geosite/geoip rule-sets (returns "" or an error).
 func (a *App) UpdateRuleSets() string { return a.svc.UpdateRuleSets() }
@@ -459,8 +466,8 @@ func (a *App) GetAutostart() bool          { return a.svc.GetAutostart() }
 func (a *App) SetAutostart(on bool) string { return errStr(a.svc.SetAutostart(on)) }
 
 // Log verbosity (trace|debug|info|warn|error).
-func (a *App) GetLogLevel() string      { return a.svc.GetLogLevel() }
-func (a *App) SetLogLevel(level string) { a.svc.SetLogLevel(level) }
+func (a *App) GetLogLevel() string             { return a.svc.GetLogLevel() }
+func (a *App) SetLogLevel(level string) string { return a.svc.SetLogLevel(level) }
 
 // App-rule import/export (a JSON bundle of rules + custom lines).
 func (a *App) ExportAppRules() string            { s, _ := a.svc.ExportAppRules(); return s }
