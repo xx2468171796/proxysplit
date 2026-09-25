@@ -1816,7 +1816,7 @@
       <div class="wrap">
       {#if tab === 'overview'}
         <div class="page-head">
-          <div><h1>概览</h1><p>核心状态、分流链路与常用操作集中在一个页面。</p></div>
+          <div><h1>概览</h1><p>运行状态、分流链路和常用操作。</p></div>
           <div class="head-actions">{#if running}<button class="btn" on:click={restartCore} disabled={busy}>⟳ 重启核心</button>{/if}<button class="btn" on:click={refreshAll}>刷新状态</button><button class="btn primary" on:click={toggleRun} disabled={busy}>{running ? '停止服务' : '启动服务'}</button></div>
         </div>
 
@@ -1868,7 +1868,7 @@
             </div></section>
             <section class="card"><div class="card-head"><div><div class="card-title">节点健康</div><div class="card-sub">最近一次检测结果</div></div><button class="btn sm" on:click={() => (tab = 'nodes')}>全部节点</button></div><div class="card-body health-list">
               {#each nodes.slice(0, 4) as n}
-                <button class="health-item" on:click={() => selectNode(n.id)}><div class="health-info"><b>{n.name}</b><small>{n.id === status?.selectedId ? '活动节点' : n.type.toUpperCase()}</small><div class="health-bar"><i style={`width:${n.latency && n.latency > 0 ? Math.max(12, 100 - Math.min(n.latency, 500) / 5) : 8}%`}></i></div></div><span class="latency">{latencyText(n.latency)}</span></button>
+                <button class="health-item" on:click={() => selectNode(n.id)}><div class="health-info"><b>{n.name}</b><small>{n.id === status?.selectedId ? '活动节点' : n.type.toUpperCase()}</small><div class="health-bar"><i data-q={qual(n.latency)} style={`width:${n.latency && n.latency > 0 ? Math.max(12, 100 - Math.min(n.latency, 500) / 5) : 8}%`}></i></div></div><span class="latency" data-q={qual(n.latency)} class:down={!!n.latency && n.latency < 0 && n.latency !== -99}>{latencyText(n.latency)}</span></button>
               {/each}
               {#if nodes.length === 0}<div class="empty sm">还没有节点</div>{/if}
             </div></section>
@@ -1876,15 +1876,24 @@
         </div>
       {:else if tab === 'apps'}
         <div class="page-head">
-          <div><h1>应用分流</h1><p>规则统计、模式说明和应用列表集中在一个视图内。</p></div>
+          <div><h1>应用分流</h1><p>选择哪些程序走代理、走哪个节点，改动立即生效。</p></div>
           <div class="head-actions"><button class="btn" on:click={importRules}>导入</button><button class="btn" on:click={exportRules}>导出</button><button class="btn primary" on:click={openPicker}>＋ 添加应用</button></div>
         </div>
         <div class="summary-strip">
           <div class="summary-cell"><span>分流模式</span><div class="summary-mode"><button class:active={ruleMode === 'whitelist'} on:click={() => setRuleMode('whitelist')}>只代理列出的</button><button class:active={ruleMode === 'blacklist'} on:click={() => setRuleMode('blacklist')}>默认全代理</button></div></div>
           <div class="summary-cell"><span>应用规则</span><b>{ruleCount} 条</b></div>
           <div class="summary-cell"><span>已启用</span><b class="good">{rules.filter((r) => r.enabled).length} 条</b></div>
-          <div class="summary-cell"><span>默认出口</span><b>{activeNodeObj?.name || '活动节点'}</b></div>
+          <div class="summary-cell"><span>未列出的应用</span><b>{ruleMode === 'whitelist' ? '直连' : activeNodeObj?.name || '活动节点'}</b></div>
         </div>
+        {#if settings.tunMode}
+          <div class="apps-notice warn">当前是「整机全局」：所有程序都走代理，下面的应用规则暂不生效。到<button class="linkbtn" on:click={() => (tab = 'settings')}>设置</button>把「代理范围」切回「应用分流」即可启用。</div>
+        {:else if clashMode !== 'rule'}
+          <div class="apps-notice warn">代理策略是「{clashMode === 'global' ? '全局：除设为直连 / 拦截的应用外，所有程序都走代理' : '直连：除设为拦截的应用外，所有程序都直连'}」，下面的规则暂不生效。切回<button class="linkbtn" on:click={() => setClash('rule')}>规则</button>即可按应用分流。</div>
+        {:else if ruleMode === 'whitelist'}
+          <div class="apps-notice">只有下面<b>已启用</b>的应用按各自的方式和节点走代理，其余程序一律直连。</div>
+        {:else}
+          <div class="apps-notice">没列出的程序也走代理（按「规则」：大陆直连、境外走节点）；列出的应用按各自的方式和节点走。</div>
+        {/if}
         <div class="cols apps-v2">
           <div class="col-main">
             <section class="card hero">
@@ -1933,9 +1942,6 @@
                 <div><h3>应用规则 <small class="autosave">改动即自动保存,关了再开也在</small></h3><p class="sub">共 {ruleCount} 条规则，其中 {proxyCount} 条走代理</p></div>
                 <div class="actions">
                   {#if savedMsg}<span class="saved-tag">{savedMsg}</span>{/if}
-                  <button class="primary" on:click={openPicker}>{@html I.plus} 添加规则</button>
-                  <button class="ghost-btn" on:click={importRules}>{@html I.imp} 导入</button>
-                  <button class="ghost-btn" on:click={exportRules}>{@html I.exp} 导出</button>
                   {#if rulesMsg}<span class="rs-msg" class:err={rulesMsg.indexOf('失败') >= 0}>{rulesMsg}</span>{/if}
                 </div>
               </div>
@@ -2013,7 +2019,7 @@
                       </div>
                     {/if}
                   {/each}
-                  {#if rules.length === 0}<div class="empty">还没有规则。点右上角「添加规则」，选择要走代理的程序即可。</div>{/if}
+                  {#if rules.length === 0}<div class="empty">还没有应用。点右上角「添加应用」，选择要走代理的程序即可。</div>{/if}
                 </div>
               </div>
 
@@ -2058,7 +2064,7 @@
 
       {:else if tab === 'nodes'}
         <div class="page-head">
-          <div><h1>节点管理</h1><p>导入区域和节点列表左右分栏，减少空白并提升操作效率。</p></div>
+          <div><h1>节点管理</h1><p>导入、测速和切换节点。</p></div>
           <div class="head-actions"><button class="btn" on:click={testAllLatency} disabled={latencyTesting}>⟳ {latencyTesting ? 'Google 检测中…' : '检测全部可用性'}</button><button class="btn" on:click={runSpeedTest} disabled={speedTesting}>{speedTesting ? '下载测速中…' : '测活动节点速度'}</button><button class="btn primary" on:click={() => (tab = 'subs')}>＋ 添加订阅</button></div>
         </div>
         <section class="node-manager-v2">
@@ -2119,7 +2125,7 @@
 
       {:else if tab === 'rules'}
         <div class="page-head">
-          <div><h1>分流规则</h1><p>预置规则库、自定义规则与自定义线路分区展示。</p></div>
+          <div><h1>分流规则</h1><p>规则库、自定义规则和自定义线路。</p></div>
           <div class="head-actions"><button class="btn" on:click={updateRuleSets}>检查更新</button><button class="btn primary" on:click={newLine}>＋ 新建线路</button></div>
         </div>
         <section class="card page rules-library-v2">
@@ -2263,7 +2269,7 @@
 
       {:else if tab === 'subs'}
         <div class="page-head">
-          <div><h1>订阅管理</h1><p>订阅状态、节点数量和更新时间一目了然。</p></div>
+          <div><h1>订阅管理</h1><p>订阅的节点数量和更新时间。</p></div>
           <div class="head-actions"><button class="btn" on:click={refreshSubs}>全部刷新</button><button class="btn primary" on:click={() => (showSubForm = true)}>＋ 添加订阅</button></div>
         </div>
         <section class="card page subs-page-v2">
@@ -2623,6 +2629,7 @@
     --ink: #eaf0f8; --ink-2: #c2cede; --muted: #8a98ae; --muted-2: #62708a;
     --brand: #5b8cff; --brand-600: #89abff; --brand-tint: #1a2440;
     --ok: #34d17a; --ok-600: #57e08f; --ok-tint: #15271d; --danger: #f87171;
+    --surface-3: #232d3c; --bad-bg: #3a1d22;
     --sh-1: 0 1px 2px rgba(0,0,0,.4);
     --sh-2: 0 6px 16px -6px rgba(0,0,0,.5), 0 2px 6px -2px rgba(0,0,0,.4);
     --sh-float: 0 18px 40px -14px rgba(0,0,0,.6), 0 6px 14px -6px rgba(0,0,0,.5);
@@ -2751,7 +2758,8 @@
   i { font-style: normal; display: inline-flex; }
   i :global(svg), .mi :global(svg), button :global(svg) { width: 1em; height: 1em; }
 
-  .shell { height: 100vh; display: grid; grid-template-columns: var(--side-w) 1fr; background: var(--bg); }
+  /* style.css (Wails template) centres #app; the app itself is left-aligned. */
+  .shell { text-align: left; height: 100vh; display: grid; grid-template-columns: var(--side-w) 1fr; background: var(--bg); }
 
   /* ---------- sidebar ---------- */
   .sidebar { background: var(--card); border-right: 1px solid var(--line); padding: 18px 14px 14px; display: flex; flex-direction: column; min-width: 0; }
@@ -2769,14 +2777,14 @@
   .side-nav button.active { background: var(--brand-tint); color: var(--brand); font-weight: 650; }
   .side-nav button.active i { color: var(--brand); }
   .sidebar-foot { margin-top: auto; display: grid; gap: var(--s4); }
-  .contact-card { display: grid; gap: 6px; padding: 9px; border: 1px solid rgba(255,255,255,.09); border-radius: 11px; background: rgba(255,255,255,.03); }
-  .contact-row { display: flex; align-items: center; gap: 8px; width: 100%; padding: 6px 8px; border: 0; border-radius: 8px; background: transparent; color: #cfe0f5; font: inherit; font-size: 12px; cursor: pointer; text-align: left; }
-  .contact-row:hover { background: rgba(59,130,246,.16); }
-  .contact-row i { display: inline-flex; width: 16px; height: 16px; flex: none; color: #7aa2ff; }
+  .contact-card { display: grid; gap: 6px; padding: 9px; border: 1px solid var(--line); border-radius: 11px; background: var(--card); }
+  .contact-row { display: flex; align-items: center; gap: 8px; width: 100%; padding: 6px 8px; border: 0; border-radius: 8px; background: transparent; color: var(--ink-2); font: inherit; font-size: 12px; cursor: pointer; text-align: left; }
+  .contact-row:hover { background: rgba(59,130,246,.1); }
+  .contact-row i { display: inline-flex; width: 16px; height: 16px; flex: none; color: var(--brand); }
   .contact-row i :global(svg) { width: 16px; height: 16px; }
-  .contact-row span { flex: 1; color: #9fb0c7; }
-  .contact-row b { color: #eaf1ff; font-weight: 700; letter-spacing: .02em; }
-  .contact-row em { flex: none; font-style: normal; font-size: 10px; color: #6b8bc4; }
+  .contact-row span { flex: 1; color: var(--muted-2); }
+  .contact-row b { color: var(--ink); font-weight: 700; letter-spacing: .02em; }
+  .contact-row em { flex: none; font-style: normal; font-size: 10px; color: var(--brand); }
   .core-card { display: flex; align-items: center; gap: 10px; padding: 11px 12px; border: 1px solid var(--line); border-radius: var(--r3); background: var(--soft); min-width: 0; }
   .core-card strong { display: block; font-size: 13px; color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .core-card small { display: block; font-size: 11px; color: var(--muted-2); margin-top: 2px; }
@@ -2895,7 +2903,7 @@
   /* ---------- rules table ---------- */
   .tscroll { overflow-x: auto; overflow-y: hidden; margin: 0 calc(var(--s5) * -1); padding: 0 var(--s5); }
   .rtable { display: grid; gap: 2px; min-width: 860px; width: 100%; }
-  .rhead, .rrow { display: grid; grid-template-columns: minmax(260px, 1.55fr) minmax(130px, .72fr) minmax(160px, .95fr) 60px 92px; gap: 12px; align-items: center; }
+  .rhead, .rrow { display: grid; grid-template-columns: minmax(260px, 1.55fr) minmax(130px, .72fr) minmax(160px, .95fr) 52px 142px; gap: 12px; align-items: center; }
   .node-select { font-weight: 500; }
   .node-select:disabled { opacity: .4; cursor: not-allowed; }
   .rhead { min-height: 40px; padding: 0 10px; font-size: 11.5px; color: var(--muted-2); border-bottom: 1px solid var(--line-2); font-weight: 700; letter-spacing: .02em; }
@@ -2992,7 +3000,7 @@
   .toast { color: var(--ok-600); font-size: 13px; margin-top: 8px; }
   /* 表头和每一行必须共用同一组父级轨道。之前每行各算一次 `auto`
      操作列，表头的“操作”很窄、数据行按钮很宽，导致四列整体错位。 */
-  .ntable { display: grid; grid-template-columns: minmax(0, 2fr) minmax(96px, .5fr) minmax(110px, .6fr) 120px auto; gap: 2px 12px; min-width: 560px; }
+  .ntable { display: grid; grid-template-columns: minmax(180px, 2fr) minmax(80px, .5fr) minmax(90px, .6fr) 90px auto; gap: 2px 12px; min-width: 760px; }
   .nhead, .nrow { display: grid; grid-template-columns: subgrid; grid-column: 1 / -1; column-gap: 12px; align-items: center; }
   .nhead { font-size: 11.5px; color: var(--muted-2); padding: 0 8px 10px; border-bottom: 1px solid var(--line-2); font-weight: 600; letter-spacing: .02em; }
   .nhead > span:not(.ctr) { justify-self: start; text-align: left; }
@@ -3000,6 +3008,7 @@
   .nrow:hover { background: var(--soft); }
   .nrow.sel { background: var(--ok-tint); }
   .ncell { display: flex; align-items: center; gap: 10px; min-width: 0; }
+  .ncell .badge { flex: none; } .nmeta { min-width: 0; } .nmeta strong, .nmeta small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .nmeta { min-width: 0; display: flex; flex-direction: column; gap: 1px; }
   .nmeta strong { font-size: 14px; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .badge { flex: none; width: max-content; text-transform: uppercase; font-size: 10.5px; font-weight: 800; color: var(--brand); background: var(--brand-tint); border-radius: 6px; padding: 3px 8px; letter-spacing: .03em; }
@@ -3087,7 +3096,9 @@
   .health-info b { color: var(--ink); font-size: 12px; } .health-info small { display: block; margin-top: 3px; color: var(--muted-2); font-size: 9px; }
   .health-bar { height: 5px; margin-top: 7px; overflow: hidden; border-radius: 4px; background: #edf1f6; }
   .health-bar i { display: block; height: 100%; border-radius: inherit; background: var(--ok); }
-  .latency { color: var(--ok-600); font-size: 11px; font-weight: 800; }
+  .latency { color: var(--muted-2); font-size: 11px; font-weight: 800; white-space: nowrap; }
+  .latency[data-q="4"], .latency[data-q="3"] { color: var(--ok-600); } .latency[data-q="2"] { color: #f59e0b; } .latency[data-q="1"], .latency.down { color: var(--danger); }
+  .health-bar i[data-q="0"] { background: #cbd5e1; } .health-bar i[data-q="2"] { background: #f59e0b; } .health-bar i[data-q="1"] { background: var(--danger); }
   .table-wrap { overflow: hidden; }
   .table { width: 100%; border-collapse: collapse; table-layout: fixed; }
   .table th { height: 39px; padding: 0 13px; border-bottom: 1px solid var(--line); background: var(--soft); color: var(--muted-2); text-align: left; font-size: 10px; font-weight: 800; }
@@ -3116,6 +3127,9 @@
   .summary-mode button { padding: 4px 8px; border-radius: 7px; color: var(--muted); font-size: 11px; font-weight: 700; }
   .summary-mode button.active { background: var(--brand-tint); color: var(--brand); }
   .apps-v2 { display: block; }
+  .apps-notice { margin: 0 0 -4px; padding: 10px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); color: var(--ink-2); font-size: 12.5px; line-height: 1.6; }
+  .apps-notice.warn { border-color: #f5c77e; background: #fff8eb; color: #8a5300; }
+  :global(:root[data-theme="dark"]) .apps-notice.warn { border-color: #6b4a12; background: #2a2112; color: #f3c77a; }
   .apps-v2 .col-main { display: block; }
   .apps-v2 .hero, .apps-v2 .col-main > section:nth-child(2), .apps-v2 .col-rail { display: none; }
   .apps-v2 .col-main > section.card { padding: 0; overflow: hidden; }
@@ -3128,6 +3142,7 @@
   .node-manager-v2 { display: grid; grid-template-columns: minmax(310px, .72fr) minmax(0, 1.65fr); gap: 16px; align-items: start; }
   .node-manager-v2 > .card { padding: 0; overflow: hidden; }
   .node-import-body { padding: 17px; }
+  .hint { color: var(--muted-2); font-size: 12px; line-height: 1.6; }
   .node-import-body .hint { margin-top: 8px; }
   .tabs { display: flex; gap: 3px; padding: 4px; border-radius: 10px; background: #f1f4f8; }
   .tabs button { height: 31px; flex: 1; border-radius: 8px; color: #6c798f; font-size: 12px; font-weight: 700; }
@@ -3216,7 +3231,7 @@
   .lf-field { display: flex; flex-direction: column; gap: 5px; min-width: 0; font-size: 12px; color: var(--muted-2); font-weight: 600; }
   .lf-field input, .lf-field select { min-width: 0; border: 1px solid #e2e8f0; border-radius: 9px; padding: 9px 11px; background: var(--card); font-size: 13px; font-weight: 500; color: var(--ink-2); }
   .lf-foot { display: flex; gap: 8px; margin-top: 14px; flex-wrap: wrap; }
-  .settings-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: var(--s4); }
+  .settings-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--s4); align-items: start; }
   .ai-card { grid-column: 1 / -1; border: 1.5px solid var(--brand); background: linear-gradient(180deg, rgba(37,99,235,0.05), transparent 60%); }
   .ai-dot { font-size: 12px; font-weight: 700; color: var(--muted-2); white-space: nowrap; }
   .ai-dot.on { color: var(--ok-600, #16a34a); }
@@ -3259,7 +3274,7 @@
   .lg-msg { flex: 1; min-width: 0; color: #d1dae7; word-break: break-word; }
   .lg-line.error .lg-msg { color: #fca5a5; }
   .lg-line.warn .lg-msg { color: #fcd77f; }
-  .lg-empty { padding: 16px; text-align: center; color: #64748b; }
+  .lg-empty { padding: 16px; text-align: center; color: #64748b; font-size: 12.5px; }
 
   /* ---------- 实时连接诊断表 ---------- */
   .conn-table { max-height: 300px; overflow: auto; }
