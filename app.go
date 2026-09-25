@@ -103,8 +103,11 @@ func (a *App) startup(ctx context.Context) {
 	})
 	a.finishStartup(nil)
 	go a.licenseWatchdog()
-	go a.initTray()    // system-tray icon (minimise-to-tray, quick start/stop)
-	a.startAPIServer() // local AI-control HTTP API (127.0.0.1)
+	go a.resumeAfterUpdate()     // bring the proxy back after an automatic update
+	go a.autoUpdateLoop()        // install new signed releases without prompting
+	go a.ensureDesktopShortcut() // every launch: recreate / repair the desktop shortcut
+	go a.initTray()              // system-tray icon (minimise-to-tray, quick start/stop)
+	a.startAPIServer()           // local AI-control HTTP API (127.0.0.1)
 }
 
 func (a *App) commercialStartGuard() error {
@@ -377,7 +380,8 @@ func (a *App) GetCoreVersion() string { return a.svc.GetCoreVersion() }
 func (a *App) UpdateCore() string     { return a.svc.UpdateCore() }
 
 // Application updates are signed independently from license leases. The UI
-// checks on startup and calls InstallAppUpdate only after the user confirms.
+// Updates install automatically (see autoupdate.go); InstallAppUpdate is also
+// the manual 立即升级 path and the fallback when an automatic attempt failed.
 func (a *App) GetAppVersion() string { return appVersion }
 
 func (a *App) CheckAppUpdate() updater.Status {
@@ -399,7 +403,9 @@ func (a *App) InstallAppUpdate(release updater.Release) string {
 	if err != nil {
 		return err.Error()
 	}
+	a.rememberProxyForUpdate()
 	if err := updater.ScheduleInstall(path); err != nil {
+		_ = os.Remove(resumePath())
 		return err.Error()
 	}
 	// runtime.Quit would otherwise be intercepted by the user's

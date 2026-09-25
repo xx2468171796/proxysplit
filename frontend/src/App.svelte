@@ -1355,6 +1355,18 @@
   function receiveAppUpdate(value: AppUpdateStatus) {
     if (value) appUpdate = value
   }
+  // The backend installs updates by itself; show progress, and re-enable the
+  // manual button only if that automatic attempt failed.
+  function receiveAutoUpdate(value: AppUpdateStatus) {
+    if (!value?.release) return
+    appUpdate = value
+    appUpdateBusy = true
+    toast(`正在自动升级到 v${value.release.version}，完成后自动重启`)
+  }
+  function receiveAutoUpdateFailed(msg: string) {
+    appUpdateBusy = false
+    toast('自动升级失败：' + msg + '，可点「立即安全升级」重试')
+  }
   async function saveSettings() {
     if (useDemo || !isWailsReady()) return
     await WSetSettings(settings as any)
@@ -1478,6 +1490,8 @@
     if (isWailsReady()) {
       EventsOn('log', (line: string) => pushLog(line))
       EventsOn('app-update', receiveAppUpdate)
+      EventsOn('app-update-auto', receiveAutoUpdate)
+      EventsOn('app-update-failed', receiveAutoUpdateFailed)
       EventsOn('license-expired', async (message: string) => {
         toast('会员授权已停止：' + message)
         await refreshLicense(); await refreshStatus(); await loadCommerce()
@@ -1601,7 +1615,7 @@
     <div class="update-force">
       <span class="uf-badge">必须升级</span>
       <h2>请升级到 v{appUpdate.release.version}</h2>
-      <p>当前版本 v{appUpdate.current} 已停止支持，需完成升级后才能继续使用。升级包已通过 Ed25519 签名与 SHA256 双重校验，升级后自动重启且不会改动你的节点与规则。</p>
+      <p>{appUpdateBusy ? '正在自动下载并安装，完成后软件会自动重启，代理会自动恢复。' : `当前版本 v${appUpdate.current} 已停止支持，需完成升级后才能继续使用。`}升级包已通过 Ed25519 签名与 SHA256 双重校验，不会改动你的节点与规则。</p>
       <button class="primary" on:click={installAppUpdate} disabled={appUpdateBusy || !isWailsReady()}>{appUpdateBusy ? '下载并验证中…' : '立即安全升级'}</button>
     </div>
   </div>
@@ -2399,7 +2413,7 @@
           <section class="card">
             <h3>内核 &amp; 诊断</h3>
             <div class="setting"><span>ProxySplit 版本<small class="setting-hint">正式版自动检查签名更新，升级后会自动重启且不会改动节点和规则</small></span><div class="core-update"><strong>v{appUpdate.current}</strong><button class="mini" on:click={() => checkAppUpdate(false)} disabled={appUpdateBusy}>{appUpdateBusy ? '检查中…' : '检查软件更新'}</button></div></div>
-            <div class="setting"><span>自动检查软件更新<small class="setting-hint">启动后连接官方更新服务；只有签名和 SHA256 都正确才允许安装</small></span><label class="switch"><input type="checkbox" bind:checked={settings.autoUpdateApp} on:change={saveSettings} /><i></i></label></div>
+            <div class="setting"><span>自动更新软件<small class="setting-hint">发现新版本自动下载安装并重启，代理会自动恢复；只有签名和 SHA256 都正确才安装。强制更新的版本不受此开关影响</small></span><label class="switch"><input type="checkbox" bind:checked={settings.autoUpdateApp} on:change={saveSettings} /><i></i></label></div>
             <div class="setting"><span>sing-box 版本</span><strong>{coreVersion || '1.13.14'}</strong></div>
             <div class="setting"><span>更新内核<small class="setting-hint">从 GitHub 拉最新版（走当前节点）</small></span><div class="core-update"><button class="mini" on:click={updateCore} disabled={coreMsg === '检查中…'}>{@html I.dl} 更新内核</button>{#if coreMsg}<span class="rs-msg" class:err={coreMsg.indexOf('失败') === 0}>{coreMsg}</span>{/if}</div></div>
             <div class="setting"><span>本地端口<small class="setting-hint">混合入站 SOCKS5 + HTTP，自动分配</small></span><strong>{running ? (status?.corePort || '—') : '未运行'}</strong></div>
