@@ -134,14 +134,22 @@ type ExtraNode struct {
 }
 
 // customRoutingRules turns the user's global custom rules into route entries
-// (proxy → nodeTag, direct → direct, block → reject). Not inbound-scoped, so
-// they apply to all proxied traffic. nil when there are none.
-func customRoutingRules(opts Options, nodeTag string) []M {
+// (proxy → nodeTag, direct → direct, block → reject). nil when there are none.
+//
+// ruleModeOnly adds clash_mode=rule to every entry: the UI promises custom rules
+// apply only when 代理策略 is 「规则」, so 直连 (pause) and 全局 must win over them.
+// In whitelist app-split a proxy entry is scoped to the listed apps (each group
+// through its own node): a custom rule must never pull an unlisted or removed app
+// into the tunnel. direct/block entries stay unscoped — they only take traffic out.
+func customRoutingRules(opts Options, nodeTag string, ruleModeOnly bool) []M {
 	var out []M
 	for _, r := range opts.CustomRules {
 		m := ruleMatch(r)
 		if m == nil {
 			continue
+		}
+		if ruleModeOnly {
+			m["clash_mode"] = "rule"
 		}
 		switch r.Action {
 		case "direct":
@@ -149,6 +157,18 @@ func customRoutingRules(opts Options, nodeTag string) []M {
 		case "block":
 			m["action"] = "reject"
 		default:
+			if opts.Split && opts.SplitWhitelist {
+				for _, g := range opts.SplitGroups {
+					if len(g.Names) == 0 {
+						continue
+					}
+					scoped := cloneMatch(m)
+					scoped["process_name"] = g.Names
+					scoped["outbound"] = g.NodeTag
+					out = append(out, scoped)
+				}
+				continue
+			}
 			m["outbound"] = nodeTag
 		}
 		out = append(out, m)
@@ -400,7 +420,8 @@ func BuildMultiConfig(lines []LineConfig, logLevel string, opts Options) ([]byte
 	// LAN-shared inbound routes through the active node.
 	rules = append(rules, lanRules(opts, nodeTag[lines[0].Node.ID])...)
 	// Global user custom rules — highest priority, before the geo/per-line rules.
-	rules = append(rules, customRoutingRules(opts, nodeTag[lines[0].Node.ID])...)
+	// The clash overrides above already precede them, so no clash_mode needed.
+	rules = append(rules, customRoutingRules(opts, nodeTag[lines[0].Node.ID], false)...)
 
 	// Per-line, inbound-scoped routing rules.
 	for _, ln := range lines {
@@ -466,19 +487,22 @@ func BuildTUNConfig(node *nodes.Node, logLevel string, opts Options) ([]byte, er
 	routeRules := opts.RouteRules
 	geoDir := opts.GeoDir
 
-	// Base rules: sniff the domain, hijack DNS into sing-box, keep LAN direct.
+	// Base rules: sniff the domain, hijack DNS into sing-box, keep our own API and
+	// the LAN direct.
 	rules := []M{
 		{"action": "sniff"},
 		{"protocol": "dns", "action": "hijack-dns"},
-		{"ip_is_private": true, "outbound": "direct"},
 	}
+	rules = append(rules, directDomainRules(opts)...)
+	rules = append(rules, M{"ip_is_private": true, "outbound": "direct"})
 	clashExp := clashExperimental(opts)
 	geoNeeded := false
 	finalOut := "proxy"
-	// LAN-shared inbound (if any) routes through the node; global custom rules
-	// apply in both modes (highest-priority user intent).
+	// LAN-shared inbound (if any) routes through the node.
 	rules = append(rules, lanRules(opts, "proxy")...)
-	rules = append(rules, customRoutingRules(opts, "proxy")...)
+	// Global custom rules: highest priority within 「规则」 mode, but below the
+	// explicit per-app choices (拦截/直连 apps, scoped rules) in app-split.
+	custom := customRoutingRules(opts, "proxy", clashExp != nil)
 
 	if opts.Split {
 		// Application-split via sing-box's own process_name matcher (replaces the
@@ -495,6 +519,7 @@ func BuildTUNConfig(node *nodes.Node, logLevel string, opts Options) ([]byte, er
 		for _, sc := range opts.SplitScoped {
 			rules = append(rules, scopedRuleEntries(sc, clashExp != nil)...)
 		}
+		rules = append(rules, custom...)
 		if opts.SplitWhitelist {
 			// Whitelist: ONLY the rule/global apps are eligible; everything else
 			// (incl. unlisted) falls through to route.final = direct. Each group
@@ -556,6 +581,7 @@ func BuildTUNConfig(node *nodes.Node, logLevel string, opts Options) ([]byte, er
 		}
 	} else {
 		// System-wide TUN (whole machine): clash overrides apply globally.
+		rules = append(rules, custom...)
 		if clashExp != nil {
 			rules = append(rules, clashRules("proxy")...)
 		}
