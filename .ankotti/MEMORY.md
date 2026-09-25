@@ -1,7 +1,8 @@
 # ProxySplit 项目记忆
-> 当前快照，最后更新：2026-09-17。历史发布过程见 Git，不在此重复堆积。
+> 当前快照，最后更新：2026-09-25。历史发布过程见 Git，不在此重复堆积。
 
 ## 当前状态
+- 2026-09-25：**v1.9.53 已上线 stable**（commit f482c6a，minimumVersion=1.9.51，mandatory=false）。产物 SHA256 b7c9182947c0dd1df39c5d8d42490047628233a633e4494943e7952acd69dad7，96,430,080 字节，Ed25519 验签通过；用客户端自带 updater 从 1.9.52 视角走 检查→下载→SHA256+验签 实测通过。只发客户端：sz /opt/proxysplit/incoming/client-v1.9.53-f482c6a/publish-client.py prepare→(登记 releases)→promote，previous/ 存旧 latest，可 python3 publish-client.py rollback 回退 latest（releases 表那行要另删）。本机没有管理员账号，releases 行是经堡垒机 db_query 直接插入并补了 audit_logs（与 POST /v1/admin/releases 等价）。**发布签名私钥在堡垒机资产 id 116**：打包前写回 server/secrets/shenzhen-release-private.pem（LF 换行，SHA256 与 profile.json 对得上），打完删掉。注意 minimumVersion 会进授权租约 minVersion，别随手调高，否则老客户端会被拒。
 - 2026-09-17：v1.9.52 已上线 stable；minimumVersion=1.9.51，mandatory=false。官网自动读取发布 API 展示新版。
 - 本轮：官方 sing-box 1.13.14 → 1.14.1，Wails 2.12.0 → 2.16.0，Go x/net、x/crypto、x/sys、x/text 更新；当前项目工具链及 go.mod 最低版本为 Go 1.26.8，修复旧工具链 5 个可达标准库漏洞。
 - 已修复官方无 checksums 文本导致内核升级失败：优先使用 GitHub asset.digest SHA256，兼容旧清单，无有效校验数据拒绝安装。
@@ -18,8 +19,8 @@
 
 - 2026-09-17 按用户“先上线”要求发布诊断附件 /download/proxysplit-defender-diagnostics-a9609fa.zip（脚本、说明、README）；公网下载 SHA256 cbda8ead11e064f2c430e0fad11a3614c41ccb7f81a2105acb5fd8290da8f101 已核验。客户端仍 v1.9.52，本轮无运行时修复，隔离原因仍待真实记录。
 
-- 2026-09-25（未发布，只进了 main）：修复用户反馈「自定义规则无效、删掉的应用还能代理」。BuildTUNConfig 里全局自定义规则原先排在 代理策略 与按应用分流之前、且不限进程：直连/全局下仍生效，白名单下「代理」规则会把列表外应用拉进隧道。现在带 clash_mode=rule，白名单下代理规则按组限定进程并走组节点，排在应用 直连/拦截/细分规则之后；TUN 配置补上 DirectDomains（bf4a523 当时只修了旧多线路配置）。回归测试 TestCustomRulesStayInsideWhitelist；已用 sing-box 1.14.1 实测 clash_mode=rule 只在规则模式匹配。用户那台的另一原因：自定义规则写成 zygskisn.cn（错字）；Claude/Codex 走国内中转 sub2api.demo.zygskins.cn，本来不需要代理。待发布 1.9.53（需签名私钥，走 build-commercial.ps1）。
-- 2026-09-25 第二轮（未发布）：审计 直连/规则/全局 × 白/黑名单 × 应用线路。BuildTUNConfig 重排为 固定直连(API/内网/自身) → 应用拦截/直连 → clash 直连 → 局域网 → 屏蔽QUIC → clash 全局(列出应用走各自节点, 其余走 proxy) → 规则模式(细分规则/自定义/各应用线路)。应用进程名单改放 <数据目录>/rules/*.json 本地 rule-set(sing-box 改文件即热加载, 1.14.1 实测含原子替换); 内置 规则/全局@活动节点 两组永远存在, 所以增删改应用配置字节不变 → Manager.ApplySplitLists 只写文件不重启, 再用 clash API 按进程名断开受影响应用旧连接。组内条件用 logical and(同一条规则里 rule_set 之间是 OR)。空名单用占位进程 proxysplit-none.invalid(空列表=无条件=全匹配)。回归: internal/core/routing_matrix_test.go 用真 sing-box 跑 20 个场景(TUN 换 mixed、节点换假代理、DNS 换 hosts), 变异测试能抓到; 测试要用 sing-box 私有副本, 否则 service 测试的 CleanStrays 会杀掉它。sing-box CONNECT 在首个数据字节才拨号/入 /connections。新装默认 RuleMode=whitelist。已知未修: 自定义线路在界面上选不到(App.svelte normalizeRules 强制 rule)、线路出口选「直连」保存报错、DefaultLine 无界面也不生效。
+- 2026-09-25（未发布，只进了 main）：修复用户反馈「自定义规则无效、删掉的应用还能代理」。BuildTUNConfig 里全局自定义规则原先排在 代理策略 与按应用分流之前、且不限进程：直连/全局下仍生效，白名单下「代理」规则会把列表外应用拉进隧道。现在带 clash_mode=rule，白名单下代理规则按组限定进程并走组节点，排在应用 直连/拦截/细分规则之后；TUN 配置补上 DirectDomains（bf4a523 当时只修了旧多线路配置）。回归测试 TestCustomRulesStayInsideWhitelist；已用 sing-box 1.14.1 实测 clash_mode=rule 只在规则模式匹配。用户那台的另一原因：自定义规则写成 zygskisn.cn（错字）；Claude/Codex 走国内中转 sub2api.demo.zygskins.cn，本来不需要代理。已随 1.9.53 发布。
+- 2026-09-25 第二轮（已随 1.9.53 发布）：审计 直连/规则/全局 × 白/黑名单 × 应用线路。BuildTUNConfig 重排为 固定直连(API/内网/自身) → 应用拦截/直连 → clash 直连 → 局域网 → 屏蔽QUIC → clash 全局(列出应用走各自节点, 其余走 proxy) → 规则模式(细分规则/自定义/各应用线路)。应用进程名单改放 <数据目录>/rules/*.json 本地 rule-set(sing-box 改文件即热加载, 1.14.1 实测含原子替换); 内置 规则/全局@活动节点 两组永远存在, 所以增删改应用配置字节不变 → Manager.ApplySplitLists 只写文件不重启, 再用 clash API 按进程名断开受影响应用旧连接。组内条件用 logical and(同一条规则里 rule_set 之间是 OR)。空名单用占位进程 proxysplit-none.invalid(空列表=无条件=全匹配)。回归: internal/core/routing_matrix_test.go 用真 sing-box 跑 20 个场景(TUN 换 mixed、节点换假代理、DNS 换 hosts), 变异测试能抓到; 测试要用 sing-box 私有副本, 否则 service 测试的 CleanStrays 会杀掉它。sing-box CONNECT 在首个数据字节才拨号/入 /connections。新装默认 RuleMode=whitelist。已知未修: 自定义线路在界面上选不到(App.svelte normalizeRules 强制 rule)、线路出口选「直连」保存报错、DefaultLine 无界面也不生效。
 - 新节点 twpro-中转（vless reality，出口 122.116.1.113）链接已存堡垒机资产 id 113，勿写进仓库。
 
 ## 架构与部署
