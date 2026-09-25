@@ -13,7 +13,7 @@ func (s *Service) ResetConfig() {
 		Subs:        s.cfg.Subs,       // keep subscriptions
 		SelectedID:  s.cfg.SelectedID, // keep the active node
 		Settings:    def,
-		RuleMode:    engine.ModeBlacklist,
+		RuleMode:    engine.ModeWhitelist,
 		DefaultLine: LineRule,
 		LogLevel:    "info",
 		ClashMode:   "rule",

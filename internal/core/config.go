@@ -1,6 +1,8 @@
 package core
 
 import (
+	"crypto/sha1"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"path/filepath"
@@ -104,6 +106,18 @@ type Options struct {
 	// the process falls through to the default. Evaluated before the broad
 	// process_name groups.
 	SplitScoped []ScopedRule
+	// RuleDir holds the per-app process rule-set files of an app-split config
+	// (see SplitRuleSets). The core reloads them on change.
+	RuleDir string
+
+	// ProxyPrivate lets LAN/private addresses into the tunnel (内网直连 off).
+	ProxyPrivate bool
+	// SelfProcess is our own executable name, kept out of the tunnel (代理程序
+	//自身不走代理). Empty = not excluded.
+	SelfProcess string
+	// BlockQUIC rejects QUIC (UDP 443) headed for the tunnel so browsers fall back
+	// to TCP, where the domain can always be sniffed and routed.
+	BlockQUIC bool
 }
 
 // ScopedRule is one app-rule narrowed to specific destinations. Only the named
@@ -121,10 +135,99 @@ type ScopedRule struct {
 // split) or "global" (everything through the node); NodeTag is the outbound tag
 // ("proxy" = active node, or "node-<id>" for an ExtraNode).
 type SplitGroup struct {
+	// Key identifies the group across restarts (line/node/mode); it names the
+	// group's rule-set file, so an unchanged Key means the config is unchanged.
+	Key     string
 	Names   []string
 	Mode    string
 	NodeTag string
 	Rules   []RouteRule // used when Mode == RouteCustom
+}
+
+// Hot-reloadable per-app process rule-sets (app-split only).
+const (
+	appSetBlock  = "apps-block"
+	appSetDirect = "apps-direct"
+	// noProcess never matches a real program: a rule-set with an empty process
+	// list would otherwise be a rule without conditions, i.e. match everything.
+	noProcess = "proxysplit-none.invalid"
+)
+
+// splitGroupTags names each SplitGroup's rule-set (same index as SplitGroups).
+func splitGroupTags(opts Options) []string {
+	if !opts.Split {
+		return nil
+	}
+	tags := make([]string, len(opts.SplitGroups))
+	for i, g := range opts.SplitGroups {
+		key := g.Key
+		if key == "" {
+			key = fmt.Sprintf("%s|%s|%d", g.Mode, g.NodeTag, i)
+		}
+		sum := sha1.Sum([]byte(key))
+		tags[i] = "apps-g-" + hex.EncodeToString(sum[:5])
+	}
+	return tags
+}
+
+// SplitRuleSets returns the per-app process rule-set files (tag → JSON) that an
+// app-split config from BuildTUNConfig reads from opts.RuleDir. Changing only
+// these files re-routes apps live: the core reloads them without a restart.
+func SplitRuleSets(opts Options) map[string][]byte {
+	if !opts.Split {
+		return nil
+	}
+	out := map[string][]byte{
+		appSetBlock:  processSet(opts.SplitBlock),
+		appSetDirect: processSet(opts.SplitDirect),
+	}
+	for i, tag := range splitGroupTags(opts) {
+		out[tag] = processSet(opts.SplitGroups[i].Names)
+	}
+	return out
+}
+
+func processSet(names []string) []byte {
+	list := cleanList(names)
+	if len(list) == 0 {
+		list = []string{noProcess}
+	}
+	b, _ := json.Marshal(M{"version": 3, "rules": []M{{"process_name": list}}})
+	return b
+}
+
+func ruleSetPath(dir, tag string) string {
+	return filepath.ToSlash(filepath.Join(dir, tag+".json"))
+}
+
+// inSet narrows match to the processes of the given rule-sets. A logical AND is
+// used because a rule's own rule_set list is OR'ed with other rule-sets.
+func inSet(tags []string, match M) M {
+	if len(match) == 0 {
+		return M{"rule_set": tags}
+	}
+	return M{"type": "logical", "mode": "and", "rules": []M{{"rule_set": tags}, match}}
+}
+
+// emit sets the rule's target: "reject" blocks, anything else is an outbound tag.
+func emit(m M, out string) M {
+	if out == "reject" {
+		m["action"] = "reject"
+	} else {
+		m["outbound"] = out
+	}
+	return m
+}
+
+// actionTarget maps a user rule action (proxy/direct/block) to an emit target.
+func actionTarget(action, nodeTag string) string {
+	switch action {
+	case "direct":
+		return "direct"
+	case "block":
+		return "reject"
+	}
+	return nodeTag
 }
 
 // ExtraNode is an additional node outbound (beyond the primary "proxy").
@@ -141,7 +244,7 @@ type ExtraNode struct {
 // In whitelist app-split a proxy entry is scoped to the listed apps (each group
 // through its own node): a custom rule must never pull an unlisted or removed app
 // into the tunnel. direct/block entries stay unscoped — they only take traffic out.
-func customRoutingRules(opts Options, nodeTag string, ruleModeOnly bool) []M {
+func customRoutingRules(opts Options, nodeTag string, ruleModeOnly bool, groupTags []string) []M {
 	var out []M
 	for _, r := range opts.CustomRules {
 		m := ruleMatch(r)
@@ -151,27 +254,14 @@ func customRoutingRules(opts Options, nodeTag string, ruleModeOnly bool) []M {
 		if ruleModeOnly {
 			m["clash_mode"] = "rule"
 		}
-		switch r.Action {
-		case "direct":
-			m["outbound"] = "direct"
-		case "block":
-			m["action"] = "reject"
-		default:
-			if opts.Split && opts.SplitWhitelist {
-				for _, g := range opts.SplitGroups {
-					if len(g.Names) == 0 {
-						continue
-					}
-					scoped := cloneMatch(m)
-					scoped["process_name"] = g.Names
-					scoped["outbound"] = g.NodeTag
-					out = append(out, scoped)
-				}
-				continue
+		target := actionTarget(r.Action, nodeTag)
+		if target == nodeTag && opts.Split && opts.SplitWhitelist {
+			for i, g := range opts.SplitGroups {
+				out = append(out, emit(inSet(groupTags[i:i+1], cloneMatch(m)), g.NodeTag))
 			}
-			m["outbound"] = nodeTag
+			continue
 		}
-		out = append(out, m)
+		out = append(out, emit(m, target))
 	}
 	return out
 }
@@ -211,16 +301,28 @@ func directDomainRules(opts Options) []M {
 // bypassRules builds the optional ads/CN smart-routing entries and applies the
 // supplied scope (for example inbound or process_name) to every entry.
 func bypassRules(opts Options, scope M) []M {
-	selected := selectedRuleSets(opts)
 	var out []M
-	withScope := func(m M) M {
+	for _, t := range bypassTargets(opts) {
 		for k, v := range scope {
-			m[k] = v
+			t.match[k] = v
 		}
-		return m
+		out = append(out, emit(t.match, t.out))
 	}
+	return out
+}
+
+type bypassTarget struct {
+	match M
+	out   string
+}
+
+// bypassTargets lists the enabled smart-routing entries (ads → reject, mainland
+// → direct) as match/target pairs.
+func bypassTargets(opts Options) []bypassTarget {
+	selected := selectedRuleSets(opts)
+	var out []bypassTarget
 	if selected.Ads {
-		out = append(out, withScope(M{"rule_set": []string{"geosite-ads"}, "action": "reject"}))
+		out = append(out, bypassTarget{M{"rule_set": []string{"geosite-ads"}}, "reject"})
 	}
 	var cn []string
 	if selected.GeoSiteCN {
@@ -230,7 +332,7 @@ func bypassRules(opts Options, scope M) []M {
 		cn = append(cn, "geoip-cn")
 	}
 	if len(cn) > 0 {
-		out = append(out, withScope(M{"rule_set": cn, "outbound": "direct"}))
+		out = append(out, bypassTarget{M{"rule_set": cn}, "direct"})
 	}
 	return out
 }
@@ -421,7 +523,7 @@ func BuildMultiConfig(lines []LineConfig, logLevel string, opts Options) ([]byte
 	rules = append(rules, lanRules(opts, nodeTag[lines[0].Node.ID])...)
 	// Global user custom rules — highest priority, before the geo/per-line rules.
 	// The clash overrides above already precede them, so no clash_mode needed.
-	rules = append(rules, customRoutingRules(opts, nodeTag[lines[0].Node.ID], false)...)
+	rules = append(rules, customRoutingRules(opts, nodeTag[lines[0].Node.ID], false, nil)...)
 
 	// Per-line, inbound-scoped routing rules.
 	for _, ln := range lines {
@@ -486,124 +588,109 @@ func BuildTUNConfig(node *nodes.Node, logLevel string, opts Options) ([]byte, er
 	routeMode := opts.RouteMode
 	routeRules := opts.RouteRules
 	geoDir := opts.GeoDir
+	clashExp := clashExperimental(opts)
+	groupTags := splitGroupTags(opts)
 
-	// Base rules: sniff the domain, hijack DNS into sing-box, keep our own API and
-	// the LAN direct.
+	// Rule order is the contract (first match wins):
+	//  1. housekeeping — sniff, DNS hijack, our own API, LAN addresses, ourselves;
+	//  2. per-app 拦截 / 直连 — explicit user choices that hold in every 代理策略;
+	//  3. 代理策略 直连 — nothing else is proxied (LAN share included);
+	//  4. LAN share clients, QUIC blocking;
+	//  5. 代理策略 全局 — everything else through the node (listed apps via their node);
+	//  6. 代理策略 规则 — scoped app rules, custom rules, per-app lines, then final.
+	// Per-app process lists live in hot-reloaded rule-set files (SplitRuleSets),
+	// so adding/removing apps between existing lists needs no core restart.
 	rules := []M{
 		{"action": "sniff"},
 		{"protocol": "dns", "action": "hijack-dns"},
 	}
 	rules = append(rules, directDomainRules(opts)...)
-	rules = append(rules, M{"ip_is_private": true, "outbound": "direct"})
-	clashExp := clashExperimental(opts)
-	geoNeeded := false
-	finalOut := "proxy"
-	// LAN-shared inbound (if any) routes through the node.
-	rules = append(rules, lanRules(opts, "proxy")...)
-	// Global custom rules: highest priority within 「规则」 mode, but below the
-	// explicit per-app choices (拦截/直连 apps, scoped rules) in app-split.
-	custom := customRoutingRules(opts, "proxy", clashExp != nil)
-
+	if !opts.ProxyPrivate {
+		rules = append(rules, M{"ip_is_private": true, "outbound": "direct"})
+	}
+	if self := strings.TrimSpace(opts.SelfProcess); self != "" {
+		rules = append(rules, M{"process_name": []string{self}, "outbound": "direct"})
+	}
 	if opts.Split {
-		// Application-split via sing-box's own process_name matcher (replaces the
-		// WinDivert engine). Block/direct carve-outs come first in both modes.
-		if len(opts.SplitBlock) > 0 {
-			rules = append(rules, M{"process_name": opts.SplitBlock, "action": "reject"})
-		}
-		if len(opts.SplitDirect) > 0 {
-			rules = append(rules, M{"process_name": opts.SplitDirect, "outbound": "direct"})
-		}
-		// Scoped per-app rules (process + destination) — more specific than the
-		// broad process_name groups below, so they come first. geoNeeded stays as
-		// is; these use explicit domain/ip/port, no geo rule-sets.
-		for _, sc := range opts.SplitScoped {
-			rules = append(rules, scopedRuleEntries(sc, clashExp != nil)...)
-		}
-		rules = append(rules, custom...)
-		if opts.SplitWhitelist {
-			// Whitelist: ONLY the rule/global apps are eligible; everything else
-			// (incl. unlisted) falls through to route.final = direct. Each group
-			// may target a different node (g.NodeTag) → per-app 不同节点.
-			finalOut = "direct"
-			// Top-bar 代理策略 (直连/全局) master override, scoped per group so 全局
-			// still routes each app to ITS node.
-			if clashExp != nil {
-				for _, g := range opts.SplitGroups {
-					if len(g.Names) == 0 {
-						continue
-					}
-					rules = append(rules,
-						M{"process_name": g.Names, "clash_mode": "direct", "outbound": "direct"},
-						M{"process_name": g.Names, "clash_mode": "global", "outbound": g.NodeTag},
-					)
-				}
+		rules = append(rules,
+			M{"rule_set": []string{appSetBlock}, "action": "reject"},
+			M{"rule_set": []string{appSetDirect}, "outbound": "direct"},
+		)
+	}
+	if clashExp != nil {
+		rules = append(rules, M{"clash_mode": "direct", "outbound": "direct"})
+	}
+	rules = append(rules, lanRules(opts, "proxy")...)
+	if opts.BlockQUIC {
+		quic := M{"network": []string{"udp"}, "port": []int{443}}
+		if opts.Split && opts.SplitWhitelist {
+			// Only traffic headed for the tunnel: listed apps, or anything in 全局.
+			if len(groupTags) > 0 {
+				rules = append(rules, emit(inSet(groupTags, cloneMatch(quic)), "reject"))
 			}
-			// Per-app-mode rules (apply in the default "rule" clash mode).
-			for _, g := range opts.SplitGroups {
-				if len(g.Names) == 0 {
-					continue
-				}
-				if g.Mode == "global" {
-					rules = append(rules, M{"process_name": g.Names, "outbound": g.NodeTag})
-				} else if g.Mode == RouteCustom {
-					for _, r := range g.Rules {
-						m := ruleMatch(r)
-						if m == nil {
-							continue
-						}
-						m["process_name"] = g.Names
-						switch r.Action {
-						case "direct":
-							m["outbound"] = "direct"
-						case "block":
-							m["action"] = "reject"
-						default:
-							m["outbound"] = g.NodeTag
-						}
-						rules = append(rules, m)
-					}
-					rules = append(rules, M{"process_name": g.Names, "outbound": g.NodeTag})
-				} else {
-					rules = append(rules, bypassRules(opts, M{"process_name": g.Names})...)
-					rules = append(rules, M{"process_name": g.Names, "outbound": g.NodeTag})
-					geoNeeded = true
-				}
+			if clashExp != nil {
+				g := cloneMatch(quic)
+				g["clash_mode"] = "global"
+				rules = append(rules, emit(g, "reject"))
 			}
 		} else {
-			// Blacklist: the whole machine uses the node (route.final = proxy)
-			// EXCEPT the SplitDirect/SplitBlock apps handled above. Smart routing
-			// (clash overrides + mainland bypass) applies globally.
-			if clashExp != nil {
-				rules = append(rules, clashRules("proxy")...)
+			rules = append(rules, emit(quic, "reject"))
+		}
+	}
+	if clashExp != nil {
+		for i, g := range opts.SplitGroups {
+			if opts.Split {
+				rules = append(rules, emit(inSet(groupTags[i:i+1], M{"clash_mode": "global"}), g.NodeTag))
 			}
-			rules = append(rules, bypassRules(opts, nil)...)
-			geoNeeded = true
+		}
+		rules = append(rules, M{"clash_mode": "global", "outbound": "proxy"})
+	}
+
+	finalOut := "proxy"
+	custom := customRoutingRules(opts, "proxy", clashExp != nil, groupTags)
+	if opts.Split {
+		for _, sc := range opts.SplitScoped {
+			rules = append(rules, scopedRuleEntries(sc, false)...)
+		}
+		rules = append(rules, custom...)
+		// Listed apps follow their own line in both split modes: 全局 = all via
+		// its node, 规则 = mainland direct / ads blocked / rest via its node, custom
+		// line = its rules then its node.
+		for i, g := range opts.SplitGroups {
+			set := groupTags[i : i+1]
+			switch g.Mode {
+			case RouteGlobal:
+			case RouteCustom:
+				for _, r := range g.Rules {
+					m := ruleMatch(r)
+					if m == nil {
+						continue
+					}
+					rules = append(rules, emit(inSet(set, m), actionTarget(r.Action, g.NodeTag)))
+				}
+			default:
+				for _, t := range bypassTargets(opts) {
+					rules = append(rules, emit(inSet(set, t.match), t.out))
+				}
+			}
+			rules = append(rules, emit(M{"rule_set": set}, g.NodeTag))
+		}
+		if opts.SplitWhitelist {
+			finalOut = "direct" // 只代理列出的: everything unlisted goes direct
+		} else {
+			rules = append(rules, bypassRules(opts, nil)...) // 默认全走代理: unlisted = 规则
 		}
 	} else {
-		// System-wide TUN (whole machine): clash overrides apply globally.
+		// 整机全局: app rules do not apply; the whole machine follows routeMode.
 		rules = append(rules, custom...)
-		if clashExp != nil {
-			rules = append(rules, clashRules("proxy")...)
-		}
 		switch routeMode {
 		case RouteBypassCN:
 			rules = append(rules, bypassRules(opts, nil)...)
-			geoNeeded = true
 		case RouteCustom:
 			for _, r := range routeRules {
-				m := ruleMatch(r)
-				if m == nil {
-					continue
+				if m := ruleMatch(r); m != nil {
+					rules = append(rules, emit(m, actionTarget(r.Action, "proxy")))
 				}
-				switch r.Action {
-				case "direct":
-					m["outbound"] = "direct"
-				case "block":
-					m["action"] = "reject"
-				default:
-					m["outbound"] = "proxy"
-				}
-				rules = append(rules, m)
 			}
 		}
 	}
@@ -614,13 +701,17 @@ func BuildTUNConfig(node *nodes.Node, logLevel string, opts Options) ([]byte, er
 		"auto_detect_interface":   true,
 		"default_domain_resolver": M{"server": "dns-direct"},
 	}
-	// Always bundle the geo rule-sets: routing uses them when geoNeeded, and the
-	// split-DNS below needs geosite-cn regardless.
-	_ = geoNeeded
+	// The geo rule-sets are always bundled: the split-DNS below needs geosite-cn
+	// regardless of the routing mode.
 	route["rule_set"] = []M{
 		{"type": "local", "tag": "geosite-cn", "format": "binary", "path": srsPath(geoDir, "geosite-cn.srs")},
 		{"type": "local", "tag": "geoip-cn", "format": "binary", "path": srsPath(geoDir, "geoip-cn.srs")},
 		{"type": "local", "tag": "geosite-ads", "format": "binary", "path": srsPath(geoDir, "geosite-category-ads-all.srs")},
+	}
+	if opts.Split {
+		for _, tag := range append([]string{appSetBlock, appSetDirect}, groupTags...) {
+			route["rule_set"] = append(route["rule_set"].([]M), M{"type": "local", "tag": tag, "format": "source", "path": ruleSetPath(opts.RuleDir, tag)})
+		}
 	}
 
 	// Split DNS: mainland domains resolve via China DNS (dns-direct, DIRECT — no
@@ -632,6 +723,11 @@ func BuildTUNConfig(node *nodes.Node, logLevel string, opts Options) ([]byte, er
 		dnsRules = append(dnsRules, dr...)
 	}
 	dnsRules = append(dnsRules, M{"rule_set": []string{"geosite-cn"}, "server": "dns-direct"})
+	// 远程解析域名 off: every lookup goes to the China resolver directly.
+	dnsFinal := "dns-direct"
+	if opts.RemoteDNS {
+		dnsFinal = "dns-remote"
+	}
 	dnsBlock := M{
 		"servers": []M{
 			// Foreign resolver through the node (anti-pollution) with a 2nd fallback.
@@ -640,7 +736,7 @@ func BuildTUNConfig(node *nodes.Node, logLevel string, opts Options) ([]byte, er
 			{"type": "udp", "tag": "dns-direct", "server": "223.5.5.5"},
 		},
 		"rules": dnsRules,
-		"final": "dns-remote",
+		"final": dnsFinal,
 	}
 	tunInbounds := []M{
 		{

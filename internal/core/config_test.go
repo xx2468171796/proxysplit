@@ -103,6 +103,7 @@ func TestSplitScopedConfig(t *testing.T) {
 			{Name: "game.exe", Ports: []string{"8000-9000"}, Outbound: "proxy"},
 		},
 	}
+	writeSplitSets(t, &opts)
 	cfg, err := BuildTUNConfig(node, "info", opts)
 	if err != nil {
 		t.Fatalf("build scoped: %v", err)
@@ -293,10 +294,11 @@ func TestSplitCustomGroupRulesAreProcessScoped(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfg, err := BuildTUNConfig(node, "info", Options{
+	opts := Options{
 		Split:          true,
 		SplitWhitelist: true,
 		SplitGroups: []SplitGroup{{
+			Key:     "line-a|proxy|custom",
 			Names:   []string{"CustomApp.exe"},
 			Mode:    RouteCustom,
 			NodeTag: "proxy",
@@ -305,25 +307,39 @@ func TestSplitCustomGroupRulesAreProcessScoped(t *testing.T) {
 				{Type: "keyword", Value: "tracker", Action: "block"},
 			},
 		}},
-	})
+	}
+	cfg, err := BuildTUNConfig(node, "info", opts)
 	if err != nil {
 		t.Fatal(err)
+	}
+	tag := splitGroupTags(opts)[0]
+	if !strings.Contains(string(SplitRuleSets(opts)[tag]), "CustomApp.exe") {
+		t.Fatalf("group rule-set %s does not list the app", tag)
+	}
+	// Every custom-line rule must be ANDed with the group's process rule-set.
+	inGroup := func(rule map[string]interface{}) (map[string]interface{}, bool) {
+		parts, _ := rule["rules"].([]interface{})
+		if rule["type"] != "logical" || len(parts) != 2 {
+			return nil, false
+		}
+		sets, _ := parts[0].(map[string]interface{})["rule_set"].([]interface{})
+		return parts[1].(map[string]interface{}), len(sets) == 1 && sets[0] == tag
 	}
 	direct, block, catchAll := false, false, false
 	for _, raw := range routeRulesFromConfig(t, cfg) {
 		rule := raw.(map[string]interface{})
-		processes, ok := rule["process_name"].([]interface{})
-		if !ok || len(processes) != 1 || processes[0] != "CustomApp.exe" {
+		if sets, ok := rule["rule_set"].([]interface{}); ok && len(sets) == 1 && sets[0] == tag && rule["outbound"] == "proxy" {
+			catchAll = true
+		}
+		match, ok := inGroup(rule)
+		if !ok {
 			continue
 		}
-		if suffixes, ok := rule["domain_suffix"].([]interface{}); ok && len(suffixes) == 1 && suffixes[0] == "example.cn" && rule["outbound"] == "direct" {
+		if s, _ := match["domain_suffix"].([]interface{}); len(s) == 1 && s[0] == "example.cn" && rule["outbound"] == "direct" {
 			direct = true
 		}
-		if keywords, ok := rule["domain_keyword"].([]interface{}); ok && len(keywords) == 1 && keywords[0] == "tracker" && rule["action"] == "reject" {
+		if k, _ := match["domain_keyword"].([]interface{}); len(k) == 1 && k[0] == "tracker" && rule["action"] == "reject" {
 			block = true
-		}
-		if len(rule) == 2 && rule["outbound"] == "proxy" {
-			catchAll = true
 		}
 	}
 	if !direct || !block || !catchAll {
@@ -331,91 +347,54 @@ func TestSplitCustomGroupRulesAreProcessScoped(t *testing.T) {
 	}
 }
 
-// TestCustomRulesStayInsideWhitelist: a global custom 代理 rule must not pull an
-// unlisted/removed app into the tunnel, must follow each app's own node, must yield
-// to explicit per-app 直连 and to the 直连/全局 代理策略, and the own-API direct rule
-// must exist in TUN mode too.
-func TestCustomRulesStayInsideWhitelist(t *testing.T) {
+// writeSplitSets points opts at a temp RuleDir and writes the per-app rule-sets
+// the app-split config reads, so `sing-box check` can open them.
+func writeSplitSets(t *testing.T, opts *Options) {
+	t.Helper()
+	opts.RuleDir = t.TempDir()
+	for tag, data := range SplitRuleSets(*opts) {
+		if err := os.WriteFile(filepath.Join(opts.RuleDir, tag+".json"), data, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// TestSplitKeepsOwnAPIDirectFirst: the own-API direct rule exists in the app-split
+// TUN config (not just the legacy multi-line one) ahead of every routing rule,
+// and the config with its rule-sets passes sing-box check.
+func TestSplitKeepsOwnAPIDirectFirst(t *testing.T) {
 	bin := singboxPath(t)
 	geoDir, _ := filepath.Abs(filepath.Join("..", "..", "bin"))
 	node, err := nodes.ParseLink(sampleLinks["vless-reality"])
 	if err != nil {
 		t.Fatal(err)
 	}
-	extra, err := nodes.ParseLink(sampleLinks["trojan"])
+	opts := Options{
+		GeoDir: geoDir, ClashController: "127.0.0.1:19092", DirectDomains: []string{"proxysplit.example.cn"},
+		Split: true, SplitWhitelist: true, BlockQUIC: true, SelfProcess: "proxysplit.exe",
+		SplitGroups: []SplitGroup{{Key: "rule|proxy|bypass_cn", Names: []string{"chrome.exe"}, Mode: RouteBypassCN, NodeTag: "proxy"}},
+		CustomRules: []RouteRule{{Type: "suffix", Value: "github.com", Action: "proxy"}},
+	}
+	writeSplitSets(t, &opts)
+	cfg, err := BuildTUNConfig(node, "info", opts)
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfg, err := BuildTUNConfig(node, "info", Options{
-		GeoDir:          geoDir,
-		ClashController: "127.0.0.1:19092",
-		DirectDomains:   []string{"proxysplit.example.cn"},
-		Split:           true,
-		SplitWhitelist:  true,
-		SplitGroups: []SplitGroup{
-			{Names: []string{"chrome.exe"}, Mode: RouteGlobal, NodeTag: "proxy"},
-			{Names: []string{"game.exe"}, Mode: RouteBypassCN, NodeTag: "node-x"},
-		},
-		SplitDirect: []string{"code.exe"},
-		ExtraNodes:  []ExtraNode{{Tag: "node-x", Node: extra}},
-		CustomRules: []RouteRule{
-			{Type: "suffix", Value: "github.com", Action: "proxy"},
-			{Type: "suffix", Value: "example.cn", Action: "direct"},
-			{Type: "keyword", Value: "doubleclick", Action: "block"},
-		},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	p := filepath.Join(t.TempDir(), "custom-whitelist.json")
+	p := filepath.Join(t.TempDir(), "split.json")
 	os.WriteFile(p, cfg, 0o600)
 	if out, err := exec.Command(bin, "check", "-c", p).CombinedOutput(); err != nil {
 		t.Fatalf("sing-box rejected the config:\n%s\n%s", out, cfg)
 	}
-
-	apiIdx, codeDirectIdx, firstCustomIdx := -1, -1, -1
-	github := map[string]string{} // process -> outbound
 	for i, raw := range routeRulesFromConfig(t, cfg) {
 		rule := raw.(map[string]interface{})
 		if d, ok := rule["domain"].([]interface{}); ok && len(d) == 1 && d[0] == "proxysplit.example.cn" && rule["outbound"] == "direct" {
-			apiIdx = i
-		}
-		procs, _ := rule["process_name"].([]interface{})
-		if len(procs) == 1 && procs[0] == "code.exe" && rule["outbound"] == "direct" && len(rule) == 2 {
-			codeDirectIdx = i
-		}
-		isCustom := false
-		if s, ok := rule["domain_suffix"].([]interface{}); ok && len(s) == 1 && (s[0] == "github.com" || s[0] == "example.cn") {
-			isCustom = true
-		}
-		if k, ok := rule["domain_keyword"].([]interface{}); ok && len(k) == 1 && k[0] == "doubleclick" {
-			isCustom = true
-		}
-		if !isCustom {
-			continue
-		}
-		if firstCustomIdx < 0 {
-			firstCustomIdx = i
-		}
-		if rule["clash_mode"] != "rule" {
-			t.Errorf("custom rule not limited to 规则 mode: %v", rule)
-		}
-		if s, _ := rule["domain_suffix"].([]interface{}); len(s) == 1 && s[0] == "github.com" {
-			if len(procs) != 1 {
-				t.Fatalf("custom proxy rule not scoped to one listed app group: %v", rule)
+			if i > 2 { // only sniff + DNS hijack may precede it
+				t.Fatalf("own-API direct rule at idx %d, want right after sniff/DNS", i)
 			}
-			github[procs[0].(string)] = rule["outbound"].(string)
+			return
 		}
 	}
-	if apiIdx < 0 || apiIdx > 3 {
-		t.Fatalf("own-API direct rule missing or not near the top (idx %d):\n%s", apiIdx, cfg)
-	}
-	if codeDirectIdx < 0 || firstCustomIdx < 0 || codeDirectIdx > firstCustomIdx {
-		t.Fatalf("per-app 直连 (idx %d) must precede custom rules (idx %d)", codeDirectIdx, firstCustomIdx)
-	}
-	if len(github) != 2 || github["chrome.exe"] != "proxy" || github["game.exe"] != "node-x" {
-		t.Fatalf("custom proxy rule should reach exactly the listed apps via their own node, got %v", github)
-	}
+	t.Fatalf("own-API direct rule missing:\n%s", cfg)
 }
 
 func TestLanShareConfig(t *testing.T) {

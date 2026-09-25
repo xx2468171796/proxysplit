@@ -180,7 +180,9 @@ func (s *Service) ImportAppRules(data string) error {
 	s.save()
 	s.mu.Unlock()
 
-	s.applyLive()
 	s.log("[rules] " + preview.Summary)
+	if err := s.applyLive(); err != nil {
+		return fmt.Errorf("已导入,但代理重新启动失败: %w", err)
+	}
 	return nil
 }

@@ -40,7 +40,6 @@
     GetClashMode as WGetClashMode,
     SetClashMode as WSetClashMode,
     GetSystemProxy as WGetSystemProxy,
-    SetSystemProxy as WSetSystemProxy,
     SpeedTest as WSpeedTest,
     SpeedTestNode as WSpeedTestNode,
     OpenWebsite as WOpenWebsite,
@@ -484,7 +483,7 @@
     if (useDemo || !isWailsReady()) return
     const err = await WSetAppRules(rules)
     if (err) { savedMsg = '保存失败：' + err; setTimeout(() => (savedMsg = ''), 3500); return }
-    savedMsg = '✓ 已自动保存'
+    savedMsg = running ? '✓ 已保存,已实时生效' : '✓ 已自动保存'
     setTimeout(() => (savedMsg = ''), 1800)
   }
 
@@ -1115,13 +1114,7 @@
 
   // --- 系统代理开关 ---
   async function refreshSysProxy() { sysProxy = await safe<boolean>(() => WGetSystemProxy(), sysProxy) }
-  async function toggleSysProxy() {
-    const want = !sysProxy
-    if (useDemo || !isWailsReady()) { sysProxy = want; pushLog('[ui] 演示：系统代理 ' + (want ? '开' : '关')); return }
-    const err = await WSetSystemProxy(want)
-    if (err) { toast(err); pushLog('[error] 系统代理: ' + err) }
-    await refreshSysProxy()
-  }
+
 
   // --- 下载测速 (active node) ---
   async function runSpeedTest() {
@@ -1884,9 +1877,9 @@
               <div class="hero-icon">{@html I.apps}</div>
               <div class="hero-text">
                 <div class="hero-head"><h2>应用分流</h2><span class="help">{@html I.help} 使用说明</span></div>
-                <p>仅对选中的应用走代理，未选中的应用直接连接网络。</p>
+                <p>{ruleMode === 'whitelist' ? '仅对列出的应用走代理，没列出的应用直接连接网络。' : '没列出的应用按「规则」智能分流（大陆直连、境外走代理），列出的应用按各自的设置走。'}</p>
                 {#if settings.tunMode}
-                  <div class="hero-note">当前是「全局 TUN」模式，下面的应用分流规则不生效。到<button class="linkbtn" on:click={() => (tab = 'overview')}>概览</button>切回「应用分流」即可启用。</div>
+                  <div class="hero-note">当前是「整机全局」模式，下面的应用分流规则不生效。到<button class="linkbtn" on:click={() => (tab = 'settings')}>设置</button>把「代理范围」切回「应用分流」即可启用。</div>
                 {:else if clashMode !== 'rule'}
                   <div class="hero-note">流量走向为「{clashMode === 'global' ? '全局' : '直连'}」，已覆盖下面的规则。切回<button class="linkbtn" on:click={() => setClash('rule')}>规则</button>模式让分流生效。</div>
                 {/if}
@@ -1915,7 +1908,7 @@
                 {#if ruleMode === 'whitelist'}
                   <b>只代理列出的</b>：只有下面标为「走代理」的程序走节点，其余程序（含没列出的）一律直连。<span class="mx-tag">日常推荐</span>
                 {:else}
-                  ⚠️ <b>默认全走代理 = 全局</b>：整机所有程序都走节点（下面的「规则/全局」逐应用设置不会改变这一点），只有标为「直连/拦截」的程序除外。想只让指定程序走代理，请
+                  ⚠️ <b>默认全走代理</b>：没列出的程序也走节点（按「规则」：大陆直连、境外走代理）；列出的程序按各自的「规则 / 全局 / 直连 / 拦截」和节点走。想只让指定程序走代理，请
                   <button class="linkbtn" on:click={() => setRuleMode('whitelist')}>切到「只代理列出的」</button>。
                 {/if}
               </div>
@@ -2141,7 +2134,7 @@
 
         <section class="card page custom-rules-v2">
           <div class="card-head">
-            <div><h3>自定义规则</h3><p class="sub">你自己填的规则,<b>优先级最高</b>,盖过上面的国内外分流。「代理策略」为「规则」时生效。</p></div>
+            <div><h3>自定义规则</h3><p class="sub">你自己填的规则,盖过上面的国内外分流,「代理策略」为「规则」时生效。应用单独设的「直连 / 拦截」优先于它;「只代理列出的」时,「走代理」只作用于列出的应用。</p></div>
             <div class="actions">
               <button class="ghost-btn" on:click={addCustomRule}>{@html I.plus} 加一条</button>
               <button class="primary" on:click={saveCustomRules} disabled={custRuleMsg === '应用中…'}>{custRuleMsg === '应用中…' ? '应用中…' : '保存并应用'}</button>
@@ -2175,7 +2168,7 @@
           <div class="route-top">
             <div class="route-title">
               <h3>线路管理</h3>
-              <p class="sub">每条线路 = 一个出口节点 + 一套分流策略。上面的应用规则里为每个应用挑选走哪条线路。总开关已并入顶部「流量走向」。</p>
+              <p class="sub">每条线路 = 一个出口节点 + 一套分流策略。上面的应用规则里为每个应用挑选走哪条线路。总开关已并入顶部「代理策略」。</p>
             </div>
           </div>
 
@@ -2424,7 +2417,7 @@
           <section class="card">
             <h3>系统集成</h3>
             <div class="setting"><span>代理范围<small class="setting-hint">指定应用分流，或接管整台电脑</small></span><div class="mode-seg sm"><button class:on={!settings.tunMode} on:click={() => setCaptureMode(false)}>应用分流</button><button class:on={settings.tunMode} on:click={() => setCaptureMode(true)}>整机全局</button></div></div>
-            <div class="setting"><span>系统代理<small class="setting-hint">给只识别 Windows 系统代理的程序使用</small></span><label class="switch"><input type="checkbox" checked={sysProxy} on:change={toggleSysProxy} /><i></i></label></div>
+            <div class="setting"><span>系统代理<small class="setting-hint">不需要开启：应用分流和整机全局都用虚拟网卡接管流量,只认系统代理的程序也会被正常分流</small></span><label class="switch"><input type="checkbox" checked={false} disabled /><i></i></label></div>
             <div class="setting"><span>对局域网开放<small class="setting-hint">手机/平板也能连本机代理（重启内核生效）</small></span><label class="switch"><input type="checkbox" bind:checked={settings.lanShare} on:change={saveSettings} /><i></i></label></div>
             {#if settings.lanShare}
               <div class="lan-cfg">
@@ -2460,7 +2453,7 @@
 
     <footer class="statusbar">
       <div class="sb-left"><span class="sb-k">本地</span> {running ? (status?.corePort || '—') : '未运行'} <span class="sep">|</span> HTTP(S) <span class="sep">|</span> 代理策略 <b>{clashLabel(clashMode)}</b></div>
-      <div class="sb-right">系统代理：<b class:on={sysProxy}>{sysProxy ? '已开启' : '已关闭'}</b><span class="ok" class:on={running}>✓</span></div>
+      <div class="sb-right">代理范围：<b class:on={running}>{settings.tunMode ? '整机全局' : '应用分流'}</b><span class="ok" class:on={running}>✓</span></div>
     </footer>
   </section>
 

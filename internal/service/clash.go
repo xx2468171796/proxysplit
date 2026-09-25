@@ -134,6 +134,61 @@ func clashTrafficURL(url, secret string) (Stats, error) {
 	}, nil
 }
 
+// closeProcessConnections closes the live connections opened by the given
+// programs (lower-case exe names), so an app whose route just changed reconnects
+// under the new route instead of keeping its old tunnel open. Best effort:
+// returns how many were closed.
+func closeProcessConnections(port int, secret string, names map[string]bool) int {
+	if port <= 0 || len(names) == 0 {
+		return 0
+	}
+	do := func(method, path string) (*http.Response, error) {
+		req, err := http.NewRequest(method, fmt.Sprintf("http://127.0.0.1:%d%s", port, path), nil)
+		if err != nil {
+			return nil, err
+		}
+		if secret != "" {
+			req.Header.Set("Authorization", "Bearer "+secret)
+		}
+		return (&http.Client{Timeout: 2 * time.Second}).Do(req)
+	}
+	resp, err := do(http.MethodGet, "/connections")
+	if err != nil {
+		return 0
+	}
+	var payload struct {
+		Connections []struct {
+			ID       string `json:"id"`
+			Metadata struct {
+				Process     string `json:"process"`
+				ProcessPath string `json:"processPath"`
+			} `json:"metadata"`
+		} `json:"connections"`
+	}
+	err = json.NewDecoder(io.LimitReader(resp.Body, 16<<20)).Decode(&payload)
+	resp.Body.Close()
+	if err != nil {
+		return 0
+	}
+	closed := 0
+	for _, c := range payload.Connections {
+		proc := c.Metadata.Process
+		if proc == "" {
+			proc = baseName(c.Metadata.ProcessPath)
+		}
+		if c.ID == "" || !names[strings.ToLower(proc)] {
+			continue
+		}
+		if r, err := do(http.MethodDelete, "/connections/"+c.ID); err == nil {
+			r.Body.Close()
+			if r.StatusCode < 300 {
+				closed++
+			}
+		}
+	}
+	return closed
+}
+
 // ConnInfo is one live connection surfaced to the diagnostics view: which
 // process opened it, where it is heading, which routing rule it matched and
 // which outbound (exit) sing-box finally used. This is exactly the "命中了哪条

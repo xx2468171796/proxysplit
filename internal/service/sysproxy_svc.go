@@ -46,7 +46,7 @@ func (s *Service) SetSystemProxy(on bool) error {
 		s.mu.Unlock()
 
 		if running && port == 0 {
-			return fmt.Errorf("TUN 全局模式下无需系统代理(流量已全局)")
+			return fmt.Errorf("无需系统代理:应用分流和整机全局都由虚拟网卡接管流量")
 		}
 		s.mu.Lock()
 		s.sysProxyWant = true

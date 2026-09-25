@@ -97,7 +97,7 @@ func TestPersistenceRoundTrip(t *testing.T) {
 	if len(rules) != 1 || rules[0].Match != "Code.exe" || rules[0].Line != LineRule {
 		t.Fatalf("app rule not persisted: %+v", rules)
 	}
-	if s2.cfg.RuleMode != engine.ModeBlacklist {
+	if s2.cfg.RuleMode != engine.ModeWhitelist { // fresh config: 只代理列出的
 		t.Fatalf("rule mode default not persisted: %q", s2.cfg.RuleMode)
 	}
 	t.Log("restart round-trip OK: node + auto-selection + rule + mode all persisted")

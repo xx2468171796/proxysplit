@@ -144,6 +144,7 @@ type Service struct {
 	startGuard       func() error      // commercial entitlement gate for every start/restart path
 	directDomainList []string          // hosts always routed outside the tunnel (our API)
 	healthCache      atomic.Value      // []LineHealth — refreshed by the background health loop
+	run              *runState         // running app-split core (nil in 整机全局 / stopped)
 }
 
 // New loads (or initializes) config from dataDir.
@@ -305,7 +306,8 @@ func (s *Service) load() {
 		s.cfg.LogLevel = "info"
 	}
 	if s.cfg.RuleMode == "" {
-		s.cfg.RuleMode = engine.ModeBlacklist
+		// 只代理列出的 — what the UI recommends; 默认全走代理 is opt-in.
+		s.cfg.RuleMode = engine.ModeWhitelist
 	}
 	if s.cfg.DefaultLine == "" {
 		s.cfg.DefaultLine = LineRule
@@ -739,7 +741,7 @@ func (s *Service) RemoveAppRule(match string) {
 	s.cfg.Rules = out
 	s.save()
 	s.mu.Unlock()
-	s.applyLive()
+	_ = s.applyAppRules() // failure is logged; the rule is already removed from config
 }
 
 // GetAppRules returns the app -> line rule set.
@@ -765,7 +767,9 @@ func (s *Service) SetAppRules(rules []AppRule) string {
 	s.cfg.Rules = kept
 	s.save()
 	s.mu.Unlock()
-	s.applyLive()
+	if err := s.applyAppRules(); err != nil {
+		return "已保存,但代理重新生效失败: " + err.Error()
+	}
 	return ""
 }
 
@@ -801,8 +805,7 @@ func (s *Service) SetLines(lines []Line) string {
 	}
 	s.save()
 	s.mu.Unlock()
-	s.applyLive()
-	return ""
+	return restartMsg(s.applyLive())
 }
 
 // GetRuleMode / SetRuleMode manage blacklist vs whitelist.
@@ -821,8 +824,7 @@ func (s *Service) SetRuleMode(mode string) string {
 	s.cfg.RuleMode = mode
 	s.save()
 	s.mu.Unlock()
-	s.applyLive()
-	return ""
+	return restartMsg(s.applyLive())
 }
 
 // GetDefaultLine / SetDefaultLine manage the line for unlisted apps (whitelist).
@@ -844,24 +846,96 @@ func (s *Service) SetDefaultLine(id string) string {
 	s.cfg.DefaultLine = id
 	s.save()
 	s.mu.Unlock()
-	s.applyLive()
-	return ""
+	return restartMsg(s.applyLive())
 }
 
 // applyLive re-applies a rule/line change to the running core. In the
 // sing-box-native model (TUN / 应用分流) the app rules live in the core config,
 // so a change is applied by regenerating + reloading the config (restart while
 // running).
-func (s *Service) applyLive() {
+func (s *Service) applyLive() error {
+	if !s.core.Running() {
+		return nil
+	}
+	s.Stop()
+	if err := s.Start(); err != nil {
+		s.log("[service] reload after rule change failed: " + err.Error())
+		return err
+	}
+	return nil
+}
+
+// applyAppRules makes an app-rule change take effect on the running core.
+// Moving apps between the lists the core already has (拦截 / 直连 / 规则 / 全局
+// on the active node, lines already in use) only rewrites rule-set files: no
+// restart, other apps keep their connections, and the changed apps' open
+// connections are closed so they reconnect under the new route. Anything
+// structural (new node or line, target-scoped rules) restarts the core.
+func (s *Service) applyAppRules() error {
+	s.lifecycleMu.Lock()
 	s.mu.Lock()
-	running := s.core.Running()
+	run := s.run
+	if run == nil {
+		s.mu.Unlock()
+		s.lifecycleMu.Unlock()
+		return s.applyLive()
+	}
+	opts := run.base
+	sum := s.splitOptionsLocked(&opts, run.node)
+	port, secret := s.clashPort, s.clashSecret
 	s.mu.Unlock()
-	if running {
-		s.Stop()
-		if err := s.Start(); err != nil {
-			s.log("[service] reload after rule change failed: " + err.Error())
+	ok, err := s.core.ApplySplitLists(run.node, run.level, run.route, nil, opts)
+	if err != nil || !ok {
+		s.lifecycleMu.Unlock()
+		if err != nil {
+			s.log("[service] 实时更新应用规则失败,改为重启内核: " + err.Error())
+		}
+		return s.applyLive()
+	}
+	changed := changedApps(run.targets, sum.targets)
+	s.mu.Lock()
+	run.targets = sum.targets
+	s.mu.Unlock()
+	s.lifecycleMu.Unlock()
+	closed := closeProcessConnections(port, secret, changed)
+	s.log(fmt.Sprintf("[service] 应用规则已实时生效(未重启): %d 个应用变动, 断开其旧连接 %d 条", len(changed), closed))
+	return nil
+}
+
+// changedApps returns the app names (lower-case) whose routing differs.
+func changedApps(before, after map[string]string) map[string]bool {
+	out := map[string]bool{}
+	for k, v := range before {
+		if after[k] != v {
+			out[k] = true
 		}
 	}
+	for k, v := range after {
+		if before[k] != v {
+			out[k] = true
+		}
+	}
+	return out
+}
+
+// selfProcess is our own executable name when 代理程序自身不走代理 is on.
+func selfProcess(exclude bool) string {
+	if !exclude {
+		return ""
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		return ""
+	}
+	return filepath.Base(exe)
+}
+
+// restartMsg turns a failed live re-apply into the UI message ("" = fine).
+func restartMsg(err error) string {
+	if err == nil {
+		return ""
+	}
+	return "已保存,但代理重新启动失败: " + err.Error()
 }
 
 // Apps / SetApps are legacy string wrappers (proxy = a global-line rule).
@@ -1237,7 +1311,8 @@ func (s *Service) SetSettings(st Settings) {
 	// remote DNS changes the core filter/config, so restart if running.
 	if s.core.Running() && (old.TunMode != st.TunMode || old.BlockQUIC != st.BlockQUIC ||
 		old.LanShare != st.LanShare || old.RemoteDNS != st.RemoteDNS ||
-		old.LanPort != st.LanPort || old.LanType != st.LanType || old.LanUser != st.LanUser || old.LanPass != st.LanPass) {
+		old.LanPort != st.LanPort || old.LanType != st.LanType || old.LanUser != st.LanUser || old.LanPass != st.LanPass ||
+		old.PrivateDirect != st.PrivateDirect || old.ExcludeSelf != st.ExcludeSelf) {
 		s.Stop()
 		if err := s.Start(); err != nil {
 			s.log("[service] restart after settings change failed: " + err.Error())
@@ -1326,7 +1401,8 @@ func (s *Service) Start() error {
 		}
 		return core.Options{RemoteDNS: set.RemoteDNS, GeoDir: s.binDir, ClashController: ctl, ClashSecret: clashSecret, ClashMode: wantMode,
 			LanShare: set.LanShare, LanPort: set.LanPort, LanType: set.LanType, LanUser: set.LanUser, LanPass: set.LanPass,
-			CustomRules: custom, RuleSets: &ruleSets, DirectDomains: s.directDomains()}
+			CustomRules: custom, RuleSets: &ruleSets, DirectDomains: s.directDomains(),
+			ProxyPrivate: !set.PrivateDirect, BlockQUIC: set.BlockQUIC, SelfProcess: selfProcess(set.ExcludeSelf)}
 	}
 
 	// System-wide mode: sing-box TUN routes the whole machine.
@@ -1346,18 +1422,64 @@ func (s *Service) Start() error {
 		s.mu.Lock()
 		s.startedAt = time.Now()
 		s.activeFP = nil
+		s.run = nil
 		s.mu.Unlock()
 		s.applySystemProxyOnStart()
 		s.log(fmt.Sprintf("[service] started — 全局 TUN 模式 (%s), 节点 %s", tunRoute, node.Name))
 		return nil
 	}
 
-	// App-split mode: sing-box TUN + per-app process_name routing.
-	// Only the listed programs use the node; every other program is direct.
+	// App-split mode: sing-box TUN + per-app routing. The per-app lists live in
+	// rule-set files, so later app add/remove can apply without a restart.
 	if node == nil {
 		return fmt.Errorf("no node selected")
 	}
+	clashPort, _ := core.FreePort()
+	base := clashOptsFor(clashPort)
+	base.Split = true
+	base.SplitWhitelist = mode != "blacklist"
 	s.mu.Lock()
+	s.clashPort = clashPort
+	s.trafficStats = Stats{}
+	opts := base
+	sum := s.splitOptionsLocked(&opts, node)
+	s.mu.Unlock()
+	if err := s.core.StartTUN(node, level, tunRoute, nil, opts); err != nil {
+		return fmt.Errorf("core(应用分流 TUN): %w", err)
+	}
+
+	s.mu.Lock()
+	s.startedAt = time.Now()
+	s.activeFP = nil
+	s.run = &runState{node: node, level: level, route: tunRoute, base: base, targets: sum.targets}
+	s.mu.Unlock()
+
+	s.applySystemProxyOnStart()
+	s.log(fmt.Sprintf("[service] started — 应用分流 (TUN+进程名), 代理 %d / 直连 %d / 拦截 %d 个程序, 额外节点 %d, 主节点 %s",
+		sum.proxied, sum.direct, sum.blocked, len(opts.ExtraNodes), node.Name))
+	return nil
+}
+
+// runState is what the running app-split core was started with, so an app-rule
+// change can rebuild the identical config and hot-swap only the app lists.
+type runState struct {
+	node    *nodes.Node
+	level   string
+	route   string
+	base    core.Options      // everything except the per-app fields
+	targets map[string]string // app name (lower) -> where it is routed
+}
+
+type splitSummary struct {
+	proxied, direct, blocked int
+	targets                  map[string]string
+}
+
+// splitOptionsLocked fills the per-app fields of opts (groups, direct/block
+// lists, scoped rules, extra nodes) from the enabled app rules. The built-in
+// 规则/全局 groups on the active node always exist — even empty — so adding or
+// removing apps on them never changes the config structure. Caller holds s.mu.
+func (s *Service) splitOptionsLocked(opts *core.Options, node *nodes.Node) splitSummary {
 	activeID := node.ID
 	nodeByID := map[string]*nodes.Node{}
 	for _, n := range s.cfg.Nodes {
@@ -1369,8 +1491,19 @@ func (s *Service) Start() error {
 		names []string
 		rules []core.RouteRule
 	}
-	groups := map[gkey]groupValue{}
+	groups := map[gkey]groupValue{
+		{LineRule, "proxy", core.RouteBypassCN}: {},
+		{LineGlobal, "proxy", core.RouteGlobal}: {},
+	}
 	extraByTag := map[string]*nodes.Node{}
+	sum := splitSummary{targets: map[string]string{}}
+	target := func(name, where string) {
+		k := strings.ToLower(name)
+		if old := sum.targets[k]; old != "" {
+			where = old + ";" + where
+		}
+		sum.targets[k] = where
+	}
 	var directApps, blockApps []string
 	var scopedRules []core.ScopedRule
 	for _, r := range s.cfg.Rules {
@@ -1414,17 +1547,19 @@ func (s *Service) Start() error {
 					}
 				}
 			}
-			scopedRules = append(scopedRules, core.ScopedRule{
-				Name: name, Domains: r.Domains, IPs: r.IPs, Ports: r.Ports, Outbound: outbound,
-			})
+			sc := core.ScopedRule{Name: name, Domains: r.Domains, IPs: r.IPs, Ports: r.Ports, Outbound: outbound}
+			scopedRules = append(scopedRules, sc)
+			target(name, fmt.Sprintf("scoped:%v", sc))
 			continue
 		}
 		switch line.ID {
 		case LineDirect:
 			directApps = append(directApps, name)
+			target(name, "direct")
 			continue
 		case LineBlock:
 			blockApps = append(blockApps, name)
+			target(name, "block")
 			continue
 		}
 		mode := line.Routing.Mode
@@ -1449,11 +1584,9 @@ func (s *Service) Start() error {
 		value.names = append(value.names, name)
 		value.rules = append([]core.RouteRule{}, line.Routing.Rules...)
 		groups[k] = value
+		target(name, k.line+"|"+k.tag+"|"+k.mode)
 	}
-	s.mu.Unlock()
 
-	var splitGroups []core.SplitGroup
-	total := 0
 	keys := make([]gkey, 0, len(groups))
 	for k := range groups {
 		keys = append(keys, k)
@@ -1467,47 +1600,30 @@ func (s *Service) Start() error {
 		}
 		return keys[i].mode < keys[j].mode
 	})
+	opts.SplitGroups = nil
 	for _, k := range keys {
 		value := groups[k]
 		sort.Strings(value.names)
-		splitGroups = append(splitGroups, core.SplitGroup{Names: value.names, Mode: k.mode, NodeTag: k.tag, Rules: value.rules})
-		total += len(value.names)
+		opts.SplitGroups = append(opts.SplitGroups, core.SplitGroup{
+			Key: k.line + "|" + k.tag + "|" + k.mode, Names: value.names, Mode: k.mode, NodeTag: k.tag, Rules: value.rules,
+		})
+		sum.proxied += len(value.names)
 	}
-	var extraNodes []core.ExtraNode
 	extraTags := make([]string, 0, len(extraByTag))
 	for tag := range extraByTag {
 		extraTags = append(extraTags, tag)
 	}
 	sort.Strings(extraTags)
+	opts.ExtraNodes = nil
 	for _, tag := range extraTags {
-		extraNodes = append(extraNodes, core.ExtraNode{Tag: tag, Node: extraByTag[tag]})
+		opts.ExtraNodes = append(opts.ExtraNodes, core.ExtraNode{Tag: tag, Node: extraByTag[tag]})
 	}
-
-	clashPort, _ := core.FreePort()
-	s.mu.Lock()
-	s.clashPort = clashPort
-	s.trafficStats = Stats{}
-	s.mu.Unlock()
-	opts := clashOptsFor(clashPort)
-	opts.Split = true
-	opts.SplitWhitelist = mode != "blacklist"
-	opts.SplitGroups = splitGroups
+	sort.Strings(directApps)
+	sort.Strings(blockApps)
 	opts.SplitDirect, opts.SplitBlock = directApps, blockApps
 	opts.SplitScoped = scopedRules
-	opts.ExtraNodes = extraNodes
-	if err := s.core.StartTUN(node, level, tunRoute, nil, opts); err != nil {
-		return fmt.Errorf("core(应用分流 TUN): %w", err)
-	}
-
-	s.mu.Lock()
-	s.startedAt = time.Now()
-	s.activeFP = nil
-	s.mu.Unlock()
-
-	s.applySystemProxyOnStart()
-	s.log(fmt.Sprintf("[service] started — 应用分流 (TUN+进程名), 代理 %d / 直连 %d / 拦截 %d 个程序, 额外节点 %d, 主节点 %s",
-		total, len(directApps), len(blockApps), len(extraNodes), node.Name))
-	return nil
+	sum.direct, sum.blocked = len(directApps), len(blockApps)
+	return sum
 }
 
 // Stop stops the engine and the core.
@@ -1518,6 +1634,7 @@ func (s *Service) Stop() {
 	s.mu.Lock()
 	s.startedAt = time.Time{}
 	s.activeFP = nil
+	s.run = nil
 	s.trafficStats = Stats{}
 	clearSysProxy := s.sysProxyOn
 	s.mu.Unlock()

@@ -31,6 +31,7 @@ type Manager struct {
 	port    int
 	node    *nodes.Node
 	done    chan struct{} // closed when the current cmd exits (for Stop to await)
+	tunCfg  []byte        // config the running TUN core was started with (for hot updates)
 }
 
 // SetOnExit registers a callback fired after the core process exits for any
@@ -191,6 +192,7 @@ func (m *Manager) StartLines(lines []LineConfig, logLevel string, opts Options) 
 		active := m.cmd == cmd
 		if active {
 			m.running = false
+			m.tunCfg = nil
 			m.port = 0
 			m.cmd = nil
 		}
@@ -227,13 +229,14 @@ func (m *Manager) StartTUN(node *nodes.Node, logLevel, routeMode string, routeRu
 		return fmt.Errorf("sing-box binary not found at %s", m.binPath)
 	}
 
-	opts.RouteMode = routeMode
-	opts.RouteRules = routeRules
-	cfg, err := BuildTUNConfig(node, logLevel, opts)
+	cfg, opts, err := m.tunConfig(node, logLevel, routeMode, routeRules, opts)
 	if err != nil {
 		return err
 	}
 	if err := os.MkdirAll(m.dataDir, 0o755); err != nil {
+		return err
+	}
+	if err := writeRuleSets(opts); err != nil {
 		return err
 	}
 	cfgPath := filepath.Join(m.dataDir, "sing-box.json")
@@ -262,6 +265,7 @@ func (m *Manager) StartTUN(node *nodes.Node, logLevel, routeMode string, routeRu
 		if m.Running() {
 			m.mu.Lock()
 			m.node = node
+			m.tunCfg = cfg
 			m.mu.Unlock()
 			m.onLog(fmt.Sprintf("[core] sing-box TUN up (%s) via %s", routeMode, node.Name))
 			return nil
@@ -270,6 +274,62 @@ func (m *Manager) StartTUN(node *nodes.Node, logLevel, routeMode string, routeRu
 		m.Stop() // clean up before the next attempt
 	}
 	return lastErr
+}
+
+// tunConfig builds the TUN config; app-split rule-sets default to <dataDir>/rules.
+func (m *Manager) tunConfig(node *nodes.Node, logLevel, routeMode string, routeRules []RouteRule, opts Options) ([]byte, Options, error) {
+	opts.RouteMode = routeMode
+	opts.RouteRules = routeRules
+	if opts.Split && opts.RuleDir == "" {
+		opts.RuleDir = filepath.Join(m.dataDir, "rules")
+	}
+	cfg, err := BuildTUNConfig(node, logLevel, opts)
+	return cfg, opts, err
+}
+
+// ApplySplitLists re-routes apps on the running core without a restart. It only
+// applies when the new options build exactly the config the core is running
+// (same groups, nodes, rules and settings): then only the per-app rule-set
+// files differ, and sing-box reloads those by itself. It returns false when the
+// core is not running a TUN config or the config differs (restart needed).
+func (m *Manager) ApplySplitLists(node *nodes.Node, logLevel, routeMode string, routeRules []RouteRule, opts Options) (bool, error) {
+	cfg, opts, err := m.tunConfig(node, logLevel, routeMode, routeRules, opts)
+	if err != nil {
+		return false, err
+	}
+	m.mu.Lock()
+	same := m.running && m.tunCfg != nil && string(m.tunCfg) == string(cfg)
+	m.mu.Unlock()
+	if !same || !opts.Split {
+		return false, nil
+	}
+	return true, writeRuleSets(opts)
+}
+
+// writeRuleSets writes the per-app process rule-sets atomically (temp + rename),
+// so the core never reads a half-written file.
+func writeRuleSets(opts Options) error {
+	sets := SplitRuleSets(opts)
+	if len(sets) == 0 {
+		return nil
+	}
+	if err := os.MkdirAll(opts.RuleDir, 0o755); err != nil {
+		return err
+	}
+	for tag, data := range sets {
+		path := filepath.Join(opts.RuleDir, tag+".json")
+		if old, err := os.ReadFile(path); err == nil && string(old) == string(data) {
+			continue
+		}
+		tmp := path + ".tmp"
+		if err := os.WriteFile(tmp, data, 0o600); err != nil {
+			return err
+		}
+		if err := os.Rename(tmp, path); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // spawn starts sing-box with the given config and wires up the exit watcher.
@@ -304,6 +364,7 @@ func (m *Manager) spawn(cfgPath string) error {
 		active := m.cmd == cmd
 		if active {
 			m.running = false
+			m.tunCfg = nil
 			m.port = 0
 			m.cmd = nil
 		}
@@ -326,6 +387,7 @@ func (m *Manager) Stop() error {
 	done := m.done
 	m.cmd = nil
 	m.running = false
+	m.tunCfg = nil
 	m.port = 0
 	m.mu.Unlock()
 	if cmd == nil || cmd.Process == nil {
