@@ -1,36 +1,10 @@
 name: proxysplit
 
+# PostgreSQL / Redis 用深圳共享实例（2026-09-25 起，不再自带容器）：
+# DATABASE_URL -> host.docker.internal:5432/proxysplit（专用账号 proxysplit）
+# REDIS_URL    -> host.docker.internal:6379/9（ACL 用户 proxysplit，只能碰 proxysplit:* 与 fastify-rate-limit-*）
+
 services:
-  postgres:
-    image: public.ecr.aws/docker/library/postgres:17-alpine
-    restart: unless-stopped
-    env_file: /opt/proxysplit/secrets/runtime.env
-    environment:
-      POSTGRES_DB: proxysplit
-      POSTGRES_USER: proxysplit
-    volumes:
-      - proxysplit_pg:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U proxysplit -d proxysplit"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-    networks: [backend]
-
-  redis:
-    image: public.ecr.aws/docker/library/redis:7.4-alpine
-    restart: unless-stopped
-    command: ["sh", "-c", "exec redis-server --appendonly yes --requirepass \"$${REDIS_PASSWORD}\""]
-    env_file: /opt/proxysplit/secrets/runtime.env
-    volumes:
-      - proxysplit_redis:/data
-    healthcheck:
-      test: ["CMD-SHELL", "redis-cli -a \"$${REDIS_PASSWORD}\" ping | grep -q PONG"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-    networks: [backend]
-
   migrate:
     build:
       context: .
@@ -42,9 +16,8 @@ services:
       - /opt/proxysplit/secrets/license-private.pem:/run/secrets/license-private.pem:ro
       - /opt/proxysplit/secrets/license-public.pem:/run/secrets/license-public.pem:ro
     command: ["pnpm", "--filter", "@proxysplit/db", "migrate"]
-    depends_on:
-      postgres:
-        condition: service_healthy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     networks: [backend]
 
   api:
@@ -72,17 +45,10 @@ services:
       timeout: 5s
       retries: 10
       start_period: 20s
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     networks: [backend]
 
 networks:
   backend:
     driver: bridge
-
-volumes:
-  proxysplit_pg:
-  proxysplit_redis:
