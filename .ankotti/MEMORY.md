@@ -29,6 +29,7 @@
 ## 架构与部署
 - 客户端：Go + Wails + Svelte，sing-box 原生 TUN + process_name；早期 WinDivert 已移除。
 - 服务端：Fastify + PostgreSQL + Redis；会员真源在服务端，Ed25519 离线租约绑定账号/设备/硬件/期限。
+- 2026-09-25 起生产不再自带 PG/Redis 容器：用深圳共享 PG（库 proxysplit，堡垒机数据源 sz-pg-proxysplit）和共享 Redis db9（ACL 用户 proxysplit，只能碰 proxysplit:* 与 fastify-rate-limit-*）；api 经 host.docker.internal 连宿主机（docker-compose.prod.yml extra_hosts）。凭据在堡垒机资产，别往仓库写。
 - 官网：https://proxysplit.zygskins.cn；SSH 别名 proxysplit-shenzhen；管理员凭据仅本机私有配置，不入 Git。
 - Git 只有一个 remote：origin = Gitea xuan/proxysplit（http://s3.alonelife.top:32109），直接 push origin main。本机 PowerShell 没有 git/go 的 PATH：git 用 Bash 工具，go 在 C:\tools\go\bin，wails 在 ~/go/bin。
 - 正式构建：scripts/build-commercial.ps1 -Version <版本>，要求干净工作区。
