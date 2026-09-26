@@ -253,3 +253,41 @@ func TestReconcileSessionKeepsCacheOnNetworkFailure(t *testing.T) {
 		t.Fatalf("network failure destroyed cached state: %+v", c.state)
 	}
 }
+
+// Setting the system clock back must not stretch the offline grace: not before
+// the lease was issued, and not before a time this client has already seen.
+func TestOfflineGraceRejectsClockSetBack(t *testing.T) {
+	c, private := testClient(t)
+	fp := sha256.Sum256([]byte("proxysplit-device-v1:" + c.fingerprint))
+	c.state.DeviceID = "device"
+	now := time.Now()
+	lease := func(issued time.Time) string {
+		return signedLease(t, private, map[string]any{"sub": "user", "did": "device", "fph": hex.EncodeToString(fp[:]), "minVersion": "1.8.0",
+			"iat": issued.Unix(), "exp": issued.Add(time.Hour).Unix(), "entitlementExp": now.Add(30 * 24 * time.Hour).Unix(), "grace": 72})
+	}
+
+	// Lease issued "in the future" = the clock now reads earlier than the server did.
+	c.state.Lease = lease(now.Add(2 * time.Hour))
+	if s := c.Status(); s.Authenticated || s.Error != errClockRolledBack.Error() {
+		t.Fatalf("clock behind the lease issue time accepted: %+v", s)
+	}
+	if err := c.EnsureEntitled(); err == nil {
+		t.Fatal("EnsureEntitled accepted a clock set back before the lease")
+	}
+
+	// Normal offline use advances the high-water mark...
+	c.state.Lease, c.state.LastSeenAt = lease(now.Add(-time.Hour)), 0
+	if s := c.Status(); !s.Authenticated {
+		t.Fatalf("valid offline lease rejected: %+v", s)
+	}
+	// ...a later reading raises it; going back below it is refused.
+	c.state.LastSeenAt = now.Add(48 * time.Hour).Unix()
+	if s := c.Status(); s.Authenticated || s.Error != errClockRolledBack.Error() {
+		t.Fatalf("clock set back below the latest seen time accepted: %+v", s)
+	}
+	// Small corrections (NTP) are tolerated.
+	c.state.LastSeenAt = now.Add(5 * time.Minute).Unix()
+	if s := c.Status(); !s.Authenticated {
+		t.Fatalf("a 5-minute clock correction was treated as tampering: %+v", s)
+	}
+}

@@ -57,19 +57,29 @@ func TestEnsureCreatesRepairsAndKeeps(t *testing.T) {
 	}
 }
 
-// PowerShell also ends a '…' string at ‘ ’ ‚ ‛; paths must still work.
+// Any path the file system allows must work: typographic quotes (which end a
+// PowerShell '…' string) and characters outside the ANSI code page (which
+// WScript.Shell cannot store).
 func TestEnsureOddPathCharacters(t *testing.T) {
 	dir := t.TempDir()
-	// (WScript.Shell itself cannot store characters outside the ANSI code page,
-	// e.g. ß or emoji on Chinese Windows; those fail with an error, logged.)
-	exe := filepath.Join(dir, "O’Brien ‘程序’ $x; `a` 'b'", "ProxySplit.exe")
+	exe := filepath.Join(dir, "O’Brien ‘程序’ $x; `a` 'b' ß 😀 ‚c‛", "ProxySplit.exe")
 	os.MkdirAll(filepath.Dir(exe), 0o755)
 	os.WriteFile(exe, []byte("MZ"), 0o755)
 	exe = LongPath(exe)
+	lnk := filepath.Join(dir, "ProxySplit.lnk")
 	if err := ensureIn(dir, "ProxySplit", exe); err != nil {
 		t.Fatal(err)
 	}
-	if got := target(t, filepath.Join(dir, "ProxySplit.lnk")); !strings.EqualFold(got, exe) {
-		t.Fatalf("shortcut points at %q, want %q", got, exe)
+	got, err := ReadTarget(lnk)
+	if err != nil || got != exe {
+		t.Fatalf("shortcut points at %q (%v), want %q", got, err, exe)
+	}
+	before, _ := os.Stat(lnk)
+	time.Sleep(1100 * time.Millisecond)
+	if err := ensureIn(dir, "ProxySplit", exe); err != nil {
+		t.Fatal(err)
+	}
+	if after, _ := os.Stat(lnk); !after.ModTime().Equal(before.ModTime()) {
+		t.Fatal("an up-to-date shortcut was rewritten")
 	}
 }

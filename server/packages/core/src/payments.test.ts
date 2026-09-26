@@ -9,6 +9,32 @@ const sign=(data:Record<string,unknown>)=>createHmac('sha256','test-secret').upd
 
 afterEach(()=>vi.unstubAllGlobals())
 describe('zhongzhuan payment adapter',()=>{
+  it('asks for the configured 收款线路, declares split pieces and keeps checkout URL + merchant',async()=>{
+    process.env.PAYMENT_TEST_APP_ID='app-test'
+    process.env.PAYMENT_TEST_APP_SECRET='test-secret'
+    const bodies:Record<string,unknown>[]=[]
+    vi.stubGlobal('fetch',vi.fn(async(_url:string,init:RequestInit)=>{
+      const body=JSON.parse(String(init.body));bodies.push(body)
+      return new Response(JSON.stringify({code:0,data:{qr_code:'https://qr.alipay.com/x'+bodies.length,out_trade_no:'gw-'+bodies.length,
+        checkout_url:'https://openapi.alipay.com/gateway.do?x=1',merchant:'支付宝直连',line:4,line_name:'支付线路2',line_honored:bodies.length===1}}),{status:200})
+    }))
+    const pieces=[{...order,orderNo:'PS-A',amountCents:19900,groupId:'g',splitIndex:1,splitTotal:2},{...order,orderNo:'PS-B',amountCents:10000,groupId:'g',splitIndex:2,splitTotal:2}]
+    const store={
+      createOrders:async()=>pieces,getProvider:async()=>({...provider,config:{line:4}}),
+      setOrderPayment:vi.fn(async()=>({orderNo:'x'})),failOrder:vi.fn(),
+    }
+    const logs:string[]=[]
+    const service=new PaymentService(store as unknown as PgStore,'https://proxysplit.invalid',m=>logs.push(m))
+    const result=await service.createOrder('user-id','plan-id','alice')
+    expect(bodies.map(b=>[b.line,b.split])).toEqual([[4,1],[4,1]])
+    for(const b of bodies){const {sign:signature,...params}=b;expect(signature).toBe(sign(params))}
+    expect(result.orders[0]?.checkoutUrl).toBe('https://openapi.alipay.com/gateway.do?x=1')
+    expect(store.setOrderPayment).toHaveBeenCalledWith('PS-A','gw-1','https://qr.alipay.com/x1',{checkoutUrl:'https://openapi.alipay.com/gateway.do?x=1',merchantName:'支付宝直连'})
+    // the second piece came back on a fallback line: logged, still payable
+    expect(logs).toHaveLength(1)
+    expect(logs[0]).toContain('PS-B')
+  })
+
   it('creates a server-priced signed order and stores the returned pay URL',async()=>{
     process.env.PAYMENT_TEST_APP_ID='app-test'
     process.env.PAYMENT_TEST_APP_SECRET='test-secret'
@@ -29,7 +55,9 @@ describe('zhongzhuan payment adapter',()=>{
     expect(signature).toBe(sign(params))
     expect(result.order?.payUrl).toBe('https://cashier.invalid/q/1')
     expect(result.split).toBe(false)
-    expect(store.setOrderPayment).toHaveBeenCalledWith(order.orderNo,'gateway-1','https://cashier.invalid/q/1')
+    expect(store.setOrderPayment).toHaveBeenCalledWith(order.orderNo,'gateway-1','https://cashier.invalid/q/1',{checkoutUrl:null,merchantName:null})
+    expect(requestBody.line).toBeUndefined() // no line configured: the gateway picks
+    expect(requestBody.split).toBeUndefined()
     expect(store.failOrder).not.toHaveBeenCalled()
   })
 

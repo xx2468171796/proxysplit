@@ -616,6 +616,16 @@ func BuildTUNConfig(node *nodes.Node, logLevel string, opts Options) ([]byte, er
 		{"action": "sniff"},
 		{"protocol": "dns", "action": "hijack-dns"},
 	}
+	if opts.Split {
+		// 拦截 cuts the app off completely — LAN, our own API, everything — so it
+		// comes before the always-direct housekeeping rules.
+		rules = append(rules, M{"rule_set": []string{appSetBlock}, "action": "reject"})
+		for _, sc := range opts.SplitScoped {
+			if sc.Outbound == "reject" || sc.Outbound == "block" {
+				rules = append(rules, scopedRuleEntries(sc, false)...)
+			}
+		}
+	}
 	rules = append(rules, directDomainRules(opts)...)
 	if !opts.ProxyPrivate {
 		rules = append(rules, M{"ip_is_private": true, "outbound": "direct"})
@@ -625,14 +635,12 @@ func BuildTUNConfig(node *nodes.Node, logLevel string, opts Options) ([]byte, er
 	}
 	var scopedProxy []ScopedRule
 	if opts.Split {
-		rules = append(rules,
-			M{"rule_set": []string{appSetBlock}, "action": "reject"},
-			M{"rule_set": []string{appSetDirect}, "outbound": "direct"},
-		)
+		rules = append(rules, M{"rule_set": []string{appSetDirect}, "outbound": "direct"})
 		for _, sc := range opts.SplitScoped {
-			if scopedTakesOut(sc) {
+			switch {
+			case sc.Outbound == "direct":
 				rules = append(rules, scopedRuleEntries(sc, false)...)
-			} else {
+			case !scopedTakesOut(sc):
 				scopedProxy = append(scopedProxy, sc)
 			}
 		}
@@ -642,20 +650,7 @@ func BuildTUNConfig(node *nodes.Node, logLevel string, opts Options) ([]byte, er
 	}
 	rules = append(rules, lanRules(opts, "proxy")...)
 	if opts.BlockQUIC {
-		quic := M{"network": []string{"udp"}, "port": []int{443}}
-		if opts.Split && opts.SplitWhitelist {
-			// Only traffic headed for the tunnel: listed apps, or anything in 全局.
-			if len(groupTags) > 0 {
-				rules = append(rules, emit(inSet(groupTags, cloneMatch(quic)), "reject"))
-			}
-			if clashExp != nil {
-				g := cloneMatch(quic)
-				g["clash_mode"] = "global"
-				rules = append(rules, emit(g, "reject"))
-			}
-		} else {
-			rules = append(rules, emit(quic, "reject"))
-		}
+		rules = append(rules, quicRules(opts, groupTags, clashExp != nil)...)
 	}
 	for _, sc := range scopedProxy {
 		rules = append(rules, scopedRuleEntries(sc, false)...)
@@ -830,6 +825,59 @@ func ruleMatch(r RouteRule) M {
 		return M{"ip_cidr": []string{v}}
 	}
 	return nil
+}
+
+// quicRules blocks QUIC (UDP 443) only for traffic headed into the tunnel, so
+// the browser falls back to TCP there, while mainland sites and direct apps keep
+// QUIC. Tunnel-bound = in 全局 (代理策略, or an app / default line on 全局), or
+// not mainland for apps (and, in 默认全走代理, unlisted traffic) on smart lines.
+// Direct / blocked apps are routed before these rules and never reach them.
+func quicRules(opts Options, groupTags []string, clash bool) []M {
+	quic := func() M { return M{"network": []string{"udp"}, "port": []int{443}} }
+	var cn []string
+	for _, t := range bypassTargets(opts) {
+		if t.out == "direct" {
+			cn = t.match["rule_set"].([]string)
+		}
+	}
+	// notMainland narrows m to destinations outside the mainland rule-sets.
+	notMainland := func(m M) M {
+		if len(cn) == 0 {
+			return m
+		}
+		return M{"type": "logical", "mode": "and", "rules": []M{m, {"rule_set": cn, "invert": true}}}
+	}
+	var out []M
+	if clash {
+		g := quic()
+		g["clash_mode"] = "global"
+		out = append(out, emit(g, "reject"))
+	}
+	if !opts.Split {
+		// 整机全局: the whole machine follows the smart split.
+		return append(out, emit(notMainland(quic()), "reject"))
+	}
+	for i, g := range opts.SplitGroups {
+		if g.NodeTag == "direct" {
+			continue // a custom line whose exit is 直连
+		}
+		m := inSet(groupTags[i:i+1], quic())
+		if g.Mode != RouteGlobal {
+			m = notMainland(m)
+		}
+		out = append(out, emit(m, "reject"))
+	}
+	if !opts.SplitWhitelist {
+		d := opts.SplitDefault
+		switch {
+		case d != nil && d.NodeTag == "direct":
+		case d != nil && d.Mode == RouteGlobal:
+			out = append(out, emit(quic(), "reject"))
+		default:
+			out = append(out, emit(notMainland(quic()), "reject"))
+		}
+	}
+	return out
 }
 
 // scopedTakesOut: the scoped rule sends its targets direct or blocks them.

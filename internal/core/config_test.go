@@ -388,8 +388,8 @@ func TestSplitKeepsOwnAPIDirectFirst(t *testing.T) {
 	for i, raw := range routeRulesFromConfig(t, cfg) {
 		rule := raw.(map[string]interface{})
 		if d, ok := rule["domain"].([]interface{}); ok && len(d) == 1 && d[0] == "proxysplit.example.cn" && rule["outbound"] == "direct" {
-			if i > 2 { // only sniff + DNS hijack may precede it
-				t.Fatalf("own-API direct rule at idx %d, want right after sniff/DNS", i)
+			if i > 3 { // only sniff, DNS hijack and the 拦截 list may precede it
+				t.Fatalf("own-API direct rule at idx %d, want right after sniff/DNS/拦截", i)
 			}
 			return
 		}
@@ -553,5 +553,73 @@ func TestDirectDomainsBypassTunnelFirst(t *testing.T) {
 	os.WriteFile(p, cfg, 0o600)
 	if out, err := exec.Command(bin, "check", "-c", p).CombinedOutput(); err != nil {
 		t.Fatalf("sing-box rejected the config: %s", out)
+	}
+}
+
+// QUIC is blocked only for traffic that would enter the tunnel: 全局 lines and
+// 代理策略 全局 block all of it, smart lines only outside the mainland sets, and
+// 直连-exit lines / unlisted apps in 只代理列出的 not at all.
+func TestQUICBlockedOnlyTowardsTunnel(t *testing.T) {
+	bin := singboxPath(t)
+	geoDir, _ := filepath.Abs(filepath.Join("..", "..", "bin"))
+	node, _ := nodes.ParseLink(sampleLinks["vless-reality"])
+	for _, whitelist := range []bool{true, false} {
+		opts := Options{GeoDir: geoDir, ClashController: "127.0.0.1:19093", Split: true, SplitWhitelist: whitelist, BlockQUIC: true,
+			SplitGroups: []SplitGroup{
+				{Key: "rule|proxy|bypass_cn", Names: []string{"chrome.exe"}, Mode: RouteBypassCN, NodeTag: "proxy"},
+				{Key: "global|proxy|global", Names: []string{"game.exe"}, Mode: RouteGlobal, NodeTag: "proxy"},
+				{Key: "cn|direct|custom", Names: []string{"cn.exe"}, Mode: RouteCustom, NodeTag: "direct"},
+			}}
+		writeSplitSets(t, &opts)
+		cfg, err := BuildTUNConfig(node, "info", opts)
+		if err != nil {
+			t.Fatal(err)
+		}
+		p := filepath.Join(t.TempDir(), "q.json")
+		os.WriteFile(p, cfg, 0o600)
+		if out, err := exec.Command(bin, "check", "-c", p).CombinedOutput(); err != nil {
+			t.Fatalf("sing-box rejected the config:\n%s", out)
+		}
+		tags := splitGroupTags(opts)
+		var quic []string
+		for _, raw := range routeRulesFromConfig(t, cfg) {
+			b, _ := json.Marshal(raw)
+			if s := string(b); strings.Contains(s, `"port":[443]`) && strings.Contains(s, `"reject"`) {
+				quic = append(quic, s)
+			}
+		}
+		has := func(sub ...string) bool {
+			for _, q := range quic {
+				ok := true
+				for _, x := range sub {
+					ok = ok && strings.Contains(q, x)
+				}
+				if ok {
+					return true
+				}
+			}
+			return false
+		}
+		if !has(tags[0], `"invert":true`) {
+			t.Errorf("whitelist=%v: smart line must block QUIC only outside the mainland: %v", whitelist, quic)
+		}
+		if !has(tags[1]) || has(tags[1], `"invert":true`) {
+			t.Errorf("whitelist=%v: 全局 line must block all QUIC: %v", whitelist, quic)
+		}
+		if has(tags[2]) {
+			t.Errorf("whitelist=%v: a 直连-exit line must keep QUIC: %v", whitelist, quic)
+		}
+		if !has(`"clash_mode":"global"`) {
+			t.Errorf("whitelist=%v: 代理策略 全局 must block QUIC: %v", whitelist, quic)
+		}
+		unscoped := false
+		for _, q := range quic {
+			if !strings.Contains(q, "rule_set\":[\"apps-") && !strings.Contains(q, "clash_mode") && !strings.Contains(q, "apps-g-") {
+				unscoped = true
+			}
+		}
+		if whitelist == unscoped {
+			t.Errorf("whitelist=%v: unlisted traffic QUIC rule present=%v: %v", whitelist, unscoped, quic)
+		}
 	}
 }

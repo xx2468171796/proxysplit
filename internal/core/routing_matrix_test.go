@@ -470,3 +470,22 @@ func TestHotReloadMoveHasNoGap(t *testing.T) {
 		t.Logf("moving to %s: %v", mv.to, counts)
 	}
 }
+
+// TestRoutingMatrixBlockBeatsAlwaysDirect: 拦截 cuts an app off even from the
+// destinations that are otherwise always direct (our own API domains).
+func TestRoutingMatrixBlockBeatsAlwaysDirect(t *testing.T) {
+	exe, _ := os.Executable()
+	proc := filepath.Base(exe)
+	for _, where := range []string{"拦截", "规则"} {
+		opts := placement(matrixOpts(true), proc, where)
+		opts.DirectDomains = []string{matrixForeign}
+		m := newMatrix(t, opts)
+		want := "direct"
+		if where == "拦截" {
+			want = "reject"
+		}
+		for _, mode := range []string{"rule", "global", "direct"} {
+			m.expect("自家接口/"+where, mode, map[string]string{matrixForeign: want})
+		}
+	}
+}

@@ -26,7 +26,7 @@ const credential=(provider:PaymentProviderRecord,name:'APP_ID'|'APP_SECRET')=>{
 
 export class PaymentService{
   private syncCache=new Map<string,{at:number;promise:Promise<SyncOrderResult>}>()
-  constructor(private store:PgStore,private publicBaseUrl:string){}
+  constructor(private store:PgStore,private publicBaseUrl:string,private log:(message:string)=>void=message=>console.warn(message)){}
 
   // A checkout is one or more orders. Plans above the split cap create a group
   // of sub-orders, each with its own gateway QR, paid separately.
@@ -58,6 +58,12 @@ export class PaymentService{
       subject,order_type:'recharge',
       notify_url:`${this.publicBaseUrl}/v1/payments/zhongzhuan/notify`,buyer_name:username,
     }
+    // 收款线路 (provider config.line): the gateway otherwise picks a 收款主体 per order.
+    const line=Number(provider.config.line)
+    if(Number.isSafeInteger(line)&&line>0)params.line=line
+    // Split sub-orders must say so: some 收款主体 can't take split payments, and the
+    // gateway cannot tell that a single piece belongs to a group.
+    if(order.splitTotal&&order.splitTotal>1)params.split=1
     const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),15_000)
     let definitiveFailure=false
     try{
@@ -65,16 +71,23 @@ export class PaymentService{
         method:'POST',headers:{'content-type':'application/json'},
         body:JSON.stringify({...params,sign:sign(params,secret)}),signal:controller.signal,
       })
-      const data=await response.json() as {code?:number;message?:string;data?:{qr_code?:string;out_trade_no?:string;trade_no?:string}}
+      const data=await response.json() as {code?:number;message?:string;data?:{qr_code?:string;out_trade_no?:string;trade_no?:string;checkout_url?:string;merchant?:string;line?:number;line_name?:string;line_honored?:boolean}}
       if((response.status>=400&&response.status<500)||(typeof data.code==='number'&&data.code!==0))definitiveFailure=true
       if(!response.ok||data.code!==0||!data.data?.qr_code)throw new Error(data.message||`HTTP ${response.status}`)
       const providerOrderNo=data.data.out_trade_no||data.data.trade_no||order.orderNo
-      if(!await this.store.setOrderPayment(order.orderNo,providerOrderNo,data.data.qr_code)){
+      const checkoutUrl=typeof data.data.checkout_url==='string'&&data.data.checkout_url.startsWith('https://')?data.data.checkout_url:null
+      const merchantName=typeof data.data.merchant==='string'?data.data.merchant.slice(0,120):null
+      if(data.data.line_honored===false){
+        // The chosen line is unavailable right now (daily cap, circuit breaker);
+        // the gateway fell back to another 收款主体 so the customer can still pay.
+        this.log(`[payments] 收款线路 ${params.line} 暂不可用，网关改用 ${data.data.line_name??data.data.line??'其它线路'}（${merchantName??'未知主体'}），订单 ${order.orderNo}`)
+      }
+      if(!await this.store.setOrderPayment(order.orderNo,providerOrderNo,data.data.qr_code,{checkoutUrl,merchantName})){
         const current=await this.store.getOrderForCallback(order.orderNo)
-        if(current?.status==='paid')return {...order,status:'paid',providerOrderNo,payUrl:data.data.qr_code}
+        if(current?.status==='paid')return {...order,status:'paid',providerOrderNo,payUrl:data.data.qr_code,checkoutUrl}
         throw new Error('本地订单状态已变化，请刷新订单状态')
       }
-      return {...order,providerOrderNo,payUrl:data.data.qr_code}
+      return {...order,providerOrderNo,payUrl:data.data.qr_code,checkoutUrl}
     }catch(error){
       if(definitiveFailure)await this.store.failOrder(order.orderNo)
       throw new AppError('PAYMENT_CREATE_FAILED',`支付下单失败：${error instanceof Error?error.message:'网关通讯异常'}`,502)

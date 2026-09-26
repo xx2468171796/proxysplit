@@ -78,6 +78,7 @@ export namespace license {
 	    currency: string;
 	    status: string;
 	    payUrl: string;
+	    checkoutUrl: string;
 	    paidAt: string;
 	    expiresAt: string;
 	    createdAt: string;
@@ -96,6 +97,7 @@ export namespace license {
 	        this.currency = source["currency"];
 	        this.status = source["status"];
 	        this.payUrl = source["payUrl"];
+	        this.checkoutUrl = source["checkoutUrl"];
 	        this.paidAt = source["paidAt"];
 	        this.expiresAt = source["expiresAt"];
 	        this.createdAt = source["createdAt"];

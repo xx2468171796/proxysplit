@@ -222,6 +222,7 @@ func (a *App) domReady(ctx context.Context) {
 		script := "window.__PROXYSPLIT_BOOTSTRAP__=" + string(data) + ";" +
 			"window.dispatchEvent(new CustomEvent('proxysplit:bootstrap',{detail:window.__PROXYSPLIT_BOOTSTRAP__}));"
 		runtime.WindowExecJS(ctx, script)
+		a.markStartedOK()
 		if a.svc != nil && a.svc.GetSettings().AutoUpdateApp {
 			update := a.CheckAppUpdate()
 			runtime.EventsEmit(ctx, "app-update", update)
@@ -410,7 +411,7 @@ func (a *App) InstallAppUpdate(release updater.Release) string {
 		return err.Error()
 	}
 	a.rememberProxyForUpdate(release.Version)
-	if err := updater.ScheduleInstall(path); err != nil {
+	if err := updater.ScheduleInstall(path, startedOKPath()); err != nil {
 		_ = os.Remove(resumePath())
 		a.installing.Store(false)
 		return err.Error()

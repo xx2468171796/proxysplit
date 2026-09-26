@@ -82,6 +82,7 @@ type Order struct {
 	Currency    string `json:"currency"`
 	Status      string `json:"status"`
 	PayURL      string `json:"payUrl"`
+	CheckoutURL string `json:"checkoutUrl"` // desktop cashier page; empty when the gateway gives none
 	PaidAt      string `json:"paidAt"`
 	ExpiresAt   string `json:"expiresAt"`
 	CreatedAt   string `json:"createdAt"`
@@ -124,6 +125,10 @@ type state struct {
 	Features           []string `json:"features"`
 	PendingDevice      bool     `json:"pendingDevice"`
 	SessionValidatedAt int64    `json:"sessionValidatedAt,omitempty"`
+	// LastSeenAt is the latest clock reading seen while offline-valid; a clock
+	// set back before it (or before the lease was issued) cannot extend the
+	// offline grace. Reset from the server time on every online lease.
+	LastSeenAt int64 `json:"lastSeenAt,omitempty"`
 }
 
 const stateSchemaVersion = 1
@@ -141,6 +146,36 @@ type leaseClaims struct {
 	Expires            int64    `json:"exp"`
 	GraceHours         int      `json:"grace"`
 	EntitlementExpires int64    `json:"entitlementExp"`
+	IssuedAt           int64    `json:"iat"`
+}
+
+// clockSkewTolerance absorbs ordinary clock corrections (NTP sync, time zone
+// glitches) before a backwards clock counts as tampering.
+const clockSkewTolerance = 10 * time.Minute
+
+var errClockRolledBack = errors.New("系统时间被调早了，请把电脑时间校准为当前时间并联网验证")
+
+// checkClockLocked guards the offline grace against a system clock set back:
+// "now" may not be earlier than when the lease was issued (server time) or
+// than the latest time this client has already seen. It advances the
+// high-water mark, persisting it at most every clockSkewTolerance.
+func (c *Client) checkClockLocked(claims *leaseClaims, now time.Time) error {
+	tol := int64(clockSkewTolerance / time.Second)
+	t := now.Unix()
+	if claims.IssuedAt > 0 && t < claims.IssuedAt-tol {
+		return errClockRolledBack
+	}
+	if c.state.LastSeenAt > 0 && t < c.state.LastSeenAt-tol {
+		return errClockRolledBack
+	}
+	if t > c.state.LastSeenAt {
+		persist := t-c.state.LastSeenAt >= tol
+		c.state.LastSeenAt = t
+		if persist {
+			_ = c.saveLocked()
+		}
+	}
+	return nil
 }
 
 type Client struct {
@@ -658,6 +693,9 @@ func (c *Client) acquireLeaseLocked(ctx context.Context) error {
 		return err
 	}
 	c.state.Lease, c.state.DeviceID, c.state.Plan, c.state.PlanCode, c.state.Tier, c.state.MaxDevices, c.state.Features = result.Lease, claims.DeviceID, claims.Plan, claims.PlanCode, claims.Tier, claims.MaxDevices, claims.Features
+	// A fresh lease carries the server's clock: restart the offline
+	// high-water mark from it (this also heals a clock that ran fast).
+	c.state.LastSeenAt = claims.IssuedAt
 	return nil
 }
 
@@ -748,7 +786,12 @@ func (c *Client) Status() Status {
 	// short lease expiry is an implementation detail and must not make a
 	// yearly membership look as if it only has one hour remaining.
 	status.ExpiresAt, status.OfflineUntil = entitlementUntil.Format(time.RFC3339), offlineUntil.Format(time.RFC3339)
-	status.Authenticated = time.Now().Before(offlineUntil)
+	now := time.Now()
+	if err := c.checkClockLocked(&claims, now); err != nil {
+		status.Error = err.Error()
+		return status
+	}
+	status.Authenticated = now.Before(offlineUntil)
 	if !status.Authenticated {
 		status.Error = "授权已过期，请联网重新登录"
 	}
@@ -808,7 +851,11 @@ func (c *Client) EnsureEntitled() error {
 	if entitlementUntil := time.Unix(claims.EntitlementExpires, 0); entitlementUntil.Before(offlineUntil) {
 		offlineUntil = entitlementUntil
 	}
-	if time.Now().After(offlineUntil) {
+	now := time.Now()
+	if err := c.checkClockLocked(&claims, now); err != nil {
+		return err
+	}
+	if now.After(offlineUntil) {
 		return errors.New("授权已过期，请联网重新登录")
 	}
 	return nil

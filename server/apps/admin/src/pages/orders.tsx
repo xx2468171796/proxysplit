@@ -1,6 +1,6 @@
 import * as React from 'react'
 import { type ColumnDef } from '@tanstack/react-table'
-import { CheckCircle2, FileText, MoreHorizontal, Truck } from 'lucide-react'
+import { CheckCircle2, FileText, MoreHorizontal, Truck, Undo2 } from 'lucide-react'
 import { get, post, listApi } from '@/lib/api'
 import { cn, dt, money } from '@/lib/utils'
 import { DataTable, type ColumnMeta } from '@/components/data-table'
@@ -94,6 +94,7 @@ export default function OrdersPage() {
   // 弹窗状态
   const [detail, setDetail] = React.useState<Order | null>(null)
   const [shipRow, setShipRow] = React.useState<Order | null>(null)
+  const [refundRow, setRefundRow] = React.useState<Order | null>(null)
 
   // 下单时间范围（faceted 之外）
   const [createdFrom, setCreatedFrom] = React.useState('')
@@ -210,6 +211,12 @@ export default function OrdersPage() {
                       确认发货
                     </DropdownMenuItem>
                   )}
+                  {r.status === 'paid' && (
+                    <DropdownMenuItem className="text-destructive" onClick={() => setRefundRow(r)}>
+                      <Undo2 className="h-4 w-4" />
+                      退款
+                    </DropdownMenuItem>
+                  )}
                 </DropdownMenuContent>
               </DropdownMenu>
             </div>
@@ -301,6 +308,7 @@ export default function OrdersPage() {
 
       <OrderDetailDialog order={detail} onOpenChange={(o) => !o && setDetail(null)} providerName={providerName} />
       <ConfirmShipDialog order={shipRow} onOpenChange={(o) => !o && setShipRow(null)} onDone={bump} />
+      <RefundDialog order={refundRow} onOpenChange={(o) => !o && setRefundRow(null)} onDone={bump} />
     </>
   )
 }
@@ -363,6 +371,82 @@ function ConfirmShipDialog({
           <Button type="button" disabled={busy} onClick={confirm}>
             <CheckCircle2 className="h-4 w-4" />
             {busy ? '发货中…' : '确认发货'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+// ---------- 退款（二次确认）----------
+type RefundResult = { ok: boolean; orders: number; licenseAdjusted: boolean; removedDays?: number; expiresAt?: string | null; lifetime?: boolean }
+function RefundDialog({
+  order,
+  onOpenChange,
+  onDone,
+}: {
+  order: Order | null
+  onOpenChange: (o: boolean) => void
+  onDone: () => void
+}) {
+  const [busy, setBusy] = React.useState(false)
+  const [reason, setReason] = React.useState('')
+  React.useEffect(() => setReason(''), [order])
+  async function refund() {
+    if (!order) return
+    setBusy(true)
+    try {
+      const res = await post<RefundResult>(`/v1/admin/orders/${order.orderNo}/refund`, { reason })
+      const parts = res.orders > 1 ? `（含同一笔拆单的 ${res.orders} 张子单）` : ''
+      if (!res.licenseAdjusted) {
+        toast.warning(`已标记退款${parts}。该订单早于权益流水记录，会员时长未自动扣回，请到用户页手动调整`)
+      } else if (res.removedDays === -1) {
+        toast.success(`已退款${parts}，已撤销永久会员，恢复到购买前的到期时间`)
+      } else if (res.removedDays) {
+        toast.success(`已退款${parts}，扣回未使用的 ${res.removedDays} 天会员`)
+      } else {
+        toast.success(`已退款${parts}。这笔订单的时长已用完，无需扣回`)
+      }
+      onOpenChange(false)
+      onDone()
+    } catch (err) {
+      toast.error((err as Error).message)
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <Dialog open={!!order} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>订单退款</DialogTitle>
+          <DialogDescription>
+            把订单 <span className="font-mono text-foreground">{order?.orderNo}</span> 标记为已退款，
+            并扣回 <span className="font-medium text-foreground">{order?.username}</span> 这笔「{order?.planName}」
+            还没用掉的会员时间（已经用掉的不扣）。钱请在支付宝商户后台原路退回。拆单订单会整组退款。
+          </DialogDescription>
+        </DialogHeader>
+        {order && (
+          <div className="space-y-3 text-sm">
+            <div className="rounded-md border p-3">
+              <div className="flex items-center justify-between">
+                <span className="text-muted-foreground">金额</span>
+                <span className="font-medium">{money(order.amountCents)}</span>
+              </div>
+            </div>
+            <label className="grid gap-1.5">
+              <span className="text-muted-foreground">退款原因（会写进审计日志）</span>
+              <Input value={reason} maxLength={200} placeholder="例如：用户重复购买，已在支付宝原路退回" onChange={(e) => setReason(e.target.value)} />
+            </label>
+          </div>
+        )}
+        <DialogFooter>
+          <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+            取消
+          </Button>
+          <Button type="button" variant="destructive" disabled={busy || reason.trim().length < 2} onClick={refund}>
+            <Undo2 className="h-4 w-4" />
+            {busy ? '处理中…' : '确认退款'}
           </Button>
         </DialogFooter>
       </DialogContent>

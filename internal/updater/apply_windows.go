@@ -12,9 +12,11 @@ import (
 )
 
 // ScheduleInstall starts a detached helper which waits for this process to
-// exit, replaces the portable executable and launches the new one. If the new
-// version cannot be started it restores and relaunches the old one.
-func ScheduleInstall(downloaded string) error {
+// exit, replaces the portable executable and launches the new one. The new
+// version must write healthFile once it is fully up (UI loaded, service ready)
+// within a minute; if it exits, hangs or never gets there, the helper restores
+// and relaunches the old one.
+func ScheduleInstall(downloaded, healthFile string) error {
 	target, err := os.Executable()
 	if err != nil {
 		return err
@@ -42,7 +44,8 @@ func ScheduleInstall(downloaded string) error {
 	content := `param(
   [Parameter(Mandatory=$true)][int]$ParentPid,
   [Parameter(Mandatory=$true)][string]$Source,
-  [Parameter(Mandatory=$true)][string]$Target
+  [Parameter(Mandatory=$true)][string]$Target,
+  [Parameter(Mandatory=$true)][string]$HealthFile
 )
 $ErrorActionPreference = 'Stop'
 try { Wait-Process -Id $ParentPid -Timeout 45 -ErrorAction SilentlyContinue } catch {}
@@ -73,14 +76,21 @@ for ($attempt = 0; $attempt -lt 60 -and -not $swapped; $attempt++) {
   }
 }
 
-# 2. The new version must start and stay up; otherwise (quarantined by
-#    antivirus, crashes on launch) put the old version back.
+# 2. The new version must come fully up (it writes $HealthFile) within a
+#    minute; otherwise (quarantined by antivirus, crashes, hangs on an error
+#    dialog) put the old version back.
 if ($swapped) {
   $proc = $null
   try {
+    Remove-Item -LiteralPath $HealthFile -Force -ErrorAction SilentlyContinue
     $proc = Start-Process -FilePath $Target -ArgumentList '--updated' -PassThru
-    Start-Sleep -Seconds 8
-    if ($proc.HasExited) { throw 'new version exited during startup' }
+    $healthy = $false
+    for ($i = 0; $i -lt 120 -and -not $healthy; $i++) {
+      Start-Sleep -Milliseconds 500
+      if (Test-Path -LiteralPath $HealthFile) { $healthy = $true }
+      elseif ($proc.HasExited) { throw 'new version exited during startup' }
+    }
+    if (-not $healthy) { throw 'new version did not finish starting' }
     Remove-Item -LiteralPath $backup -Force -ErrorAction SilentlyContinue
     Remove-Item -LiteralPath $PSCommandPath -Force -ErrorAction SilentlyContinue
     exit 0
@@ -108,7 +118,7 @@ exit 1
 	if err := os.WriteFile(script, []byte(content), 0o600); err != nil {
 		return err
 	}
-	cmd := exec.Command("powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-WindowStyle", "Hidden", "-File", script, strconv.Itoa(os.Getpid()), downloaded, target)
+	cmd := exec.Command("powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-WindowStyle", "Hidden", "-File", script, strconv.Itoa(os.Getpid()), downloaded, target, healthFile)
 	// A new process group survives the Wails parent shutdown. DETACHED_PROCESS
 	// is intentionally avoided here because Windows PowerShell may terminate
 	// before executing a -File script when launched without standard handles.

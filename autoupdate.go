@@ -46,6 +46,16 @@ type failedUpdate struct {
 
 func resumePath() string       { return filepath.Join(dataDir(), resumeFileName) }
 func failedUpdatePath() string { return filepath.Join(dataDir(), failedUpdateFileName) }
+func startedOKPath() string    { return filepath.Join(dataDir(), "started-ok") }
+
+// markStartedOK tells a waiting install helper that this version came fully
+// up: the UI is loaded and the service initialised. Written on every launch.
+func (a *App) markStartedOK() {
+	if a.initErr != nil {
+		return
+	}
+	_ = os.WriteFile(startedOKPath(), []byte(appVersion), 0o600)
+}
 
 // autoUpdateLoop checks shortly after launch and then periodically.
 func (a *App) autoUpdateLoop() {

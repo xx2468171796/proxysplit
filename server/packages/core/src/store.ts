@@ -42,7 +42,7 @@ export type OrderRecord = {
   id:string; orderNo:string; userId:string; planId:string; planName:string;
   tier:string; billingCycle:string; durationDays:number|null; lifetime:boolean;
   amountCents:number; currency:string; status:string; providerCode:string;
-  providerOrderNo:string|null; payUrl:string|null; paidAt:Date|null;
+  providerOrderNo:string|null; payUrl:string|null; checkoutUrl?:string|null; paidAt:Date|null;
   expiresAt:Date; createdAt:Date;
   groupId:string|null; splitIndex:number|null; splitTotal:number|null
 }
@@ -75,6 +75,26 @@ export function resolvePaidLicenseGrant(
   if(!Number.isInteger(days)||days<1)throw new Error('ORDER_DURATION_INVALID')
   const base=existing&&existing.expiresAt>now?existing.expiresAt:now
   return {planId:order.planId,expiresAt:new Date(base.getTime()+days*86400000),lifetime:false,changed:true}
+}
+// refundedLicense computes the license after taking back one grant: a fixed
+// term loses only its unused part (time before now is consumed; grants stacked
+// after it move up); a grant that made the license lifetime reverts it to what
+// it was before. null = no change.
+export function refundedLicense(
+  license:{expiresAt:Date;lifetime:boolean}|null,
+  grant:{startAt:Date;endAt:Date|null;beforeExpiresAt:Date|null;beforeLifetime:boolean},
+  now=new Date(),
+):{expiresAt:Date;lifetime:boolean;removedDays:number}|null{
+  if(!license)return null
+  if(grant.endAt===null){
+    if(!license.lifetime||grant.beforeLifetime)return null
+    const back=grant.beforeExpiresAt&&grant.beforeExpiresAt>now?grant.beforeExpiresAt:now
+    return {expiresAt:back,lifetime:false,removedDays:-1}
+  }
+  if(license.lifetime)return null // a later lifetime grant supersedes it
+  const unused=Math.max(0,grant.endAt.getTime()-Math.max(now.getTime(),grant.startAt.getTime()))
+  if(unused===0)return null
+  return {expiresAt:new Date(license.expiresAt.getTime()-unused),lifetime:false,removedDays:Math.round(unused/86400000*10)/10}
 }
 export function validatePlanTerms(v:{billingCycle:string;durationDays:number|null;lifetime:boolean}){
   if(v.lifetime!==(v.billingCycle==='lifetime'))throw new AppError('PLAN_TERMS_INVALID','永久标记与套餐周期必须一致',400)
@@ -646,7 +666,7 @@ export class PgStore {
       const groupId=amounts.length>1?(await client.query('SELECT gen_random_uuid() AS id')).rows[0].id as string:null
       const ret=`RETURNING id,order_no AS "orderNo",user_id AS "userId",plan_id AS "planId",plan_name AS "planName",tier,billing_cycle AS "billingCycle",
         duration_days AS "durationDays",lifetime,amount_cents AS "amountCents",currency,status,provider_code AS "providerCode",
-        provider_order_no AS "providerOrderNo",pay_url AS "payUrl",paid_at AS "paidAt",expires_at AS "expiresAt",created_at AS "createdAt",
+        provider_order_no AS "providerOrderNo",pay_url AS "payUrl",checkout_url AS "checkoutUrl",paid_at AS "paidAt",expires_at AS "expiresAt",created_at AS "createdAt",
         group_id AS "groupId",split_index AS "splitIndex",split_total AS "splitTotal"`
       const orders:OrderRecord[]=[]
       for(let i=0;i<amounts.length;i++){
@@ -659,9 +679,9 @@ export class PgStore {
       return orders
     }catch(e){await client.query('ROLLBACK');throw e}finally{client.release()}
   }
-  async setOrderPayment(orderNoValue:string,providerOrderNo:string,payUrl:string){
-    const r=await this.pool.query(`UPDATE orders SET provider_order_no=$2,pay_url=$3,updated_at=now()
-      WHERE order_no=$1 AND status='pending' RETURNING order_no AS "orderNo"`,[orderNoValue,providerOrderNo,payUrl])
+  async setOrderPayment(orderNoValue:string,providerOrderNo:string,payUrl:string,details:{checkoutUrl?:string|null;merchantName?:string|null}={}){
+    const r=await this.pool.query(`UPDATE orders SET provider_order_no=$2,pay_url=$3,checkout_url=$4,merchant_name=$5,updated_at=now()
+      WHERE order_no=$1 AND status='pending' RETURNING order_no AS "orderNo"`,[orderNoValue,providerOrderNo,payUrl,details.checkoutUrl??null,details.merchantName??null])
     return r.rows[0]??null
   }
   async failOrder(orderNoValue:string){
@@ -675,13 +695,13 @@ export class PgStore {
   async getOrderForUser(orderNoValue:string,userId:string){
     const r=await this.pool.query(`SELECT id,order_no AS "orderNo",plan_name AS "planName",tier,billing_cycle AS "billingCycle",
       amount_cents AS "amountCents",currency,status,provider_code AS "providerCode",provider_order_no AS "providerOrderNo",
-      pay_url AS "payUrl",paid_at AS "paidAt",expires_at AS "expiresAt",created_at AS "createdAt"
+      pay_url AS "payUrl",checkout_url AS "checkoutUrl",paid_at AS "paidAt",expires_at AS "expiresAt",created_at AS "createdAt"
       FROM orders WHERE order_no=$1 AND user_id=$2`,[orderNoValue,userId])
     return r.rows[0]??null
   }
   async listUserOrders(userId:string){
     const r=await this.pool.query(`SELECT order_no AS "orderNo",plan_name AS "planName",amount_cents AS "amountCents",currency,status,
-      pay_url AS "payUrl",paid_at AS "paidAt",expires_at AS "expiresAt",created_at AS "createdAt",
+      pay_url AS "payUrl",checkout_url AS "checkoutUrl",paid_at AS "paidAt",expires_at AS "expiresAt",created_at AS "createdAt",
       group_id AS "groupId",split_index AS "splitIndex",split_total AS "splitTotal"
       FROM orders WHERE user_id=$1 ORDER BY created_at DESC LIMIT 100`,[userId])
     return r.rows
@@ -770,25 +790,9 @@ export class PgStore {
         await client.query('COMMIT')
         return {ok:true,duplicate:false,groupAllPaid:allPaid}
       }
-      // Lock the logical user+tier slot before checking whether a license row
-      // exists. FOR UPDATE cannot lock an absent row, so without this lock two
-      // first payments can insert parallel 30-day licenses and lose one term.
-      await client.query('SELECT pg_advisory_xact_lock(hashtext($1))',[`license:${order.user_id}:${order.tier}`])
-      const existing=(await client.query(`SELECT l.id,l.plan_id,l.expires_at,l.lifetime FROM licenses l JOIN plans p ON p.id=l.plan_id
-        WHERE l.user_id=$1 AND l.status='active' AND p.tier=$2 ORDER BY l.lifetime DESC,l.expires_at DESC LIMIT 1 FOR UPDATE`,
-        [order.user_id,order.tier])).rows[0]
-      const grant=resolvePaidLicenseGrant(existing?{
-        planId:existing.plan_id,expiresAt:existing.expires_at,lifetime:existing.lifetime,
-      }:null,{
-        planId:order.plan_id,durationDays:order.duration_days,lifetime:order.lifetime,
-      })
-      if(existing){
-        if(grant.changed)await client.query(`UPDATE licenses SET plan_id=$2,expires_at=$3,lifetime=$4,status='active',source='order',order_id=$5 WHERE id=$1`,
-          [existing.id,grant.planId,grant.expiresAt,grant.lifetime,order.id])
-      }else{
-        await client.query(`INSERT INTO licenses(user_id,plan_id,expires_at,lifetime,source,order_id)
-          VALUES($1,$2,$3,$4,'order',$5)`,[order.user_id,grant.planId,grant.expiresAt,grant.lifetime,order.id])
-      }
+      // Same shared grant as split groups and manual confirmation: it locks the
+      // user+tier slot, merges remaining trial time and records the ledger row.
+      await this.grantWithinTx(client,{userId:order.user_id,planId:order.plan_id,durationDays:order.duration_days,lifetime:order.lifetime,source:'order',orderId:order.id})
       await client.query(`UPDATE orders SET status='paid',provider_order_no=$2,paid_at=$3,updated_at=now() WHERE id=$1`,
         [order.id,input.providerOrderNo,input.paidAt??new Date()])
       await client.query(`UPDATE payment_events SET result='fulfilled' WHERE id=$1`,[event.rows[0].id])
@@ -825,14 +829,59 @@ export class PgStore {
         await client.query(`UPDATE licenses SET status='expired' WHERE id=$1`,[trial.id])
       }
     }
+    let licenseId:string
     if(existing){
       if(grant.changed)await client.query(`UPDATE licenses SET plan_id=$2,expires_at=$3,lifetime=$4,status='active',source=$5,order_id=$6 WHERE id=$1`,
         [existing.id,grant.planId,grant.expiresAt,grant.lifetime,opts.source,opts.orderId??null])
+      licenseId=existing.id
     }else{
-      await client.query(`INSERT INTO licenses(user_id,plan_id,expires_at,lifetime,source,order_id) VALUES($1,$2,$3,$4,$5,$6)`,
-        [opts.userId,grant.planId,grant.expiresAt,grant.lifetime,opts.source,opts.orderId??null])
+      licenseId=(await client.query(`INSERT INTO licenses(user_id,plan_id,expires_at,lifetime,source,order_id) VALUES($1,$2,$3,$4,$5,$6) RETURNING id`,
+        [opts.userId,grant.planId,grant.expiresAt,grant.lifetime,opts.source,opts.orderId??null])).rows[0].id
     }
+    // Ledger: the stretch of the timeline this grant added (see 0011_license_ledger.sql).
+    const now=new Date()
+    const before=existing?new Date(existing.expiresAt):null
+    const start=before&&!existing.lifetime&&before>now?before:now
+    const end=existing?.lifetime?start:(grant.lifetime?null:grant.expiresAt)
+    await client.query(`INSERT INTO license_grants(user_id,license_id,tier,source,order_id,group_id,start_at,end_at,before_expires_at,before_lifetime)
+      VALUES($1,$2,$3,$4,$5::uuid,(SELECT group_id FROM orders WHERE id=$5::uuid),$6,$7,$8,$9)`,
+      [opts.userId,licenseId,plan.tier,opts.source,opts.orderId??null,start,end,before,!!existing?.lifetime])
     return grant
+  }
+
+  // Refund a paid order (the whole group for a split checkout): mark it
+  // refunded and take back only the part of its time that is not used yet.
+  // The money itself is refunded in the merchant's back office. Orders paid
+  // before the ledger existed are marked refunded without touching the license.
+  async refundOrder(orderNoValue:string,reason:string){
+    const client=await this.pool.connect()
+    try{
+      await client.query('BEGIN')
+      const order=(await client.query('SELECT id,user_id,tier,status,group_id FROM orders WHERE order_no=$1 FOR UPDATE',[orderNoValue])).rows[0]
+      if(!order)throw new AppError('NOT_FOUND','订单不存在',404)
+      if(order.status!=='paid')throw new AppError('ORDER_NOT_REFUNDABLE','只有已支付的订单可以退款',409)
+      const ids:string[]=order.group_id
+        ?(await client.query('SELECT id FROM orders WHERE group_id=$1 FOR UPDATE',[order.group_id])).rows.map((r:{id:string})=>r.id)
+        :[order.id]
+      await client.query(`UPDATE orders SET status='refunded',refunded_at=now(),refund_reason=$2,updated_at=now() WHERE id=ANY($1::uuid[]) AND status='paid'`,[ids,reason])
+      const ledger=(await client.query(`SELECT id,license_id AS "licenseId",start_at AS "startAt",end_at AS "endAt",before_expires_at AS "beforeExpiresAt",before_lifetime AS "beforeLifetime"
+        FROM license_grants WHERE order_id=ANY($1::uuid[]) AND revoked_at IS NULL ORDER BY created_at DESC LIMIT 1 FOR UPDATE`,[ids])).rows[0]
+      if(!ledger?.licenseId){
+        await client.query('COMMIT')
+        return {ok:true,orders:ids.length,licenseAdjusted:false}
+      }
+      await client.query('SELECT pg_advisory_xact_lock(hashtext($1))',[`license:${order.user_id}:${order.tier}`])
+      const lic=(await client.query('SELECT id,expires_at AS "expiresAt",lifetime FROM licenses WHERE id=$1 FOR UPDATE',[ledger.licenseId])).rows[0]
+      const change=refundedLicense(lic?{expiresAt:new Date(lic.expiresAt),lifetime:lic.lifetime}:null,{
+        startAt:new Date(ledger.startAt),endAt:ledger.endAt?new Date(ledger.endAt):null,
+        beforeExpiresAt:ledger.beforeExpiresAt?new Date(ledger.beforeExpiresAt):null,beforeLifetime:ledger.beforeLifetime,
+      })
+      if(lic&&change)await client.query('UPDATE licenses SET expires_at=$2,lifetime=$3 WHERE id=$1',[lic.id,change.expiresAt,change.lifetime])
+      await client.query('UPDATE license_grants SET revoked_at=now(),revoke_reason=$2 WHERE id=$1',[ledger.id,reason])
+      await client.query('COMMIT')
+      return {ok:true,orders:ids.length,licenseAdjusted:true,removedDays:change?change.removedDays:0,
+        expiresAt:change?change.expiresAt:lic?.expiresAt??null,lifetime:change?change.lifetime:!!lic?.lifetime}
+    }catch(e){await client.query('ROLLBACK');throw e}finally{client.release()}
   }
 
   // 后台手动给用户发放/续期一个套餐（等级由 planId 决定，时长可覆盖或永久）。
