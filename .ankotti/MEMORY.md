@@ -2,6 +2,7 @@
 > 当前快照，最后更新：2026-09-26 晚。历史发布过程见 Git，不在此重复堆积。
 
 ## 当前状态
+- 2026-09-27（只进 main，未发版）：**AI 可在软件没打开时控制它**。新增 `proxysplit.exe --mcp`：stdio MCP 桥（mcpbridge.go），initialize/tools/list 本地应答不拉起程序，tools/call 时若 18088 不通就以 `--background`（StartHidden，只驻托盘；未登录/启动失败/托盘没起来时自动显示窗口）拉起再转发 /mcp；token 每次从 config.json 读。界面「复制 MCP 配置」改为 stdio 命令写法。自动更新助手：`.old` 若被仍在跑旧版的 --mcp 桥占着删不掉，改名为 `.old.<ticks>.stale`，程序启动时清理。本机用开发版（appVersion=dev，无授权）实测：关掉程序 → 桥收到 tools/call 自动后台拉起（无窗口）→ status/start 正常 → GitHub 可访问。下一步：堡垒机「翻墙」能力（按人授权、节点分类下发、延迟自检），客户端接堡垒机密钥鉴权。
 - 2026-09-26 下午：**v1.9.56 已上线 stable，mandatory=true**，minimumVersion 1.9.51（client commit 6fbca6f，SHA256 2cd085d038a375b9af8dd4dbc15798375fb22933a9fc88fb56044d9a26719cec，releases id e582bf0d-3bb8-456a-addf-cdad4573cd93；发布目录 sz /opt/proxysplit/incoming/client-v1.9.56-6fbca6f）。**服务端同日上线 releases/20260926-152705-c21fb7e-v1.9.56**（此前一直是 7 月的 v1.9.51 服务端），迁移 0010/0011 已应用。
   - **收款改走中转站网关线路 4 = 支付宝直连（收款主体 宣时龙）**：payment_providers.config.line=4（后台可改），下单带 line，拆单子单带 split=1；线路 5=姚尧（收钱吧，不支持拆单、只收 ≤30 元）。线路编号是 2026-09-26 用 /api/v1/pay/lines + 一笔核验单(merchant=支付宝直连, qr.alipay.com)确认的，网关在腾讯云 110.40.185.27（绝对不碰），只能以客户端身份调接口。订单新增 checkout_url（电脑收银台）/merchant_name；网关换线时 API 打 warn 日志。
   - **退款**：后台订单「退款」→ POST /v1/admin/orders/:no/refund {reason}，整组拆单一起退，只扣未用时长（权益流水 license_grants 记录每次发放的 start/end；refundedLicense 纯函数有单测）；2026-09-26 之前的订单无流水，只标退款不动会员，需手动调。钱在支付宝商户后台原路退。单笔回调到账改走 grantWithinTx（以前漏了试用剩余时长合并）。

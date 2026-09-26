@@ -3,6 +3,8 @@ package main
 import (
 	"embed"
 	"fmt"
+	"os"
+	"strings"
 
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
@@ -23,17 +25,44 @@ var updateAPIURL string
 var updatePublicKeyBase64 string
 var updateTLSSPKISHA256 string
 
+// Command-line flags:
+//
+//	--mcp         stdio MCP server for AI agents; starts the app on demand (mcpbridge.go)
+//	--background  start in the tray without showing the window (used by --mcp)
+const (
+	mcpFlag        = "--mcp"
+	backgroundFlag = "--background"
+)
+
+func hasFlag(args []string, flag string) bool {
+	for _, a := range args {
+		if strings.EqualFold(a, flag) {
+			return true
+		}
+	}
+	return false
+}
+
 func main() {
+	if hasFlag(os.Args[1:], mcpFlag) {
+		if err := runMCPBridge(os.Stdin, os.Stdout); err != nil {
+			os.Exit(1)
+		}
+		return
+	}
+
 	// Create an instance of the app structure
 	app := NewApp()
+	app.background = hasFlag(os.Args[1:], backgroundFlag)
 
 	// Create application with options
 	err := wails.Run(&options.App{
-		Title:     fmt.Sprintf("ProxySplit v%s — 应用分流代理", appVersion),
-		Width:     1400,
-		Height:    880,
-		MinWidth:  1180,
-		MinHeight: 720,
+		Title:       fmt.Sprintf("ProxySplit v%s — 应用分流代理", appVersion),
+		Width:       1400,
+		Height:      880,
+		MinWidth:    1180,
+		MinHeight:   720,
+		StartHidden: app.background,
 		AssetServer: &assetserver.Options{
 			Assets: assets,
 		},

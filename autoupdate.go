@@ -57,6 +57,20 @@ func (a *App) markStartedOK() {
 	_ = os.WriteFile(startedOKPath(), []byte(appVersion), 0o600)
 }
 
+// removeStaleExecutables deletes old versions the install helper had to move
+// aside (<exe>.old.<ticks>.stale) because an --mcp bridge was still running
+// them. Files still in use stay until a later start.
+func removeStaleExecutables() {
+	exe, err := os.Executable()
+	if err != nil {
+		return
+	}
+	stale, _ := filepath.Glob(exe + ".old.*.stale")
+	for _, p := range stale {
+		_ = os.Remove(p)
+	}
+}
+
 // autoUpdateLoop checks shortly after launch and then periodically.
 func (a *App) autoUpdateLoop() {
 	<-a.ready

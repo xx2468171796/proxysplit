@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"os"
 	"strings"
 )
 
@@ -34,7 +35,7 @@ func (a *App) GetAIControlInfo() AIControlInfo {
 		URL:       url,
 		Token:     token,
 		Prompt:    aiPrompt(url, token),
-		MCPConfig: mcpConfig(url, token),
+		MCPConfig: mcpConfig(),
 		Running:   a.apiUp,
 	}
 }
@@ -343,16 +344,20 @@ curl -s -H "Authorization: Bearer %s" -X POST %s/api/start
 		url, token, url, url, url, url, url, url, url, url, url, token, url, token, url)
 }
 
-// mcpConfig returns a Claude-Code / Codex style MCP-over-HTTP config snippet
-// pointing at the real /mcp JSON-RPC endpoint.
-func mcpConfig(url, token string) string {
+// mcpConfig returns a Claude-Code / Codex style MCP config snippet. It runs
+// this executable with --mcp (stdio, see mcpbridge.go) rather than pointing at
+// the HTTP /mcp endpoint, so the AI can still start and control ProxySplit
+// when the app is not open. The bridge reads the token itself.
+func mcpConfig() string {
+	exe, _ := os.Executable()
+	cmd, _ := json.Marshal(exe)
 	return fmt.Sprintf(`{
   "mcpServers": {
     "proxysplit": {
-      "type": "http",
-      "url": "%s/mcp",
-      "headers": { "Authorization": "Bearer %s" }
+      "type": "stdio",
+      "command": %s,
+      "args": ["%s"]
     }
   }
-}`, url, token)
+}`, cmd, mcpFlag)
 }

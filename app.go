@@ -42,6 +42,7 @@ type App struct {
 	installing atomic.Bool // an update install is in progress (auto and manual must not race)
 	trayUp     bool        // the tray icon initialized OK (only then may we hide to it)
 	apiUp      bool        // the local AI-control HTTP API is listening
+	background bool        // started with --background: window hidden, tray only
 	ready      chan struct{}
 	readyOnce  sync.Once
 	initErr    error
@@ -66,6 +67,9 @@ func (a *App) finishStartup(err error) {
 // startup wires the service and streams core/engine logs to the frontend.
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
+	if a.background {
+		defer func() { go a.revealIfNeeded() }()
+	}
 	bin, err := ensurePayload()
 	if err != nil {
 		runtime.LogError(ctx, "extract payload: "+err.Error())
@@ -108,8 +112,23 @@ func (a *App) startup(ctx context.Context) {
 	go a.resumeAfterUpdate()     // bring the proxy back after an automatic update
 	go a.autoUpdateLoop()        // install new signed releases without prompting
 	go a.ensureDesktopShortcut() // every launch: recreate / repair the desktop shortcut
+	go removeStaleExecutables()  // old versions an --mcp bridge kept busy during an update
 	go a.initTray()              // system-tray icon (minimise-to-tray, quick start/stop)
 	a.startAPIServer()           // local AI-control HTTP API (127.0.0.1)
+}
+
+// revealIfNeeded shows the window of a --background start when staying hidden
+// would strand the user: startup failed, not signed in (the proxy cannot start
+// until they log in) or no tray icon to bring the window back from.
+func (a *App) revealIfNeeded() {
+	if a.svc == nil || a.lic == nil || !a.lic.Status().Authenticated {
+		a.showWindow()
+		return
+	}
+	time.Sleep(5 * time.Second)
+	if !a.trayUp {
+		a.showWindow()
+	}
 }
 
 func (a *App) commercialStartGuard() error {
@@ -242,8 +261,9 @@ func (a *App) shutdown(ctx context.Context) {
 
 // onSecondInstance fires (on the FIRST/running instance) when the user launches
 // the app again — bring the existing window back instead of starting a rival.
-func (a *App) onSecondInstance(_ options.SecondInstanceData) {
-	if a.ctx == nil {
+func (a *App) onSecondInstance(data options.SecondInstanceData) {
+	// the MCP bridge asking for a background start: already running, nothing to show
+	if a.ctx == nil || hasFlag(data.Args, backgroundFlag) {
 		return
 	}
 	runtime.WindowUnminimise(a.ctx)

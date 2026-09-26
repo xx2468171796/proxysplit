@@ -62,7 +62,13 @@ $backup = $Target + '.old'
 $swapped = $false
 for ($attempt = 0; $attempt -lt 60 -and -not $swapped; $attempt++) {
   try {
-    if (Test-Path -LiteralPath $backup) { Remove-Item -LiteralPath $backup -Force }
+    if (Test-Path -LiteralPath $backup) {
+      # An AI session's --mcp bridge may still be running the previous version
+      # from .old: a running exe can be renamed but not deleted, so move it
+      # aside (the app deletes *.stale on its next start).
+      try { Remove-Item -LiteralPath $backup -Force }
+      catch { Move-Item -LiteralPath $backup -Destination ($backup + '.' + [DateTime]::Now.Ticks + '.stale') -Force }
+    }
     Move-Item -LiteralPath $Target -Destination $backup -Force
     try {
       Move-Item -LiteralPath $Source -Destination $Target -Force

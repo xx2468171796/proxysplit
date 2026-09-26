@@ -2437,7 +2437,7 @@
               <button class="ghost-btn" on:click={() => copyText(aiInfo.mcpConfig, 'MCP 配置')}>复制 MCP 配置</button>
               {#if aiMsg}<span class="rs-msg">{aiMsg}</span>{/if}
             </div>
-            <p class="ai-hint">用法：点「一键复制 AI 提示词」→ 粘贴给你的 AI（Claude Code / Codex）→ 直接说「让 Chrome 走代理」即可。提示词已内置接口地址与 Token，AI 用 curl 就能控制。Token 等于本机代理控制权，别外发。</p>
+            <p class="ai-hint">用法：点「一键复制 AI 提示词」→ 粘贴给你的 AI（Claude Code / Codex）→ 直接说「让 Chrome 走代理」即可。提示词已内置接口地址与 Token，AI 用 curl 就能控制。Token 等于本机代理控制权，别外发。「复制 MCP 配置」给的是命令方式（本程序 --mcp），配好后即使 ProxySplit 没打开，AI 调用时也会自动在后台启动它。</p>
           </section>
           <section class="card">
             <h3>内核 &amp; 诊断</h3>
