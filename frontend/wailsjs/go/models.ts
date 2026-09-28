@@ -266,20 +266,6 @@ export namespace license {
 
 export namespace main {
 	
-	export class PowerVPNStatus {
-	    loggedIn: boolean;
-	    username: string;
-	
-	    static createFrom(source: any = {}) {
-	        return new PowerVPNStatus(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.loggedIn = source["loggedIn"];
-	        this.username = source["username"];
-	    }
-	}
 	export class AIControlInfo {
 	    url: string;
 	    token: string;
@@ -530,6 +516,20 @@ export namespace main {
 		    return a;
 		}
 	}
+	export class PowerVPNStatus {
+	    loggedIn: boolean;
+	    username: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new PowerVPNStatus(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.loggedIn = source["loggedIn"];
+	        this.username = source["username"];
+	    }
+	}
 	export class QRResult {
 	    data: string;
 	    err: string;
@@ -587,6 +587,13 @@ export namespace nodes {
 	    network?: string;
 	    path?: string;
 	    host?: string;
+	    multiplex?: Record<string, any>;
+	    plugin?: string;
+	    pluginOpts?: string;
+	    official?: boolean;
+	    accountId?: string;
+	    outbounds?: number[][];
+	    entryTag?: string;
 	    latency: number;
 	    tcpLatency: number;
 	    speed: number;
@@ -622,6 +629,13 @@ export namespace nodes {
 	        this.network = source["network"];
 	        this.path = source["path"];
 	        this.host = source["host"];
+	        this.multiplex = source["multiplex"];
+	        this.plugin = source["plugin"];
+	        this.pluginOpts = source["pluginOpts"];
+	        this.official = source["official"];
+	        this.accountId = source["accountId"];
+	        this.outbounds = source["outbounds"];
+	        this.entryTag = source["entryTag"];
 	        this.latency = source["latency"];
 	        this.tcpLatency = source["tcpLatency"];
 	        this.speed = source["speed"];

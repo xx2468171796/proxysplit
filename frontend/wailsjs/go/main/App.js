@@ -146,6 +146,10 @@ export function GetPaymentQR(arg1) {
   return window['go']['main']['App']['GetPaymentQR'](arg1);
 }
 
+export function GetPowerVPNStatus() {
+  return window['go']['main']['App']['GetPowerVPNStatus']();
+}
+
 export function GetRouting() {
   return window['go']['main']['App']['GetRouting']();
 }
@@ -198,8 +202,16 @@ export function Login(arg1, arg2) {
   return window['go']['main']['App']['Login'](arg1, arg2);
 }
 
+export function LoginPowerVPN() {
+  return window['go']['main']['App']['LoginPowerVPN']();
+}
+
 export function Logout() {
   return window['go']['main']['App']['Logout']();
+}
+
+export function LogoutPowerVPN() {
+  return window['go']['main']['App']['LogoutPowerVPN']();
 }
 
 export function OpenGitHub() {
@@ -232,6 +244,10 @@ export function RedeemCode(arg1) {
 
 export function RefreshEntitlement() {
   return window['go']['main']['App']['RefreshEntitlement']();
+}
+
+export function RefreshPowerVPN() {
+  return window['go']['main']['App']['RefreshPowerVPN']();
 }
 
 export function Register(arg1, arg2, arg3) {
@@ -364,20 +380,4 @@ export function UpdateRuleSets() {
 
 export function UpdateSub(arg1) {
   return window['go']['main']['App']['UpdateSub'](arg1);
-}
-
-export function GetPowerVPNStatus() {
-  return window['go']['main']['App']['GetPowerVPNStatus']();
-}
-
-export function LoginPowerVPN() {
-  return window['go']['main']['App']['LoginPowerVPN']();
-}
-
-export function LogoutPowerVPN() {
-  return window['go']['main']['App']['LogoutPowerVPN']();
-}
-
-export function RefreshPowerVPN() {
-  return window['go']['main']['App']['RefreshPowerVPN']();
 }

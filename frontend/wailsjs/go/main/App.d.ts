@@ -81,6 +81,8 @@ export function GetNodes():Promise<Array<nodes.Node>>;
 
 export function GetPaymentQR(arg1:string):Promise<main.QRResult>;
 
+export function GetPowerVPNStatus():Promise<main.PowerVPNStatus>;
+
 export function GetRouting():Promise<service.Routing>;
 
 export function GetRuleMode():Promise<string>;
@@ -107,7 +109,11 @@ export function ListProcesses():Promise<Array<proc.ProcInfo>>;
 
 export function Login(arg1:string,arg2:string):Promise<string>;
 
+export function LoginPowerVPN():Promise<string>;
+
 export function Logout():Promise<string>;
+
+export function LogoutPowerVPN():Promise<string>;
 
 export function OpenGitHub():Promise<void>;
 
@@ -124,6 +130,8 @@ export function QQGroup():Promise<string>;
 export function RedeemCode(arg1:string):Promise<string>;
 
 export function RefreshEntitlement():Promise<string>;
+
+export function RefreshPowerVPN():Promise<string>;
 
 export function Register(arg1:string,arg2:string,arg3:string):Promise<string>;
 
@@ -190,11 +198,3 @@ export function UpdateCore():Promise<string>;
 export function UpdateRuleSets():Promise<string>;
 
 export function UpdateSub(arg1:string):Promise<string>;
-
-export function GetPowerVPNStatus():Promise<main.PowerVPNStatus>;
-
-export function LoginPowerVPN():Promise<string>;
-
-export function LogoutPowerVPN():Promise<string>;
-
-export function RefreshPowerVPN():Promise<string>;
