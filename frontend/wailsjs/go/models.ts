@@ -266,6 +266,20 @@ export namespace license {
 
 export namespace main {
 	
+	export class PowerVPNStatus {
+	    loggedIn: boolean;
+	    username: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new PowerVPNStatus(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.loggedIn = source["loggedIn"];
+	        this.username = source["username"];
+	    }
+	}
 	export class AIControlInfo {
 	    url: string;
 	    token: string;

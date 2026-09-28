@@ -18,6 +18,14 @@ func TestBundledUpgradeDecision(t *testing.T) {
 		{"1.14.1-beta.1", "1.14.1", true},
 		{"1.15.0-alpha.1", "1.14.1", false},
 		{"", "1.14.1", true},
+		// platform build (relayops): newer N wins, never back to official
+		{"1.14.1", "1.14.2-relayops.6", true},
+		{"1.15.0", "1.14.2-relayops.6", true},
+		{"1.14.2-relayops.5", "1.14.2-relayops.6", true},
+		{"1.14.2-relayops.6", "1.14.2-relayops.6", false},
+		{"1.14.2-relayops.7", "1.14.2-relayops.6", false},
+		{"1.14.2-relayops.6", "1.15.0", false},
+		{"1.14.2-relayops.12", "1.14.3-relayops.1", true},
 	} {
 		got, err := needsBundledUpgrade(tc.installed, tc.bundled)
 		if err != nil || got != tc.upgrade {
@@ -26,6 +34,9 @@ func TestBundledUpgradeDecision(t *testing.T) {
 	}
 	if _, err := needsBundledUpgrade("1.13.14", "invalid"); err == nil {
 		t.Fatal("invalid bundle version accepted")
+	}
+	if _, err := needsBundledUpgrade("1.13.14", "1.14.2-beta.1"); err == nil {
+		t.Fatal("pre-release bundle accepted")
 	}
 }
 

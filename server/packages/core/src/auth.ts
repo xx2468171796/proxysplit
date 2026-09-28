@@ -2,7 +2,8 @@ import { createHash, createPublicKey, randomUUID } from 'node:crypto'
 import { argon2id, hash, verify } from 'argon2'
 import { exportSPKI, generateKeyPair, importPKCS8, jwtVerify, SignJWT } from 'jose'
 import { AppError, normalizeUsername } from '@proxysplit/shared'
-import type { ActivateDeviceInput, DeviceInput, LoginInput, RefreshInput, RegisterInput, SelfPasswordInput, WebRegisterInput } from '@proxysplit/contracts'
+import type { ActivateDeviceInput, DeviceInput, LoginInput, PowervpnLoginInput, RefreshInput, RegisterInput, SelfPasswordInput, WebRegisterInput } from '@proxysplit/contracts'
+import { powervpnMeSchema } from '@proxysplit/contracts'
 import type { PgStore, UserRecord } from './store.js'
 
 const encoder=new TextEncoder()
@@ -10,7 +11,24 @@ const sha256=(value:string)=>createHash('sha256').update(value).digest('hex')
 export const hashFingerprint=(value:string)=>sha256('proxysplit-device-v1:'+value)
 export const hashPassword=(value:string)=>hash(value,{type:argon2id,memoryCost:65536,timeCost:3,parallelism:1})
 
-export type AuthConfig={accessSecret:string;refreshDays:number;licensePrivateKeyPem?:string;licensePublicKeyPem?:string}
+export type PowervpnIdentity={id:string;username:string;email:string|null;displayName:string}
+// 面板 GET /api/client/me 核实令牌；令牌只放请求头，绝不写日志。
+export type PowervpnConfig={baseUrl:string;timeoutMs?:number;fetch?:typeof fetch}
+export type AuthConfig={accessSecret:string;refreshDays:number;licensePrivateKeyPem?:string;licensePublicKeyPem?:string;powervpn?:PowervpnConfig}
+export async function fetchPowervpnIdentity(cfg:PowervpnConfig,accessToken:string):Promise<PowervpnIdentity>{
+  const doFetch=cfg.fetch??fetch
+  let res:Response
+  try{
+    res=await doFetch(cfg.baseUrl.replace(/\/$/,'')+'/api/client/me',{headers:{authorization:`Bearer ${accessToken}`,accept:'application/json'},signal:AbortSignal.timeout(cfg.timeoutMs??8000)})
+  }catch{throw new AppError('POWERVPN_UNAVAILABLE','暂时连不上 POWER云，请稍后再试',503)}
+  if(res.status===401||res.status===403)throw new AppError('POWERVPN_TOKEN_INVALID','POWER云 登录已失效，请重新登录',401)
+  if(!res.ok)throw new AppError('POWERVPN_UNAVAILABLE','暂时连不上 POWER云，请稍后再试',503)
+  const parsed=powervpnMeSchema.safeParse(await res.json().catch(()=>null))
+  if(!parsed.success)throw new AppError('POWERVPN_UNAVAILABLE','POWER云 返回的账号信息无效',502)
+  return parsed.data
+}
+// 用户名 pv_<面板 id 前 8 位>（只保留字母数字）
+export const powervpnUsernameBase=(externalId:string)=>'pv_'+(externalId.toLowerCase().replace(/[^a-z0-9]/g,'').slice(0,8)||'user')
 export class AuthService{
   private constructor(private store:PgStore,private cfg:AuthConfig,private privateKey:CryptoKey,readonly publicKeyPem:string){}
   static async create(store:PgStore,cfg:AuthConfig){
@@ -75,7 +93,8 @@ export class AuthService{
   async changeOwnPassword(userId:string,input:SelfPasswordInput,ip=''){
     const user=await this.store.findUserById(userId)
     if(!user)throw new AppError('NOT_FOUND','用户不存在',404)
-    const valid=await verify(user.passwordHash,input.currentPassword).catch(()=>false)
+    // POWER云 建的账号没有密码：首次设置不校验原密码（已通过登录会话认证）。
+    const valid=!user.passwordHash||await verify(user.passwordHash,input.currentPassword).catch(()=>false)
     if(!valid){
       await this.store.audit(userId,'user.password','user',userId,ip,'denied')
       throw new AppError('PASSWORD_INVALID','原密码不正确',401)
@@ -93,7 +112,11 @@ export class AuthService{
       await this.store.audit(user.id,'auth.login','user',user.id,ip,'locked',{remainingMinutes,lockoutLevel:user.lockoutLevel})
       throw new AppError('AUTH_LOCKED',`登录已锁定，请 ${remainingMinutes} 分钟后再试`,429)
     }
-    const valid=user?await verify(user.passwordHash,input.password).catch(()=>false):false
+    if(user&&!user.passwordHash){
+      await this.store.audit(user.id,'auth.login','user',user.id,ip,'denied',{reason:'no_password'})
+      throw new AppError('PASSWORD_NOT_SET','该账号是用 POWER云 登录创建的，还没有设置密码，请点「用 POWER云 账号登录」',401)
+    }
+    const valid=user?.passwordHash?await verify(user.passwordHash,input.password).catch(()=>false):false
     if(!user||!valid){
       const failure=user?await this.store.recordLoginFailure(user.id):null
       const failureUntil=failure?.lockedUntil?new Date(failure.lockedUntil):null
@@ -107,9 +130,24 @@ export class AuthService{
     }
     await this.store.recordLoginSuccess(user.id)
     if(user.status!=='active')throw new AppError('ACCOUNT_UNAVAILABLE','Account is unavailable',403)
+    return this.completeLogin(user,input.device,ip,'auth.login')
+  }
+  // POWER云 账号登录：面板核实令牌 → 找 / 建用户 → 与 login() 相同的会话 + 设备数逻辑。不送授权。
+  async loginPowervpn(input:PowervpnLoginInput,ip=''){
+    if(!this.cfg.powervpn)throw new AppError('POWERVPN_DISABLED','POWER云 登录未开放',503)
+    const identity=await fetchPowervpnIdentity(this.cfg.powervpn,input.accessToken)
+    let result
+    try{result=await this.store.findOrCreateIdentityUser({provider:'powervpn',externalId:identity.id,usernameBase:powervpnUsernameBase(identity.id),email:identity.email,ip})}
+    catch(e){if((e as Error).message==='USERNAME_EXHAUSTED')throw new AppError('IDENTITY_TAKEN','无法为该 POWER云 账号分配用户名，请联系客服',409);throw e}
+    const {user,created}=result
+    if(created)await this.store.audit(user.id,'auth.register.powervpn','user',user.id,ip,'success')
+    if(user.status!=='active')throw new AppError('ACCOUNT_UNAVAILABLE','Account is unavailable',403)
+    return this.completeLogin(user,input.device,ip,'auth.login.powervpn')
+  }
+  private async completeLogin(user:UserRecord,inputDevice:DeviceInput,ip:string,action:string){
     // 官网注册的账号在这里补发试用：注册时没有设备信息，首次客户端登录才知道硬件。
     // 内部已做「一机一次 / 一号一次 / 已有权益不发」判断，失败不阻断登录。
-    try{await this.store.claimTrialOnLogin(user.id,hashFingerprint(input.device.hardwareHash??input.device.fingerprint),ip)}catch{/* 发放试用失败绝不能挡住登录 */}
+    try{await this.store.claimTrialOnLogin(user.id,hashFingerprint(inputDevice.hardwareHash??inputDevice.fingerprint),ip)}catch{/* 发放试用失败绝不能挡住登录 */}
     const entitlement=await this.store.entitlement(user.id)
     const license=this.license(entitlement,user)
     const settings=await this.store.getCommerceSettings()
@@ -117,7 +155,7 @@ export class AuthService{
     // their device slots (default 3) fill up and lock them out. Admins are exempt
     // from the per-account device limit; regular accounts stay capped.
     const deviceLimit=user.role==='admin'?Number.MAX_SAFE_INTEGER:(license?.maxDevices??settings.defaultDeviceLimit)
-    let device;try{device=await this.store.bindDevice(user.id,hashFingerprint(input.device.fingerprint),hashFingerprint(input.device.hardwareHash??input.device.fingerprint),input.device.name,input.device.platform,input.device.appVersion,deviceLimit)}catch(e){
+    let device;try{device=await this.store.bindDevice(user.id,hashFingerprint(inputDevice.fingerprint),hashFingerprint(inputDevice.hardwareHash??inputDevice.fingerprint),inputDevice.name,inputDevice.platform,inputDevice.appVersion,deviceLimit)}catch(e){
       if((e as Error).message==='DEVICE_LIMIT'){
         // 不签发租约和刷新令牌：此令牌仅能在 15 分钟内查看/解绑本账号设备，不能启动代理。
         await this.store.audit(user.id,'auth.login.device_limit','device','pending',ip,'success')
@@ -125,7 +163,7 @@ export class AuthService{
       }
       throw e
     }
-    await this.store.audit(user.id,'auth.login','device',device.id,ip,'success')
+    await this.store.audit(user.id,action,'device',device.id,ip,'success')
     return {...await this.issue(user,device.id),license}
   }
   async activateDevice(userId:string,device:ActivateDeviceInput['device'],ip=''){

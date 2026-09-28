@@ -365,3 +365,19 @@ export function UpdateRuleSets() {
 export function UpdateSub(arg1) {
   return window['go']['main']['App']['UpdateSub'](arg1);
 }
+
+export function GetPowerVPNStatus() {
+  return window['go']['main']['App']['GetPowerVPNStatus']();
+}
+
+export function LoginPowerVPN() {
+  return window['go']['main']['App']['LoginPowerVPN']();
+}
+
+export function LogoutPowerVPN() {
+  return window['go']['main']['App']['LogoutPowerVPN']();
+}
+
+export function RefreshPowerVPN() {
+  return window['go']['main']['App']['RefreshPowerVPN']();
+}

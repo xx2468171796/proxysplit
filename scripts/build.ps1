@@ -22,6 +22,9 @@ param(
     [string]$TLSSPKISHA256 = "",
     [string]$SignToolPath = "",
     [string]$SigningThumbprint = "",
+    # POWER云 panel Ed25519 client-signing public key (raw 32 bytes, base64url). Empty = no
+    # official profiles (every subscription stays in compat mode).
+    [string]$PanelPublicKey = "",
     [switch]$AllowDirty
 )
 
@@ -38,6 +41,10 @@ if ([string]::IsNullOrWhiteSpace($Version)) {
 if ($Version -notmatch '^\d+\.\d+\.\d+$') { throw "Version must look like 1.8.0 (got '$Version')" }
 
 $ldflags = @('-s', '-w', "-X main.appVersion=$Version")
+if ($PanelPublicKey) {
+    if ($PanelPublicKey -notmatch '^[A-Za-z0-9_-]{43}=?$') { throw 'PanelPublicKey must be a base64url raw Ed25519 key' }
+    $ldflags += "-X proxysplit/internal/powervpn.PanelPublicKey=$PanelPublicKey"
+}
 $commercialEnabled = $Commercial.IsPresent -or -not [string]::IsNullOrWhiteSpace($CommercialAPIURL)
 $obfuscateEnabled = $Obfuscate.IsPresent
 $sourceCommit = (git rev-parse HEAD).Trim()

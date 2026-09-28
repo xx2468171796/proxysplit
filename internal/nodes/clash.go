@@ -44,6 +44,122 @@ type clashProxy struct {
 	} `yaml:"reality-opts"`
 
 	CongestionController string `yaml:"congestion-controller"`
+
+	Plugin     string         `yaml:"plugin"`
+	PluginOpts map[string]any `yaml:"plugin-opts"`
+	Smux       *clashSmux     `yaml:"smux"`
+}
+
+type clashSmux struct {
+	Enabled        bool   `yaml:"enabled"`
+	Protocol       string `yaml:"protocol"`
+	MaxConnections int    `yaml:"max-connections"`
+	MinStreams     int    `yaml:"min-streams"`
+	MaxStreams     int    `yaml:"max-streams"`
+	Padding        bool   `yaml:"padding"`
+	BrutalOpts     *struct {
+		Enabled bool `yaml:"enabled"`
+		Up      any  `yaml:"up"`
+		Down    any  `yaml:"down"`
+	} `yaml:"brutal-opts"`
+}
+
+// multiplex converts Clash/Mihomo smux (+ brutal-opts) to a sing-box
+// "multiplex" object. Returns nil when multiplexing is off.
+func (m *clashSmux) multiplex() map[string]any {
+	if m == nil || !m.Enabled {
+		return nil
+	}
+	out := map[string]any{"enabled": true}
+	if p := strings.ToLower(strings.TrimSpace(m.Protocol)); p != "" {
+		out["protocol"] = p
+	}
+	if m.MaxConnections > 0 {
+		out["max_connections"] = m.MaxConnections
+	}
+	if m.MinStreams > 0 {
+		out["min_streams"] = m.MinStreams
+	}
+	if m.MaxStreams > 0 {
+		out["max_streams"] = m.MaxStreams
+	}
+	if m.Padding {
+		out["padding"] = true
+	}
+	if b := m.BrutalOpts; b != nil && b.Enabled {
+		up, down := mbps(b.Up), mbps(b.Down)
+		if up > 0 && down > 0 {
+			out["brutal"] = map[string]any{"enabled": true, "up_mbps": up, "down_mbps": down}
+		}
+	}
+	return out
+}
+
+// mbps parses Clash bandwidth values: 100, "100", "100 Mbps", "1 Gbps".
+func mbps(v any) int {
+	switch x := v.(type) {
+	case int:
+		return x
+	case float64:
+		return int(x)
+	case string:
+		s := strings.ToLower(strings.TrimSpace(x))
+		mult := 1
+		switch {
+		case strings.HasSuffix(s, "gbps"):
+			mult, s = 1000, strings.TrimSuffix(s, "gbps")
+		case strings.HasSuffix(s, "mbps"):
+			s = strings.TrimSuffix(s, "mbps")
+		}
+		n, err := strconv.Atoi(strings.TrimSpace(s))
+		if err != nil {
+			return 0
+		}
+		return n * mult
+	}
+	return 0
+}
+
+// clashSSPlugin maps a Clash shadowsocks plugin to sing-box's plugin/plugin_opts.
+// ok=false means sing-box has no equivalent (node kept, plugin dropped).
+func clashSSPlugin(name string, opts map[string]any) (plugin, pluginOpts string, ok bool) {
+	get := func(k string) string {
+		for key, v := range opts {
+			if strings.EqualFold(key, k) {
+				return strings.TrimSpace(fmt.Sprint(v))
+			}
+		}
+		return ""
+	}
+	switch strings.ToLower(strings.TrimSpace(name)) {
+	case "":
+		return "", "", true
+	case "obfs", "obfs-local", "simple-obfs":
+		parts := []string{"obfs=" + firstNonEmpty(get("mode"), "http")}
+		if h := get("host"); h != "" {
+			parts = append(parts, "obfs-host="+h)
+		}
+		return "obfs-local", strings.Join(parts, ";"), true
+	case "v2ray-plugin":
+		mode := strings.ToLower(firstNonEmpty(get("mode"), "websocket"))
+		if mode != "websocket" {
+			return "", "", false
+		}
+		var parts []string
+		if strings.EqualFold(get("tls"), "true") {
+			parts = append(parts, "tls")
+		}
+		if h := get("host"); h != "" {
+			parts = append(parts, "host="+h)
+		}
+		if p := get("path"); p != "" {
+			parts = append(parts, "path="+p)
+		}
+		// Clash "mux" is not passed on: v2ray mux is optional on the server
+		// side and sing-box's v2ray-plugin does not implement it.
+		return "v2ray-plugin", strings.Join(parts, ";"), true
+	}
+	return "", "", false
 }
 
 // ParseClashYAML converts the proxy definitions in a Clash/Mihomo subscription
@@ -115,7 +231,14 @@ func clashNode(p clashProxy) (*Node, error) {
 	}
 	if nodeType == "shadowsocks" {
 		n.Method = strings.TrimSpace(p.Cipher)
+		if plugin, opts, ok := clashSSPlugin(p.Plugin, p.PluginOpts); ok {
+			n.Plugin, n.PluginOpts = plugin, opts
+		} else {
+			// sing-box 不支持的插件：保留节点并在名称里提示（多半连不上）
+			defer func() { n.Name += "（插件 " + p.Plugin + " 不支持）" }()
+		}
 	}
+	n.Multiplex = p.Smux.multiplex()
 	if n.Name == "" {
 		n.Name = fmt.Sprintf("%s:%d", n.Server, n.Port)
 	}
@@ -151,6 +274,7 @@ func clashNode(p clashProxy) (*Node, error) {
 	n.ID = shortHash(strings.Join([]string{
 		"clash", n.Type, n.Server, strconv.Itoa(n.Port), n.UUID, n.Username,
 		n.Password, n.Method, n.Network, n.Host, n.Path, n.Security, n.SNI,
+		n.Plugin, n.PluginOpts,
 	}, "|"))
 	return n, nil
 }

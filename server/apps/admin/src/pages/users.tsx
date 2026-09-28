@@ -184,6 +184,15 @@ export default function UsersPage() {
         cell: ({ row }) => (row.original.tier ? tierLabel(row.original.tier) : '—'),
       },
       {
+        id: 'loginMethod',
+        header: '登录方式',
+        cell: ({ row }) => {
+          const ids: string[] = row.original.identities ?? []
+          const parts = [row.original.hasPassword === false ? null : '密码', ids.includes('powervpn') ? 'POWER云' : null].filter(Boolean)
+          return parts.length ? parts.join(' / ') : '—'
+        },
+      },
+      {
         id: 'devices',
         header: '设备',
         cell: ({ row }) => row.original.devices ?? 0,

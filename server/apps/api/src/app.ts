@@ -3,14 +3,14 @@ import cors from '@fastify/cors'
 import rateLimit from '@fastify/rate-limit'
 import { Redis } from 'ioredis'
 import { AppError, normalizeUsername } from '@proxysplit/shared'
-import { activateDeviceSchema, adminGrantSchema, selfPasswordSchema, webRegisterSchema, analyticsQuerySchema, announcementListQuery, announcementUpsertSchema, auditListQuery, deviceListQuery, downloadStatsQuery, leaseSchema, licenseExtendSchema, loginSchema, orderCreateSchema, orderListQuery, orderRefundSchema, planListQuery, planPatchSchema, planUpsertSchema, providerUpsertSchema, redeemCodeCreateSchema, redeemListQuery, redeemSchema, refreshSchema, registerSchema, releaseCreateSchema, releaseListQuery, settingPatchSchema, trackViewSchema, userCreateSchema, userListQuery, userPasswordSchema, userStatusSchema } from '@proxysplit/contracts'
+import { activateDeviceSchema, powervpnLoginSchema, adminGrantSchema, selfPasswordSchema, webRegisterSchema, analyticsQuerySchema, announcementListQuery, announcementUpsertSchema, auditListQuery, deviceListQuery, downloadStatsQuery, leaseSchema, licenseExtendSchema, loginSchema, orderCreateSchema, orderListQuery, orderRefundSchema, planListQuery, planPatchSchema, planUpsertSchema, providerUpsertSchema, redeemCodeCreateSchema, redeemListQuery, redeemSchema, refreshSchema, registerSchema, releaseCreateSchema, releaseListQuery, settingPatchSchema, trackViewSchema, userCreateSchema, userListQuery, userPasswordSchema, userStatusSchema } from '@proxysplit/contracts'
 import { AccelTokens, createCommercialCore, hashPassword, PaymentService, type AuthService, type PgStore } from '@proxysplit/core'
 import type { ApiConfig } from './config.js'
 
 type Core={auth:AuthService;store:PgStore;close:()=>Promise<void>}
 const bearer=(value?:string)=>value?.startsWith('Bearer ')?value.slice(7):''
 export async function buildApp(config:ApiConfig,provided?:Core){
-  const core=provided??await createCommercialCore({databaseUrl:config.DATABASE_URL,auth:{accessSecret:config.ACCESS_TOKEN_SECRET,refreshDays:config.REFRESH_TOKEN_TTL_DAYS,...(config.LICENSE_PRIVATE_KEY_PEM?{licensePrivateKeyPem:config.LICENSE_PRIVATE_KEY_PEM}:{}),...(config.LICENSE_PUBLIC_KEY_PEM?{licensePublicKeyPem:config.LICENSE_PUBLIC_KEY_PEM}:{})},...(config.BOOTSTRAP_ADMIN_USERNAME&&config.BOOTSTRAP_ADMIN_PASSWORD?{bootstrapAdmin:{username:config.BOOTSTRAP_ADMIN_USERNAME,password:config.BOOTSTRAP_ADMIN_PASSWORD}}:{})})
+  const core=provided??await createCommercialCore({databaseUrl:config.DATABASE_URL,auth:{accessSecret:config.ACCESS_TOKEN_SECRET,refreshDays:config.REFRESH_TOKEN_TTL_DAYS,...(config.LICENSE_PRIVATE_KEY_PEM?{licensePrivateKeyPem:config.LICENSE_PRIVATE_KEY_PEM}:{}),...(config.LICENSE_PUBLIC_KEY_PEM?{licensePublicKeyPem:config.LICENSE_PUBLIC_KEY_PEM}:{}),powervpn:{baseUrl:config.POWERVPN_BASE_URL??'https://lxc.5fskins.com'}},...(config.BOOTSTRAP_ADMIN_USERNAME&&config.BOOTSTRAP_ADMIN_PASSWORD?{bootstrapAdmin:{username:config.BOOTSTRAP_ADMIN_USERNAME,password:config.BOOTSTRAP_ADMIN_PASSWORD}}:{})})
   // The API port is host-loopback-only and has exactly one Nginx hop. Nginx
   // overwrites (rather than appends) X-Forwarded-For, so client-supplied hops
   // cannot become req.ip even though Docker changes the proxy source address.
@@ -49,6 +49,8 @@ export async function buildApp(config:ApiConfig,provided?:Core){
   app.post('/v1/auth/register',{config:{rateLimit:{max:3,timeWindow:'1 hour'}}},async(req)=>core.auth.register(registerSchema.parse(req.body),req.ip))
   app.post('/v1/auth/register/web',{config:{rateLimit:{max:5,timeWindow:'1 hour'}}},async(req)=>core.auth.registerWeb(webRegisterSchema.parse(req.body),req.ip))
   app.post('/v1/auth/login',{config:{rateLimit:{max:30,timeWindow:'1 minute'}}},async(req)=>core.auth.login(loginSchema.parse(req.body),req.ip))
+  // POWER云 账号登录：accessToken 只转给面板核实，不落日志
+  app.post('/v1/auth/powervpn',{config:{rateLimit:{max:30,timeWindow:'1 minute'}}},async(req)=>core.auth.loginPowervpn(powervpnLoginSchema.parse(req.body),req.ip))
   app.post('/v1/auth/refresh',{config:{rateLimit:{max:10,timeWindow:'1 minute'}}},async(req)=>core.auth.rotate(refreshSchema.parse(req.body),req.ip))
   app.post('/v1/me/device/activate',{config:{rateLimit:{max:10,timeWindow:'1 minute'}}},async(req)=>{const p=await auth(req,true);if(p.deviceId!=='pending')throw new AppError('DEVICE_ALREADY_ACTIVE','当前设备已激活',409);return core.auth.activateDevice(p.userId,activateDeviceSchema.parse(req.body).device,req.ip)})
   app.post('/v1/auth/logout',async(req)=>core.auth.logout(refreshSchema.parse(req.body),req.ip))

@@ -22,6 +22,7 @@ import (
 	"proxysplit/internal/coreupdate"
 	"proxysplit/internal/license"
 	"proxysplit/internal/nodes"
+	"proxysplit/internal/powervpn"
 	"proxysplit/internal/proc"
 	"proxysplit/internal/service"
 	"proxysplit/internal/updater"
@@ -46,7 +47,8 @@ type App struct {
 	ready      chan struct{}
 	readyOnce  sync.Once
 	initErr    error
-	accel      *accelRuntime // Claude Code 加速（accel_app.go）
+	accel      *accelRuntime    // Claude Code 加速（accel_app.go）
+	pv         *powervpn.Client // POWER云 账号 / 自家节点（powervpn_app.go）
 }
 
 // NewApp creates the App.
@@ -105,6 +107,7 @@ func (a *App) startup(ctx context.Context) {
 		}
 	}
 	svc.SetStartGuard(a.commercialStartGuard)
+	a.initPowerVPN()
 	svc.SetLogSink(func(line string) {
 		runtime.EventsEmit(ctx, "log", line)
 	})
@@ -452,7 +455,7 @@ func (a *App) InstallAppUpdate(release updater.Release) string {
 }
 
 // Settings.
-func (a *App) GetSettings() service.Settings         { return a.svc.GetSettings() }
+func (a *App) GetSettings() service.Settings { return a.svc.GetSettings() }
 func (a *App) SetSettings(s service.Settings) string {
 	msg := a.svc.SetSettings(s)
 	a.kickAccel()

@@ -5,7 +5,7 @@ import { AppError } from '@proxysplit/shared'
 import { planSplit } from './split.js'
 
 export type UserRecord = {
-  id:string; username:string; passwordHash:string; role:'user'|'admin';
+  id:string; username:string; passwordHash:string|null; role:'user'|'admin';
   status:'active'|'suspended'|'banned'; createdAt:Date;
   failedLoginCount:number; lockoutLevel:number; lockedUntil:Date|null
 }
@@ -243,6 +243,52 @@ export class PgStore {
     }catch(e){await client.query('ROLLBACK');throw e}finally{client.release()}
   }
 
+  // POWER云 等外部账号：按 (provider, external_id) 找用户，没有就建一个无密码账号。
+  // 用户名冲突时加数字后缀；邮箱已被别的账号占用时不带邮箱（不自动合并已有账号）。
+  async findOrCreateIdentityUser(input:{provider:string;externalId:string;usernameBase:string;email:string|null;ip:string}):Promise<{user:UserRecord;created:boolean}>{
+    const select='SELECT u.id,u.username,u.password_hash AS "passwordHash",u.role,u.status,u.created_at AS "createdAt",u.failed_login_count AS "failedLoginCount",u.lockout_level AS "lockoutLevel",u.locked_until AS "lockedUntil" FROM user_identities i JOIN users u ON u.id=i.user_id WHERE i.provider=$1 AND i.external_id=$2'
+    const found=await this.pool.query(select,[input.provider,input.externalId])
+    if(found.rows[0])return {user:found.rows[0],created:false}
+    const client=await this.pool.connect()
+    try{
+      await client.query('BEGIN')
+      await client.query('SELECT pg_advisory_xact_lock(hashtext($1))',[`identity:${input.provider}:${input.externalId}`])
+      const again=await client.query(select,[input.provider,input.externalId])
+      if(again.rows[0]){await client.query('COMMIT');return {user:again.rows[0],created:false}}
+      let email=input.email?.trim().toLowerCase()||null
+      if(email){const taken=await client.query('SELECT 1 FROM users WHERE lower(email)=$1',[email]);if(taken.rowCount)email=null}
+      let username=input.usernameBase
+      let n=1
+      let u
+      // 邮箱 / 用户名可能被并发注册抢先占用（唯一索引）：回滚到保存点后换名 / 去掉邮箱重试，绝不合并已有账号。
+      for(;;){
+        const taken=await client.query('SELECT 1 FROM users WHERE username=$1',[username])
+        if(taken.rowCount){
+          if(++n>200)throw new Error('USERNAME_EXHAUSTED')
+          username=`${input.usernameBase}_${n}`
+          continue
+        }
+        await client.query('SAVEPOINT identity_user')
+        try{
+          u=await client.query(`INSERT INTO users(username,email,password_hash,role,status,registration_ip_hash,registration_hardware_hash)
+            VALUES($1,$2,NULL,'user','active',$3,'') RETURNING id,username,password_hash AS "passwordHash",role,status,created_at AS "createdAt",failed_login_count AS "failedLoginCount",lockout_level AS "lockoutLevel",locked_until AS "lockedUntil"`,
+            [username,email,sha256('proxysplit-ip-v1:'+input.ip)])
+          break
+        }catch(e){
+          const err=e as {code?:string;constraint?:string}
+          if(err.code!=='23505')throw e
+          await client.query('ROLLBACK TO SAVEPOINT identity_user')
+          if(err.constraint==='users_email_lower_uq'&&email){email=null;continue}
+          if(++n>200)throw new Error('USERNAME_EXHAUSTED')
+          username=`${input.usernameBase}_${n}`
+        }
+      }
+      await client.query('INSERT INTO user_identities(provider,external_id,user_id) VALUES($1,$2,$3)',[input.provider,input.externalId,u.rows[0].id])
+      await client.query('COMMIT')
+      return {user:u.rows[0],created:true}
+    }catch(e){await client.query('ROLLBACK');throw e}finally{client.release()}
+  }
+
   // 首次用客户端登录时补发试用：官网注册的账号没有设备信息，登录时才知道硬件。
   // 仍遵守「一台设备只发一次试用」「一个账号只领一次试用」。
   async claimTrialOnLogin(userId:string,hardwareHash:string,ip:string){
@@ -431,6 +477,8 @@ export class PgStore {
     const r=await this.pool.query(`SELECT u.id,u.username,u.email,u.role,u.status,u.note,u.created_at AS "createdAt",
       l.expires_at AS "expiresAt",l.lifetime,p.name AS "planName",p.tier,
       (SELECT count(*)::int FROM devices d WHERE d.user_id=u.id AND d.revoked=false) AS devices,
+      (u.password_hash IS NOT NULL) AS "hasPassword",
+      coalesce((SELECT array_agg(i.provider ORDER BY i.provider) FROM user_identities i WHERE i.user_id=u.id),'{}') AS identities,
       (count(*) OVER())::int AS "totalCount"
       FROM users u LEFT JOIN LATERAL (
         SELECT * FROM licenses WHERE user_id=u.id AND status='active' AND expires_at>now() ORDER BY lifetime DESC,expires_at DESC LIMIT 1

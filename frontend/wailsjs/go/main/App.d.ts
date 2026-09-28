@@ -190,3 +190,11 @@ export function UpdateCore():Promise<string>;
 export function UpdateRuleSets():Promise<string>;
 
 export function UpdateSub(arg1:string):Promise<string>;
+
+export function GetPowerVPNStatus():Promise<main.PowerVPNStatus>;
+
+export function LoginPowerVPN():Promise<string>;
+
+export function LogoutPowerVPN():Promise<string>;
+
+export function RefreshPowerVPN():Promise<string>;

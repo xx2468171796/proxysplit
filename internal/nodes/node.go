@@ -1,5 +1,7 @@
 package nodes
 
+import "encoding/json"
+
 // Node is a protocol-agnostic description of a single proxy server (a "节点").
 // It carries enough information to generate a sing-box outbound of the matching
 // type. Fields that do not apply to a given protocol are left zero.
@@ -34,6 +36,23 @@ type Node struct {
 	Network string `json:"network,omitempty"` // tcp | ws | grpc | http
 	Path    string `json:"path,omitempty"`    // ws/http path or grpc serviceName
 	Host    string `json:"host,omitempty"`    // ws/http Host header
+
+	// Compat extras (third-party subscriptions). Multiplex is a sing-box
+	// "multiplex" object (from Clash smux / brutal-opts); Plugin/PluginOpts are
+	// the shadowsocks SIP003 plugin in sing-box form (obfs-local / v2ray-plugin).
+	Multiplex  map[string]any `json:"multiplex,omitempty"`
+	Plugin     string         `json:"plugin,omitempty"`
+	PluginOpts string         `json:"pluginOpts,omitempty"`
+
+	// Raw sing-box outbounds. When set, the config builder uses them verbatim
+	// (only tags are prefixed to avoid collisions) instead of synthesizing an
+	// outbound from the fields above. EntryTag names the outbound the user
+	// selects (e.g. a urltest group whose members are also in Outbounds).
+	// Official marks nodes delivered by a signed POWER云 profile.
+	Official  bool              `json:"official,omitempty"`
+	AccountID string            `json:"accountId,omitempty"` // POWER云 proxy account id
+	Outbounds []json.RawMessage `json:"outbounds,omitempty"`
+	EntryTag  string            `json:"entryTag,omitempty"`
 
 	// Runtime measurements (populated by latency/speed tests).
 	// Latency: Google end-to-end latency through the full proxy tunnel.

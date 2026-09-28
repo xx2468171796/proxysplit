@@ -1,0 +1,171 @@
+package nodes
+
+import (
+	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"strings"
+)
+
+// HasRaw reports whether the node is backed by verbatim sing-box outbounds.
+func (n *Node) HasRaw() bool { return n != nil && len(n.Outbounds) > 0 }
+
+// RawKey is a stable fingerprint of the raw outbounds (for dedupe/reconcile).
+func (n *Node) RawKey() string {
+	if !n.HasRaw() {
+		return ""
+	}
+	h := sha256.New()
+	h.Write([]byte(n.EntryTag))
+	for _, r := range n.Outbounds {
+		h.Write([]byte{0})
+		h.Write(r)
+	}
+	return hex.EncodeToString(h.Sum(nil))
+}
+
+// DecodeOutbound decodes one raw sing-box outbound, keeping numbers exact.
+func DecodeOutbound(raw json.RawMessage) (map[string]any, error) {
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber()
+	var m map[string]any
+	if err := dec.Decode(&m); err != nil {
+		return nil, err
+	}
+	if m == nil {
+		return nil, fmt.Errorf("outbound is not an object")
+	}
+	return m, nil
+}
+
+// OutboundRefs lists the tags an outbound references: group members
+// ("outbounds"), selector "default" and dial "detour".
+func OutboundRefs(m map[string]any) []string {
+	var refs []string
+	if list, ok := m["outbounds"].([]any); ok {
+		for _, v := range list {
+			if s, ok := v.(string); ok && s != "" {
+				refs = append(refs, s)
+			}
+		}
+	}
+	for _, k := range []string{"default", "detour"} {
+		if s, ok := m[k].(string); ok && s != "" {
+			refs = append(refs, s)
+		}
+	}
+	return refs
+}
+
+// OutboundClosure returns entry plus every outbound it (transitively)
+// references, entry first, in a stable order. References to tags that are not
+// in the list (e.g. "direct") are left for the caller to resolve.
+func OutboundClosure(all []json.RawMessage, entry string) ([]json.RawMessage, error) {
+	byTag := map[string]json.RawMessage{}
+	decoded := map[string]map[string]any{}
+	for _, raw := range all {
+		m, err := DecodeOutbound(raw)
+		if err != nil {
+			return nil, err
+		}
+		tag, _ := m["tag"].(string)
+		if tag == "" {
+			continue
+		}
+		byTag[tag] = raw
+		decoded[tag] = m
+	}
+	if _, ok := byTag[entry]; !ok {
+		return nil, fmt.Errorf("outbound %q not found", entry)
+	}
+	var out []json.RawMessage
+	seen := map[string]bool{}
+	queue := []string{entry}
+	for len(queue) > 0 {
+		tag := queue[0]
+		queue = queue[1:]
+		if seen[tag] {
+			continue
+		}
+		raw, ok := byTag[tag]
+		if !ok {
+			continue
+		}
+		seen[tag] = true
+		out = append(out, raw)
+		queue = append(queue, OutboundRefs(decoded[tag])...)
+	}
+	return out, nil
+}
+
+// EndpointOf returns the first server/port found in the closure (entry first),
+// used for TCP latency probing and display.
+func EndpointOf(raws []json.RawMessage) (typ, server string, port int) {
+	for i, raw := range raws {
+		m, err := DecodeOutbound(raw)
+		if err != nil {
+			continue
+		}
+		t, _ := m["type"].(string)
+		if i == 0 {
+			typ = t
+		}
+		s, _ := m["server"].(string)
+		if s == "" {
+			continue
+		}
+		if n, ok := m["server_port"].(json.Number); ok {
+			v, _ := n.Int64()
+			port = int(v)
+		}
+		return typ, s, port
+	}
+	return typ, "", 0
+}
+
+// proxyOutboundTypes are sing-box outbound types that are actual proxies (as
+// opposed to direct/block/dns/selector/urltest).
+var proxyOutboundTypes = map[string]bool{
+	"vless": true, "vmess": true, "trojan": true, "shadowsocks": true, "hysteria": true,
+	"hysteria2": true, "tuic": true, "anytls": true, "socks": true, "http": true,
+	"ssh": true, "wireguard": true, "naive": true,
+	// shadowtls is only a detour for shadowsocks, never a standalone node.
+}
+
+// ParseSingboxJSON parses a sing-box configuration (or bare {"outbounds":[...]})
+// and returns one raw-backed node per proxy outbound. Each node carries the
+// outbound plus anything it references via detour, verbatim.
+func ParseSingboxJSON(body []byte) ([]*Node, error) {
+	var doc struct {
+		Outbounds []json.RawMessage `json:"outbounds"`
+	}
+	if err := json.Unmarshal(bytes.TrimSpace(body), &doc); err != nil {
+		return nil, err
+	}
+	var out []*Node
+	for _, raw := range doc.Outbounds {
+		m, err := DecodeOutbound(raw)
+		if err != nil {
+			continue
+		}
+		typ, _ := m["type"].(string)
+		tag, _ := m["tag"].(string)
+		if tag == "" || !proxyOutboundTypes[strings.ToLower(typ)] {
+			continue
+		}
+		closure, err := OutboundClosure(doc.Outbounds, tag)
+		if err != nil {
+			continue
+		}
+		n := &Node{Name: tag, EntryTag: tag, Outbounds: closure}
+		n.Type, n.Server, n.Port = EndpointOf(closure)
+		n.ID = "sb-" + n.RawKey()[:16]
+		out = append(out, n)
+	}
+	if len(out) == 0 {
+		return nil, fmt.Errorf("no proxy outbounds in sing-box config")
+	}
+	return out, nil
+}

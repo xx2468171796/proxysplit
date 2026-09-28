@@ -1,5 +1,4 @@
-// Package subs fetches and parses subscription URLs into nodes. The real
-// implementation is filled in by the workflow agent; this file is the contract.
+// Package subs fetches and parses subscription URLs into nodes.
 package subs
 
 import (
@@ -15,18 +14,36 @@ import (
 	"golang.org/x/net/proxy"
 
 	"proxysplit/internal/nodes"
+	"proxysplit/internal/powervpn"
 )
 
 // maxBodyBytes caps the subscription body we will read, to avoid abuse.
 const maxBodyBytes = 8 << 20 // 8MB
 
-// Fetch downloads a subscription URL and returns the nodes it contains. Real
-// implementations must handle both base64-encoded and plain-text bodies (one
-// share link per line), tolerate CRLF, and parse via nodes.ParseMany. viaProxy
-// (host:port SOCKS) may be used to fetch through the core when set.
-//
-// IMPLEMENTED BY WORKFLOW AGENT (subs).
+// Result is a fetched subscription.
+type Result struct {
+	Nodes    []*nodes.Node
+	Official bool     // signed POWER云 account profile
+	Notices  []string // e.g. device limit reached (official only)
+}
+
+// Fetch downloads a subscription URL and returns the nodes it contains
+// (compat mode only; kept for callers without a POWER云 client).
 func Fetch(url string, viaProxy string) ([]*nodes.Node, error) {
+	res, err := FetchWith(url, viaProxy, nil)
+	if err != nil {
+		return nil, err
+	}
+	return res.Nodes, nil
+}
+
+// FetchWith downloads a subscription. With a POWER云 client it identifies as
+// "ProxySplit/<version>" with the device headers (design §2.2); a response
+// carrying a valid X-PowerVPN-Signature (type profile) becomes an official
+// account profile, anything else is parsed in compat mode: base64 / plain
+// share links, Clash YAML, or sing-box JSON. viaProxy (host:port SOCKS) may be
+// used to fetch through the core.
+func FetchWith(url string, viaProxy string, pv *powervpn.Client) (*Result, error) {
 	tr := &http.Transport{}
 	if viaProxy != "" {
 		d, err := proxy.SOCKS5("tcp", viaProxy, nil, proxy.Direct)
@@ -45,8 +62,24 @@ func Fetch(url string, viaProxy string) ([]*nodes.Node, error) {
 	}
 	// Many subscription panels negotiate on User-Agent. Asking for Clash format
 	// gives complete structured proxy fields; ParseClashYAML below handles it,
-	// while panels that return universal/base64 links remain supported.
+	// while panels that return universal/base64 links remain supported. The
+	// POWER云 panel keys on the "ProxySplit/" prefix; third-party panels still
+	// see "clash.meta" in the UA and answer in Clash format.
 	req.Header.Set("User-Agent", "Clash.Meta")
+	official := false
+	if pv != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		official = pv.IsPowerVPNURL(ctx, url)
+		cancel()
+	}
+	if official {
+		// Device identity goes only to POWER云 (panel / verified entry hosts);
+		// third-party panels keep seeing the plain Clash.Meta request.
+		for k, v := range pv.ClientHeaders() {
+			req.Header[k] = v
+		}
+		req.Header.Set("User-Agent", pv.UserAgent()+" clash.meta")
+	}
 
 	resp, err := client.Do(req)
 	if err != nil {
@@ -62,9 +95,39 @@ func Fetch(url string, viaProxy string) ([]*nodes.Node, error) {
 		return nil, fmt.Errorf("read body: %w", err)
 	}
 
-	text := decodeBody(string(body))
-	out, _ := nodes.ParseMany(text)
+	if official && resp.Header.Get(powervpn.HeaderSignature) != "" {
+		if prof, perr := powervpn.ParseSignedProfile(pv.Verifier(), resp.Header, body); perr == nil {
+			list, notices := prof.Nodes()
+			if len(list) == 0 && len(notices) > 0 {
+				return nil, fmt.Errorf("%s", strings.Join(notices, "；"))
+			}
+			if len(list) == 0 {
+				return nil, fmt.Errorf("POWER云 账号下暂无可用线路")
+			}
+			return &Result{Nodes: list, Official: true, Notices: notices}, nil
+		}
+		// Bad signature → treat as someone else's subscription (compat).
+	}
+
+	out, err := ParseBody(body)
+	if err != nil {
+		return nil, err
+	}
+	return &Result{Nodes: out}, nil
+}
+
+// ParseBody parses a third-party subscription body (compat mode).
+func ParseBody(body []byte) ([]*nodes.Node, error) {
+	var out []*nodes.Node
+	trimmed := strings.TrimSpace(string(body))
+	if strings.HasPrefix(trimmed, "{") {
+		out, _ = nodes.ParseSingboxJSON(body)
+	}
 	if len(out) == 0 {
+		out, _ = nodes.ParseMany(decodeBody(string(body)))
+	}
+	if len(out) == 0 {
+		var err error
 		out, err = nodes.ParseClashYAML(body)
 		if err != nil {
 			return nil, fmt.Errorf("subscription has no supported nodes: %w", err)

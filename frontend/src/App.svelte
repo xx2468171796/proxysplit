@@ -87,6 +87,8 @@
     RefreshEntitlement as WRefreshEntitlement,
     RedeemCode as WRedeemCode,
     ChangeAccountPassword as WChangeAccountPassword,
+    LoginPowerVPN as WLoginPowerVPN,
+    LogoutPowerVPN as WLogoutPowerVPN,
   } from '../wailsjs/go/main/App.js'
   import { EventsOn } from '../wailsjs/runtime/runtime.js'
   import donateQR from './assets/images/donate.png'
@@ -244,6 +246,7 @@
   let loginForm = { username: '', email: '', password: '' }
   let authMode: 'login' | 'register' = 'login'
   let loginBusy = false
+  let powervpnBusy = false
   let loginError = ''
   let memberPlans: MemberPlan[] = []
   let accountDevices: AccountDevice[] = []
@@ -631,6 +634,19 @@
     await loadCommerce()
     if (!license.authenticated || license.planCode === 'trial') { showMembership = true; membershipPrompted = true }
   }
+  // POWER云 账号登录：浏览器授权（最多等 5 分钟）→ 登录 ProxySplit → 自动添加「POWER云」订阅
+  async function submitPowerVPN() {
+    if (!isWailsReady()) return
+    powervpnBusy = true; loginError = ''
+    const res = (await WLoginPowerVPN()) as string
+    powervpnBusy = false
+    if (res && !res.startsWith('NOTICE:')) { loginError = res; return }
+    if (res) toast(res.slice(7))
+    await refreshLicense()
+    await refreshSubs(); await refreshNodes()
+    await loadCommerce()
+    if (!license.authenticated || license.planCode === 'trial') { showMembership = true; membershipPrompted = true }
+  }
   async function submitRegister() {
     const username = loginForm.username.trim()
     const email = loginForm.email.trim()
@@ -787,6 +803,7 @@
     if (!confirm('退出当前账号后代理会停止，是否继续？')) return
     const err = await WLogout()
     if (err) { toast('退出失败：' + err); return }
+    if (isWailsReady()) { await WLogoutPowerVPN(); await refreshSubs(); await refreshNodes() }
     activeOrder = null; paymentQR = ''; showMembership = false
     await refreshLicense(); await refreshStatus(); await loadCommerce()
   }
@@ -1698,6 +1715,11 @@
         <button class="primary license-submit" type="submit" disabled={loginBusy || !loginForm.username.trim() || (authMode === 'register' && !loginForm.email.trim()) || !loginForm.password}>
           {loginBusy ? '正在验证…' : authMode === 'login' ? '登录并绑定本机' : '注册并登录'}
         </button>
+        {#if authMode === 'login'}
+          <button class="ghost-btn license-submit powervpn-login" type="button" on:click={submitPowerVPN} disabled={loginBusy || powervpnBusy}>
+            {powervpnBusy ? '请在浏览器中完成 POWER云 授权…' : '用 POWER云 账号登录'}
+          </button>
+        {/if}
         <p class="license-tip">{authMode === 'register' ? '邮箱当前不做验证；同一电脑仅能领取一次试用，但始终可以注册新账号并购买套餐。' : '使用用户名和密码登录；设备名额与会员状态由服务端校验。'} 主板等硬件信息只生成摘要，不上传原始序列号。</p>
       </form>
     {:else}
@@ -3263,6 +3285,7 @@
   .license-login-card input { width: 100%; padding: 12px 13px; border: 1px solid var(--line); border-radius: 10px; background: var(--soft); color: var(--ink); font: inherit; outline: none; }
   .license-login-card input:focus { border-color: var(--brand); background: #fff; box-shadow: 0 0 0 3px var(--brand-tint); }
   .license-submit { width: 100%; min-height: 44px; justify-content: center; }
+  .powervpn-login { margin-top: 8px; }
   .license-error { padding: 9px 11px; border: 1px solid #fecaca; border-radius: 9px; background: #fef2f2; color: #b91c1c; font-size: 12.5px; line-height: 1.5; }
   .license-tip { margin: -3px 0 0; color: var(--muted-2); font-size: 11.5px; line-height: 1.6; text-align: center; }
   .account-chip { display: flex; align-items: center; gap: 8px; max-width: 230px; padding: 5px 10px 5px 6px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); color: var(--ink); cursor: pointer; font-family: inherit; }

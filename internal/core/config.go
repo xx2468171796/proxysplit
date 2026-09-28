@@ -495,11 +495,11 @@ func BuildMultiConfig(lines []LineConfig, logLevel string, opts Options) ([]byte
 		})
 		if _, ok := nodeTag[ln.Node.ID]; !ok {
 			tag := "node-" + ln.Node.ID
-			ob, err := buildOutbound(ln.Node, tag)
+			obs, err := buildOutbounds(ln.Node, tag)
 			if err != nil {
 				return nil, err
 			}
-			outbounds = append(outbounds, ob)
+			outbounds = append(outbounds, obs...)
 			nodeTag[ln.Node.ID] = tag
 		}
 	}
@@ -614,7 +614,10 @@ func BuildMultiConfig(lines []LineConfig, logLevel string, opts Options) ([]byte
 // a sing-box tun inbound (wintun) captures ALL system traffic and routes it per
 // the given mode out through the node. No WinDivert engine is used in this mode.
 func BuildTUNConfig(node *nodes.Node, logLevel string, opts Options) ([]byte, error) {
-	ob, err := buildOutbound(node, "proxy")
+	if node == nil {
+		return nil, fmt.Errorf("nil node")
+	}
+	proxyObs, err := buildOutbounds(node, "proxy")
 	if err != nil {
 		return nil, err
 	}
@@ -812,16 +815,17 @@ func BuildTUNConfig(node *nodes.Node, logLevel string, opts Options) ([]byte, er
 	if opts.AccelPort > 0 {
 		tunInbounds = append(tunInbounds, M{"type": "mixed", "tag": accelInbound, "listen": "127.0.0.1", "listen_port": opts.AccelPort})
 	}
-	outs := []M{ob, {"type": "direct", "tag": "direct"}}
+	outs := append(proxyObs[:1:1], M{"type": "direct", "tag": "direct"})
+	outs = append(outs, proxyObs[1:]...)
 	for _, en := range opts.ExtraNodes {
 		if en.Node == nil {
 			continue
 		}
-		eob, oerr := buildOutbound(en.Node, en.Tag)
+		eobs, oerr := buildOutbounds(en.Node, en.Tag)
 		if oerr != nil {
 			return nil, oerr
 		}
-		outs = append(outs, eob)
+		outs = append(outs, eobs...)
 	}
 	cfg := M{
 		"log":       M{"level": logLevel, "timestamp": true},
@@ -1025,6 +1029,101 @@ func srsPath(dir, name string) string {
 }
 
 // buildOutbound converts a Node into a sing-box outbound object.
+// buildOutbounds returns the outbound(s) for a node: the first one carries tag
+// (what routes point at); raw-backed nodes may add helper outbounds (urltest
+// members, detours) whose tags are prefixed with tag.
+func buildOutbounds(n *nodes.Node, tag string) ([]M, error) {
+	if n.HasRaw() {
+		return buildRawOutbounds(n, tag)
+	}
+	ob, err := buildOutbound(n, tag)
+	if err != nil {
+		return nil, err
+	}
+	// Compat: Clash smux / brutal-opts → sing-box multiplex (only when the
+	// subscription asked for it; never added on our own).
+	// VLESS vision flow cannot be multiplexed (sing-box rejects the config).
+	if len(n.Multiplex) > 0 && n.Flow == "" {
+		switch n.Type {
+		case "vless", "vmess", "trojan", "shadowsocks":
+			ob["multiplex"] = n.Multiplex
+		}
+	}
+	return []M{ob}, nil
+}
+
+// buildRawOutbounds emits the node's verbatim sing-box outbounds. Only tags are
+// rewritten: the entry outbound becomes tag, every other outbound becomes
+// "tag/<original>", and references (group members, selector default, detour)
+// are renamed to match. All other parameters are passed through untouched.
+func buildRawOutbounds(n *nodes.Node, tag string) ([]M, error) {
+	entry := n.EntryTag
+	decoded := make([]M, 0, len(n.Outbounds))
+	rename := map[string]string{}
+	for i, raw := range n.Outbounds {
+		m, err := nodes.DecodeOutbound(raw)
+		if err != nil {
+			return nil, fmt.Errorf("node %q: bad outbound: %w", n.Name, err)
+		}
+		orig, _ := m["tag"].(string)
+		if entry == "" && i == 0 {
+			entry = orig
+		}
+		decoded = append(decoded, M(m))
+		if orig != "" {
+			rename[orig] = tag + "/" + orig
+		}
+	}
+	if _, ok := rename[entry]; !ok {
+		return nil, fmt.Errorf("node %q: entry outbound %q missing", n.Name, entry)
+	}
+	rename[entry] = tag
+	var badRef string
+	ref := func(v string) string {
+		if r, ok := rename[v]; ok {
+			return r
+		}
+		// Only "direct" exists in every generated config; any other outside
+		// reference would silently bind to one of our own outbounds (e.g.
+		// another node's tag), so it is rejected.
+		if v != "direct" && badRef == "" {
+			badRef = v
+		}
+		return v
+	}
+	out := make([]M, 0, len(decoded))
+	var entryOb M
+	for _, m := range decoded {
+		orig, _ := m["tag"].(string)
+		m["tag"] = ref(orig)
+		if list, ok := m["outbounds"].([]any); ok {
+			renamed := make([]any, len(list))
+			for i, v := range list {
+				if sv, ok := v.(string); ok {
+					renamed[i] = ref(sv)
+				} else {
+					renamed[i] = v
+				}
+			}
+			m["outbounds"] = renamed
+		}
+		for _, k := range []string{"default", "detour"} {
+			if sv, ok := m[k].(string); ok && sv != "" {
+				m[k] = ref(sv)
+			}
+		}
+		if orig == entry {
+			entryOb = m
+		} else {
+			out = append(out, m)
+		}
+	}
+	if badRef != "" {
+		return nil, fmt.Errorf("node %q: outbound references unknown tag %q", n.Name, badRef)
+	}
+	return append([]M{entryOb}, out...), nil
+}
+
 func buildOutbound(n *nodes.Node, tag string) (M, error) {
 	if n == nil {
 		return nil, fmt.Errorf("nil node")
@@ -1165,7 +1264,7 @@ func buildTrojan(n *nodes.Node, tag string) M {
 }
 
 func buildShadowsocks(n *nodes.Node, tag string) M {
-	return M{
+	o := M{
 		"type":        "shadowsocks",
 		"tag":         tag,
 		"server":      n.Server,
@@ -1173,6 +1272,13 @@ func buildShadowsocks(n *nodes.Node, tag string) M {
 		"method":      n.Method,
 		"password":    n.Password,
 	}
+	if n.Plugin != "" {
+		o["plugin"] = n.Plugin
+		if n.PluginOpts != "" {
+			o["plugin_opts"] = n.PluginOpts
+		}
+	}
+	return o
 }
 
 // buildTLS returns a sing-box tls block, or nil when the node uses no TLS.

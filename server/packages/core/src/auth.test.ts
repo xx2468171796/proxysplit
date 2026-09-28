@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { importSPKI, jwtVerify } from 'jose'
-import { AuthService, hashFingerprint, hashPassword } from './auth.js'
+import { AuthService, hashFingerprint, hashPassword, powervpnUsernameBase } from './auth.js'
 import type { DeviceRecord, Entitlement, PgStore, SessionRecord, UserRecord } from './store.js'
 
 class FakeStore {
@@ -43,6 +43,16 @@ class FakeStore {
       fingerprintHash: session.fingerprintHash,
     })
     return { ok: true, userId: session.userId, deviceId: session.deviceId } as const
+  }
+  identities = new Map<string, string>()
+  identityCalls: { usernameBase: string; email: string | null }[] = []
+  async findOrCreateIdentityUser(input: { provider: string; externalId: string; usernameBase: string; email: string | null }) {
+    this.identityCalls.push({ usernameBase: input.usernameBase, email: input.email })
+    const key = input.provider + ':' + input.externalId
+    if (this.identities.has(key)) return { user: this.user, created: false }
+    this.user = { ...this.user, username: input.usernameBase, passwordHash: null }
+    this.identities.set(key, this.user.id)
+    return { user: this.user, created: true }
   }
   async isDeviceWithinLimit() { return true }
   async audit() {}
@@ -107,5 +117,49 @@ describe('commercial auth', () => {
     const login = await auth.login({ username: 'alice', password: 'correct horse battery staple', device })
     const principal = await auth.verifyAccess(login.accessToken)
     await expect(auth.lease(principal.userId, principal.deviceId, '0'.repeat(64), device.appVersion)).rejects.toMatchObject({ code: 'DEVICE_MISMATCH' })
+  })
+
+  it('logs in with a POWER云 token, creating a password-less user once', async () => {
+    const { store, device } = await fixture()
+    const seen: string[] = []
+    const fakeFetch = (async (url: string, init: RequestInit) => {
+      seen.push(url + ' ' + String((init.headers as Record<string, string>).authorization))
+      return new Response(JSON.stringify({ id: 'ABCDEF12-3456-7890', username: 'bob', email: 'bob@example.com', displayName: 'Bob' }), { status: 200 })
+    }) as unknown as typeof fetch
+    const auth = await AuthService.create(store as unknown as PgStore, { accessSecret: 'test-secret-must-be-at-least-32-bytes-long', refreshDays: 30, powervpn: { baseUrl: 'https://panel.test/', fetch: fakeFetch } })
+    const first = await auth.loginPowervpn({ accessToken: 'panel-access-token-123', device })
+    expect(first.refreshToken).toBeTruthy()
+    expect(seen[0]).toBe('https://panel.test/api/client/me Bearer panel-access-token-123')
+    expect(store.identityCalls[0]).toEqual({ usernameBase: 'pv_abcdef12', email: 'bob@example.com' })
+    await auth.loginPowervpn({ accessToken: 'panel-access-token-123', device })
+    expect(store.identities.size).toBe(1)
+    // 无密码账号不能用密码登录，提示走 POWER云
+    await expect(auth.login({ username: 'pv_abcdef12', password: 'whatever-password', device })).rejects.toMatchObject({ code: 'PASSWORD_NOT_SET' })
+  })
+
+  it('lets a password-less account set a first password but still checks it afterwards', async () => {
+    const { store, auth } = await fixture()
+    store.user = { ...store.user, passwordHash: null }
+    const updates: string[] = []
+    ;(store as unknown as { setUserPassword: (id: string, hash: string) => Promise<boolean> }).setUserPassword = async (_id, hash) => { updates.push(hash); return true }
+    await auth.changeOwnPassword(store.user.id, { currentPassword: '', newPassword: 'brand-new-password' })
+    expect(updates).toHaveLength(1)
+    store.user = { ...store.user, passwordHash: await hashPassword('brand-new-password') }
+    await expect(auth.changeOwnPassword(store.user.id, { currentPassword: '', newPassword: 'another-password' })).rejects.toMatchObject({ code: 'PASSWORD_INVALID' })
+  })
+
+  it('rejects an invalid POWER云 token and reports panel outages', async () => {
+    const { store, device } = await fixture()
+    const make = (status: number) => AuthService.create(store as unknown as PgStore, { accessSecret: 'test-secret-must-be-at-least-32-bytes-long', refreshDays: 30, powervpn: { baseUrl: 'https://panel.test', fetch: (async () => new Response('{}', { status })) as unknown as typeof fetch } })
+    await expect((await make(401)).loginPowervpn({ accessToken: 'bad-token-xxxxxxxxxx', device })).rejects.toMatchObject({ code: 'POWERVPN_TOKEN_INVALID', status: 401 })
+    await expect((await make(502)).loginPowervpn({ accessToken: 'bad-token-xxxxxxxxxx', device })).rejects.toMatchObject({ code: 'POWERVPN_UNAVAILABLE' })
+    // 200 but not a valid ClientMe (missing / wrong-typed id) → rejected, no user created
+    await expect((await make(200)).loginPowervpn({ accessToken: 'bad-token-xxxxxxxxxx', device })).rejects.toMatchObject({ code: 'POWERVPN_UNAVAILABLE', status: 502 })
+    const odd = await AuthService.create(store as unknown as PgStore, { accessSecret: 'test-secret-must-be-at-least-32-bytes-long', refreshDays: 30, powervpn: { baseUrl: 'https://panel.test', fetch: (async () => new Response(JSON.stringify({ id: { $ne: null } }), { status: 200 })) as unknown as typeof fetch } })
+    await expect(odd.loginPowervpn({ accessToken: 'bad-token-xxxxxxxxxx', device })).rejects.toMatchObject({ code: 'POWERVPN_UNAVAILABLE' })
+    expect(store.identityCalls).toHaveLength(0)
+    const disabled = await AuthService.create(store as unknown as PgStore, { accessSecret: 'test-secret-must-be-at-least-32-bytes-long', refreshDays: 30 })
+    await expect(disabled.loginPowervpn({ accessToken: 'bad-token-xxxxxxxxxx', device })).rejects.toMatchObject({ code: 'POWERVPN_DISABLED' })
+    expect(powervpnUsernameBase('1234-5678-90ab')).toBe('pv_12345678')
   })
 })

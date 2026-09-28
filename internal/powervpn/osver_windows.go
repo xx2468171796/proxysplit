@@ -1,0 +1,14 @@
+//go:build windows
+
+package powervpn
+
+import (
+	"fmt"
+
+	"golang.org/x/sys/windows"
+)
+
+func osVersion() string {
+	v := windows.RtlGetVersion()
+	return fmt.Sprintf("windows %d.%d.%d", v.MajorVersion, v.MinorVersion, v.BuildNumber)
+}

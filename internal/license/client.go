@@ -200,7 +200,7 @@ func (e *APIError) Error() string { return e.Message }
 
 func New(dataDir, version string) *Client {
 	host, _ := os.Hostname()
-	machine := machineID()
+	machine := MachineID()
 	if machine == "" {
 		machine = host
 	}
@@ -386,7 +386,10 @@ type authResult struct {
 	RefreshToken       string `json:"refreshToken"`
 	DeviceID           string `json:"deviceId"`
 	DeviceLimitReached bool   `json:"deviceLimitReached"`
-	License            *struct {
+	User               *struct {
+		Username string `json:"username"`
+	} `json:"user"`
+	License *struct {
 		Plan       string   `json:"plan"`
 		PlanCode   string   `json:"planCode"`
 		Tier       string   `json:"tier"`
@@ -395,22 +398,40 @@ type authResult struct {
 	} `json:"license"`
 }
 
+func (c *Client) devicePayload() map[string]any {
+	return map[string]any{"fingerprint": c.fingerprint, "hardwareHash": c.hardwareHash, "name": c.deviceName, "platform": "windows", "appVersion": normalizedVersion(c.version)}
+}
+
 func (c *Client) authenticate(path, username, email, password string) error {
+	payload := map[string]any{"username": username, "password": password, "device": c.devicePayload()}
+	if email != "" {
+		payload["email"] = email
+	}
+	return c.authenticatePayload(path, username, payload)
+}
+
+// LoginWithPowerVPN signs in with a POWER云 (PowerVPN panel) OAuth access token.
+// The ProxySplit server verifies it against the panel and finds/creates the
+// linked account; the session/device-limit handling is identical to Login.
+func (c *Client) LoginWithPowerVPN(accessToken string) error {
+	if strings.TrimSpace(accessToken) == "" {
+		return errors.New("POWER云 登录令牌为空")
+	}
+	return c.authenticatePayload("/v1/auth/powervpn", "", map[string]any{"accessToken": accessToken, "device": c.devicePayload()})
+}
+
+func (c *Client) authenticatePayload(path, username string, payload map[string]any) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	var result authResult
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
-	payload := map[string]any{
-		"username": username, "password": password,
-		"device": map[string]any{"fingerprint": c.fingerprint, "hardwareHash": c.hardwareHash, "name": c.deviceName, "platform": "windows", "appVersion": normalizedVersion(c.version)},
-	}
-	if email != "" {
-		payload["email"] = email
-	}
 	err := c.request(ctx, http.MethodPost, path, payload, &result, "")
 	if err != nil {
 		return err
+	}
+	if username == "" && result.User != nil {
+		username = result.User.Username
 	}
 	c.state = state{SchemaVersion: stateSchemaVersion, Username: strings.TrimSpace(username), AccessToken: result.AccessToken, RefreshToken: result.RefreshToken, DeviceID: result.DeviceID, PendingDevice: result.DeviceLimitReached, SessionValidatedAt: time.Now().Unix()}
 	if result.License != nil {

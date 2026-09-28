@@ -19,7 +19,9 @@ func TestEnsureBundledWithRealCore(t *testing.T) {
 		name, bundleVersion string
 		replaced            bool
 	}{
-		{"upgrade older installed core", "99.0.0", true},
+		// bin/sing-box.exe is the platform build (reports relayops in Tags).
+		{"upgrade older installed core", "99.0.0-relayops.1", true},
+		{"never downgrade platform core to official", "99.0.0", false},
 		{"preserve newer installed core", "0.1.0", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

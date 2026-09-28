@@ -23,11 +23,21 @@ export const webRegisterSchema = z.object({
 })
 // 用户自助修改密码：需验证原密码。
 export const selfPasswordSchema = z.object({
-  currentPassword: z.string().min(1).max(256),
+  // POWER云 建的账号没有密码：首次设密码时 currentPassword 可为空。
+  currentPassword: z.string().max(256).default(''),
   newPassword: z.string().min(8).max(256),
 })
 export const refreshSchema = z.object({ refreshToken: z.string().min(40), deviceFingerprint: z.string().min(32).max(128) })
 // 已登录但设备名额满时，允许仅使用短期访问令牌在新电脑上腾出一个名额。
+// POWER云 账号登录：客户端 OAuth 拿到的面板访问令牌 + 与注册相同的设备字段。
+export const powervpnLoginSchema = z.object({ accessToken: z.string().min(16).max(4096), device: deviceSchema })
+// 面板 GET /api/client/me 的响应（服务端核实 POWER云 令牌时校验）。
+export const powervpnMeSchema = z.object({
+  id: z.union([z.string().trim().min(1).max(128), z.number().int()]).transform(String),
+  username: z.string().max(256).nullish().transform((v) => v ?? ''),
+  email: z.string().trim().max(320).nullish().transform((v) => (v ? v : null)),
+  displayName: z.string().max(256).nullish().transform((v) => v ?? ''),
+})
 export const activateDeviceSchema = z.object({ device: deviceSchema })
 export const leaseSchema = z.object({ deviceFingerprint: z.string().min(32).max(128), appVersion: z.string().min(5).max(40) })
 export const userCreateSchema = z.object({ username: z.string().trim().min(3).max(64), password: z.string().min(10).max(256), role: z.enum(['user','admin']).default('user'), planId: z.string().uuid().optional(), days: z.number().int().min(1).max(3650).default(30) })
@@ -211,6 +221,7 @@ export const redeemCodeStatusSchema = z.object({ status: z.enum(['active','disab
 
 export type LoginInput = z.infer<typeof loginSchema>
 export type RegisterInput = z.infer<typeof registerSchema>
+export type PowervpnLoginInput = z.infer<typeof powervpnLoginSchema>
 export type WebRegisterInput = z.infer<typeof webRegisterSchema>
 export type SelfPasswordInput = z.infer<typeof selfPasswordSchema>
 export type DeviceInput = z.infer<typeof deviceSchema>

@@ -246,9 +246,24 @@ func parseShadowsocks(link string) (*Node, error) {
 		name = decodeFragment(body[i+1:])
 		body = body[:i]
 	}
-	body = strings.SplitN(body, "?", 2)[0] // drop plugin params for now
-
 	n := &Node{Type: "shadowsocks", Name: name}
+	if parts := strings.SplitN(body, "?", 2); len(parts) == 2 {
+		body = strings.TrimSuffix(parts[0], "/")
+		if q, err := url.ParseQuery(parts[1]); err == nil {
+			if plugin := strings.TrimSpace(q.Get("plugin")); plugin != "" {
+				// SIP002: plugin=name;opt=a;opt2=b
+				name, opts, _ := strings.Cut(plugin, ";")
+				switch strings.ToLower(name) {
+				case "obfs-local", "simple-obfs":
+					n.Plugin, n.PluginOpts = "obfs-local", opts
+				case "v2ray-plugin":
+					n.Plugin, n.PluginOpts = "v2ray-plugin", opts
+				default:
+					n.Name += "（插件 " + name + " 不支持）"
+				}
+			}
+		}
+	}
 	if at := strings.LastIndex(body, "@"); at >= 0 {
 		// SIP002: userinfo is base64(method:password), host:port is plain
 		userinfo, err := b64decode(body[:at])

@@ -22,8 +22,8 @@ import (
 	"proxysplit/internal/icon"
 	"proxysplit/internal/latency"
 	"proxysplit/internal/nodes"
+	"proxysplit/internal/powervpn"
 	"proxysplit/internal/proc"
-	"proxysplit/internal/subs"
 )
 
 // Sub is a subscription source.
@@ -150,6 +150,7 @@ type Service struct {
 	run              *runState         // running app-split core (nil in 整机全局 / stopped)
 	accelPort        int               // Claude Code 加速本机入口端口（进程内固定）
 	accelOut         string            // 该入口当前走的出站（Claude Code 所用线路）
+	pv               *powervpn.Client  // POWER云 panel client (nil in tests)
 }
 
 // New loads (or initializes) config from dataDir.
@@ -464,6 +465,7 @@ func (s *Service) persistLocked() error {
 // AddNodes parses share links from text and appends new (non-duplicate) nodes.
 func (s *Service) AddNodes(text string) (added, skipped int) {
 	parsed, skip := nodes.ParseMany(text)
+	parsed = s.officializePasted(parsed) // POWER云 links → official nodes (network; no lock held)
 	s.mu.Lock()
 	added = s.mergeNodesLocked(parsed, "")
 	if s.cfg.SelectedID == "" && len(s.cfg.Nodes) > 0 {
@@ -1149,16 +1151,6 @@ func (s *Service) EditSub(id, name, url string) error {
 	return nil
 }
 
-func (s *Service) fetchSubscription(url string) ([]*nodes.Node, error) {
-	s.mu.Lock()
-	via := ""
-	if s.core.Running() && s.core.Port() > 0 {
-		via = fmt.Sprintf("127.0.0.1:%d", s.core.Port())
-	}
-	s.mu.Unlock()
-	return subs.Fetch(url, via)
-}
-
 func (s *Service) subscriptionExistsLocked(id string) bool {
 	for i := range s.cfg.Subs {
 		if s.cfg.Subs[i].ID == id {
@@ -1257,6 +1249,7 @@ func nodeEndpointKey(n *nodes.Node) string {
 		strconv.Itoa(n.Port), n.UUID, n.Password, n.Username, n.Method,
 		strconv.Itoa(n.AlterID), n.Cipher, strings.ToLower(n.Security), sni,
 		n.Flow, n.PublicKey, n.ShortID, strings.ToLower(n.Network), n.Path, n.Host,
+		n.Plugin, n.PluginOpts, n.RawKey(),
 	}, "\x00")
 }
 
@@ -1318,22 +1311,11 @@ func (s *Service) SetSubAutoUpdate(id string, on bool) {
 }
 
 // GetCoreVersion returns the bundled sing-box version.
-func (s *Service) GetCoreVersion() string { return s.core.Version() }
-
-// UpdateCore downloads the latest sing-box from GitHub (through the running node)
-// and replaces the bundled binary. Returns the new version, or "ERR:<msg>".
-func (s *Service) UpdateCore() string {
-	via := ""
-	if s.core.Running() && s.core.Port() > 0 {
-		via = fmt.Sprintf("127.0.0.1:%d", s.core.Port())
+func (s *Service) GetCoreVersion() string {
+	if v := coreupdate.InstalledVersion(s.binDir); v != "" {
+		return v
 	}
-	v, err := coreupdate.Update(s.binDir, via)
-	if err != nil {
-		s.log("[core] update failed: " + err.Error())
-		return "ERR:" + err.Error()
-	}
-	s.log(fmt.Sprintf("[core] updated to sing-box %s; restart to apply", v))
-	return v
+	return s.core.Version()
 }
 
 // UpdateRuleSets refreshes the bundled geosite/geoip rule-sets, downloading
