@@ -38,7 +38,8 @@ type Config struct {
 	Socks func() string
 	// Token 返回用户加速令牌（ProxySplit 服务端签发）
 	Token func() (string, error)
-	// RelayHost 中继的专用虚拟域名（落地机 sing-box 把它指到本机中继，其余回环 / 内网地址一律拒绝）
+	// RelayHost 中继的专用虚拟域名（落地机 sing-box 把它指到本机中继，其余回环 / 内网地址一律拒绝）。
+	// 请求的 Host 头也必须写它：VM200 先嗅探 HTTP Host 再按域名路由，写别的名字匹配不到改写规则
 	RelayHost string
 	RelayPort uint16
 	// UpstreamHost 官方主机（请求头 Host、兜底直连）
@@ -189,7 +190,7 @@ func (e *Engine) Hello() (HelloResult, error) {
 	}
 	defer c.Close()
 	_ = c.SetDeadline(time.Now().Add(headTimeout))
-	if _, err := fmt.Fprintf(c, "GET /__accel/hello?nonce=%s HTTP/1.1\r\nHost: accel-relay\r\n\r\n", nonce); err != nil {
+	if _, err := fmt.Fprintf(c, "GET /__accel/hello?nonce=%s HTTP/1.1\r\nHost: %s\r\n\r\n", nonce, e.cfg.RelayHost); err != nil {
 		return HelloResult{}, err
 	}
 	status, body, err := readSimpleResponse(bufio.NewReader(c))
@@ -389,8 +390,8 @@ func (e *Engine) viaRelay(client net.Conn, br *bufio.Reader, req *request, head 
 		if req.chunked {
 			chunked = "X-Accel-Chunked: 1\r\n"
 		}
-		wrapper := fmt.Sprintf("POST /__accel/relay HTTP/1.1\r\nHost: accel-relay\r\nX-Accel-Token: %s\r\nX-Accel-Rid: %s\r\nX-Accel-Head: %d\r\n%sContent-Length: %d\r\n\r\n",
-			token, rid, len(head), chunked, len(head)+len(enc.Frame))
+		wrapper := fmt.Sprintf("POST /__accel/relay HTTP/1.1\r\nHost: %s\r\nX-Accel-Token: %s\r\nX-Accel-Rid: %s\r\nX-Accel-Head: %d\r\n%sContent-Length: %d\r\n\r\n",
+			e.cfg.RelayHost, token, rid, len(head), chunked, len(head)+len(enc.Frame))
 		_ = pc.c.SetWriteDeadline(time.Now().Add(headTimeout))
 		_, werr := pc.c.Write(append(append([]byte(wrapper), head...), enc.Frame...))
 		if werr != nil {
@@ -566,7 +567,7 @@ func (e *Engine) resumeConn(port uint16, rid, token string, offset uint64) (*pco
 	}
 	pc := &pconn{c: c, br: bufio.NewReaderSize(c, 64<<10)}
 	_ = c.SetDeadline(time.Now().Add(headTimeout))
-	if _, err := fmt.Fprintf(c, "GET /__accel/resume?rid=%s&offset=%d HTTP/1.1\r\nHost: accel-relay\r\nX-Accel-Token: %s\r\n\r\n", rid, offset, token); err != nil {
+	if _, err := fmt.Fprintf(c, "GET /__accel/resume?rid=%s&offset=%d HTTP/1.1\r\nHost: %s\r\nX-Accel-Token: %s\r\n\r\n", rid, offset, e.cfg.RelayHost, token); err != nil {
 		c.Close()
 		return nil, relayHead{}, err
 	}
@@ -587,7 +588,7 @@ func (e *Engine) cancel(rid, token string) {
 			return
 		}
 		_ = pc.c.SetDeadline(time.Now().Add(headTimeout))
-		if _, err := fmt.Fprintf(pc.c, "POST /__accel/cancel?rid=%s HTTP/1.1\r\nHost: accel-relay\r\nX-Accel-Token: %s\r\nContent-Length: 0\r\n\r\n", rid, token); err != nil {
+		if _, err := fmt.Fprintf(pc.c, "POST /__accel/cancel?rid=%s HTTP/1.1\r\nHost: %s\r\nX-Accel-Token: %s\r\nContent-Length: 0\r\n\r\n", rid, e.cfg.RelayHost, token); err != nil {
 			pc.c.Close()
 			return
 		}
@@ -678,7 +679,7 @@ func (e *Engine) dialRelay() (*pconn, error) {
 	}
 	pc := &pconn{c: c, br: bufio.NewReaderSize(c, 256<<10), since: time.Now()}
 	_ = c.SetDeadline(time.Now().Add(headTimeout))
-	if _, err := io.WriteString(c, "GET /__accel/health HTTP/1.1\r\nHost: accel-relay\r\n\r\n"); err != nil {
+	if _, err := io.WriteString(c, "GET /__accel/health HTTP/1.1\r\nHost: "+e.cfg.RelayHost+"\r\n\r\n"); err != nil {
 		c.Close()
 		return nil, err
 	}
