@@ -37,6 +37,8 @@ services:
     volumes:
       - /opt/proxysplit/secrets/license-private.pem:/run/secrets/license-private.pem:ro
       - /opt/proxysplit/secrets/license-public.pem:/run/secrets/license-public.pem:ro
+      # Claude Code 加速令牌签发私钥（与会员租约密钥分开；文件须先放好，否则 Docker 会建成空目录）
+      - /opt/proxysplit/secrets/accel-token-private.pem:/run/secrets/accel-token-private.pem:ro
     ports:
       - "127.0.0.1:18780:18780"
     healthcheck:
