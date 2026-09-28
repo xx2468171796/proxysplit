@@ -596,6 +596,25 @@ func (c *Client) ActivateCurrentDevice() error {
 	return c.saveLocked()
 }
 
+// AccelToken 取 Claude Code 加速令牌（服务端签发，24 小时有效；只给设备已激活、会员有效的账号）
+func (c *Client) AccelToken() (string, time.Time, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	var result struct {
+		Token     string    `json:"token"`
+		ExpiresAt time.Time `json:"expiresAt"`
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
+	defer cancel()
+	if err := c.authedRequestLocked(ctx, http.MethodPost, "/v1/accel/token", map[string]any{}, &result); err != nil {
+		return "", time.Time{}, err
+	}
+	if result.Token == "" {
+		return "", time.Time{}, errors.New("服务端没有返回加速令牌")
+	}
+	return result.Token, result.ExpiresAt, nil
+}
+
 func (c *Client) Orders() ([]Order, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()

@@ -46,6 +46,7 @@ type App struct {
 	ready      chan struct{}
 	readyOnce  sync.Once
 	initErr    error
+	accel      *accelRuntime // Claude Code 加速（accel_app.go）
 }
 
 // NewApp creates the App.
@@ -107,6 +108,7 @@ func (a *App) startup(ctx context.Context) {
 	svc.SetLogSink(func(line string) {
 		runtime.EventsEmit(ctx, "log", line)
 	})
+	a.startAccel()
 	a.finishStartup(nil)
 	go a.licenseWatchdog()
 	go a.resumeAfterUpdate()     // bring the proxy back after an automatic update
@@ -254,6 +256,7 @@ func (a *App) domReady(ctx context.Context) {
 // pointing at a now-dead proxy.
 func (a *App) shutdown(ctx context.Context) {
 	systray.Quit()
+	a.stopAccel() // 先把 Claude Code 配置还原成官方默认，再停内核
 	if a.svc != nil {
 		a.svc.Stop()
 	}
@@ -450,7 +453,11 @@ func (a *App) InstallAppUpdate(release updater.Release) string {
 
 // Settings.
 func (a *App) GetSettings() service.Settings         { return a.svc.GetSettings() }
-func (a *App) SetSettings(s service.Settings) string { return a.svc.SetSettings(s) }
+func (a *App) SetSettings(s service.Settings) string {
+	msg := a.svc.SetSettings(s)
+	a.kickAccel()
+	return msg
+}
 
 // Routing (in-tunnel domain/IP split).
 func (a *App) GetRouting() service.Routing         { return a.svc.GetRouting() }

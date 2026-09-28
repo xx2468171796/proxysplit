@@ -4,7 +4,7 @@ import rateLimit from '@fastify/rate-limit'
 import { Redis } from 'ioredis'
 import { AppError, normalizeUsername } from '@proxysplit/shared'
 import { activateDeviceSchema, adminGrantSchema, selfPasswordSchema, webRegisterSchema, analyticsQuerySchema, announcementListQuery, announcementUpsertSchema, auditListQuery, deviceListQuery, downloadStatsQuery, leaseSchema, licenseExtendSchema, loginSchema, orderCreateSchema, orderListQuery, orderRefundSchema, planListQuery, planPatchSchema, planUpsertSchema, providerUpsertSchema, redeemCodeCreateSchema, redeemListQuery, redeemSchema, refreshSchema, registerSchema, releaseCreateSchema, releaseListQuery, settingPatchSchema, trackViewSchema, userCreateSchema, userListQuery, userPasswordSchema, userStatusSchema } from '@proxysplit/contracts'
-import { createCommercialCore, hashPassword, PaymentService, type AuthService, type PgStore } from '@proxysplit/core'
+import { AccelTokens, createCommercialCore, hashPassword, PaymentService, type AuthService, type PgStore } from '@proxysplit/core'
 import type { ApiConfig } from './config.js'
 
 type Core={auth:AuthService;store:PgStore;close:()=>Promise<void>}
@@ -52,6 +52,15 @@ export async function buildApp(config:ApiConfig,provided?:Core){
   app.post('/v1/auth/refresh',{config:{rateLimit:{max:10,timeWindow:'1 minute'}}},async(req)=>core.auth.rotate(refreshSchema.parse(req.body),req.ip))
   app.post('/v1/me/device/activate',{config:{rateLimit:{max:10,timeWindow:'1 minute'}}},async(req)=>{const p=await auth(req,true);if(p.deviceId!=='pending')throw new AppError('DEVICE_ALREADY_ACTIVE','当前设备已激活',409);return core.auth.activateDevice(p.userId,activateDeviceSchema.parse(req.body).device,req.ip)})
   app.post('/v1/auth/logout',async(req)=>core.auth.logout(refreshSchema.parse(req.body),req.ip))
+  // Claude Code 加速令牌（客户端编码端连落地机中继用）：设备已激活 + 账号正常 + 会员有效才发，24 小时有效
+  const accel=AccelTokens.fromPem(config.ACCEL_TOKEN_PRIVATE_KEY_PEM)
+  app.post('/v1/accel/token',{config:{rateLimit:{max:30,timeWindow:'1 minute'}}},async(req)=>{
+    const p=await auth(req)
+    if(!accel.enabled)throw new AppError('ACCEL_UNAVAILABLE','加速服务未开放',503)
+    const user=await core.store.findUserById(p.userId);if(!user||user.status!=='active')throw new AppError('ACCOUNT_UNAVAILABLE','Account is unavailable',403)
+    if(!await core.store.entitlement(p.userId))throw new AppError('LICENSE_INACTIVE','License is missing or expired',403)
+    return accel.issue(p.userId)
+  })
   app.post('/v1/license/lease',async(req)=>{const p=await auth(req);const input=leaseSchema.parse(req.body);return core.auth.lease(p.userId,p.deviceId,input.deviceFingerprint,input.appVersion)})
   const payments=new PaymentService(core.store,config.PUBLIC_BASE_URL.replace(/\/$/,''),message=>app.log.warn(message))
   let paymentReconcileRunning=false

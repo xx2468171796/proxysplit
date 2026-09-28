@@ -31,6 +31,8 @@
     UpdateCore as WUpdateCore,
     GetSettings as WGetSettings,
     SetSettings as WSetSettings,
+    GetClaudeAccel as WGetClaudeAccel,
+    SetClaudeAccelMode as WSetClaudeAccelMode,
     GetRouting as WGetRouting,
     UpdateRuleSets as WUpdateRuleSets,
     GetLines as WGetLines,
@@ -88,6 +90,31 @@
   } from '../wailsjs/go/main/App.js'
   import { EventsOn } from '../wailsjs/runtime/runtime.js'
   import donateQR from './assets/images/donate.png'
+
+  // Claude Code 加速（docs/Claude加速-网关切换.md）：状态每 3 秒刷新
+  let claudeAccel: any = null
+  let claudeAccelBusy = false
+  async function refreshClaudeAccel() {
+    try { claudeAccel = await WGetClaudeAccel() } catch { /* 启动中 */ }
+  }
+  async function setClaudeAccelMode(mode: string) {
+    claudeAccelBusy = true
+    const err = await WSetClaudeAccelMode(mode)
+    if (err) toast(err)
+    setTimeout(async () => { await refreshClaudeAccel(); claudeAccelBusy = false }, 1500)
+  }
+  function toggleClaudeAccel(field: 'claudeAccelOff' | 'claudeAccelAutoOff', on: boolean) {
+    settings[field] = !on
+    saveSettings()
+    setTimeout(refreshClaudeAccel, 1500)
+  }
+  function accelSaved(st: any) {
+    const req = st?.stats?.reqBytes || 0, sent = st?.stats?.frameBytes || 0
+    return req > 0 ? Math.max(0, Math.round((1 - sent / req) * 100)) : 0
+  }
+  let claudeAccelTimer: ReturnType<typeof setInterval> | null = null
+  onMount(() => { refreshClaudeAccel(); claudeAccelTimer = setInterval(refreshClaudeAccel, 3000) })
+  onDestroy(() => { if (claudeAccelTimer) clearInterval(claudeAccelTimer) })
 
   type Tab = 'overview' | 'nodes' | 'apps' | 'rules' | 'subs' | 'logs' | 'settings'
   const tabMeta: Record<Tab, { title: string; desc: string }> = {
@@ -164,6 +191,7 @@
     mixedPort: number; tunMode: boolean; lanShare: boolean; excludeSelf: boolean; privateDirect: boolean; blockQUIC: boolean
     remoteDNS: boolean; fakeIP: boolean; autostart: boolean; trayClose: boolean; theme: string
     lanPort: number; lanType: string; lanUser: string; lanPass: string; autoUpdateRules: boolean; autoUpdateApp: boolean
+    claudeAccelOff?: boolean; claudeAccelAutoOff?: boolean
   }
 
   // --- demo data (matches the design mockup 1:1, shown in browser preview) ---
@@ -2438,6 +2466,26 @@
               {#if aiMsg}<span class="rs-msg">{aiMsg}</span>{/if}
             </div>
             <p class="ai-hint">用法：点「一键复制 AI 提示词」→ 粘贴给你的 AI（Claude Code / Codex）→ 直接说「让 Chrome 走代理」即可。提示词已内置接口地址与 Token，AI 用 curl 就能控制。Token 等于本机代理控制权，别外发。「复制 MCP 配置」给的是命令方式（本程序 --mcp），配好后即使 ProxySplit 没打开，AI 调用时也会自动在后台启动它。</p>
+          </section>
+          <section class="card accel-card">
+            <div class="card-head sm">
+              <div><h3>⚡ Claude Code 加速</h3><p class="sub">检测到当前线路落地是我们的节点，自动把 Claude Code 请求压缩成「只发变化的部分」，上行流量省约 97%；官方订阅登录也能用</p></div>
+              <span class="pill" class:good={claudeAccel?.mode === 'encode'}>{claudeAccel?.mode === 'encode' ? '● 编码模式' : '○ 官方默认'}</span>
+            </div>
+            <div class="setting"><span>当前模式<small class="setting-hint">{claudeAccel?.reason || '检测中…'}{#if claudeAccel?.mode === 'encode' && claudeAccel?.rttMs}（延迟 {claudeAccel.rttMs} ms）{/if}</small></span>
+              <div class="mode-seg sm">
+                <button class:on={claudeAccel?.mode !== 'encode'} disabled={claudeAccelBusy || settings.claudeAccelOff} on:click={() => setClaudeAccelMode('official')}>官方默认</button>
+                <button class:on={claudeAccel?.mode === 'encode'} disabled={claudeAccelBusy || settings.claudeAccelOff} on:click={() => setClaudeAccelMode('encode')}>编码模式</button>
+              </div></div>
+            {#if claudeAccel?.manual}
+              <div class="setting"><span>已手动选择<small class="setting-hint">换线路后自动恢复；也可以现在交回自动</small></span><button class="mini" on:click={() => setClaudeAccelMode('auto')}>交回自动</button></div>
+            {/if}
+            <div class="setting"><span>自动切换<small class="setting-hint">落地签名验证通过且中继连得通 → 编码模式；换到别的线路、断开代理 → 自动恢复官方默认</small></span><label class="switch"><input type="checkbox" checked={!settings.claudeAccelAutoOff} disabled={settings.claudeAccelOff} on:change={(e) => toggleClaudeAccel('claudeAccelAutoOff', e.currentTarget.checked)} /><i></i></label></div>
+            <div class="setting"><span>启用加速功能<small class="setting-hint">关闭后一律官方默认（会重启代理内核）</small></span><label class="switch"><input type="checkbox" checked={!settings.claudeAccelOff} on:change={(e) => toggleClaudeAccel('claudeAccelOff', e.currentTarget.checked)} /><i></i></label></div>
+            {#if claudeAccel?.stats?.relayed}
+              <div class="setting"><span>本次已加速<small class="setting-hint">原始 {fmtBytes(claudeAccel.stats.reqBytes)}，实际发出 {fmtBytes(claudeAccel.stats.frameBytes)}{#if claudeAccel.stats.resumed}，断线续传 {claudeAccel.stats.resumed} 次{/if}</small></span><strong>{claudeAccel.stats.relayed} 次 · 省 {accelSaved(claudeAccel)}%</strong></div>
+            {/if}
+            <p class="ai-hint">{claudeAccel?.gatewayInUse ? 'Claude Code 已配置了其他网关地址（例如公司网关），不接管。' : '切换后需要重新打开 Claude Code（或 VS Code 里的 Claude 插件）才生效；恢复官方默认时会把 Claude Code 配置逐字节还原。'}</p>
           </section>
           <section class="card">
             <h3>内核 &amp; 诊断</h3>

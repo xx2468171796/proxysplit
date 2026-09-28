@@ -121,6 +121,31 @@ type Options struct {
 	// BlockQUIC rejects QUIC (UDP 443) headed for the tunnel so browsers fall back
 	// to TCP, where the domain can always be sniffed and routed.
 	BlockQUIC bool
+
+	// AccelPort > 0 adds a loopback-only mixed inbound (accel-in) used solely by
+	// the built-in Claude Code accelerator (internal/accel). Its connections go
+	// to AccelOutbound — the line Claude Code itself uses — ahead of every other
+	// rule (the accelerator runs inside our own process, which SelfProcess would
+	// otherwise send direct). 代理策略 直连 still wins so a paused core stays paused.
+	AccelPort     int
+	AccelOutbound string
+}
+
+const accelInbound = "accel-in"
+
+func accelRules(opts Options, clash bool) []M {
+	if opts.AccelPort <= 0 {
+		return nil
+	}
+	out := opts.AccelOutbound
+	if out == "" {
+		out = "direct"
+	}
+	var rules []M
+	if clash {
+		rules = append(rules, M{"inbound": []string{accelInbound}, "clash_mode": "direct", "outbound": "direct"})
+	}
+	return append(rules, M{"inbound": []string{accelInbound}, "outbound": out})
 }
 
 // ScopedRule is one app-rule narrowed to specific destinations. Only the named
@@ -616,6 +641,7 @@ func BuildTUNConfig(node *nodes.Node, logLevel string, opts Options) ([]byte, er
 		{"action": "sniff"},
 		{"protocol": "dns", "action": "hijack-dns"},
 	}
+	rules = append(rules, accelRules(opts, clashExp != nil)...)
 	if opts.Split {
 		// 拦截 cuts the app off completely — LAN, our own API, everything — so it
 		// comes before the always-direct housekeeping rules.
@@ -782,6 +808,9 @@ func BuildTUNConfig(node *nodes.Node, logLevel string, opts Options) ([]byte, er
 	}
 	if lan := lanInbound(opts); lan != nil {
 		tunInbounds = append(tunInbounds, lan)
+	}
+	if opts.AccelPort > 0 {
+		tunInbounds = append(tunInbounds, M{"type": "mixed", "tag": accelInbound, "listen": "127.0.0.1", "listen_port": opts.AccelPort})
 	}
 	outs := []M{ob, {"type": "direct", "tag": "direct"}}
 	for _, en := range opts.ExtraNodes {

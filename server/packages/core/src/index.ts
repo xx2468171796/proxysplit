@@ -1,6 +1,7 @@
 export * from './auth.js'
 export * from './store.js'
 export * from './payments.js'
+export * from './accel.js'
 import { hashPassword, AuthService, type AuthConfig } from './auth.js'
 import { PgStore } from './store.js'
 export async function createCommercialCore(config:{databaseUrl:string;auth:AuthConfig;bootstrapAdmin?:{username:string;password:string}}){

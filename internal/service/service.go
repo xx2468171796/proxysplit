@@ -55,6 +55,9 @@ type Settings struct {
 	Theme           string `json:"theme"`
 	AutoUpdateRules bool   `json:"autoUpdateRules"` // 添加节点后自动更新分流规则集(可选,默认关)
 	AutoUpdateApp   bool   `json:"autoUpdateApp"`   // 启动后自动检查已签名的客户端版本
+	// Claude Code 加速（docs/Claude加速-网关切换.md）：默认开启、自动切换；零值即默认，老配置升级后自动生效
+	ClaudeAccelOff     bool `json:"claudeAccelOff,omitempty"`     // 整个功能关掉（不开本机入口，恢复官方默认）
+	ClaudeAccelAutoOff bool `json:"claudeAccelAutoOff,omitempty"` // 关掉自动切换（只在用户手动点编码模式时编码）
 }
 
 func defaultSettings() Settings {
@@ -145,6 +148,8 @@ type Service struct {
 	directDomainList []string          // hosts always routed outside the tunnel (our API)
 	healthCache      atomic.Value      // []LineHealth — refreshed by the background health loop
 	run              *runState         // running app-split core (nil in 整机全局 / stopped)
+	accelPort        int               // Claude Code 加速本机入口端口（进程内固定）
+	accelOut         string            // 该入口当前走的出站（Claude Code 所用线路）
 }
 
 // New loads (or initializes) config from dataDir.
@@ -1367,7 +1372,8 @@ func (s *Service) SetSettings(st Settings) string {
 	if s.core.Running() && (old.TunMode != st.TunMode || old.BlockQUIC != st.BlockQUIC ||
 		old.LanShare != st.LanShare || old.RemoteDNS != st.RemoteDNS ||
 		old.LanPort != st.LanPort || old.LanType != st.LanType || old.LanUser != st.LanUser || old.LanPass != st.LanPass ||
-		old.PrivateDirect != st.PrivateDirect || old.ExcludeSelf != st.ExcludeSelf) {
+		old.PrivateDirect != st.PrivateDirect || old.ExcludeSelf != st.ExcludeSelf ||
+		old.ClaudeAccelOff != st.ClaudeAccelOff) {
 		if err := s.restart(); err != nil {
 			s.log("[service] restart after settings change failed: " + err.Error())
 			return restartMsg(err)
@@ -1451,6 +1457,10 @@ func (s *Service) startLocked() error {
 		s.clashMode = "rule"
 	}
 	wantMode := s.clashMode
+	accelPort := 0
+	if !set.ClaudeAccelOff {
+		accelPort = s.accelPortLocked()
+	}
 	s.mu.Unlock()
 	clashOptsFor := func(port int) core.Options {
 		ctl := ""
@@ -1460,7 +1470,8 @@ func (s *Service) startLocked() error {
 		return core.Options{RemoteDNS: set.RemoteDNS, GeoDir: s.binDir, ClashController: ctl, ClashSecret: clashSecret, ClashMode: wantMode,
 			LanShare: set.LanShare, LanPort: set.LanPort, LanType: set.LanType, LanUser: set.LanUser, LanPass: set.LanPass,
 			CustomRules: custom, RuleSets: &ruleSets, DirectDomains: s.directDomains(),
-			ProxyPrivate: !set.PrivateDirect, BlockQUIC: set.BlockQUIC, SelfProcess: selfProcess(set.ExcludeSelf)}
+			ProxyPrivate: !set.PrivateDirect, BlockQUIC: set.BlockQUIC, SelfProcess: selfProcess(set.ExcludeSelf),
+			AccelPort: accelPort}
 	}
 
 	// System-wide mode: sing-box TUN routes the whole machine.
@@ -1474,9 +1485,14 @@ func (s *Service) startLocked() error {
 		s.clashPort = clashPort
 		s.trafficStats = Stats{}
 		s.mu.Unlock()
-		if err := s.core.StartTUN(node, level, tunRoute, nil, clashOptsFor(clashPort)); err != nil {
+		tunOpts := clashOptsFor(clashPort)
+		tunOpts.AccelOutbound = "proxy" // 整机全局：Claude Code 也走主节点
+		if err := s.core.StartTUN(node, level, tunRoute, nil, tunOpts); err != nil {
 			return fmt.Errorf("core(TUN): %w", err)
 		}
+		s.mu.Lock()
+		s.accelOut = tunOpts.AccelOutbound
+		s.mu.Unlock()
 		s.mu.Lock()
 		s.startedAt = time.Now()
 		s.activeFP = nil
@@ -1510,6 +1526,7 @@ func (s *Service) startLocked() error {
 	s.startedAt = time.Now()
 	s.activeFP = nil
 	s.run = &runState{node: node, level: level, route: tunRoute, base: base, targets: sum.targets}
+	s.accelOut = opts.AccelOutbound
 	s.mu.Unlock()
 
 	s.applySystemProxyOnStart()
@@ -1689,6 +1706,7 @@ func (s *Service) splitOptionsLocked(opts *core.Options, node *nodes.Node) split
 	opts.SplitDirect, opts.SplitBlock = directApps, blockApps
 	opts.SplitScoped = scopedRules
 	sum.direct, sum.blocked = len(directApps), len(blockApps)
+	opts.AccelOutbound = claudeOutbound(opts)
 	return sum
 }
 

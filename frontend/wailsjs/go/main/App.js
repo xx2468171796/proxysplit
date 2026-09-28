@@ -82,6 +82,10 @@ export function GetClashMode() {
   return window['go']['main']['App']['GetClashMode']();
 }
 
+export function GetClaudeAccel() {
+  return window['go']['main']['App']['GetClaudeAccel']();
+}
+
 export function GetConnections() {
   return window['go']['main']['App']['GetConnections']();
 }
@@ -268,6 +272,10 @@ export function SetAutostart(arg1) {
 
 export function SetClashMode(arg1) {
   return window['go']['main']['App']['SetClashMode'](arg1);
+}
+
+export function SetClaudeAccelMode(arg1) {
+  return window['go']['main']['App']['SetClaudeAccelMode'](arg1);
 }
 
 export function SetCustomRules(arg1) {

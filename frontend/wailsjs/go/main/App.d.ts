@@ -3,6 +3,7 @@
 import {main} from '../models';
 import {updater} from '../models';
 import {service} from '../models';
+import {accel} from '../models';
 import {core} from '../models';
 import {license} from '../models';
 import {nodes} from '../models';
@@ -47,6 +48,8 @@ export function GetAutostart():Promise<boolean>;
 export function GetBootstrapState():Promise<main.BootstrapState>;
 
 export function GetClashMode():Promise<string>;
+
+export function GetClaudeAccel():Promise<accel.State>;
 
 export function GetConnections():Promise<Array<service.ConnInfo>>;
 
@@ -141,6 +144,8 @@ export function SetApps(arg1:Array<string>):Promise<void>;
 export function SetAutostart(arg1:boolean):Promise<string>;
 
 export function SetClashMode(arg1:string):Promise<string>;
+
+export function SetClaudeAccelMode(arg1:string):Promise<string>;
 
 export function SetCustomRules(arg1:Array<core.RouteRule>):Promise<string>;
 
