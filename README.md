@@ -164,3 +164,7 @@ scripts/build.ps1       版本化商业构建与发布签名
 </div>
 
 本软件为私有软件，受版权保护；未经授权禁止反编译、破解或二次分发。
+
+## POWER云 接入（开发者）
+
+与 PowerVPN 面板、平台自编 sing-box 联动的规则（自家节点识别、按设备计数、POWER云 登录、签名公钥、内置内核、三仓联动变更清单与发布顺序）以 PowerVPN 仓 `docs/platform/PowerVPN-客户端接入标准.md` 为准；改 `internal/powervpn`、`internal/coreupdate`、`bin/core-release.json` 或服务端 `/v1/auth/powervpn` 前先读它。

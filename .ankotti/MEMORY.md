@@ -2,6 +2,7 @@
 > 当前快照，最后更新：2026-09-28 晚。历史发布过程见 Git，不在此重复堆积。
 
 ## 当前状态
+- **POWER云 接入是公司标准**（2026-09-29，commit 9a5a6d8）：改 internal/powervpn、internal/coreupdate、bin/core-release.json、PanelPublicKey、服务端 /v1/auth/powervpn 前先读 powervpn 仓 `docs/platform/PowerVPN-客户端接入标准.md`（字段合同 openspec/changes/client-device-identity/design.md），按其第 8 节清单三处一起改，发布顺序 面板 → 节点 → 本仓服务端 → 客户端。换签名密钥必须先发带新公钥的客户端。
 - 2026-09-28 23:23：**v1.9.57 已上线 stable（非强制），minimumVersion 1.9.51**（commit afe83be，SHA256 78ed28aaf1b8145d9b0ad1fa6fee1f778d5bdcffd80b41b4401f26bd71dd6150，release 20260928-232301-afe83be-v1.9.57，服务端同批上线）。
   - **Claude Code 加速**（设计 docs/Claude加速-网关切换.md，代码 internal/accel + accel_app.go）：线路落地是 POWER云 节点（中继签名验过）→ 自动把 Claude Code 切编码模式（改 ~/.claude/settings.json 的 ANTHROPIC_BASE_URL 指向本机 127.0.0.1:18765，逐字节可还原），否则官方默认；设置页有卡片。编码端经 sing-box 本机入口 accel-in 走 Claude Code 所在线路，连 accel.powervpn.internal:8896（落地机改写到本机中继，sub2api 仓 accel/ 0.5+）。
   - 服务端 `POST /v1/accel/token` 签 24 小时加速令牌，密钥 sz `/opt/proxysplit/secrets/accel-token-private.pem`（挂进容器 → ACCEL_TOKEN_PRIVATE_KEY_PEM；资产「ProxySplit · Claude 加速令牌签发私钥」），与会员租约密钥分开。
