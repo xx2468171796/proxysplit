@@ -17,9 +17,23 @@ import (
 // nodes/rules. Here we add a node, start the core (which writes its config),
 // then confirm config.json is untouched and a reopened Service still has the node.
 func TestConfigSurvivesCoreStart(t *testing.T) {
-	bin, _ := filepath.Abs(filepath.Join("..", "..", "bin"))
-	if _, err := os.Stat(filepath.Join(bin, "sing-box.exe")); err != nil {
+	repoBin, _ := filepath.Abs(filepath.Join("..", "..", "bin"))
+	if _, err := os.Stat(filepath.Join(repoBin, "sing-box.exe")); err != nil {
 		t.Skip("sing-box.exe not present")
+	}
+	// Private copy of the core: New / Start / Stop kill every sing-box running
+	// from the service's bin path. Pointed at the repo's bin that also killed
+	// other packages' tests running the same binary in parallel (e.g. the
+	// `sing-box check` calls of internal/core TestLanShareConfig).
+	bin := t.TempDir()
+	for _, f := range []string{"sing-box.exe", "geoip-cn.srs", "geosite-cn.srs", "geosite-category-ads-all.srs"} {
+		data, err := os.ReadFile(filepath.Join(repoBin, f))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(bin, f), data, 0o755); err != nil {
+			t.Fatal(err)
+		}
 	}
 	dataDir := t.TempDir()
 

@@ -229,3 +229,45 @@ func TestVersionedRuleBundlePreviewAndAtomicImport(t *testing.T) {
 		t.Fatalf("failed import polluted destination: %+v", got)
 	}
 }
+
+// Audit fix: official POWER云 nodes keep their ID across the panel reordering
+// or adding nodes (the tags carry the list position), matched by OfficialKey;
+// nodes saved by an older build (no key) are matched once by endpoint.
+func TestReconcileOfficialNodesByStableKey(t *testing.T) {
+	off := func(id, name, server, key string) *nodes.Node {
+		n := &nodes.Node{ID: id, Name: name, Type: "vless", Server: server, Port: 443, Official: true, AccountID: "acc"}
+		if key != "" {
+			n.OfficialKey = "acc/" + key
+		}
+		return n
+	}
+	// Upgrade: old nodes have tag-based IDs and no key; same endpoints → IDs kept.
+	old := []*nodes.Node{off("pv-tw-old", "节点 1 · 台湾", "tw", ""), off("pv-us-old", "节点 2 · 美国", "us", "")}
+	old[0].Latency = 60
+	fresh := []*nodes.Node{off("pv-tw-key", "节点 1 · 台湾", "tw", "relay:tw"), off("pv-us-key", "节点 2 · 美国", "us", "landing:us")}
+	reconcileSubscriptionNodes(old, fresh)
+	if fresh[0].ID != "pv-tw-old" || fresh[1].ID != "pv-us-old" || fresh[0].Latency != 60 {
+		t.Fatalf("upgrade lost identity: %+v %+v", fresh[0], fresh[1])
+	}
+	// Then the panel puts a new node first: all tags shift, IDs follow the key.
+	old = fresh
+	fresh = []*nodes.Node{
+		off("pv-jp-key", "节点 1 · 日本", "jp", "relay:jp"),
+		off("pv-tw-key", "节点 2 · 台湾", "tw", "relay:tw"),
+		off("pv-us-key", "节点 3 · 美国", "us", "landing:us"),
+	}
+	reconcileSubscriptionNodes(old, fresh)
+	if fresh[0].ID != "pv-jp-key" || fresh[1].ID != "pv-tw-old" || fresh[2].ID != "pv-us-old" {
+		t.Fatalf("reorder moved identities: %s %s %s", fresh[0].ID, fresh[1].ID, fresh[2].ID)
+	}
+	if fresh[1].Latency != 60 {
+		t.Fatal("same server: measurements should stay")
+	}
+	// A keyed node never takes over another key's old node, even with the same name.
+	old = []*nodes.Node{off("pv-a", "节点 1 · 台湾", "tw", "relay:tw")}
+	fresh = []*nodes.Node{off("pv-b", "节点 1 · 台湾", "tw2", "relay:other")}
+	reconcileSubscriptionNodes(old, fresh)
+	if fresh[0].ID != "pv-b" {
+		t.Fatalf("different key matched by name: %s", fresh[0].ID)
+	}
+}

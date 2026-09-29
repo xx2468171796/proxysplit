@@ -3,11 +3,13 @@ package core
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
 	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -308,6 +310,14 @@ func (m *Manager) ApplySplitLists(node *nodes.Node, logLevel, routeMode string, 
 
 // writeRuleSets writes the per-app process rule-sets atomically (temp + rename),
 // so the core never reads a half-written file.
+//
+// Order matters: the core reloads each file on its own as soon as it changes.
+// An app moved between two lists must be added to its new list before it is
+// removed from the old one; the other way round it is briefly in no list at all
+// and falls to the default route (in 默认全走代理 a 直连 / 拦截 app would go
+// through the proxy for a moment). So files that gain processes are written
+// first (sorted, for a deterministic order), then those that only lose some.
+// (Writing in Go map order made TestHotReloadMoveHasNoGap fail ~1 run in 3.)
 func writeRuleSets(opts Options) error {
 	sets := SplitRuleSets(opts)
 	if len(sets) == 0 {
@@ -316,20 +326,77 @@ func writeRuleSets(opts Options) error {
 	if err := os.MkdirAll(opts.RuleDir, 0o755); err != nil {
 		return err
 	}
+	var gains, losses []string
 	for tag, data := range sets {
-		path := filepath.Join(opts.RuleDir, tag+".json")
-		if old, err := os.ReadFile(path); err == nil && string(old) == string(data) {
+		old, err := os.ReadFile(filepath.Join(opts.RuleDir, tag+".json"))
+		if err == nil && string(old) == string(data) {
 			continue
 		}
+		if err != nil || setGains(old, data) {
+			gains = append(gains, tag)
+		} else {
+			losses = append(losses, tag)
+		}
+	}
+	sort.Strings(gains)
+	sort.Strings(losses)
+	write := func(tag string) error {
+		path := filepath.Join(opts.RuleDir, tag+".json")
 		tmp := path + ".tmp"
-		if err := os.WriteFile(tmp, data, 0o600); err != nil {
+		if err := os.WriteFile(tmp, sets[tag], 0o600); err != nil {
 			return err
 		}
-		if err := os.Rename(tmp, path); err != nil {
+		return os.Rename(tmp, path)
+	}
+	for _, tag := range gains {
+		if err := write(tag); err != nil {
+			return err
+		}
+	}
+	for _, tag := range losses {
+		if err := write(tag); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// setGains reports whether the new process list has a name the old one lacks.
+// An unreadable old file counts as a gain (write it early: safe either way).
+func setGains(old, next []byte) bool {
+	oldNames, ok1 := processNames(old)
+	newNames, ok2 := processNames(next)
+	if !ok1 || !ok2 {
+		return true
+	}
+	have := make(map[string]bool, len(oldNames))
+	for _, n := range oldNames {
+		have[strings.ToLower(n)] = true
+	}
+	for _, n := range newNames {
+		// The empty-list placeholder is no process: a list that just lost its
+		// last app only loses.
+		if n != noProcess && !have[strings.ToLower(n)] {
+			return true
+		}
+	}
+	return false
+}
+
+func processNames(data []byte) ([]string, bool) {
+	var doc struct {
+		Rules []struct {
+			ProcessName []string `json:"process_name"`
+		} `json:"rules"`
+	}
+	if err := json.Unmarshal(data, &doc); err != nil {
+		return nil, false
+	}
+	var names []string
+	for _, r := range doc.Rules {
+		names = append(names, r.ProcessName...)
+	}
+	return names, true
 }
 
 // spawn starts sing-box with the given config and wires up the exit watcher.

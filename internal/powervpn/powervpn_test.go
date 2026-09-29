@@ -240,6 +240,69 @@ func TestEndpointsCacheClaimAndCore(t *testing.T) {
 	}
 }
 
+// Audit fix: the claim body must carry the same never-empty device name as the
+// headers (the panel rejects an empty deviceName with 400 → link stays compat).
+func TestClaimSendsNonEmptyDeviceName(t *testing.T) {
+	if got := (Device{Name: " 	"}).DisplayName(); got != "Windows PC" {
+		t.Fatalf("empty name → %q", got)
+	}
+	if got := (Device{Name: "PC-1"}).DisplayName(); got != "PC-1" {
+		t.Fatalf("control chars kept: %q", got)
+	}
+	s := newSigner(t)
+	var gotName string
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/client/devices/claim", func(w http.ResponseWriter, r *http.Request) {
+		var in map[string]string
+		_ = json.NewDecoder(r.Body).Decode(&in)
+		gotName = in["deviceName"]
+		s.write(w, SigTypeProfile, []byte(profileJSON))
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	c := testClient(t, srv, s)
+	c.dev = Device{ID: strings.Repeat("a", 64), Name: "", OS: "windows 10.0.26100"}
+	if _, err := c.Claim(context.Background(), "known"); err != nil {
+		t.Fatal(err)
+	}
+	if gotName != "Windows PC" {
+		t.Fatalf("claim deviceName = %q", gotName)
+	}
+}
+
+// Audit fix: an unreachable panel must not make every third-party
+// subscription refresh / pasted link wait for the endpoints request again.
+func TestEndpointsFailureBacksOff(t *testing.T) {
+	s := newSigner(t)
+	var hits atomic.Int32
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/client/endpoints", func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		w.WriteHeader(http.StatusBadGateway)
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	c := testClient(t, srv, s)
+	now := time.Now()
+	c.now = func() time.Time { return now }
+	for i := 0; i < 3; i++ {
+		if _, err := c.Endpoints(context.Background()); err == nil {
+			t.Fatal("endpoints should fail")
+		}
+	}
+	if hits.Load() != 1 {
+		t.Fatalf("failed fetch retried immediately: %d requests", hits.Load())
+	}
+	if c.IsPowerVPNURL(context.Background(), "https://sub.example.org/x") {
+		t.Fatal("third-party URL counted as POWER云")
+	}
+	now = now.Add(endpointsRetryAfter + time.Second)
+	_, _ = c.Endpoints(context.Background())
+	if hits.Load() != 2 {
+		t.Fatalf("not retried after the back-off: %d", hits.Load())
+	}
+}
+
 func sha256sum(v string) string {
 	sum := sha256.Sum256([]byte(v))
 	return base64.RawURLEncoding.EncodeToString(sum[:])
@@ -292,7 +355,9 @@ func TestEndpointsCachePoisoningAndExpiry(t *testing.T) {
 		t.Fatal("forged endpoints cache accepted")
 	}
 	// A valid but stale cache is used while the panel is down, until max staleness.
+	// (The failed fetch above backs off for endpointsRetryAfter; step past it.)
 	up.Store(true)
+	c.now = func() time.Time { return time.Now().Add(endpointsRetryAfter + time.Second) }
 	if _, err := c.Endpoints(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -368,5 +433,54 @@ func TestConcurrentRefreshRotatesOnce(t *testing.T) {
 	}
 	if refreshes.Load() != 1 || !c.LoggedIn() {
 		t.Fatalf("refreshes=%d loggedIn=%v", refreshes.Load(), c.LoggedIn())
+	}
+}
+
+// Audit fix: official node IDs come from the panel's stable node key, so the
+// panel reordering / adding nodes (tags carry the position: "节点 1 · 台湾")
+// does not move the user's selection to another node.
+func TestOfficialNodeIDsFollowStableKey(t *testing.T) {
+	profile := func(nodesJSON, outboundsJSON string) *Profile {
+		var p Profile
+		body := `{"version":1,"accounts":[{"id":"acc1","name":"A","device":{"status":"active"},"outbounds":[` + outboundsJSON + `],"nodes":[` + nodesJSON + `]}]}`
+		if err := json.Unmarshal([]byte(body), &p); err != nil {
+			t.Fatal(err)
+		}
+		return &p
+	}
+	ob := func(tag, server string) string {
+		return `{"tag":"` + tag + `","type":"vless","server":"` + server + `","server_port":443,"uuid":"u"}`
+	}
+	auto := func(members ...string) string {
+		return `{"tag":"自动选择","type":"urltest","outbounds":["` + strings.Join(members, `","`) + `"]}`
+	}
+	ids := func(p *Profile) map[string]string { // key → id
+		list, _ := p.Nodes()
+		out := map[string]string{}
+		for _, n := range list {
+			out[strings.TrimPrefix(n.OfficialKey, "acc1/")] = n.ID
+		}
+		return out
+	}
+	before := ids(profile(
+		`{"tag":"自动选择","outbound":"自动选择","key":"auto"},{"tag":"节点 1 · 台湾","outbound":"节点 1 · 台湾","key":"relay:tw"},{"tag":"节点 2 · 美国","outbound":"节点 2 · 美国","key":"landing:us"}`,
+		ob("节点 1 · 台湾", "tw.example")+","+ob("节点 2 · 美国", "us.example")+","+auto("节点 1 · 台湾", "节点 2 · 美国")))
+	// A new node goes first: every tag shifts, the keys don't.
+	after := ids(profile(
+		`{"tag":"自动选择","outbound":"自动选择","key":"auto"},{"tag":"节点 1 · 日本","outbound":"节点 1 · 日本","key":"relay:jp"},{"tag":"节点 2 · 台湾","outbound":"节点 2 · 台湾","key":"relay:tw"},{"tag":"节点 3 · 美国","outbound":"节点 3 · 美国","key":"landing:us"}`,
+		ob("节点 1 · 日本", "jp.example")+","+ob("节点 2 · 台湾", "tw.example")+","+ob("节点 3 · 美国", "us.example")+","+auto("节点 1 · 日本", "节点 2 · 台湾", "节点 3 · 美国")))
+	for _, k := range []string{"auto", "relay:tw", "landing:us"} {
+		if before[k] == "" || before[k] != after[k] {
+			t.Fatalf("%s: id %q → %q", k, before[k], after[k])
+		}
+	}
+	if after["relay:jp"] == "" || after["relay:jp"] == after["relay:tw"] {
+		t.Fatalf("ids not distinct: %v", after)
+	}
+	// Older panels (no key): the tag-based ID as before, no OfficialKey.
+	old := profile(`{"tag":"节点 1 · 台湾","outbound":"节点 1 · 台湾"}`, ob("节点 1 · 台湾", "tw.example"))
+	list, _ := old.Nodes()
+	if len(list) != 1 || list[0].ID != officialID("acc1", "节点 1 · 台湾") || list[0].OfficialKey != "" {
+		t.Fatalf("fallback changed: %+v", list[0])
 	}
 }

@@ -40,9 +40,10 @@ func Fetch(url string, viaProxy string) ([]*nodes.Node, error) {
 // FetchWith downloads a subscription. With a POWER云 client it identifies as
 // "ProxySplit/<version>" with the device headers (design §2.2); a response
 // carrying a valid X-PowerVPN-Signature (type profile) becomes an official
-// account profile, anything else is parsed in compat mode: base64 / plain
-// share links, Clash YAML, or sing-box JSON. viaProxy (host:port SOCKS) may be
-// used to fetch through the core.
+// account profile; one that declares X-PowerVPN-Sig-Type but does not verify is
+// an error (powervpn.ErrProfileSignature: upgrade ProxySplit). Anything else is
+// parsed in compat mode: base64 / plain share links, Clash YAML, or sing-box
+// JSON. viaProxy (host:port SOCKS) may be used to fetch through the core.
 func FetchWith(url string, viaProxy string, pv *powervpn.Client) (*Result, error) {
 	tr := &http.Transport{}
 	if viaProxy != "" {
@@ -95,8 +96,15 @@ func FetchWith(url string, viaProxy string, pv *powervpn.Client) (*Result, error
 		return nil, fmt.Errorf("read body: %w", err)
 	}
 
-	if official && resp.Header.Get(powervpn.HeaderSignature) != "" {
-		if prof, perr := powervpn.ParseSignedProfile(pv.Verifier(), resp.Header, body); perr == nil {
+	// The panel declares its signed profiles with X-PowerVPN-Sig-Type.
+	declared := strings.TrimSpace(resp.Header.Get(powervpn.HeaderSigType)) != ""
+	if declared || (official && resp.Header.Get(powervpn.HeaderSignature) != "") {
+		verifier := powervpn.DefaultVerifier()
+		if pv != nil {
+			verifier = pv.Verifier()
+		}
+		prof, perr := powervpn.ParseSignedProfile(verifier, resp.Header, body)
+		if perr == nil {
 			list, notices := prof.Nodes()
 			if len(list) == 0 && len(notices) > 0 {
 				return nil, fmt.Errorf("%s", strings.Join(notices, "；"))
@@ -106,7 +114,14 @@ func FetchWith(url string, viaProxy string, pv *powervpn.Client) (*Result, error
 			}
 			return &Result{Nodes: list, Official: true, Notices: notices}, nil
 		}
-		// Bad signature → treat as someone else's subscription (compat).
+		if declared {
+			// A POWER云 profile this build cannot verify / read (panel key or
+			// format newer than this ProxySplit). Parsed as a third-party
+			// subscription it would just come out as zero nodes, so say why.
+			return nil, perr
+		}
+		// Signature header without the panel's type header and not verifying:
+		// someone else's subscription (compat).
 	}
 
 	out, err := ParseBody(body)

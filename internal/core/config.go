@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -1055,7 +1056,9 @@ func buildOutbounds(n *nodes.Node, tag string) ([]M, error) {
 // buildRawOutbounds emits the node's verbatim sing-box outbounds. Only tags are
 // rewritten: the entry outbound becomes tag, every other outbound becomes
 // "tag/<original>", and references (group members, selector default, detour)
-// are renamed to match. All other parameters are passed through untouched.
+// are renamed to match. All other parameters are passed through untouched,
+// except that third-party outbounds lose fields that only work on the
+// author's machine (nodes.NeutraliseForeign).
 func buildRawOutbounds(n *nodes.Node, tag string) ([]M, error) {
 	entry := n.EntryTag
 	decoded := make([]M, 0, len(n.Outbounds))
@@ -1068,6 +1071,12 @@ func buildRawOutbounds(n *nodes.Node, tag string) ([]M, error) {
 		orig, _ := m["tag"].(string)
 		if entry == "" && i == 0 {
 			entry = orig
+		}
+		if !n.Official {
+			// Someone else's sing-box config: drop references to their DNS
+			// servers, files and network setup, or the core would not start.
+			// (POWER云 profiles are signed and passed through untouched.)
+			nodes.NeutraliseForeign(m, localFileExists)
 		}
 		decoded = append(decoded, M(m))
 		if orig != "" {
@@ -1122,6 +1131,13 @@ func buildRawOutbounds(n *nodes.Node, tag string) ([]M, error) {
 		return nil, fmt.Errorf("node %q: outbound references unknown tag %q", n.Name, badRef)
 	}
 	return append([]M{entryOb}, out...), nil
+}
+
+// localFileExists reports whether a file referenced by an imported outbound
+// is present on this machine.
+func localFileExists(path string) bool {
+	st, err := os.Stat(path)
+	return err == nil && !st.IsDir()
 }
 
 func buildOutbound(n *nodes.Node, tag string) (M, error) {

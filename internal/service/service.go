@@ -1194,11 +1194,29 @@ func (s *Service) replaceSubscriptionNodesLocked(id string, list []*nodes.Node) 
 // provider still exposes one uniquely named node of the same protocol, its ID
 // is retained so per-app selections follow that logical node; measurements are
 // intentionally reset because the actual endpoint changed.
+//
+// Official POWER云 nodes with a stable key (nodes.Node.OfficialKey) are matched
+// by that key first: their tags carry the list position ("节点 2 · 台湾"), so
+// endpoint / name matching would lose the node's identity whenever the panel
+// reorders or adds nodes. Old nodes without a key (saved by an older build or
+// from an older panel) are still matched by endpoint / name once, after which
+// the key is saved along with the kept ID.
 func reconcileSubscriptionNodes(oldNodes, freshNodes []*nodes.Node) {
 	oldByEndpoint := make(map[string]*nodes.Node, len(oldNodes))
 	oldByLogical := make(map[string]*nodes.Node, len(oldNodes))
+	oldByKey := make(map[string]*nodes.Node, len(oldNodes))
 	oldDuplicates := make(map[string]bool)
 	freshCounts := make(map[string]int, len(freshNodes))
+	for _, old := range oldNodes {
+		if old.OfficialKey != "" {
+			oldByKey[old.OfficialKey] = old
+		}
+	}
+	// A keyed fresh node may only take over an old node with the same key, or
+	// one without a key; never another node's.
+	mayMatch := func(fresh, old *nodes.Node) bool {
+		return old != nil && (old.OfficialKey == "" || old.OfficialKey == fresh.OfficialKey)
+	}
 	for _, old := range oldNodes {
 		oldByEndpoint[nodeEndpointKey(old)] = old
 		key := nodeLogicalKey(old)
@@ -1212,7 +1230,17 @@ func reconcileSubscriptionNodes(oldNodes, freshNodes []*nodes.Node) {
 		freshCounts[nodeLogicalKey(fresh)]++
 	}
 	for _, fresh := range freshNodes {
-		if old := oldByEndpoint[nodeEndpointKey(fresh)]; old != nil {
+		if fresh.OfficialKey != "" {
+			if old := oldByKey[fresh.OfficialKey]; old != nil {
+				fresh.ID = old.ID
+				// Same node: measurements stay valid while it is the same server.
+				if strings.EqualFold(old.Server, fresh.Server) && old.Port == fresh.Port && old.Type == fresh.Type {
+					fresh.Latency, fresh.TCPLatency, fresh.Speed = old.Latency, old.TCPLatency, old.Speed
+				}
+				continue
+			}
+		}
+		if old := oldByEndpoint[nodeEndpointKey(fresh)]; mayMatch(fresh, old) {
 			fresh.ID = old.ID
 			fresh.Latency = old.Latency
 			fresh.TCPLatency = old.TCPLatency
@@ -1221,7 +1249,7 @@ func reconcileSubscriptionNodes(oldNodes, freshNodes []*nodes.Node) {
 		}
 		key := nodeLogicalKey(fresh)
 		if !oldDuplicates[key] && freshCounts[key] == 1 {
-			if old := oldByLogical[key]; old != nil {
+			if old := oldByLogical[key]; mayMatch(fresh, old) {
 				fresh.ID = old.ID
 			}
 		}

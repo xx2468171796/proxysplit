@@ -130,8 +130,51 @@ func EndpointOf(raws []json.RawMessage) (typ, server string, port int) {
 var proxyOutboundTypes = map[string]bool{
 	"vless": true, "vmess": true, "trojan": true, "shadowsocks": true, "hysteria": true,
 	"hysteria2": true, "tuic": true, "anytls": true, "socks": true, "http": true,
-	"ssh": true, "wireguard": true, "naive": true,
+	"ssh": true,
+	// naive needs with_naive_outbound (cronet), which the bundled platform
+	// kernel does not include: one naive node makes the whole core exit.
 	// shadowtls is only a detour for shadowsocks, never a standalone node.
+	// wireguard is an endpoint since sing-box 1.11; the legacy outbound was
+	// removed in 1.13 and makes the whole core refuse to start.
+}
+
+// NeutraliseForeign strips from a third-party outbound (decoded, modified in
+// place) the fields that point at things only the author's machine has, which
+// would make the embedded core refuse to start (sing-box 1.14):
+//   - domain_resolver: names a DNS server of *their* config ("domain resolver
+//     not found"); without it the route's default_domain_resolver applies;
+//   - legacy domain_strategy: removed in 1.14 (fatal without an env override);
+//   - routing_mark / netns / bind_interface / inet4|6_bind_address: their
+//     machine's network setup (routing_mark is fatal off Linux);
+//   - certificate / key / ECH config file paths that don't exist here (fatal
+//     "read certificate"); exists reports whether a local file is present.
+//
+// Tag references (detour, group members) are resolved by the config builder.
+// It returns the removed field names (dotted for nested ones).
+func NeutraliseForeign(m map[string]any, exists func(path string) bool) []string {
+	var removed []string
+	for _, k := range []string{"domain_resolver", "domain_strategy", "routing_mark", "netns", "bind_interface", "inet4_bind_address", "inet6_bind_address"} {
+		if _, ok := m[k]; ok {
+			delete(m, k)
+			removed = append(removed, k)
+		}
+	}
+	dropMissing := func(obj map[string]any, prefix string, keys ...string) {
+		for _, k := range keys {
+			if p, ok := obj[k].(string); ok && p != "" && !exists(p) {
+				delete(obj, k)
+				removed = append(removed, prefix+k)
+			}
+		}
+	}
+	dropMissing(m, "", "private_key_path") // ssh
+	if tls, ok := m["tls"].(map[string]any); ok {
+		dropMissing(tls, "tls.", "certificate_path", "client_certificate_path", "client_key_path")
+		if ech, ok := tls["ech"].(map[string]any); ok {
+			dropMissing(ech, "tls.ech.", "config_path")
+		}
+	}
+	return removed
 }
 
 // ParseSingboxJSON parses a sing-box configuration (or bare {"outbounds":[...]})

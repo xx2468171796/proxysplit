@@ -36,13 +36,28 @@ type Account struct {
 	Nodes     []struct {
 		Tag      string `json:"tag"`
 		Outbound string `json:"outbound"`
+		// Key is the panel's stable node identity within the account ("auto",
+		// "relay:<id>", "landing:<id>", "chain:<id>"); optional (older panels).
+		Key string `json:"key"`
 	} `json:"nodes"`
 }
+
+// ErrProfileSignature: a POWER云 profile whose signature does not verify with
+// the built-in panel key — in practice the panel's key or signing format is
+// newer than this build. errors.Is(err, ErrBadSignature) holds too.
+var ErrProfileSignature error = profileSignatureError{}
+
+type profileSignatureError struct{}
+
+func (profileSignatureError) Error() string {
+	return "POWER云 配置签名校验失败，请升级 ProxySplit"
+}
+func (profileSignatureError) Unwrap() error { return ErrBadSignature }
 
 // ParseSignedProfile verifies (type "profile") and decodes a profile body.
 func ParseSignedProfile(v Verifier, h http.Header, body []byte) (*Profile, error) {
 	if err := VerifyResponse(v, SigTypeProfile, h, body); err != nil {
-		return nil, err
+		return nil, ErrProfileSignature
 	}
 	var p Profile
 	if err := json.Unmarshal(body, &p); err != nil {
@@ -95,6 +110,10 @@ func (p *Profile) Nodes() (list []*nodes.Node, notices []string) {
 				ID: officialID(a.ID, n.Tag), Name: name, Official: true, AccountID: a.ID,
 				Outbounds: closure, EntryTag: n.Outbound,
 			}
+			if key := strings.TrimSpace(n.Key); key != "" {
+				node.OfficialKey = a.ID + "/" + key
+				node.ID = officialID(a.ID, "key/"+key)
+			}
 			node.Type, node.Server, node.Port = nodes.EndpointOf(closure)
 			list = append(list, node)
 		}
@@ -102,6 +121,9 @@ func (p *Profile) Nodes() (list []*nodes.Node, notices []string) {
 	return list, notices
 }
 
+// officialID derives a node ID from the account and the node's identity: the
+// panel's stable key when present, else (older panels) the tag — which moves
+// with the node's list position.
 func officialID(accountID, tag string) string {
 	sum := sha256.Sum256([]byte("powervpn\x00" + accountID + "\x00" + tag))
 	return "pv-" + hex.EncodeToString(sum[:8])

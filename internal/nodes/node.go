@@ -49,10 +49,15 @@ type Node struct {
 	// outbound from the fields above. EntryTag names the outbound the user
 	// selects (e.g. a urltest group whose members are also in Outbounds).
 	// Official marks nodes delivered by a signed POWER云 profile.
-	Official  bool              `json:"official,omitempty"`
-	AccountID string            `json:"accountId,omitempty"` // POWER云 proxy account id
-	Outbounds []json.RawMessage `json:"outbounds,omitempty"`
-	EntryTag  string            `json:"entryTag,omitempty"`
+	Official  bool   `json:"official,omitempty"`
+	AccountID string `json:"accountId,omitempty"` // POWER云 proxy account id
+	// OfficialKey is the stable identity of an official node ("<account id>/<panel
+	// node key>", e.g. ".../relay:<node id>"); empty when the panel sent no key.
+	// Tags carry list positions ("节点 2 · 台湾"), so a refresh matches nodes by
+	// this key to keep their ID (and the user's selection) across reorders.
+	OfficialKey string            `json:"officialKey,omitempty"`
+	Outbounds   []json.RawMessage `json:"outbounds,omitempty"`
+	EntryTag    string            `json:"entryTag,omitempty"`
 
 	// Runtime measurements (populated by latency/speed tests).
 	// Latency: Google end-to-end latency through the full proxy tunnel.

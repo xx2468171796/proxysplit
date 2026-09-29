@@ -592,6 +592,7 @@ export namespace nodes {
 	    pluginOpts?: string;
 	    official?: boolean;
 	    accountId?: string;
+	    officialKey?: string;
 	    outbounds?: number[][];
 	    entryTag?: string;
 	    latency: number;
@@ -634,6 +635,7 @@ export namespace nodes {
 	        this.pluginOpts = source["pluginOpts"];
 	        this.official = source["official"];
 	        this.accountId = source["accountId"];
+	        this.officialKey = source["officialKey"];
 	        this.outbounds = source["outbounds"];
 	        this.entryTag = source["entryTag"];
 	        this.latency = source["latency"];

@@ -39,10 +39,16 @@ func CurrentDevice() Device {
 func (d Device) Apply(h http.Header) {
 	h.Set("X-Device-Id", d.ID)
 	// The panel decodeURIComponent()s name/OS (host names may be Chinese).
-	h.Set("X-Device-Name", encodeURIComponent(firstNonEmpty(headerSafe(d.Name), "Windows PC")))
+	h.Set("X-Device-Name", encodeURIComponent(d.DisplayName()))
 	if d.OS != "" {
 		h.Set("X-Device-OS", encodeURIComponent(d.OS))
 	}
+}
+
+// DisplayName is the device name sent to the panel (headers and claim body):
+// control characters dropped, never empty (the panel requires 1–64 chars).
+func (d Device) DisplayName() string {
+	return firstNonEmpty(strings.TrimSpace(headerSafe(d.Name)), "Windows PC")
 }
 
 func truncateRunes(s string, n int) string {

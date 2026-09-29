@@ -34,10 +34,15 @@ const (
 	maxBody           = 8 << 20
 	endpointsTTL      = time.Hour
 	endpointsMaxStale = 7 * 24 * time.Hour
-	tokenFile         = "powervpn.dat"
-	endpointsFile     = "powervpn-endpoints.json"
-	refreshLeeway     = 60 * time.Second
-	defaultReqTimeout = 20 * time.Second
+	// endpointsRetryAfter: after a failed endpoints fetch, don't ask the panel
+	// again for a while. Every third-party subscription refresh and every
+	// pasted link checks the endpoints; with the panel unreachable (blackholed)
+	// each of them would otherwise wait for the full request timeout.
+	endpointsRetryAfter = 5 * time.Minute
+	tokenFile           = "powervpn.dat"
+	endpointsFile       = "powervpn-endpoints.json"
+	refreshLeeway       = 60 * time.Second
+	defaultReqTimeout   = 20 * time.Second
 )
 
 var (
@@ -47,6 +52,8 @@ var (
 	ErrNotFound = errors.New("POWER云 未找到该账号")
 	// errGrantRejected: the refresh token was refused (revoked / expired).
 	errGrantRejected = errors.New("POWER云 授权无效或已过期，请重新登录")
+	// errEndpointsBackoff: the last endpoints fetch failed moments ago.
+	errEndpointsBackoff = errors.New("POWER云 入口列表暂不可用，稍后重试")
 )
 
 // Token is the stored OAuth grant.
@@ -88,6 +95,9 @@ type Client struct {
 	mu         sync.Mutex
 	tok        *Token
 	refreshing sync.Mutex
+
+	epMu      sync.Mutex
+	epRetryAt time.Time // no endpoints fetch before this (after a failure)
 }
 
 // New creates the production client.
@@ -497,7 +507,7 @@ func (c *Client) Profile(ctx context.Context) (*Profile, error) {
 func (c *Client) Claim(ctx context.Context, uuid string) (*Profile, error) {
 	d := c.Device()
 	status, h, raw, err := c.do(ctx, http.MethodPost, "/api/client/devices/claim", map[string]string{
-		"uuid": uuid, "deviceId": d.ID, "deviceName": d.Name, "os": d.OS,
+		"uuid": uuid, "deviceId": d.ID, "deviceName": d.DisplayName(), "os": d.OS,
 	}, "")
 	if err != nil {
 		return nil, err
@@ -675,6 +685,15 @@ func (c *Client) Endpoints(ctx context.Context) (*Endpoints, error) {
 	if ec != nil && c.now().Sub(ec.FetchedAt) < endpointsTTL {
 		return cached, nil
 	}
+	c.epMu.Lock()
+	backoff := c.now().Before(c.epRetryAt)
+	c.epMu.Unlock()
+	if backoff {
+		if ec != nil && c.now().Sub(ec.FetchedAt) < endpointsMaxStale {
+			return cached, nil
+		}
+		return nil, errEndpointsBackoff
+	}
 	status, h, raw, err := c.do(ctx, http.MethodGet, "/api/client/endpoints", nil, "")
 	if err == nil && status != http.StatusOK {
 		err = &StatusError{Status: status, Message: panelMessage(status, raw)}
@@ -686,6 +705,13 @@ func (c *Client) Endpoints(ctx context.Context) (*Endpoints, error) {
 	if err == nil {
 		e, err = parseEndpoints(raw)
 	}
+	c.epMu.Lock()
+	if err != nil {
+		c.epRetryAt = c.now().Add(endpointsRetryAfter)
+	} else {
+		c.epRetryAt = time.Time{}
+	}
+	c.epMu.Unlock()
 	if err != nil {
 		if ec != nil && c.now().Sub(ec.FetchedAt) < endpointsMaxStale {
 			return cached, nil
