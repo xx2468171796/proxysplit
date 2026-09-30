@@ -238,6 +238,7 @@ export namespace license {
 	    expiresAt: string;
 	    offlineUntil: string;
 	    deviceLimitReached: boolean;
+	    channel: string;
 	    error?: string;
 	
 	    static createFrom(source: any = {}) {
@@ -258,6 +259,7 @@ export namespace license {
 	        this.expiresAt = source["expiresAt"];
 	        this.offlineUntil = source["offlineUntil"];
 	        this.deviceLimitReached = source["deviceLimitReached"];
+	        this.channel = source["channel"];
 	        this.error = source["error"];
 	    }
 	}
