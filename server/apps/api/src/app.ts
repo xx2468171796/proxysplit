@@ -102,6 +102,7 @@ export async function buildApp(config:ApiConfig,provided?:Core){
   // can never become an open redirect or path-traversal.
   // proxysplit-ai-latest.exe = AI 编程官网给的下载（同一个安装包的软链）：文件名带 -ai，客户端据此隐藏作者联系方式
   const DOWNLOAD_FILE=/^proxysplit-(v\d+\.\d+\.\d+|latest|ai-latest)\.exe$/
+  const DOWNLOAD_TICKET=/^[A-Za-z0-9_-]{43}$/
   app.get('/v1/download/:file',{config:{rateLimit:{max:60,timeWindow:'1 minute'}}},async(req,reply)=>{
     const file=(req.params as {file:string}).file
     if(!DOWNLOAD_FILE.test(file))throw new AppError('NOT_FOUND','文件不存在',404)
@@ -109,8 +110,11 @@ export async function buildApp(config:ApiConfig,provided?:Core){
     // Reject fabricated versions so they can neither be counted as a download nor
     // pollute the version distribution. 'latest' has no version and always passes.
     if(version&&!await core.store.releaseExists(version))throw new AppError('NOT_FOUND','版本不存在',404)
-    const q=req.query as {v?:string}
+    const q=req.query as {v?:string,t?:string}
     await core.store.recordDownloadEvent({kind:'download',file,version,ip:req.ip,visitorId:typeof q.v==='string'?q.v:'',userAgent:String(req.headers['user-agent']??''),referer:String(req.headers['referer']??req.headers['referrer']??'')}).catch(err=>app.log.warn({err:err instanceof Error?err.message:'record failed'},'download event failed'))
+    // 免登录下载：AI 编程官网给已登录客户的链接带 POWER云 一次性凭据 t，放进文件名（Nginx 把
+    // /download/proxysplit-ai-<t>.exe 内部改写到同一个安装包），客户端首次打开用它直接登录。凭据不记库。
+    if(file==='proxysplit-ai-latest.exe'&&typeof q.t==='string'&&DOWNLOAD_TICKET.test(q.t))return reply.header('cache-control','no-store').header('referrer-policy','no-referrer').redirect(`/download/proxysplit-ai-${q.t}.exe`,302)
     return reply.header('cache-control','no-store').redirect(`/download/${file}`,302)
   })
   // Page-view beacon fired by the marketing site on load. Kept intentionally

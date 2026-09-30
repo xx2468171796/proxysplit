@@ -111,16 +111,17 @@ func (a *App) startup(ctx context.Context) {
 	svc.SetLogSink(func(line string) {
 		runtime.EventsEmit(ctx, "log", line)
 	})
+	a.autoLoginFromDownload(ctx) // AI-site download: signed in before the first UI snapshot
 	a.startAccel()
 	a.finishStartup(nil)
 	go a.licenseWatchdog()
 	go a.powervpnMembershipSync() // AI-site customers: membership follows the POWER云 AI plan
-	go a.resumeAfterUpdate()     // bring the proxy back after an automatic update
-	go a.autoUpdateLoop()        // install new signed releases without prompting
-	go a.ensureDesktopShortcut() // every launch: recreate / repair the desktop shortcut
-	go removeStaleExecutables()  // old versions an --mcp bridge kept busy during an update
-	go a.initTray()              // system-tray icon (minimise-to-tray, quick start/stop)
-	a.startAPIServer()           // local AI-control HTTP API (127.0.0.1)
+	go a.resumeAfterUpdate()      // bring the proxy back after an automatic update
+	go a.autoUpdateLoop()         // install new signed releases without prompting
+	go a.ensureDesktopShortcut()  // every launch: recreate / repair the desktop shortcut
+	go removeStaleExecutables()   // old versions an --mcp bridge kept busy during an update
+	go a.initTray()               // system-tray icon (minimise-to-tray, quick start/stop)
+	a.startAPIServer()            // local AI-control HTTP API (127.0.0.1)
 }
 
 // revealIfNeeded shows the window of a --background start when staying hidden

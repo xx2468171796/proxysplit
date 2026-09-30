@@ -70,6 +70,15 @@ func (a *App) LoginPowerVPN() string {
 	}); err != nil {
 		return err.Error()
 	}
+	return a.finishPowerVPNLogin(ctx, pv)
+}
+
+// finishPowerVPNLogin runs after a POWER云 grant was stored (browser login or
+// download ticket): ProxySplit sign-in with that account, preset apps for
+// AI-site customers, the "POWER云" subscription. Same return contract as
+// LoginPowerVPN. Doesn't wait for a.ready (the download-ticket login runs
+// inside startup).
+func (a *App) finishPowerVPNLogin(ctx context.Context, pv *powervpn.Client) string {
 	if a.lic != nil && a.lic.Enabled() {
 		tctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 		tok, err := pv.AccessToken(tctx)

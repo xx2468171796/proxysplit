@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -41,5 +42,44 @@ func TestAigwStartURL(t *testing.T) {
 	}
 	if u := "https://lxc.5fskins.com/portal"; aigwStartURL(u) != u {
 		t.Fatal("non-authorize URLs must pass through unchanged")
+	}
+}
+
+func TestDownloadTicket(t *testing.T) {
+	tk := "Abc_-" + "x0123456789012345678901234567890123456789"[:38]
+	if len(tk) != 43 {
+		t.Fatalf("test ticket length %d", len(tk))
+	}
+	cases := map[string]string{
+		`C:\Users\a\Downloads\proxysplit-ai-` + tk + `.exe`:      tk,
+		`C:\Users\a\Downloads\proxysplit-ai-` + tk + ` (1).exe`:  tk, // browser de-dup suffix
+		`C:\Users\a\Downloads\ProxySplit-AI-` + tk + `.EXE`:      tk,
+		`C:\Users\a\Downloads\proxysplit-ai-latest.exe`:          "",
+		`C:\Users\a\Downloads\proxysplit-ai-` + tk + `x.exe`:     "", // 44 chars
+		`C:\Users\a\Downloads\proxysplit-ai-` + tk[:42] + `.exe`: "",
+		`C:\Users\a\Downloads\proxysplit-latest.exe`:             "",
+		`C:\Users\a\Downloads\my-proxysplit-ai-` + tk + `.exe`:   "",
+	}
+	for exe, want := range cases {
+		if got := downloadTicket(exe); got != want {
+			t.Errorf("%s: got %q want %q", exe, got, want)
+		}
+		if want != "" && !exeMarksAIGW(exe) {
+			t.Errorf("%s: a ticketed download must also mark the AI-site channel", exe)
+		}
+	}
+	file := filepath.Join(t.TempDir(), "download-ticket")
+	if ticketTried(file, tk) {
+		t.Fatal("nothing tried yet")
+	}
+	if err := os.WriteFile(file, []byte(ticketHash(tk)+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if !ticketTried(file, tk) || ticketTried(file, tk[:42]+"z") {
+		t.Fatal("tried marker must match exactly this ticket")
+	}
+	raw, _ := os.ReadFile(file)
+	if strings.Contains(string(raw), tk) {
+		t.Fatal("only the hash is stored")
 	}
 }

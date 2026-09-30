@@ -2,9 +2,12 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -84,6 +87,58 @@ func aigwDefaultApps() []service.AppRule {
 		out = append(out, service.AppRule{Match: n, Path: n, Line: service.LineRule, Enabled: true})
 	}
 	return out
+}
+
+// downloadTicketRe: the AI site names a signed-in customer's download
+// proxysplit-ai-<one-time POWER云 ticket>.exe (browsers may append " (1)").
+var downloadTicketRe = regexp.MustCompile(`^(?i:proxysplit-ai-)([A-Za-z0-9_-]{43})(?: ?\(\d+\))?(?i:\.exe)$`)
+
+// downloadTicket returns the ticket in the executable's file name, or "".
+func downloadTicket(exe string) string {
+	if m := downloadTicketRe.FindStringSubmatch(filepath.Base(exe)); m != nil {
+		return m[1]
+	}
+	return ""
+}
+
+func ticketFile() string { return filepath.Join(dataDir(), "download-ticket") }
+
+func ticketHash(t string) string {
+	sum := sha256.Sum256([]byte(t))
+	return hex.EncodeToString(sum[:])
+}
+
+// ticketTried: the ticket in this file name was already redeemed (or tried) on
+// this device. Only its hash is kept.
+func ticketTried(file, t string) bool {
+	raw, err := os.ReadFile(file)
+	return err == nil && strings.TrimSpace(string(raw)) == ticketHash(t)
+}
+
+// autoLoginFromDownload: 中转站客户从 AI 编程官网下载的程序文件名里带一次性凭据，第一次打开直接用它登录
+// POWER云 + ProxySplit（节点、常用程序都加好），不用点登录、不用开浏览器。跑在 startup 里、第一次界面快照之前，
+// 所以窗口一出来就是登录好的。已登录、试过这枚凭据、或没带凭据时什么都不做；失败只记日志，退回登录页的按钮。
+func (a *App) autoLoginFromDownload(ctx context.Context) {
+	exe, _ := os.Executable()
+	t := downloadTicket(exe)
+	if t == "" || a.lic == nil || !a.lic.Enabled() || a.lic.Status().SignedIn || a.pv == nil || a.pv.LoggedIn() || ticketTried(ticketFile(), t) {
+		return
+	}
+	// Record before redeeming: the panel burns the ticket on first use, so a
+	// crash or timeout mid-way must not make every later start retry it.
+	_ = os.MkdirAll(dataDir(), 0o755)
+	_ = os.WriteFile(ticketFile(), []byte(ticketHash(t)+"\n"), 0o600)
+	c, cancel := context.WithTimeout(ctx, 25*time.Second)
+	defer cancel()
+	if err := a.pv.LoginWithTicket(c, t); err != nil {
+		a.svc.LogLine("[中转站] 免登录下载凭据没用上（" + err.Error() + "），请点「用 AI 编程官网账号登录」")
+		return
+	}
+	if msg := a.finishPowerVPNLogin(c, a.pv); msg != "" {
+		a.svc.LogLine("[中转站] 自动登录：" + strings.TrimPrefix(msg, "NOTICE:"))
+		return
+	}
+	a.svc.LogLine("[中转站] 已用 AI 编程官网的下载自动登录，节点和常用程序已加好")
 }
 
 // powervpnMembershipSync: AI-site customers' ProxySplit membership follows

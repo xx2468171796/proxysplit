@@ -484,3 +484,35 @@ func TestOfficialNodeIDsFollowStableKey(t *testing.T) {
 		t.Fatalf("fallback changed: %+v", list[0])
 	}
 }
+
+func TestLoginWithTicket(t *testing.T) {
+	s := newSigner(t)
+	var used atomic.Int32
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/oauth/token", func(w http.ResponseWriter, r *http.Request) {
+		var f map[string]string
+		_ = json.NewDecoder(r.Body).Decode(&f)
+		if f["grant_type"] != TicketGrant || f["ticket"] != "good-ticket" || f["client_id"] != ClientID || used.Add(1) > 1 {
+			w.WriteHeader(400)
+			_, _ = w.Write([]byte(`{"error":"invalid_grant","error_description":"下载凭据无效、已过期或已使用"}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"access_token":"at1","refresh_token":"rt1","token_type":"Bearer","expires_in":3600}`))
+	})
+	mux.HandleFunc("/api/client/me", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"id":"u1","username":"ai0782","email":null,"displayName":"ai0782"}`))
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	c := testClient(t, srv, s)
+	if err := c.LoginWithTicket(context.Background(), "good-ticket"); err != nil {
+		t.Fatal(err)
+	}
+	if !c.LoggedIn() || c.Username() != "ai0782" {
+		t.Fatalf("login state: %v %q", c.LoggedIn(), c.Username())
+	}
+	c2 := testClient(t, srv, s)
+	if err := c2.LoginWithTicket(context.Background(), "good-ticket"); !errors.Is(err, ErrTicketRejected) || c2.LoggedIn() {
+		t.Fatalf("second use must be rejected: %v loggedIn=%v", err, c2.LoggedIn())
+	}
+}

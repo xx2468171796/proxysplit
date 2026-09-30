@@ -137,3 +137,29 @@ func (c *Client) Login(ctx context.Context, openBrowser func(string) error) erro
 	}
 	return nil
 }
+
+// TicketGrant is the panel's grant_type for one-time download tickets.
+const TicketGrant = "urn:powervpn:download-ticket"
+
+// ErrTicketRejected: the download ticket was already used, expired or unknown.
+var ErrTicketRejected = errors.New("下载凭据无效、已过期或已使用")
+
+// LoginWithTicket redeems the one-time ticket the AI site put into the file
+// name of a signed-in customer's download (no browser round trip) and stores
+// the grant exactly like Login does.
+func (c *Client) LoginWithTicket(ctx context.Context, ticket string) error {
+	tok, err := c.tokenRequest(ctx, map[string]string{"grant_type": TicketGrant, "ticket": ticket})
+	if err != nil {
+		if errors.Is(err, errGrantRejected) {
+			return ErrTicketRejected
+		}
+		return err
+	}
+	if err := c.setToken(tok); err != nil {
+		return err
+	}
+	if me, err := c.Me(ctx); err == nil {
+		c.SetUsername(firstNonEmpty(me.DisplayName, me.Username, me.Email))
+	}
+	return nil
+}
