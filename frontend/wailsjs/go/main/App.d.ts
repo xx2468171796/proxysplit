@@ -17,6 +17,8 @@ export function AddNodes(arg1:string):Promise<main.AddResult>;
 
 export function AddSub(arg1:string,arg2:string,arg3:boolean):Promise<string>;
 
+export function AutoLoginPending():Promise<boolean>;
+
 export function ChangeAccountPassword(arg1:string,arg2:string):Promise<string>;
 
 export function CheckAppUpdate():Promise<updater.Status>;
@@ -198,3 +200,5 @@ export function UpdateCore():Promise<string>;
 export function UpdateRuleSets():Promise<string>;
 
 export function UpdateSub(arg1:string):Promise<string>;
+
+export function WaitAutoLogin():Promise<string>;

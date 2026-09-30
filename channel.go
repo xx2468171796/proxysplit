@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -14,6 +15,7 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 
 	"proxysplit/internal/license"
+	"proxysplit/internal/powervpn"
 	"proxysplit/internal/service"
 )
 
@@ -108,37 +110,100 @@ func ticketHash(t string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// ticketTried: the ticket in this file name was already redeemed (or tried) on
-// this device. Only its hash is kept.
+// ticketTried: the ticket in this file name already got an answer from the
+// panel on this device (signed in, or rejected). Only its hash is kept.
 func ticketTried(file, t string) bool {
 	raw, err := os.ReadFile(file)
 	return err == nil && strings.TrimSpace(string(raw)) == ticketHash(t)
 }
 
-// autoLoginFromDownload: 中转站客户从 AI 编程官网下载的程序文件名里带一次性凭据，第一次打开直接用它登录
-// POWER云 + ProxySplit（节点、常用程序都加好），不用点登录、不用开浏览器。跑在 startup 里、第一次界面快照之前，
-// 所以窗口一出来就是登录好的。已登录、试过这枚凭据、或没带凭据时什么都不做；失败只记日志，退回登录页的按钮。
-func (a *App) autoLoginFromDownload(ctx context.Context) {
-	exe, _ := os.Executable()
-	t := downloadTicket(exe)
-	if t == "" || a.lic == nil || !a.lic.Enabled() || a.lic.Status().SignedIn || a.pv == nil || a.pv.LoggedIn() || ticketTried(ticketFile(), t) {
-		return
-	}
-	// Record before redeeming: the panel burns the ticket on first use, so a
-	// crash or timeout mid-way must not make every later start retry it.
+func markTicketTried(t string) {
 	_ = os.MkdirAll(dataDir(), 0o755)
 	_ = os.WriteFile(ticketFile(), []byte(ticketHash(t)+"\n"), 0o600)
-	c, cancel := context.WithTimeout(ctx, 25*time.Second)
-	defer cancel()
-	if err := a.pv.LoginWithTicket(c, t); err != nil {
-		a.svc.LogLine("[中转站] 免登录下载凭据没用上（" + err.Error() + "），请点「用 AI 编程官网账号登录」")
+}
+
+// autoLoginTicket decides (no network) whether this start signs in with the
+// one-time ticket in the file name: 中转站客户从 AI 编程官网下载的程序，第一次打开直接登录 POWER云 +
+// ProxySplit（节点、常用程序都加好），不用点登录、不用开浏览器。已登录 ProxySplit、这枚凭据已有结果、
+// 没带凭据 → "".
+func (a *App) autoLoginTicket() string {
+	exe, _ := os.Executable()
+	t := downloadTicket(exe)
+	if t == "" || a.lic == nil || !a.lic.Enabled() || a.lic.Status().SignedIn || a.pv == nil || ticketTried(ticketFile(), t) {
+		return ""
+	}
+	return t
+}
+
+// runAutoLogin redeems the ticket (unless POWER云 is already signed in — a
+// previous start redeemed it but the ProxySplit sign-in didn't finish) and
+// runs the same steps as the browser login. The ticket is marked tried only
+// once the panel answered (signed in / rejected): a network blip at boot is
+// retried on the next start. Same return contract as LoginPowerVPN.
+func (a *App) runAutoLogin(ctx context.Context, t string) string {
+	if !a.pv.LoggedIn() {
+		c, cancel := context.WithTimeout(ctx, 30*time.Second)
+		err := a.pv.LoginWithTicket(c, t)
+		cancel()
+		if err != nil {
+			if errors.Is(err, powervpn.ErrTicketRejected) {
+				markTicketTried(t)
+			}
+			return err.Error()
+		}
+	}
+	msg := a.finishPowerVPNLogin(ctx, a.pv)
+	if msg == "" || strings.HasPrefix(msg, "NOTICE:") {
+		markTicketTried(t)
+	}
+	return msg
+}
+
+// startAutoLogin runs runAutoLogin in the background after startup; the UI
+// asks AutoLoginPending / WaitAutoLogin (no race with event subscription).
+func (a *App) startAutoLogin(ctx context.Context) {
+	t := a.autoLoginTicket()
+	if t == "" {
 		return
 	}
-	if msg := a.finishPowerVPNLogin(c, a.pv); msg != "" {
-		a.svc.LogLine("[中转站] 自动登录：" + strings.TrimPrefix(msg, "NOTICE:"))
-		return
+	run := &autoLoginRun{done: make(chan struct{})}
+	a.autoLogin.Store(run)
+	go func() {
+		run.result = a.runAutoLogin(ctx, t)
+		if run.result == "" || strings.HasPrefix(run.result, "NOTICE:") {
+			a.svc.LogLine("[中转站] 已用 AI 编程官网的下载自动登录")
+		} else {
+			a.svc.LogLine("[中转站] 自动登录没成功：" + run.result)
+		}
+		close(run.done)
+	}()
+}
+
+type autoLoginRun struct {
+	done   chan struct{}
+	result string // written before done is closed
+}
+
+// AutoLoginPending: this start is signing in with the AI-site download ticket.
+func (a *App) AutoLoginPending() bool {
+	<-a.ready
+	return a.autoLogin.Load() != nil
+}
+
+// WaitAutoLogin blocks until the download-ticket sign-in finished: "" = there
+// was none on this start; "OK"; "NOTICE:…" (signed in, lines unavailable); or
+// an error message (the login page's button still works).
+func (a *App) WaitAutoLogin() string {
+	<-a.ready
+	run := a.autoLogin.Load()
+	if run == nil {
+		return ""
 	}
-	a.svc.LogLine("[中转站] 已用 AI 编程官网的下载自动登录，节点和常用程序已加好")
+	<-run.done
+	if run.result == "" {
+		return "OK"
+	}
+	return run.result
 }
 
 // powervpnMembershipSync: AI-site customers' ProxySplit membership follows

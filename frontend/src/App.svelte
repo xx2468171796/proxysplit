@@ -89,6 +89,8 @@
     ChangeAccountPassword as WChangeAccountPassword,
     LoginPowerVPN as WLoginPowerVPN,
     LogoutPowerVPN as WLogoutPowerVPN,
+    AutoLoginPending as WAutoLoginPending,
+    WaitAutoLogin as WWaitAutoLogin,
   } from '../wailsjs/go/main/App.js'
   import { EventsOn } from '../wailsjs/runtime/runtime.js'
   import donateQR from './assets/images/donate.png'
@@ -247,6 +249,7 @@
   let authMode: 'login' | 'register' = 'login'
   let loginBusy = false
   let powervpnBusy = false
+  let autoLoginBusy = false // 免登录下载正在后台登录
   let loginError = ''
   let memberPlans: MemberPlan[] = []
   let accountDevices: AccountDevice[] = []
@@ -642,10 +645,28 @@
     powervpnBusy = false
     if (res && !res.startsWith('NOTICE:')) { loginError = res; return }
     if (res) toast(res.slice(7))
+    await afterPowerVPNLogin()
+  }
+  // POWER云 登录之后（浏览器登录或免登录下载）：会员、订阅、节点、应用规则（中转站客户首次登录会预置常用程序）
+  async function afterPowerVPNLogin() {
     await refreshLicense()
-    await refreshSubs(); await refreshNodes()
+    await refreshSubs(); await reloadData()
     await loadCommerce()
     if (!license.authenticated || license.planCode === 'trial') { showMembership = true; membershipPrompted = true }
+  }
+  // 从 AI 编程官网下载的程序：文件名里带一次性凭据，后台自动登录；登录页的按钮显示「登录中」直到有结果。
+  async function awaitAutoLogin() {
+    if (!(await safe<boolean>(() => WAutoLoginPending(), false))) return
+    powervpnBusy = true; autoLoginBusy = true; loginError = ''
+    const res = await safe<string>(() => WWaitAutoLogin(), '')
+    powervpnBusy = false; autoLoginBusy = false
+    if (!res) return
+    if (res !== 'OK' && !res.startsWith('NOTICE:')) {
+      if (!license.signedIn) loginError = '自动登录没成功（' + res + '），请点「用 AI 编程官网账号登录」'
+      return
+    }
+    toast(res === 'OK' ? '已自动登录，节点和常用程序都加好了，点「启动」即可' : res.slice(7))
+    await afterPowerVPNLogin()
   }
   async function submitRegister() {
     const username = loginForm.username.trim()
@@ -1561,6 +1582,7 @@
       })
     }
     if (!loaded && !bootstrapLoaded) useDemo = true
+    if (isWailsReady()) void awaitAutoLogin()
     // Do not rely only on Svelte's earlier reactive pass: it can occur while
     // Wails is still attaching. At this point rules/processes are real and the
     // bridge is ready, so fetch original executable icons explicitly.
@@ -1720,7 +1742,7 @@
         </button>
         {#if authMode === 'login'}
           <button class="ghost-btn license-submit powervpn-login" type="button" on:click={submitPowerVPN} disabled={loginBusy || powervpnBusy}>
-            {powervpnBusy ? '请在浏览器中完成登录授权…' : hideContact ? '用 AI 编程官网账号登录' : '用 POWER云 账号登录'}
+            {autoLoginBusy ? '正在用 AI 编程官网的下载自动登录…' : powervpnBusy ? '请在浏览器中完成登录授权…' : hideContact ? '用 AI 编程官网账号登录' : '用 POWER云 账号登录'}
           </button>
           {#if hideContact}<p class="license-tip">会打开浏览器，用 ai.zygskins.cn 的账号登录并点「同意」，完成后自动回到这里。</p>{/if}
         {/if}

@@ -18,6 +18,10 @@ export function AddSub(arg1, arg2, arg3) {
   return window['go']['main']['App']['AddSub'](arg1, arg2, arg3);
 }
 
+export function AutoLoginPending() {
+  return window['go']['main']['App']['AutoLoginPending']();
+}
+
 export function ChangeAccountPassword(arg1, arg2) {
   return window['go']['main']['App']['ChangeAccountPassword'](arg1, arg2);
 }
@@ -380,4 +384,8 @@ export function UpdateRuleSets() {
 
 export function UpdateSub(arg1) {
   return window['go']['main']['App']['UpdateSub'](arg1);
+}
+
+export function WaitAutoLogin() {
+  return window['go']['main']['App']['WaitAutoLogin']();
 }

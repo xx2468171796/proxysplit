@@ -47,8 +47,9 @@ type App struct {
 	ready      chan struct{}
 	readyOnce  sync.Once
 	initErr    error
-	accel      *accelRuntime    // Claude Code 加速（accel_app.go）
-	pv         *powervpn.Client // POWER云 账号 / 自家节点（powervpn_app.go）
+	accel      *accelRuntime                // Claude Code 加速（accel_app.go）
+	pv         *powervpn.Client             // POWER云 账号 / 自家节点（powervpn_app.go）
+	autoLogin  atomic.Pointer[autoLoginRun] // 免登录下载（channel.go）；nil = 这次启动没有
 }
 
 // NewApp creates the App.
@@ -111,8 +112,8 @@ func (a *App) startup(ctx context.Context) {
 	svc.SetLogSink(func(line string) {
 		runtime.EventsEmit(ctx, "log", line)
 	})
-	a.autoLoginFromDownload(ctx) // AI-site download: signed in before the first UI snapshot
 	a.startAccel()
+	a.startAutoLogin(ctx) // AI-site download: sign in with the ticket in the file name (background)
 	a.finishStartup(nil)
 	go a.licenseWatchdog()
 	go a.powervpnMembershipSync() // AI-site customers: membership follows the POWER云 AI plan
