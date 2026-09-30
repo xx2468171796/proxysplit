@@ -1722,7 +1722,7 @@
           <button class="ghost-btn license-submit powervpn-login" type="button" on:click={submitPowerVPN} disabled={loginBusy || powervpnBusy}>
             {powervpnBusy ? '请在浏览器中完成登录授权…' : hideContact ? '用 AI 编程官网账号登录' : '用 POWER云 账号登录'}
           </button>
-          {#if hideContact}<p class="license-tip">会打开浏览器，用 ai.zygskins.cn 的账号登录并点「授权」，完成后自动回到这里。</p>{/if}
+          {#if hideContact}<p class="license-tip">会打开浏览器，用 ai.zygskins.cn 的账号登录并点「同意」，完成后自动回到这里。</p>{/if}
         {/if}
         <p class="license-tip">{authMode === 'register' ? '邮箱当前不做验证；同一电脑仅能领取一次试用，但始终可以注册新账号并购买套餐。' : '使用用户名和密码登录；设备名额与会员状态由服务端校验。'} 主板等硬件信息只生成摘要，不上传原始序列号。</p>
       </form>
