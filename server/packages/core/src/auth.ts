@@ -147,7 +147,11 @@ export class AuthService{
       const r=await this.store.syncAigwLicense(userId,identity.aiPlanExpiresAt?new Date(identity.aiPlanExpiresAt):null)
       if(r.changed)await this.store.audit(userId,'license.aigw.sync','user',userId,ip,'success',{expiresAt:r.expiresAt?.toISOString()??null})
       return r
-    }catch{return null}
+    }catch(e){
+      // 不挡登录，但要看得见（比如 standard-month 套餐被删了会一直同步失败）
+      await this.store.audit(userId,'license.aigw.sync','user',userId,ip,'failure',{error:(e as Error).message}).catch(()=>{})
+      return null
+    }
   }
   // 已登录的客户端定期用 POWER云 令牌同步：令牌对应的 POWER云 账号必须就是这个 ProxySplit 用户关联的那个。
   async syncPowervpn(userId:string,accessToken:string,ip=''){

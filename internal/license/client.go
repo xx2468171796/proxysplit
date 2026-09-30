@@ -433,15 +433,24 @@ func (c *Client) SyncPowerVPN(ctx context.Context, accessToken string) error {
 	if !c.Enabled() || strings.TrimSpace(accessToken) == "" {
 		return nil
 	}
+	// Don't hold c.mu across the network call (Status() from the UI would
+	// block). No refresh-and-retry here: an expired access token just skips
+	// this round; the minute watchdog refreshes it and the next sync runs.
 	c.mu.Lock()
-	defer c.mu.Unlock()
+	token := c.state.AccessToken
+	c.mu.Unlock()
+	if token == "" {
+		return nil
+	}
 	var result struct {
 		Channel string `json:"channel"`
 	}
-	if err := c.authedRequestLocked(ctx, http.MethodPost, "/v1/auth/powervpn/sync", map[string]any{"accessToken": accessToken}, &result); err != nil {
+	if err := c.request(ctx, http.MethodPost, "/v1/auth/powervpn/sync", map[string]any{"accessToken": accessToken}, &result, token); err != nil {
 		return err
 	}
-	if result.Channel != "" && result.Channel != c.state.Channel {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if result.Channel != "" && result.Channel != c.state.Channel && c.state.AccessToken == token {
 		c.state.Channel = result.Channel
 		return c.saveLocked()
 	}

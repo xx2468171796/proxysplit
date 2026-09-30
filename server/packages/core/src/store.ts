@@ -303,6 +303,7 @@ export class PgStore {
 
   // 中转站客户的会员时长跟 AI 套餐走（业主 2026-09-30）：单独一行 source='aigw'（普通会员），到期时间 = POWER云
   // 「AI 代理套餐」最晚到期；不和自购 / 兑换 / 后台发的会员合并——AI 到期只有这一行到期，自己买的照常。
+  // 反过来 grantWithinTx / extendLicense 也永远不碰 source='aigw' 这一行（否则买的时长会被下一次同步截掉）。
   // until 为 null 或已过期：把这一行结束在现在（不删，留账）。返回这一行现在的到期时间（没有 = null）。
   async syncAigwLicense(userId:string,until:Date|null):Promise<{changed:boolean;expiresAt:Date|null}>{
     const client=await this.pool.connect()
@@ -323,8 +324,9 @@ export class PgStore {
           changed=true
         }
         expiresAt=until
-      }else if(row&&row.status==='active'&&row.expiresAt.getTime()>now.getTime()){
-        await client.query(`UPDATE licenses SET expires_at=$2 WHERE id=$1`,[row.id,now])
+      }else if(row&&row.status==='active'){
+        // AI 到期：这一行结束（标 expired，别再被当成可合并的有效会员）
+        await client.query(`UPDATE licenses SET status='expired',expires_at=least(expires_at,$2) WHERE id=$1`,[row.id,now])
         changed=true
         expiresAt=now
       }
@@ -591,7 +593,7 @@ export class PgStore {
   }
   async extendLicense(userId:string,days:number){
     const r=await this.pool.query(`UPDATE licenses SET expires_at=greatest(expires_at,now())+($2||' days')::interval,status='active'
-      WHERE id=(SELECT id FROM licenses WHERE user_id=$1 ORDER BY expires_at DESC LIMIT 1) RETURNING id,expires_at AS "expiresAt"`,[userId,days])
+      WHERE id=(SELECT id FROM licenses WHERE user_id=$1 AND source<>'aigw' ORDER BY expires_at DESC LIMIT 1) RETURNING id,expires_at AS "expiresAt"`,[userId,days])
     return r.rows[0]??null
   }
   async listDevices(params:Partial<DeviceListQuery>={}):Promise<ListResult<any>>{
@@ -908,7 +910,7 @@ export class PgStore {
     if(!plan)throw new AppError('PLAN_NOT_FOUND','套餐不存在',404)
     await client.query('SELECT pg_advisory_xact_lock(hashtext($1))',[`license:${opts.userId}:${plan.tier}`])
     const existing=(await client.query(`SELECT l.id,l.plan_id AS "planId",l.expires_at AS "expiresAt",l.lifetime FROM licenses l JOIN plans p ON p.id=l.plan_id
-      WHERE l.user_id=$1 AND l.status='active' AND p.tier=$2 ORDER BY l.lifetime DESC,l.expires_at DESC LIMIT 1 FOR UPDATE`,
+      WHERE l.user_id=$1 AND l.status='active' AND p.tier=$2 AND l.source<>'aigw' ORDER BY l.lifetime DESC,l.expires_at DESC LIMIT 1 FOR UPDATE`,
       [opts.userId,plan.tier])).rows[0]
     const lifetime=opts.lifetime||!!plan.lifetime
     const durationDays=lifetime?null:(opts.durationDays??plan.duration_days)
