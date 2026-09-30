@@ -103,7 +103,8 @@ mv -f "$root/downloads/.${manifest_name}.tmp" "$root/downloads/$manifest_name"
 install -m 0644 "$exe" "$root/downloads/.proxysplit-latest.exe.tmp"
 mv -f "$root/downloads/.proxysplit-latest.exe.tmp" "$root/downloads/proxysplit-latest.exe"
 # AI 编程官网的下载地址：同一个安装包，文件名带 -ai（客户端据此隐藏作者联系方式）。软链跟着 latest 走。
-ln -sfn proxysplit-latest.exe "$root/downloads/proxysplit-ai-latest.exe"
+ln -sfn proxysplit-latest.exe "$root/downloads/.proxysplit-ai-latest.exe.tmp"
+mv -Tf "$root/downloads/.proxysplit-ai-latest.exe.tmp" "$root/downloads/proxysplit-ai-latest.exe"
 install -m 0644 "$manifest" "$root/downloads/.proxysplit-latest.manifest.json.tmp"
 mv -f "$root/downloads/.proxysplit-latest.manifest.json.tmp" "$root/downloads/proxysplit-latest.manifest.json"
 

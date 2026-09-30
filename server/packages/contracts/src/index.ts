@@ -42,7 +42,8 @@ export const powervpnMeSchema = z.object({
 })
 // 交付：按 POWER云 客户 id 预建关联账号（客户还没打开过客户端时先发会员）。
 export const adminPowervpnProvisionSchema = z.object({
-  externalId: z.string().trim().min(1).max(128),
+  // POWER云 客户 id 是 uuid，/api/client/me 给的是小写；统一成小写，免得预建的号和客户登录时对不上
+  externalId: z.string().trim().uuid().transform((v) => v.toLowerCase()),
   email: z.string().trim().email().max(320).nullish().transform((v) => v ?? null),
   channel: z.enum(['', 'aigw']).default('aigw'),
 })

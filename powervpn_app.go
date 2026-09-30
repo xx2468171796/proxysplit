@@ -59,12 +59,15 @@ func (a *App) LoginPowerVPN() string {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	// 中转站客户：授权地址带 via=aigw，POWER云 登录页直接转去 AI 编程官网登录（少点一次）。
-	via := ""
-	if a.lic != nil && a.licenseStatus().Channel == channelAIGW {
-		via = "&via=" + channelAIGW
-	}
-	if err := pv.Login(ctx, func(u string) error { runtime.BrowserOpenURL(a.ctx, u+via); return nil }); err != nil {
+	// 中转站客户：直接打开 POWER云「用 AI 编程官网账号登录」入口，登录完回到授权页（少点一次）。
+	viaAIGW := a.lic != nil && a.licenseStatus().Channel == channelAIGW
+	if err := pv.Login(ctx, func(u string) error {
+		if viaAIGW {
+			u = aigwStartURL(u)
+		}
+		runtime.BrowserOpenURL(a.ctx, u)
+		return nil
+	}); err != nil {
 		return err.Error()
 	}
 	if a.lic != nil && a.lic.Enabled() {

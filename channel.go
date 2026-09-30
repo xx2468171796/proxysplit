@@ -1,6 +1,7 @@
 package main
 
 import (
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -52,4 +53,18 @@ func (a *App) licenseStatus() license.Status {
 	st := a.lic.Status()
 	st.Channel = a.channel(st.Channel)
 	return st
+}
+
+// aigwStartURL turns the POWER云 consent URL into the panel's "sign in with
+// the AI site" entry that comes back to it afterwards. Opened by the app (not a
+// web page), the request carries Sec-Fetch-Site: none, which the panel accepts;
+// cross-site links stay blocked. Anything unexpected keeps the original URL.
+func aigwStartURL(authorize string) string {
+	u, err := url.Parse(authorize)
+	if err != nil || u.Path != "/oauth/authorize" || u.Host == "" {
+		return authorize
+	}
+	next := u.Path + "?" + u.RawQuery
+	start := url.URL{Scheme: u.Scheme, Host: u.Host, Path: "/api/auth/aigw/start", RawQuery: url.Values{"next": {next}}.Encode()}
+	return start.String()
 }
