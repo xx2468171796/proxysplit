@@ -3,6 +3,11 @@
 版本号以发布构建为准（`scripts/build-commercial.ps1 -Version <x.y.z>`，注入 `main.appVersion`），
 每个发布产物的 SHA256 见 `output/proxysplit-v<版本>.manifest.json`。
 
+## v1.9.62
+
+- 从 AI 编程官网下载的 ProxySplit 打开就自动登录：节点、浏览器和 Claude Code / Codex 等常用程序都已加好，点「启动」即可（下载 3 天内首次打开有效、只能用一次）。
+- 用 AI 编程官网账号登录后，应用分流列表立即显示预置的常用程序。
+
 ## v1.9.56
 
 - 收款改走支付宝直连通道：付款二维码为支付宝官方收款码，电脑上点「本机打开支付宝」直接进支付宝网页收银台付款。
