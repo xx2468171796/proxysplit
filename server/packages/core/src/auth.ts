@@ -4,14 +4,14 @@ import { exportSPKI, generateKeyPair, importPKCS8, jwtVerify, SignJWT } from 'jo
 import { AppError, normalizeUsername } from '@proxysplit/shared'
 import type { ActivateDeviceInput, DeviceInput, LoginInput, PowervpnLoginInput, RefreshInput, RegisterInput, SelfPasswordInput, WebRegisterInput } from '@proxysplit/contracts'
 import { powervpnMeSchema } from '@proxysplit/contracts'
-import type { PgStore, UserRecord } from './store.js'
+import { channelOfSources, type PgStore, type UserChannel, type UserRecord } from './store.js'
 
 const encoder=new TextEncoder()
 const sha256=(value:string)=>createHash('sha256').update(value).digest('hex')
 export const hashFingerprint=(value:string)=>sha256('proxysplit-device-v1:'+value)
 export const hashPassword=(value:string)=>hash(value,{type:argon2id,memoryCost:65536,timeCost:3,parallelism:1})
 
-export type PowervpnIdentity={id:string;username:string;email:string|null;displayName:string}
+export type PowervpnIdentity={id:string;username:string;email:string|null;displayName:string;sources:string[]}
 // 面板 GET /api/client/me 核实令牌；令牌只放请求头，绝不写日志。
 export type PowervpnConfig={baseUrl:string;timeoutMs?:number;fetch?:typeof fetch}
 export type AuthConfig={accessSecret:string;refreshDays:number;licensePrivateKeyPem?:string;licensePublicKeyPem?:string;powervpn?:PowervpnConfig}
@@ -47,7 +47,7 @@ export class AuthService{
   private async issue(user:UserRecord,deviceId:string,familyId:string=randomUUID()){
     const jti=randomUUID(), refreshToken=await this.refresh(user.id,deviceId,familyId,jti), expiresAt=new Date(Date.now()+this.cfg.refreshDays*86400000)
     await this.store.createSession({userId:user.id,deviceId,familyId,jti,tokenHash:sha256(refreshToken),expiresAt})
-    return {accessToken:await this.access(user,deviceId),refreshToken,expiresIn:900,deviceId,user:{id:user.id,username:user.username,role:user.role}}
+    return {accessToken:await this.access(user,deviceId),refreshToken,expiresIn:900,deviceId,user:{id:user.id,username:user.username,role:user.role,channel:user.channel??''}}
   }
   private license(ent:Awaited<ReturnType<PgStore['entitlement']>>|null,user:UserRecord){
     const value=ent??(user.role==='admin'?{licenseId:'admin',planId:'admin',planCode:'admin',planName:'Administrator',tier:'premium' as const,maxDevices:10,features:['admin'],expiresAt:new Date('2999-12-31'),lifetime:true,status:'active'}:null)
@@ -132,6 +132,14 @@ export class AuthService{
     if(user.status!=='active')throw new AppError('ACCOUNT_UNAVAILABLE','Account is unavailable',403)
     return this.completeLogin(user,input.device,ip,'auth.login')
   }
+  // 交付用：客户还没打开过客户端时，管理员按 POWER云 客户 id 先建好关联账号（之后客户用 POWER云 登录就是这个号），好先发会员。
+  async provisionPowervpnUser(input:{externalId:string;email:string|null;channel:UserChannel},ip=''){
+    let result
+    try{result=await this.store.findOrCreateIdentityUser({provider:'powervpn',externalId:input.externalId,usernameBase:powervpnUsernameBase(input.externalId),email:input.email,ip})}
+    catch(e){if((e as Error).message==='USERNAME_EXHAUSTED')throw new AppError('IDENTITY_TAKEN','无法为该 POWER云 账号分配用户名',409);throw e}
+    if(await this.store.markUserChannel(result.user.id,input.channel))result.user.channel=input.channel
+    return {id:result.user.id,username:result.user.username,channel:result.user.channel,created:result.created}
+  }
   // POWER云 账号登录：面板核实令牌 → 找 / 建用户 → 与 login() 相同的会话 + 设备数逻辑。不送授权。
   async loginPowervpn(input:PowervpnLoginInput,ip=''){
     if(!this.cfg.powervpn)throw new AppError('POWERVPN_DISABLED','POWER云 登录未开放',503)
@@ -141,6 +149,9 @@ export class AuthService{
     catch(e){if((e as Error).message==='USERNAME_EXHAUSTED')throw new AppError('IDENTITY_TAKEN','无法为该 POWER云 账号分配用户名，请联系客服',409);throw e}
     const {user,created}=result
     if(created)await this.store.audit(user.id,'auth.register.powervpn','user',user.id,ip,'success')
+    // 经 AI 编程官网登录过的 POWER云 客户 = 中转站客户：记渠道，客户端据此隐藏作者联系方式。
+    const channel=channelOfSources(identity.sources)
+    if(await this.store.markUserChannel(user.id,channel)){user.channel=channel;await this.store.audit(user.id,'auth.channel','user',user.id,ip,'success',{channel})}
     if(user.status!=='active')throw new AppError('ACCOUNT_UNAVAILABLE','Account is unavailable',403)
     return this.completeLogin(user,input.device,ip,'auth.login.powervpn')
   }
@@ -159,7 +170,7 @@ export class AuthService{
       if((e as Error).message==='DEVICE_LIMIT'){
         // 不签发租约和刷新令牌：此令牌仅能在 15 分钟内查看/解绑本账号设备，不能启动代理。
         await this.store.audit(user.id,'auth.login.device_limit','device','pending',ip,'success')
-        return {accessToken:await this.access(user,'pending'),refreshToken:'',expiresIn:900,deviceId:'',deviceLimitReached:true,license}
+        return {accessToken:await this.access(user,'pending'),refreshToken:'',expiresIn:900,deviceId:'',deviceLimitReached:true,license,user:{id:user.id,username:user.username,role:user.role,channel:user.channel??''}}
       }
       throw e
     }
@@ -197,7 +208,7 @@ export class AuthService{
     // Rotation is already committed; an audit sink failure must not hide the
     // newly issued one-time token and strand the client with a consumed token.
     await this.store.audit(user.id,'auth.refresh','session',String(payload.jti),ip,'success').catch(()=>{})
-    return {accessToken:await this.access(user,rotated.deviceId),refreshToken,expiresIn:900,deviceId:rotated.deviceId,user:{id:user.id,username:user.username,role:user.role}}
+    return {accessToken:await this.access(user,rotated.deviceId),refreshToken,expiresIn:900,deviceId:rotated.deviceId,user:{id:user.id,username:user.username,role:user.role,channel:user.channel??''}}
   }
   async logout(input:RefreshInput,ip=''){
     try{

@@ -182,7 +182,7 @@
   type RouteRule = { type: string; value: string; action: string }
   type RuleImportPreview = { schemaVersion: number; ruleCount: number; lineAdded: number; lineSkipped: number; customRules: number; summary: string; error?: string }
   type Routing = { enabled: boolean; mode: string; rules: RouteRule[] }
-  type LicenseStatus = { enabled: boolean; signedIn: boolean; authenticated: boolean; deviceLimitReached: boolean; username: string; plan: string; planCode: string; tier: string; maxDevices: number; features: string[]; expiresAt: string; offlineUntil: string; error?: string }
+  type LicenseStatus = { enabled: boolean; signedIn: boolean; authenticated: boolean; deviceLimitReached: boolean; username: string; plan: string; planCode: string; tier: string; maxDevices: number; features: string[]; expiresAt: string; offlineUntil: string; channel?: string; error?: string }
   type MemberPlan = { id: string; code: string; name: string; description: string; tier: string; billingCycle: string; durationDays?: number; lifetime: boolean; priceCents: number; originalPriceCents?: number; currency: string; maxDevices: number; features: string[]; badge: string; saleEndsAt?: string }
   type AccountDevice = { id: string; name: string; platform: string; appVersion: string; firstSeenAt: string; lastSeenAt: string; current: boolean }
   type MemberOrder = { orderNo: string; planName: string; amountCents: number; currency: string; status: string; payUrl: string; checkoutUrl?: string; paidAt: string; expiresAt: string; createdAt: string }
@@ -1148,6 +1148,9 @@
     } catch { toast(`${label}：${value}`) }
   }
   const QQ_GROUP = '719243244'
+  // 中转站（AI 编程官网）来的客户由推广员服务：不显示作者联系方式、赞赏码、官网 / GitHub（channel.go）
+  $: hideContact = license.channel === 'aigw'
+  $: if (hideContact && showDonate) showDonate = false
   const SERVICE_WECHAT = 'zyg69996'
   const copyQQ = () => copyContact(QQ_GROUP, 'QQ 群号')
   const copyWechat = () => copyContact(SERVICE_WECHAT, '客服微信')
@@ -1593,7 +1596,7 @@
       }, 2000)
     }
     timer = setInterval(() => { refreshStatus(); refreshHealth(); if (tab === 'logs') refreshConns() }, 1000)
-    if (!license.enabled || license.authenticated) openDonate()
+    if (license.channel !== 'aigw' && (!license.enabled || license.authenticated)) openDonate()
   })
   onDestroy(() => {
     if (timer) clearInterval(timer)
@@ -1717,8 +1720,9 @@
         </button>
         {#if authMode === 'login'}
           <button class="ghost-btn license-submit powervpn-login" type="button" on:click={submitPowerVPN} disabled={loginBusy || powervpnBusy}>
-            {powervpnBusy ? '请在浏览器中完成 POWER云 授权…' : '用 POWER云 账号登录'}
+            {powervpnBusy ? '请在浏览器中完成登录授权…' : hideContact ? '用 AI 编程官网账号登录' : '用 POWER云 账号登录'}
           </button>
+          {#if hideContact}<p class="license-tip">会打开浏览器，用 ai.zygskins.cn 的账号登录并点「授权」，完成后自动回到这里。</p>{/if}
         {/if}
         <p class="license-tip">{authMode === 'register' ? '邮箱当前不做验证；同一电脑仅能领取一次试用，但始终可以注册新账号并购买套餐。' : '使用用户名和密码登录；设备名额与会员状态由服务端校验。'} 主板等硬件信息只生成摘要，不上传原始序列号。</p>
       </form>
@@ -1802,6 +1806,7 @@
         <span class="dot" class:on={status?.coreRunning}></span>
         <div><strong>{status?.coreRunning ? '核心运行中' : '核心已停止'}</strong><small>sing-box {coreVersion || '1.13.14'}</small></div>
       </div>
+      {#if !hideContact}
       <div class="contact-card">
         <button class="contact-row" title="点击复制 QQ 群号" on:click={copyQQ}>
           <i>{@html I.qq}</i><span>QQ 群 <b>{QQ_GROUP}</b></span><em>点击复制</em>
@@ -1814,6 +1819,7 @@
         <button title="官网 proxysplit.zygskins.cn" on:click={openWebsite}>{@html I.globe}</button>
         <button title="GitHub github.com/xx2468171796" on:click={openGitHub}>{@html I.gh}</button>
       </div>
+      {/if}
     </div>
   </aside>
 

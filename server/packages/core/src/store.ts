@@ -8,7 +8,12 @@ export type UserRecord = {
   id:string; username:string; passwordHash:string|null; role:'user'|'admin';
   status:'active'|'suspended'|'banned'; createdAt:Date;
   failedLoginCount:number; lockoutLevel:number; lockedUntil:Date|null
+  /** 来源渠道：'' 自有；'aigw' 中转站客户（客户端隐藏作者联系方式） */
+  channel:UserChannel
 }
+export type UserChannel=''|'aigw'
+/** POWER云 /api/client/me 的 sources → 渠道：经 AI 编程官网登录过的就是中转站客户。 */
+export const channelOfSources=(sources:readonly string[]):UserChannel=>sources.includes('aigw')?'aigw':''
 export type Entitlement = {
   licenseId:string; planId:string; planCode:string; planName:string;
   tier:'trial'|'standard'|'premium'; maxDevices:number; features:string[];
@@ -140,11 +145,11 @@ export class PgStore {
   async close(){ await this.pool.end() }
 
   async findUser(username:string):Promise<UserRecord|null>{
-    const r=await this.pool.query('SELECT id,username,password_hash AS "passwordHash",role,status,created_at AS "createdAt",failed_login_count AS "failedLoginCount",lockout_level AS "lockoutLevel",locked_until AS "lockedUntil" FROM users WHERE username=$1',[username])
+    const r=await this.pool.query('SELECT id,username,password_hash AS "passwordHash",role,status,created_at AS "createdAt",failed_login_count AS "failedLoginCount",lockout_level AS "lockoutLevel",locked_until AS "lockedUntil",channel FROM users WHERE username=$1',[username])
     return r.rows[0]??null
   }
   async findUserById(id:string):Promise<UserRecord|null>{
-    const r=await this.pool.query('SELECT id,username,password_hash AS "passwordHash",role,status,created_at AS "createdAt",failed_login_count AS "failedLoginCount",lockout_level AS "lockoutLevel",locked_until AS "lockedUntil" FROM users WHERE id=$1',[id])
+    const r=await this.pool.query('SELECT id,username,password_hash AS "passwordHash",role,status,created_at AS "createdAt",failed_login_count AS "failedLoginCount",lockout_level AS "lockoutLevel",locked_until AS "lockedUntil",channel FROM users WHERE id=$1',[id])
     return r.rows[0]??null
   }
   async entitlement(userId:string):Promise<Entitlement|null>{
@@ -246,7 +251,7 @@ export class PgStore {
   // POWER云 等外部账号：按 (provider, external_id) 找用户，没有就建一个无密码账号。
   // 用户名冲突时加数字后缀；邮箱已被别的账号占用时不带邮箱（不自动合并已有账号）。
   async findOrCreateIdentityUser(input:{provider:string;externalId:string;usernameBase:string;email:string|null;ip:string}):Promise<{user:UserRecord;created:boolean}>{
-    const select='SELECT u.id,u.username,u.password_hash AS "passwordHash",u.role,u.status,u.created_at AS "createdAt",u.failed_login_count AS "failedLoginCount",u.lockout_level AS "lockoutLevel",u.locked_until AS "lockedUntil" FROM user_identities i JOIN users u ON u.id=i.user_id WHERE i.provider=$1 AND i.external_id=$2'
+    const select='SELECT u.id,u.username,u.password_hash AS "passwordHash",u.role,u.status,u.created_at AS "createdAt",u.failed_login_count AS "failedLoginCount",u.lockout_level AS "lockoutLevel",u.locked_until AS "lockedUntil",u.channel FROM user_identities i JOIN users u ON u.id=i.user_id WHERE i.provider=$1 AND i.external_id=$2'
     const found=await this.pool.query(select,[input.provider,input.externalId])
     if(found.rows[0])return {user:found.rows[0],created:false}
     const client=await this.pool.connect()
@@ -271,7 +276,7 @@ export class PgStore {
         await client.query('SAVEPOINT identity_user')
         try{
           u=await client.query(`INSERT INTO users(username,email,password_hash,role,status,registration_ip_hash,registration_hardware_hash)
-            VALUES($1,$2,NULL,'user','active',$3,'') RETURNING id,username,password_hash AS "passwordHash",role,status,created_at AS "createdAt",failed_login_count AS "failedLoginCount",lockout_level AS "lockoutLevel",locked_until AS "lockedUntil"`,
+            VALUES($1,$2,NULL,'user','active',$3,'') RETURNING id,username,password_hash AS "passwordHash",role,status,created_at AS "createdAt",failed_login_count AS "failedLoginCount",lockout_level AS "lockoutLevel",locked_until AS "lockedUntil",channel`,
             [username,email,sha256('proxysplit-ip-v1:'+input.ip)])
           break
         }catch(e){
@@ -287,6 +292,13 @@ export class PgStore {
       await client.query('COMMIT')
       return {user:u.rows[0],created:true}
     }catch(e){await client.query('ROLLBACK');throw e}finally{client.release()}
+  }
+
+  // 渠道只升不降：'' → 'aigw'；已是 aigw 的不动（返回 false）。
+  async markUserChannel(userId:string,channel:UserChannel):Promise<boolean>{
+    if(!channel)return false
+    const r=await this.pool.query(`UPDATE users SET channel=$2,updated_at=now() WHERE id=$1 AND channel<>$2`,[userId,channel])
+    return (r.rowCount??0)>0
   }
 
   // 首次用客户端登录时补发试用：官网注册的账号没有设备信息，登录时才知道硬件。
@@ -478,7 +490,7 @@ export class PgStore {
       l.expires_at AS "expiresAt",l.lifetime,p.name AS "planName",p.tier,
       (SELECT count(*)::int FROM devices d WHERE d.user_id=u.id AND d.revoked=false) AS devices,
       (u.password_hash IS NOT NULL) AS "hasPassword",
-      coalesce((SELECT array_agg(i.provider ORDER BY i.provider) FROM user_identities i WHERE i.user_id=u.id),'{}') AS identities,
+      coalesce((SELECT array_agg(i.provider ORDER BY i.provider) FROM user_identities i WHERE i.user_id=u.id),'{}') AS identities,u.channel,
       (count(*) OVER())::int AS "totalCount"
       FROM users u LEFT JOIN LATERAL (
         SELECT * FROM licenses WHERE user_id=u.id AND status='active' AND expires_at>now() ORDER BY lifetime DESC,expires_at DESC LIMIT 1

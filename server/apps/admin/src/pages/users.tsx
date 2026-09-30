@@ -189,7 +189,9 @@ export default function UsersPage() {
         cell: ({ row }) => {
           const ids: string[] = row.original.identities ?? []
           const parts = [row.original.hasPassword === false ? null : '密码', ids.includes('powervpn') ? 'POWER云' : null].filter(Boolean)
-          return parts.length ? parts.join(' / ') : '—'
+          const text = parts.length ? parts.join(' / ') : '—'
+          // 中转站（AI 编程官网）来的客户：客户端不显示作者联系方式
+          return row.original.channel === 'aigw' ? `${text} · 中转站` : text
         },
       },
       {

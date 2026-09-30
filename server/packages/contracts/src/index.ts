@@ -37,6 +37,14 @@ export const powervpnMeSchema = z.object({
   username: z.string().max(256).nullish().transform((v) => v ?? ''),
   email: z.string().trim().max(320).nullish().transform((v) => (v ? v : null)),
   displayName: z.string().max(256).nullish().transform((v) => v ?? ''),
+  // 关联的外部站点（面板 2026-09-30 起给；老面板没有 → 空）。含 'aigw' = 中转站客户。
+  sources: z.array(z.string().max(32)).max(16).nullish().catch(null).transform((v) => v ?? []),
+})
+// 交付：按 POWER云 客户 id 预建关联账号（客户还没打开过客户端时先发会员）。
+export const adminPowervpnProvisionSchema = z.object({
+  externalId: z.string().trim().min(1).max(128),
+  email: z.string().trim().email().max(320).nullish().transform((v) => v ?? null),
+  channel: z.enum(['', 'aigw']).default('aigw'),
 })
 export const activateDeviceSchema = z.object({ device: deviceSchema })
 export const leaseSchema = z.object({ deviceFingerprint: z.string().min(32).max(128), appVersion: z.string().min(5).max(40) })

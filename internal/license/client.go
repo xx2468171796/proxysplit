@@ -44,7 +44,10 @@ type Status struct {
 	ExpiresAt          string   `json:"expiresAt"`
 	OfflineUntil       string   `json:"offlineUntil"`
 	DeviceLimitReached bool     `json:"deviceLimitReached"`
-	Error              string   `json:"error,omitempty"`
+	// Channel is where the account came from: "" (our own site / client) or
+	// "aigw" (the AI relay site's customers, who must not see author contacts).
+	Channel string `json:"channel"`
+	Error   string `json:"error,omitempty"`
 }
 
 type Plan struct {
@@ -124,6 +127,7 @@ type state struct {
 	MaxDevices         int      `json:"maxDevices"`
 	Features           []string `json:"features"`
 	PendingDevice      bool     `json:"pendingDevice"`
+	Channel            string   `json:"channel,omitempty"`
 	SessionValidatedAt int64    `json:"sessionValidatedAt,omitempty"`
 	// LastSeenAt is the latest clock reading seen while offline-valid; a clock
 	// set back before it (or before the lease was issued) cannot extend the
@@ -388,6 +392,7 @@ type authResult struct {
 	DeviceLimitReached bool   `json:"deviceLimitReached"`
 	User               *struct {
 		Username string `json:"username"`
+		Channel  string `json:"channel"`
 	} `json:"user"`
 	License *struct {
 		Plan       string   `json:"plan"`
@@ -434,6 +439,9 @@ func (c *Client) authenticatePayload(path, username string, payload map[string]a
 		username = result.User.Username
 	}
 	c.state = state{SchemaVersion: stateSchemaVersion, Username: strings.TrimSpace(username), AccessToken: result.AccessToken, RefreshToken: result.RefreshToken, DeviceID: result.DeviceID, PendingDevice: result.DeviceLimitReached, SessionValidatedAt: time.Now().Unix()}
+	if result.User != nil {
+		c.state.Channel = result.User.Channel
+	}
 	if result.License != nil {
 		c.state.Plan, c.state.PlanCode, c.state.Tier, c.state.MaxDevices, c.state.Features = result.License.Plan, result.License.PlanCode, result.License.Tier, result.License.MaxDevices, result.License.Features
 		if !result.DeviceLimitReached {
@@ -678,11 +686,20 @@ func (c *Client) refreshLocked(ctx context.Context) error {
 	if c.state.RefreshToken == "" {
 		return errors.New("请先登录")
 	}
-	var result struct{ AccessToken, RefreshToken string }
+	var result struct {
+		AccessToken, RefreshToken string
+		User                      *struct {
+			Channel string `json:"channel"`
+		} `json:"user"`
+	}
 	if err := c.request(ctx, http.MethodPost, "/v1/auth/refresh", map[string]any{"refreshToken": c.state.RefreshToken, "deviceFingerprint": c.fingerprint}, &result, ""); err != nil {
 		return err
 	}
 	c.state.AccessToken, c.state.RefreshToken = result.AccessToken, result.RefreshToken
+	// Older servers send no channel; never downgrade a known one on refresh.
+	if result.User != nil && result.User.Channel != "" {
+		c.state.Channel = result.User.Channel
+	}
 	c.state.SessionValidatedAt = time.Now().Unix()
 	// Refresh tokens are one-time credentials. Persist the rotated token before
 	// any subsequent lease request so a lease/network failure cannot leave the
@@ -795,7 +812,7 @@ func compareVersion(a, b string) int {
 func (c *Client) Status() Status {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	status := Status{Enabled: c.Enabled(), SignedIn: c.state.AccessToken != "", Username: c.state.Username, Plan: c.state.Plan, PlanCode: c.state.PlanCode, Tier: c.state.Tier, MaxDevices: c.state.MaxDevices, Features: append([]string{}, c.state.Features...), DeviceLimitReached: c.state.PendingDevice}
+	status := Status{Enabled: c.Enabled(), SignedIn: c.state.AccessToken != "", Username: c.state.Username, Plan: c.state.Plan, PlanCode: c.state.PlanCode, Tier: c.state.Tier, MaxDevices: c.state.MaxDevices, Features: append([]string{}, c.state.Features...), DeviceLimitReached: c.state.PendingDevice, Channel: c.state.Channel}
 	if !status.Enabled {
 		status.Authenticated = true
 		return status

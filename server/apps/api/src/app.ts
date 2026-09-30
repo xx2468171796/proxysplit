@@ -3,7 +3,7 @@ import cors from '@fastify/cors'
 import rateLimit from '@fastify/rate-limit'
 import { Redis } from 'ioredis'
 import { AppError, normalizeUsername } from '@proxysplit/shared'
-import { activateDeviceSchema, powervpnLoginSchema, adminGrantSchema, selfPasswordSchema, webRegisterSchema, analyticsQuerySchema, announcementListQuery, announcementUpsertSchema, auditListQuery, deviceListQuery, downloadStatsQuery, leaseSchema, licenseExtendSchema, loginSchema, orderCreateSchema, orderListQuery, orderRefundSchema, planListQuery, planPatchSchema, planUpsertSchema, providerUpsertSchema, redeemCodeCreateSchema, redeemListQuery, redeemSchema, refreshSchema, registerSchema, releaseCreateSchema, releaseListQuery, settingPatchSchema, trackViewSchema, userCreateSchema, userListQuery, userPasswordSchema, userStatusSchema } from '@proxysplit/contracts'
+import { activateDeviceSchema, powervpnLoginSchema, adminGrantSchema, adminPowervpnProvisionSchema, selfPasswordSchema, webRegisterSchema, analyticsQuerySchema, announcementListQuery, announcementUpsertSchema, auditListQuery, deviceListQuery, downloadStatsQuery, leaseSchema, licenseExtendSchema, loginSchema, orderCreateSchema, orderListQuery, orderRefundSchema, planListQuery, planPatchSchema, planUpsertSchema, providerUpsertSchema, redeemCodeCreateSchema, redeemListQuery, redeemSchema, refreshSchema, registerSchema, releaseCreateSchema, releaseListQuery, settingPatchSchema, trackViewSchema, userCreateSchema, userListQuery, userPasswordSchema, userStatusSchema } from '@proxysplit/contracts'
 import { AccelTokens, createCommercialCore, hashPassword, PaymentService, type AuthService, type PgStore } from '@proxysplit/core'
 import type { ApiConfig } from './config.js'
 
@@ -99,7 +99,8 @@ export async function buildApp(config:ApiConfig,provided?:Core){
   // Tracked download: log one event (hashed IP + visitor id + UA), then 302 to
   // the real Nginx-served file. Only known-shaped filenames are allowed so this
   // can never become an open redirect or path-traversal.
-  const DOWNLOAD_FILE=/^proxysplit-(v\d+\.\d+\.\d+|latest)\.exe$/
+  // proxysplit-ai-latest.exe = AI 编程官网给的下载（同一个安装包的软链）：文件名带 -ai，客户端据此隐藏作者联系方式
+  const DOWNLOAD_FILE=/^proxysplit-(v\d+\.\d+\.\d+|latest|ai-latest)\.exe$/
   app.get('/v1/download/:file',{config:{rateLimit:{max:60,timeWindow:'1 minute'}}},async(req,reply)=>{
     const file=(req.params as {file:string}).file
     if(!DOWNLOAD_FILE.test(file))throw new AppError('NOT_FOUND','文件不存在',404)
@@ -202,6 +203,7 @@ export async function buildApp(config:ApiConfig,provided?:Core){
   app.get('/v1/admin/payment-providers',async(req)=>{await admin(req);return {items:await core.store.listProviders()}})
   app.put('/v1/admin/payment-providers/:code',async(req)=>{const p=await admin(req);const code=(req.params as {code:string}).code;const input=providerUpsertSchema.parse({...req.body as object,code});const row=await core.store.upsertProvider(input);await core.store.audit(p.userId,'admin.payment-provider.update','payment-provider',code,req.ip,'success');return row})
   app.post('/v1/admin/payment-providers/:code/activate',async(req)=>{const p=await admin(req);const code=(req.params as {code:string}).code;const provider=await core.store.getProvider(code);if(!provider||!provider.enabled)throw new AppError('PAYMENT_PROVIDER_DISABLED','支付通道未启用',409);const row=await core.store.updateCommerceSettings({activePaymentProvider:code},p.userId);await core.store.audit(p.userId,'admin.payment-provider.activate','payment-provider',code,req.ip,'success');return row})
+  app.post('/v1/admin/users/powervpn',async(req)=>{const p=await admin(req);const input=adminPowervpnProvisionSchema.parse(req.body);const user=await core.auth.provisionPowervpnUser(input,req.ip);await core.store.audit(p.userId,'admin.user.provision_powervpn','user',user.id,req.ip,'success',{externalId:input.externalId,channel:user.channel,created:user.created});return user})
   app.post('/v1/admin/users/:id/grant',async(req)=>{const p=await admin(req);const input=adminGrantSchema.parse(req.body);const id=(req.params as {id:string}).id;const grant=await core.store.adminGrantLicense(id,{planId:input.planId,lifetime:!!input.lifetime,durationDays:input.durationDays??null});await core.store.audit(p.userId,'admin.license.grant','user',id,req.ip,'success',{planId:input.planId,lifetime:!!input.lifetime,durationDays:input.durationDays??null});return grant})
   app.get('/v1/admin/orders',async(req)=>{await admin(req);return core.store.listOrders(orderListQuery.parse(req.query))})
   app.post('/v1/admin/orders/:orderNo/refund',async(req)=>{const p=await admin(req);const orderNo=(req.params as {orderNo:string}).orderNo;const {reason}=orderRefundSchema.parse(req.body??{});const result=await core.store.refundOrder(orderNo,reason);await core.store.audit(p.userId,'admin.order.refund','order',orderNo,req.ip,'success',{reason,orders:result.orders,licenseAdjusted:result.licenseAdjusted,removedDays:result.removedDays??null});return result})

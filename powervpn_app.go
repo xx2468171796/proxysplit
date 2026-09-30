@@ -59,7 +59,12 @@ func (a *App) LoginPowerVPN() string {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	if err := pv.Login(ctx, func(u string) error { runtime.BrowserOpenURL(a.ctx, u); return nil }); err != nil {
+	// 中转站客户：授权地址带 via=aigw，POWER云 登录页直接转去 AI 编程官网登录（少点一次）。
+	via := ""
+	if a.lic != nil && a.licenseStatus().Channel == channelAIGW {
+		via = "&via=" + channelAIGW
+	}
+	if err := pv.Login(ctx, func(u string) error { runtime.BrowserOpenURL(a.ctx, u+via); return nil }); err != nil {
 		return err.Error()
 	}
 	if a.lic != nil && a.lic.Enabled() {

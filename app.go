@@ -226,7 +226,7 @@ func (a *App) GetBootstrapState() BootstrapState {
 		DefaultLine: a.svc.GetDefaultLine(),
 		RuleMode:    a.svc.GetRuleMode(),
 		Status:      a.svc.Status(),
-		License:     a.lic.Status(),
+		License:     a.licenseStatus(),
 	}
 }
 
@@ -636,7 +636,7 @@ func (a *App) GetLicenseStatus() license.Status {
 	if a.lic == nil {
 		return license.Status{}
 	}
-	return a.lic.Status()
+	return a.licenseStatus()
 }
 
 func (a *App) Login(username, password string) string {

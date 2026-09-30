@@ -54,6 +54,13 @@ class FakeStore {
     this.identities.set(key, this.user.id)
     return { user: this.user, created: true }
   }
+  channelMarks: string[] = []
+  async markUserChannel(_id: string, channel: '' | 'aigw') {
+    if (!channel || this.user.channel === channel) return false
+    this.channelMarks.push(channel)
+    this.user = { ...this.user, channel }
+    return true
+  }
   async isDeviceWithinLimit() { return true }
   async audit() {}
   async findDevice(id: string) { return id === this.device.id ? this.device : null }
@@ -64,7 +71,7 @@ class FakeStore {
 
 async function fixture() {
   const store = new FakeStore()
-  store.user = { id: '11111111-1111-4111-8111-111111111111', username: 'alice', passwordHash: await hashPassword('correct horse battery staple'), role: 'user', status: 'active', createdAt: new Date(), failedLoginCount: 0, lockoutLevel: 0, lockedUntil: null }
+  store.user = { id: '11111111-1111-4111-8111-111111111111', username: 'alice', passwordHash: await hashPassword('correct horse battery staple'), role: 'user', status: 'active', createdAt: new Date(), failedLoginCount: 0, lockoutLevel: 0, lockedUntil: null, channel: '' }
   store.entitlementValue = { licenseId: '33333333-3333-4333-8333-333333333333', planId: '44444444-4444-4444-8444-444444444444', planCode:'premium-test', planName: 'Professional', tier:'premium', maxDevices: 3, features: ['proxy', 'custom-lines'], expiresAt: new Date(Date.now() + 7 * 86400000), lifetime:false, status: 'active' }
   const auth = await AuthService.create(store as unknown as PgStore, { accessSecret: 'test-secret-must-be-at-least-32-bytes-long', refreshDays: 30 })
   const device = { fingerprint: 'f'.repeat(64), name: 'Windows PC', platform: 'windows' as const, appVersion: '1.9.0' }
@@ -135,6 +142,35 @@ describe('commercial auth', () => {
     expect(store.identities.size).toBe(1)
     // 无密码账号不能用密码登录，提示走 POWER云
     await expect(auth.login({ username: 'pv_abcdef12', password: 'whatever-password', device })).rejects.toMatchObject({ code: 'PASSWORD_NOT_SET' })
+    // 老面板不给 sources：不是中转站客户
+    expect(first.user?.channel).toBe('')
+    expect(store.channelMarks).toHaveLength(0)
+  })
+
+  it('marks POWER云 customers who came from the AI site (sources has aigw) as channel aigw, once', async () => {
+    const { store, device } = await fixture()
+    const me = { id: 'ABCDEF12-3456-7890', username: 'ai0782', email: null, displayName: 'ai0782', sources: ['aigw'] }
+    const fakeFetch = (async () => new Response(JSON.stringify(me), { status: 200 })) as unknown as typeof fetch
+    const auth = await AuthService.create(store as unknown as PgStore, { accessSecret: 'test-secret-must-be-at-least-32-bytes-long', refreshDays: 30, powervpn: { baseUrl: 'https://panel.test', fetch: fakeFetch } })
+    const first = await auth.loginPowervpn({ accessToken: 'panel-access-token-123', device })
+    expect(first.user?.channel).toBe('aigw')
+    await auth.loginPowervpn({ accessToken: 'panel-access-token-123', device })
+    expect(store.channelMarks).toEqual(['aigw'])
+    // 刷新令牌轮换后也带渠道（客户端据此持续隐藏联系方式）
+    const rotated = await auth.rotate({ refreshToken: first.refreshToken, deviceFingerprint: device.fingerprint })
+    expect(rotated.user.channel).toBe('aigw')
+    // 面板给了奇怪的 sources 也不影响登录
+    const odd = await AuthService.create(store as unknown as PgStore, { accessSecret: 'test-secret-must-be-at-least-32-bytes-long', refreshDays: 30, powervpn: { baseUrl: 'https://panel.test', fetch: (async () => new Response(JSON.stringify({ ...me, sources: 'aigw' }), { status: 200 })) as unknown as typeof fetch } })
+    await expect(odd.loginPowervpn({ accessToken: 'panel-access-token-123', device })).resolves.toMatchObject({ refreshToken: expect.any(String) })
+  })
+
+  it('pre-provisions a POWER云-linked account for delivery before the customer ever logs in', async () => {
+    const { store, auth } = await fixture()
+    const made = await auth.provisionPowervpnUser({ externalId: 'B303FE4C-0000', email: null, channel: 'aigw' })
+    expect(made).toMatchObject({ username: 'pv_b303fe4c', channel: 'aigw', created: true })
+    const again = await auth.provisionPowervpnUser({ externalId: 'B303FE4C-0000', email: null, channel: 'aigw' })
+    expect(again).toMatchObject({ id: made.id, created: false })
+    expect(store.identities.size).toBe(1)
   })
 
   it('lets a password-less account set a first password but still checks it afterwards', async () => {
