@@ -114,6 +114,7 @@ func (a *App) startup(ctx context.Context) {
 	a.startAccel()
 	a.finishStartup(nil)
 	go a.licenseWatchdog()
+	go a.powervpnMembershipSync() // AI-site customers: membership follows the POWER云 AI plan
 	go a.resumeAfterUpdate()     // bring the proxy back after an automatic update
 	go a.autoUpdateLoop()        // install new signed releases without prompting
 	go a.ensureDesktopShortcut() // every launch: recreate / repair the desktop shortcut

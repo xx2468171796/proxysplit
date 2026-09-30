@@ -11,7 +11,7 @@ const sha256=(value:string)=>createHash('sha256').update(value).digest('hex')
 export const hashFingerprint=(value:string)=>sha256('proxysplit-device-v1:'+value)
 export const hashPassword=(value:string)=>hash(value,{type:argon2id,memoryCost:65536,timeCost:3,parallelism:1})
 
-export type PowervpnIdentity={id:string;username:string;email:string|null;displayName:string;sources:string[]}
+export type PowervpnIdentity={id:string;username:string;email:string|null;displayName:string;sources:string[];aiPlanExpiresAt?:string|null|undefined}
 // 面板 GET /api/client/me 核实令牌；令牌只放请求头，绝不写日志。
 export type PowervpnConfig={baseUrl:string;timeoutMs?:number;fetch?:typeof fetch}
 export type AuthConfig={accessSecret:string;refreshDays:number;licensePrivateKeyPem?:string;licensePublicKeyPem?:string;powervpn?:PowervpnConfig}
@@ -140,6 +140,27 @@ export class AuthService{
     if(await this.store.markUserChannel(result.user.id,input.channel))result.user.channel=input.channel
     return {id:result.user.id,username:result.user.username,channel:result.user.channel,created:result.created}
   }
+  // 中转站会员同步：面板给了 aiPlanExpiresAt 才同步（老面板不给 = 不动）。失败不挡登录。
+  private async syncAigwMembership(userId:string,identity:PowervpnIdentity,ip:string){
+    if(identity.aiPlanExpiresAt===undefined)return null
+    try{
+      const r=await this.store.syncAigwLicense(userId,identity.aiPlanExpiresAt?new Date(identity.aiPlanExpiresAt):null)
+      if(r.changed)await this.store.audit(userId,'license.aigw.sync','user',userId,ip,'success',{expiresAt:r.expiresAt?.toISOString()??null})
+      return r
+    }catch{return null}
+  }
+  // 已登录的客户端定期用 POWER云 令牌同步：令牌对应的 POWER云 账号必须就是这个 ProxySplit 用户关联的那个。
+  async syncPowervpn(userId:string,accessToken:string,ip=''){
+    if(!this.cfg.powervpn)throw new AppError('POWERVPN_DISABLED','POWER云 登录未开放',503)
+    const identity=await fetchPowervpnIdentity(this.cfg.powervpn,accessToken)
+    if(await this.store.identityOwner('powervpn',identity.id)!==userId)throw new AppError('IDENTITY_MISMATCH','POWER云 账号与当前登录账号不一致，请重新登录',403)
+    const channel=channelOfSources(identity.sources)
+    if(await this.store.markUserChannel(userId,channel))await this.store.audit(userId,'auth.channel','user',userId,ip,'success',{channel})
+    const r=await this.syncAigwMembership(userId,identity,ip)
+    const user=await this.store.findUserById(userId)
+    const license=user?this.license(await this.store.entitlement(userId),user):null
+    return {channel:user?.channel??'',aiPlanExpiresAt:r?.expiresAt?.toISOString()??null,license}
+  }
   // POWER云 账号登录：面板核实令牌 → 找 / 建用户 → 与 login() 相同的会话 + 设备数逻辑。不送授权。
   async loginPowervpn(input:PowervpnLoginInput,ip=''){
     if(!this.cfg.powervpn)throw new AppError('POWERVPN_DISABLED','POWER云 登录未开放',503)
@@ -152,6 +173,8 @@ export class AuthService{
     // 经 AI 编程官网登录过的 POWER云 客户 = 中转站客户：记渠道，客户端据此隐藏作者联系方式。
     const channel=channelOfSources(identity.sources)
     if(await this.store.markUserChannel(user.id,channel)){user.channel=channel;await this.store.audit(user.id,'auth.channel','user',user.id,ip,'success',{channel})}
+    // 会员跟 AI 套餐走：在发试用、签租约之前同步（有 AI 套餐就不浪费这台电脑的一次试用）
+    await this.syncAigwMembership(user.id,identity,ip)
     if(user.status!=='active')throw new AppError('ACCOUNT_UNAVAILABLE','Account is unavailable',403)
     return this.completeLogin(user,input.device,ip,'auth.login.powervpn')
   }

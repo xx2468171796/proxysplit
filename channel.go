@@ -1,12 +1,17 @@
 package main
 
 import (
+	"context"
 	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
+
+	"github.com/wailsapp/wails/v2/pkg/runtime"
 
 	"proxysplit/internal/license"
+	"proxysplit/internal/service"
 )
 
 // 中转站渠道：AI 编程官网（aigw）的客户由推广员带来，客户端不显示作者联系方式
@@ -67,4 +72,42 @@ func aigwStartURL(authorize string) string {
 	next := u.Path + "?" + u.RawQuery
 	start := url.URL{Scheme: u.Scheme, Host: u.Host, Path: "/api/auth/aigw/start", RawQuery: url.Values{"next": {next}}.Encode()}
 	return start.String()
+}
+
+// aigwDefaultApps are pre-added for AI-site customers on their first POWER云
+// login (only when the app list is empty): browsers for claude.ai / Google
+// login, and the AI coding tools. They just press 启动.
+func aigwDefaultApps() []service.AppRule {
+	names := []string{"chrome.exe", "msedge.exe", "claude.exe", "codex.exe", "Code.exe", "Cursor.exe"}
+	out := make([]service.AppRule, 0, len(names))
+	for _, n := range names {
+		out = append(out, service.AppRule{Match: n, Path: n, Line: service.LineRule, Enabled: true})
+	}
+	return out
+}
+
+// powervpnMembershipSync: AI-site customers' ProxySplit membership follows
+// their POWER云 AI plan. Re-check shortly after start and every few hours so a
+// renewal extends it and an expiry ends it without the user signing in again.
+func (a *App) powervpnMembershipSync() {
+	time.Sleep(20 * time.Second)
+	for {
+		a.syncPowerVPNMembership()
+		time.Sleep(3 * time.Hour)
+	}
+}
+
+func (a *App) syncPowerVPNMembership() {
+	if a.lic == nil || !a.lic.Enabled() || !a.lic.Status().SignedIn || a.pv == nil || !a.pv.LoggedIn() {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	tok, err := a.pv.AccessToken(ctx)
+	if err == nil {
+		err = a.lic.SyncPowerVPN(ctx, tok)
+	}
+	if err != nil && a.ctx != nil {
+		runtime.LogWarning(a.ctx, "POWER云 会员同步失败: "+err.Error())
+	}
 }

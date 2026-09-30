@@ -39,7 +39,11 @@ export const powervpnMeSchema = z.object({
   displayName: z.string().max(256).nullish().transform((v) => v ?? ''),
   // 关联的外部站点（面板 2026-09-30 起给；老面板没有 → 空）。含 'aigw' = 中转站客户。
   sources: z.array(z.string().max(32)).max(16).nullish().catch(null).transform((v) => v ?? []),
+  // 「AI 代理套餐」最晚到期（面板 2026-09-30 起给）：null = 没有 AI 套餐；老面板不给 = undefined（不同步，保持原样）
+  aiPlanExpiresAt: z.string().datetime({ offset: true }).nullable().optional().catch(undefined),
 })
+// 已登录客户端用 POWER云 令牌同步中转站会员时长（会员跟 AI 套餐走）
+export const powervpnSyncSchema = z.object({ accessToken: z.string().min(16).max(4096) })
 // 交付：按 POWER云 客户 id 预建关联账号（客户还没打开过客户端时先发会员）。
 export const adminPowervpnProvisionSchema = z.object({
   // POWER云 客户 id 是 uuid，/api/client/me 给的是小写；统一成小写，免得预建的号和客户登录时对不上

@@ -301,6 +301,44 @@ export class PgStore {
     return (r.rowCount??0)>0
   }
 
+  // 中转站客户的会员时长跟 AI 套餐走（业主 2026-09-30）：单独一行 source='aigw'（普通会员），到期时间 = POWER云
+  // 「AI 代理套餐」最晚到期；不和自购 / 兑换 / 后台发的会员合并——AI 到期只有这一行到期，自己买的照常。
+  // until 为 null 或已过期：把这一行结束在现在（不删，留账）。返回这一行现在的到期时间（没有 = null）。
+  async syncAigwLicense(userId:string,until:Date|null):Promise<{changed:boolean;expiresAt:Date|null}>{
+    const client=await this.pool.connect()
+    try{
+      await client.query('BEGIN')
+      await client.query('SELECT pg_advisory_xact_lock(hashtext($1))',[`aigw-license:${userId}`])
+      const plan=(await client.query(`SELECT id FROM plans WHERE code='standard-month'`)).rows[0]
+      if(!plan)throw new Error('standard-month plan missing')
+      const row=(await client.query(`SELECT id,status,expires_at AS "expiresAt" FROM licenses WHERE user_id=$1 AND source='aigw' ORDER BY created_at DESC LIMIT 1 FOR UPDATE`,[userId])).rows[0] as {id:string;status:string;expiresAt:Date}|undefined
+      const now=new Date()
+      let changed=false,expiresAt:Date|null=row?.expiresAt??null
+      if(until&&until.getTime()>now.getTime()){
+        if(!row){
+          await client.query(`INSERT INTO licenses(user_id,plan_id,starts_at,expires_at,source) VALUES($1,$2,$3,$4,'aigw')`,[userId,plan.id,now,until])
+          changed=true
+        }else if(row.status!=='active'||row.expiresAt.getTime()!==until.getTime()){
+          await client.query(`UPDATE licenses SET status='active',expires_at=$2,plan_id=$3 WHERE id=$1`,[row.id,until,plan.id])
+          changed=true
+        }
+        expiresAt=until
+      }else if(row&&row.status==='active'&&row.expiresAt.getTime()>now.getTime()){
+        await client.query(`UPDATE licenses SET expires_at=$2 WHERE id=$1`,[row.id,now])
+        changed=true
+        expiresAt=now
+      }
+      await client.query('COMMIT')
+      return {changed,expiresAt}
+    }catch(e){await client.query('ROLLBACK');throw e}finally{client.release()}
+  }
+
+  // 这个 POWER云 账号关联的是不是这个 ProxySplit 用户
+  async identityOwner(provider:string,externalId:string):Promise<string|null>{
+    const r=await this.pool.query('SELECT user_id FROM user_identities WHERE provider=$1 AND external_id=$2',[provider,externalId])
+    return r.rows[0]?.user_id??null
+  }
+
   // 首次用客户端登录时补发试用：官网注册的账号没有设备信息，登录时才知道硬件。
   // 仍遵守「一台设备只发一次试用」「一个账号只领一次试用」。
   async claimTrialOnLogin(userId:string,hardwareHash:string,ip:string){

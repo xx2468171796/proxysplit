@@ -425,6 +425,29 @@ func (c *Client) LoginWithPowerVPN(accessToken string) error {
 	return c.authenticatePayload("/v1/auth/powervpn", "", map[string]any{"accessToken": accessToken, "device": c.devicePayload()})
 }
 
+// SyncPowerVPN asks the server to re-check the linked POWER云 account with its
+// access token: AI-site customers' membership follows their POWER云 AI plan
+// (extended when it is renewed, ended when it expires). The minute watchdog
+// then picks the new entitlement up through the normal lease refresh.
+func (c *Client) SyncPowerVPN(ctx context.Context, accessToken string) error {
+	if !c.Enabled() || strings.TrimSpace(accessToken) == "" {
+		return nil
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	var result struct {
+		Channel string `json:"channel"`
+	}
+	if err := c.authedRequestLocked(ctx, http.MethodPost, "/v1/auth/powervpn/sync", map[string]any{"accessToken": accessToken}, &result); err != nil {
+		return err
+	}
+	if result.Channel != "" && result.Channel != c.state.Channel {
+		c.state.Channel = result.Channel
+		return c.saveLocked()
+	}
+	return nil
+}
+
 func (c *Client) authenticatePayload(path, username string, payload map[string]any) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()

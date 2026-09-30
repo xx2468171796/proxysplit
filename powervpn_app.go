@@ -81,6 +81,12 @@ func (a *App) LoginPowerVPN() string {
 			return err.Error()
 		}
 	}
+	// 中转站客户第一次登录：应用分流还是空的就把常用程序加好，点「启动」就能用。
+	if a.licenseStatus().Channel == channelAIGW && len(a.svc.GetAppRules()) == 0 {
+		if msg := a.svc.SetAppRules(aigwDefaultApps()); msg != "" {
+			a.svc.LogLine("[中转站] 预置常用程序失败：" + msg)
+		}
+	}
 	if err := a.svc.EnsurePowerVPNSub(); err != nil {
 		// 账号已登录，只是线路暂不可用（如设备数已满 / 未购买）：提示但不算登录失败。
 		a.svc.LogLine("[POWER云] " + err.Error())

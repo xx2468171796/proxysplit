@@ -291,3 +291,31 @@ func TestOfflineGraceRejectsClockSetBack(t *testing.T) {
 		t.Fatalf("a 5-minute clock correction was treated as tampering: %+v", s)
 	}
 }
+
+func TestSyncPowerVPNUpdatesChannel(t *testing.T) {
+	var got map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/auth/powervpn/sync" || r.Header.Get("Authorization") != "Bearer access" {
+			t.Fatalf("unexpected request: %s %s", r.URL.Path, r.Header.Get("Authorization"))
+		}
+		_ = json.NewDecoder(r.Body).Decode(&got)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"channel":"aigw","aiPlanExpiresAt":"2026-10-30T13:12:24.836Z","license":null}`))
+	}))
+	defer server.Close()
+	c := &Client{
+		path:   filepath.Join(t.TempDir(), "license.dat"),
+		apiURL: server.URL,
+		http:   server.Client(),
+		state:  state{SchemaVersion: stateSchemaVersion, AccessToken: "access", RefreshToken: "refresh"},
+	}
+	if !c.Enabled() {
+		t.Skip("commercial build keys not configured in this test binary")
+	}
+	if err := c.SyncPowerVPN(context.Background(), "panel-token-123456"); err != nil {
+		t.Fatal(err)
+	}
+	if got["accessToken"] != "panel-token-123456" || c.state.Channel != "aigw" {
+		t.Fatalf("sync not applied: body=%v channel=%q", got, c.state.Channel)
+	}
+}

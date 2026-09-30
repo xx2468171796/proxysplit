@@ -54,6 +54,14 @@ class FakeStore {
     this.identities.set(key, this.user.id)
     return { user: this.user, created: true }
   }
+  aigwSyncs: (string | null)[] = []
+  async syncAigwLicense(_id: string, until: Date | null) {
+    this.aigwSyncs.push(until ? until.toISOString() : null)
+    return { changed: true, expiresAt: until }
+  }
+  async identityOwner(_p: string, externalId: string) {
+    return this.identities.get('powervpn:' + externalId) ?? null
+  }
   channelMarks: string[] = []
   async markUserChannel(_id: string, channel: '' | 'aigw') {
     if (!channel || this.user.channel === channel) return false
@@ -198,4 +206,27 @@ describe('commercial auth', () => {
     await expect(disabled.loginPowervpn({ accessToken: 'bad-token-xxxxxxxxxx', device })).rejects.toMatchObject({ code: 'POWERVPN_DISABLED' })
     expect(powervpnUsernameBase('1234-5678-90ab')).toBe('pv_12345678')
   })
+
+  it('syncs the AI-site membership to the POWER云 AI plan expiry on login and on demand', async () => {
+    const { store, device } = await fixture()
+    let me: Record<string, unknown> = { id: 'ABCDEF12-3456-7890', username: 'ai0782', email: null, displayName: 'ai0782', sources: ['aigw'], aiPlanExpiresAt: '2026-10-30T13:12:24.836Z' }
+    const fakeFetch = (async () => new Response(JSON.stringify(me), { status: 200 })) as unknown as typeof fetch
+    const auth = await AuthService.create(store as unknown as PgStore, { accessSecret: 'test-secret-must-be-at-least-32-bytes-long', refreshDays: 30, powervpn: { baseUrl: 'https://panel.test', fetch: fakeFetch } })
+    await auth.loginPowervpn({ accessToken: 'panel-access-token-123', device })
+    expect(store.aigwSyncs).toEqual(['2026-10-30T13:12:24.836Z'])
+    // AI 到期（面板给 null）→ 这一行结束
+    me = { ...me, aiPlanExpiresAt: null }
+    const r = await auth.syncPowervpn(store.user.id, 'panel-access-token-123')
+    expect(store.aigwSyncs.at(-1)).toBeNull()
+    expect(r.channel).toBe('aigw')
+    // 老面板不给这个字段：不动会员
+    me = { id: 'ABCDEF12-3456-7890', username: 'ai0782', sources: ['aigw'] }
+    await auth.syncPowervpn(store.user.id, 'panel-access-token-123')
+    expect(store.aigwSyncs).toHaveLength(2)
+    // 拿别人的 POWER云 令牌来同步：拒绝
+    me = { id: 'FFFFFFFF-0000', username: 'other', sources: [], aiPlanExpiresAt: '2030-01-01T00:00:00Z' }
+    await expect(auth.syncPowervpn(store.user.id, 'panel-access-token-123')).rejects.toMatchObject({ code: 'IDENTITY_MISMATCH' })
+    expect(store.aigwSyncs).toHaveLength(2)
+  })
 })
+
