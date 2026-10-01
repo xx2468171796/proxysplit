@@ -565,6 +565,65 @@ export namespace main {
 
 export namespace nodes {
 	
+	export class EgressAllow {
+	    domains?: string[];
+	    domainSuffixes?: string[];
+	    domainKeywords?: string[];
+	    ipCidrs?: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new EgressAllow(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.domains = source["domains"];
+	        this.domainSuffixes = source["domainSuffixes"];
+	        this.domainKeywords = source["domainKeywords"];
+	        this.ipCidrs = source["ipCidrs"];
+	    }
+	}
+	export class Egress {
+	    mode: string;
+	    revision?: number;
+	    allow?: EgressAllow;
+	    deny?: EgressAllow;
+	    denyExcept?: string[];
+	    summary?: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new Egress(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.mode = source["mode"];
+	        this.revision = source["revision"];
+	        this.allow = this.convertValues(source["allow"], EgressAllow);
+	        this.deny = this.convertValues(source["deny"], EgressAllow);
+	        this.denyExcept = source["denyExcept"];
+	        this.summary = source["summary"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
 	export class Node {
 	    id: string;
 	    name: string;
@@ -597,6 +656,7 @@ export namespace nodes {
 	    officialKey?: string;
 	    outbounds?: number[][];
 	    entryTag?: string;
+	    egress?: Egress;
 	    latency: number;
 	    tcpLatency: number;
 	    speed: number;
@@ -640,12 +700,31 @@ export namespace nodes {
 	        this.officialKey = source["officialKey"];
 	        this.outbounds = source["outbounds"];
 	        this.entryTag = source["entryTag"];
+	        this.egress = this.convertValues(source["egress"], Egress);
 	        this.latency = source["latency"];
 	        this.tcpLatency = source["tcpLatency"];
 	        this.speed = source["speed"];
 	        this.subId = source["subId"];
 	        this.raw = source["raw"];
 	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 
 }
