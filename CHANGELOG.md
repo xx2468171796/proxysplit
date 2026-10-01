@@ -3,6 +3,10 @@
 版本号以发布构建为准（`scripts/build-commercial.ps1 -Version <x.y.z>`，注入 `main.appVersion`），
 每个发布产物的 SHA256 见 `output/proxysplit-v<版本>.manifest.json`。
 
+## v1.9.64
+
+- 内置内核升级到平台自编 sing-box 1.14.2-relayops.9。连 POWER云 线路时，加密握手里的密钥部分和真 Chrome 浏览器一致（带上 X25519MLKEM768 后量子混合密钥），伪装站支持时自动用后量子密钥交换。只作用于 POWER云 自家线路，别人的订阅 / 节点不变；内核还没更新到 relayops.9 时自动保持原样。
+
 ## v1.9.63
 
 - POWER云 线路不再让本来能打开的网站打不开：线路不提供的网站（政府、政治新闻等，以及「仅 AI」账号的非 AI 网站）自动直连、用你自己的网络，不再经线路被拒；「仅 AI」账号只有 AI、谷歌、GitHub 走线路，国内网站和其它网站照常直连。

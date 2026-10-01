@@ -1,9 +1,9 @@
 {
-  "version": "1.14.2-relayops.8",
+  "version": "1.14.2-relayops.9",
   "format": "exe",
-  "url": "http://192.168.110.246:3001/api/packages/gonggong/generic/sing-box/1.14.2-relayops.8/sing-box-1.14.2-windows-amd64.exe",
+  "url": "http://192.168.110.246:3001/api/packages/gonggong/generic/sing-box/1.14.2-relayops.9/sing-box-1.14.2-windows-amd64.exe",
   "urlAuth": "gitea",
-  "sha256": "f3fee1ac1786a6289da5de8da489651c8c41d98318aa691c008e40642fa25897",
-  "source": "PowerVPN 平台自编 sing-box 1.14.2 + relayops.8 补丁（0001–0004；Gitea generic 包 gonggong/sing-box；`sing-box version` 只打印 1.14.2，relayops 见 Tags）",
-  "verifiedAt": "2026-09-30"
+  "sha256": "3064946b677bede0030bb425a4a7f9b1f5d88262b5875ece461016553820c936",
+  "source": "PowerVPN 平台自编 sing-box 1.14.2 + relayops.9 补丁（0001–0005；Gitea generic 包 gonggong/sing-box；`sing-box version` 只打印 1.14.2，relayops 见 Tags）",
+  "verifiedAt": "2026-10-02"
 }

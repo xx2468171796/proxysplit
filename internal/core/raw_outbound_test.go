@@ -63,7 +63,7 @@ func TestRawOutboundsVerbatimWithPrefixedTags(t *testing.T) {
 func TestCompatMultiplexAndSSPlugin(t *testing.T) {
 	n := &nodes.Node{ID: "x", Type: "shadowsocks", Server: "s", Port: 8388, Method: "aes-128-gcm", Password: "p",
 		Plugin: "obfs-local", PluginOpts: "obfs=http;obfs-host=a.com", Multiplex: map[string]any{"enabled": true, "protocol": "smux"}}
-	obs, err := buildOutbounds(n, "t")
+	obs, err := buildOutbounds(n, "t", false)
 	if err != nil || len(obs) != 1 {
 		t.Fatal(err)
 	}
@@ -78,12 +78,12 @@ func TestRawOutboundsRejectForeignRefsAndKeepSource(t *testing.T) {
 	src := `{"tag":"A","type":"vless","server":"s","server_port":443,"uuid":"u","detour":"B"}`
 	n := &nodes.Node{ID: "r", Name: "A", EntryTag: "A", Outbounds: []json.RawMessage{json.RawMessage(src)}}
 	// "B" is not part of the node: it must not bind to another outbound.
-	if _, err := buildOutbounds(n, "node-r"); err == nil {
+	if _, err := buildOutbounds(n, "node-r", false); err == nil {
 		t.Fatal("unknown detour accepted")
 	}
 	ok := `{"tag":"A","type":"selector","outbounds":["A1"],"default":"A1"}`
 	m := &nodes.Node{ID: "s", Name: "A", EntryTag: "A", Outbounds: []json.RawMessage{json.RawMessage(ok), json.RawMessage(`{"tag":"A1","type":"vless","server":"s","server_port":1,"uuid":"u"}`)}}
-	obs, err := buildOutbounds(m, "node-s")
+	obs, err := buildOutbounds(m, "node-s", false)
 	if err != nil || obs[0]["default"] != "node-s/A1" {
 		t.Fatalf("%v %v", obs, err)
 	}
@@ -95,7 +95,7 @@ func TestRawOutboundsRejectForeignRefsAndKeepSource(t *testing.T) {
 func TestCompatMultiplexSkippedForVision(t *testing.T) {
 	n := &nodes.Node{ID: "v", Type: "vless", Server: "s", Port: 443, UUID: "u", Flow: "xtls-rprx-vision", Security: "tls",
 		Multiplex: map[string]any{"enabled": true}}
-	obs, err := buildOutbounds(n, "t")
+	obs, err := buildOutbounds(n, "t", false)
 	if err != nil || obs[0]["multiplex"] != nil {
 		t.Fatalf("%v %v", obs, err)
 	}
@@ -142,7 +142,7 @@ func TestForeignSingboxOutboundsStartTheCore(t *testing.T) {
 		if out, err := exec.Command(bin, "check", "-c", p).CombinedOutput(); err != nil {
 			t.Fatalf("core refuses imported node %s:\n%s\n%s", n.Name, out, cfg)
 		}
-		obs, _ := buildOutbounds(n, "node-x")
+		obs, _ := buildOutbounds(n, "node-x", false)
 		switch n.Name {
 		case "HK":
 			for _, k := range []string{"domain_resolver", "domain_strategy", "routing_mark", "bind_interface"} {
@@ -170,7 +170,7 @@ func TestForeignSingboxOutboundsStartTheCore(t *testing.T) {
 	// Signed POWER云 outbounds are passed through untouched.
 	off := &nodes.Node{ID: "pv", Name: "A", Official: true, EntryTag: "A", Outbounds: []json.RawMessage{
 		json.RawMessage(`{"tag":"A","type":"vless","server":"s","server_port":443,"uuid":"u","bind_interface":"x"}`)}}
-	obs, err := buildOutbounds(off, "node-pv")
+	obs, err := buildOutbounds(off, "node-pv", false)
 	if err != nil || obs[0]["bind_interface"] != "x" {
 		t.Fatalf("official outbound changed: %v %v", obs, err)
 	}
@@ -188,4 +188,46 @@ func selfSignedPEM(t *testing.T) []byte {
 		t.Fatal(err)
 	}
 	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
+}
+
+// relayops patch 0005: only POWER云 signed VLESS + Reality outbounds get
+// relayops_hybrid, and only when the bundled core supports it.
+func TestRealityHybridOnlyForOfficialOutbounds(t *testing.T) {
+	raw := []json.RawMessage{
+		json.RawMessage(`{"tag":"A","type":"urltest","outbounds":["A-mux","A-plain"]}`),
+		json.RawMessage(`{"tag":"A-mux","type":"vless","server":"s","server_port":443,"uuid":"u","tls":{"enabled":true,"server_name":"x.example","utls":{"enabled":true,"fingerprint":"chrome"},"reality":{"enabled":true,"public_key":"k","short_id":"01"}},"multiplex":{"enabled":true,"protocol":"h2mux","padding":true}}`),
+		json.RawMessage(`{"tag":"A-plain","type":"vless","server":"s","server_port":443,"uuid":"u","tls":{"enabled":true,"server_name":"x.example","reality":{"enabled":true,"public_key":"k","short_id":"01"}}}`),
+	}
+	hybridOf := func(obs []M) []any {
+		var got []any
+		for _, ob := range obs {
+			if tls, ok := ob["tls"].(map[string]any); ok {
+				got = append(got, tls["reality"].(map[string]any)["relayops_hybrid"])
+			}
+		}
+		return got
+	}
+	official := &nodes.Node{ID: "pv", Name: "A", Official: true, EntryTag: "A", Outbounds: raw}
+	obs, err := buildOutbounds(official, "node-pv", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := hybridOf(obs); len(got) != 2 || got[0] != true || got[1] != true {
+		t.Fatalf("official Reality outbounds should keep the hybrid share: %v", got)
+	}
+	if obs[0]["type"] != "urltest" || obs[1]["multiplex"] == nil {
+		t.Fatalf("other params changed: %v", obs)
+	}
+	obs, _ = buildOutbounds(official, "node-pv", false)
+	if got := hybridOf(obs); got[0] != nil || got[1] != nil {
+		t.Fatalf("core without patch 0005 must not get the field: %v", got)
+	}
+	foreign := &nodes.Node{ID: "fx", Name: "A", EntryTag: "A", Outbounds: raw}
+	obs, _ = buildOutbounds(foreign, "node-fx", true)
+	if got := hybridOf(obs); got[0] != nil || got[1] != nil {
+		t.Fatalf("third-party outbounds are compat-only: %v", got)
+	}
+	if bytes.Contains(official.Outbounds[1], []byte("relayops_hybrid")) {
+		t.Fatal("stored source outbound must stay verbatim")
+	}
 }

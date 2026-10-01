@@ -47,6 +47,11 @@ type Options struct {
 	// no DNS leak). Requires no DNS interception in our redirect model.
 	RemoteDNS bool
 
+	// RealityHybrid: the bundled core carries relayops patch 0005, so POWER云
+	// VLESS + Reality outbounds keep the X25519MLKEM768 key share (ClientHello
+	// like real Chrome). Never applied to third-party nodes (compat mode).
+	RealityHybrid bool
+
 	// RouteMode selects how in-tunnel traffic is split (see Route* constants).
 	RouteMode string
 	// RouteRules are the user rules used when RouteMode == RouteCustom.
@@ -497,7 +502,7 @@ func BuildMultiConfig(lines []LineConfig, logLevel string, opts Options) ([]byte
 		})
 		if _, ok := nodeTag[ln.Node.ID]; !ok {
 			tag := "node-" + ln.Node.ID
-			obs, err := buildOutbounds(ln.Node, tag)
+			obs, err := buildOutbounds(ln.Node, tag, opts.RealityHybrid)
 			if err != nil {
 				return nil, err
 			}
@@ -622,7 +627,7 @@ func BuildTUNConfig(node *nodes.Node, logLevel string, opts Options) ([]byte, er
 	if node == nil {
 		return nil, fmt.Errorf("nil node")
 	}
-	proxyObs, err := buildOutbounds(node, "proxy")
+	proxyObs, err := buildOutbounds(node, "proxy", opts.RealityHybrid)
 	if err != nil {
 		return nil, err
 	}
@@ -833,7 +838,7 @@ func BuildTUNConfig(node *nodes.Node, logLevel string, opts Options) ([]byte, er
 		if en.Node == nil {
 			continue
 		}
-		eobs, oerr := buildOutbounds(en.Node, en.Tag)
+		eobs, oerr := buildOutbounds(en.Node, en.Tag, opts.RealityHybrid)
 		if oerr != nil {
 			return nil, oerr
 		}
@@ -1040,13 +1045,28 @@ func srsPath(dir, name string) string {
 	return strings.ReplaceAll(filepath.Join(dir, name), "\\", "/")
 }
 
+// withRealityHybrid sets `tls.reality.relayops_hybrid` on a VLESS + Reality
+// outbound (relayops patch 0005). Callers only pass POWER云 signed outbounds
+// and only when the bundled core has coreupdate.RealityHybridTag.
+func withRealityHybrid(m M) {
+	if m["type"] != "vless" {
+		return
+	}
+	tls, _ := m["tls"].(map[string]interface{})
+	reality, _ := tls["reality"].(map[string]interface{})
+	if reality == nil || reality["enabled"] != true {
+		return
+	}
+	reality["relayops_hybrid"] = true
+}
+
 // buildOutbound converts a Node into a sing-box outbound object.
 // buildOutbounds returns the outbound(s) for a node: the first one carries tag
 // (what routes point at); raw-backed nodes may add helper outbounds (urltest
 // members, detours) whose tags are prefixed with tag.
-func buildOutbounds(n *nodes.Node, tag string) ([]M, error) {
+func buildOutbounds(n *nodes.Node, tag string, realityHybrid bool) ([]M, error) {
 	if n.HasRaw() {
-		return buildRawOutbounds(n, tag)
+		return buildRawOutbounds(n, tag, realityHybrid && n.Official)
 	}
 	ob, err := buildOutbound(n, tag)
 	if err != nil {
@@ -1070,7 +1090,7 @@ func buildOutbounds(n *nodes.Node, tag string) ([]M, error) {
 // are renamed to match. All other parameters are passed through untouched,
 // except that third-party outbounds lose fields that only work on the
 // author's machine (nodes.NeutraliseForeign).
-func buildRawOutbounds(n *nodes.Node, tag string) ([]M, error) {
+func buildRawOutbounds(n *nodes.Node, tag string, realityHybrid bool) ([]M, error) {
 	entry := n.EntryTag
 	decoded := make([]M, 0, len(n.Outbounds))
 	rename := map[string]string{}
@@ -1088,6 +1108,9 @@ func buildRawOutbounds(n *nodes.Node, tag string) ([]M, error) {
 			// servers, files and network setup, or the core would not start.
 			// (POWER云 profiles are signed and passed through untouched.)
 			nodes.NeutraliseForeign(m, localFileExists)
+		}
+		if realityHybrid {
+			withRealityHybrid(m)
 		}
 		decoded = append(decoded, M(m))
 		if orig != "" {

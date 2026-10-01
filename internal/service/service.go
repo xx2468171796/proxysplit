@@ -1472,6 +1472,9 @@ func (s *Service) startLocked() error {
 		accelPort = s.accelPortLocked()
 	}
 	s.mu.Unlock()
+	// Bundled core with relayops patch 0005: POWER云 Reality outbounds keep the
+	// X25519MLKEM768 key share. Cached per core file; stock cores never get it.
+	realityHybrid := coreupdate.HasTag(s.binDir, coreupdate.RealityHybridTag)
 	clashOptsFor := func(port int) core.Options {
 		ctl := ""
 		if port > 0 {
@@ -1481,7 +1484,7 @@ func (s *Service) startLocked() error {
 			LanShare: set.LanShare, LanPort: set.LanPort, LanType: set.LanType, LanUser: set.LanUser, LanPass: set.LanPass,
 			CustomRules: custom, RuleSets: &ruleSets, DirectDomains: s.directDomains(),
 			ProxyPrivate: !set.PrivateDirect, BlockQUIC: set.BlockQUIC, SelfProcess: selfProcess(set.ExcludeSelf),
-			AccelPort: accelPort}
+			AccelPort: accelPort, RealityHybrid: realityHybrid}
 	}
 
 	// System-wide mode: sing-box TUN routes the whole machine.
