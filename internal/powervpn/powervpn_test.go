@@ -53,7 +53,8 @@ const profileJSON = `{"version":1,"issuedAt":"2026-09-29T00:00:00Z","accounts":[
    {"tag":"节点 1 · 台湾 · mux","type":"vless","server":"tw.example.net","server_port":443,"uuid":"dev-uuid","flow":"","multiplex":{"enabled":true,"protocol":"h2mux","brutal":{"enabled":true,"up_mbps":50,"down_mbps":200}}},
    {"tag":"节点 1 · 台湾 · 兼容","type":"vless","server":"tw.example.net","server_port":443,"uuid":"dev-uuid","flow":"xtls-rprx-vision"}
   ],
-  "nodes":[{"tag":"节点 1 · 台湾","outbound":"节点 1 · 台湾"}]},
+  "nodes":[{"tag":"节点 1 · 台湾","outbound":"节点 1 · 台湾"}],
+  "egress":{"mode":"ai_only","revision":3,"allow":{"domains":[],"domainSuffixes":["anthropic.com"],"domainKeywords":[],"ipCidrs":["160.79.104.0/23"]}}},
  {"id":"acc2","name":"副账号","device":{"status":"limit_reached","message":"设备数已满（3/3）"},"outbounds":[],"nodes":[]}
 ]}`
 
@@ -74,6 +75,9 @@ func TestVerifyAndProfileNodes(t *testing.T) {
 	n := list[0]
 	if !n.Official || n.EntryTag != "节点 1 · 台湾" || len(n.Outbounds) != 3 || n.Server != "tw.example.net" || n.Port != 443 || n.Type != "urltest" {
 		t.Fatalf("unexpected node %+v", n)
+	}
+	if !n.Egress.Restricted() || n.Egress.Allow == nil || len(n.Egress.Allow.DomainSuffixes) != 1 || n.Egress.Allow.IPCIDRs[0] != "160.79.104.0/23" {
+		t.Fatalf("仅 AI egress not carried onto the node: %+v", n.Egress)
 	}
 	// Tampered body, wrong type, other key, no key all fail.
 	if _, err := ParseSignedProfile(s.v, h, append(body, ' ')); err == nil {

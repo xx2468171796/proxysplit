@@ -484,6 +484,7 @@ func BuildMultiConfig(lines []LineConfig, logLevel string, opts Options) ([]byte
 	var inbounds []M
 	var outbounds []M
 	nodeTag := map[string]string{} // node.ID -> outbound tag
+	restricted := restrictedTags{}
 	for _, ln := range lines {
 		if ln.Node == nil {
 			return nil, fmt.Errorf("line %q has no node", ln.Key)
@@ -502,6 +503,7 @@ func BuildMultiConfig(lines []LineConfig, logLevel string, opts Options) ([]byte
 			}
 			outbounds = append(outbounds, obs...)
 			nodeTag[ln.Node.ID] = tag
+			restricted.add(tag, ln.Node)
 		}
 	}
 	outbounds = append(outbounds, M{"type": "direct", "tag": "direct"})
@@ -511,7 +513,8 @@ func BuildMultiConfig(lines []LineConfig, logLevel string, opts Options) ([]byte
 
 	// Domain awareness (sniff + DNS + resolver) is needed for remote-DNS or any
 	// domain-based routing.
-	needDomain := opts.RemoteDNS || customNeedsDomain(opts)
+	// 仅 AI lines route by the allowlist, which needs the sniffed domain.
+	needDomain := opts.RemoteDNS || customNeedsDomain(opts) || len(restricted) > 0
 	geoNeeded := false
 	for _, ln := range lines {
 		if ln.RouteMode == RouteBypassCN {
@@ -593,7 +596,8 @@ func BuildMultiConfig(lines []LineConfig, logLevel string, opts Options) ([]byte
 		}
 	}
 
-	route := M{"final": "direct"}
+	rules, final := restrictEgress(rules, "direct", restricted)
+	route := M{"final": final}
 	if len(rules) > 0 {
 		route["rules"] = rules
 	}
@@ -755,6 +759,13 @@ func BuildTUNConfig(node *nodes.Node, logLevel string, opts Options) ([]byte, er
 			}
 		}
 	}
+
+	restricted := restrictedTags{}
+	restricted.add("proxy", node)
+	for _, en := range opts.ExtraNodes {
+		restricted.add(en.Tag, en.Node)
+	}
+	rules, finalOut = restrictEgress(rules, finalOut, restricted)
 
 	route := M{
 		"rules":                   rules,

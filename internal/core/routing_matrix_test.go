@@ -26,7 +26,7 @@ import (
 // outbounds for fake local proxies that answer with their own tag, and DNS for
 // fixed host entries pointing at a local origin that answers "direct".
 
-const matrixForeign, matrixCN = "google.com", "baidu.com"
+const matrixForeign, matrixCN, matrixAI, matrixGov = "google.com", "baidu.com", "api.anthropic.com", "www.president.gov.tw"
 
 type matrix struct {
 	t        *testing.T
@@ -84,6 +84,13 @@ func fakeProxy(t *testing.T, tag string) int {
 
 func newMatrix(t *testing.T, opts Options) *matrix {
 	t.Helper()
+	return newMatrixEgress(t, opts, nil)
+}
+
+// newMatrixEgress is newMatrix with a POWER云 egress restriction on the primary
+// node ("proxy").
+func newMatrixEgress(t *testing.T, opts Options, egress *nodes.Egress) *matrix {
+	t.Helper()
 	if runtime.GOOS != "windows" {
 		t.Skip("process_name matching is exercised on Windows")
 	}
@@ -110,6 +117,7 @@ func newMatrix(t *testing.T, opts Options) *matrix {
 	m.origin = ol.Addr().(*net.TCPAddr).Port
 
 	node, _ := nodes.ParseLink(sampleLinks["vless-reality"])
+	node.Egress = egress
 	geoDir, _ := filepath.Abs(filepath.Join("..", "..", "bin"))
 	m.opts.GeoDir = geoDir
 	m.opts.RuleDir = t.TempDir()
@@ -134,7 +142,7 @@ func newMatrix(t *testing.T, opts Options) *matrix {
 		}
 	}
 	cfg["outbounds"] = outs
-	hosts := M{matrixForeign: "127.0.0.1", matrixCN: "127.0.0.1"}
+	hosts := M{matrixForeign: "127.0.0.1", matrixCN: "127.0.0.1", matrixAI: "127.0.0.1", matrixGov: "127.0.0.1"}
 	dns := cfg["dns"].(map[string]interface{})
 	dns["servers"] = []M{
 		{"type": "hosts", "tag": "dns-remote", "predefined": hosts},
@@ -488,4 +496,53 @@ func TestRoutingMatrixBlockBeatsAlwaysDirect(t *testing.T) {
 			m.expect("自家接口/"+where, mode, map[string]string{matrixForeign: want})
 		}
 	}
+}
+
+// TestRoutingMatrixAIOnly: a 仅 AI line (POWER云 egress ai_only) only carries
+// allowlisted destinations; everything that would have used it goes direct
+// instead of being sent to the node and rejected there. Other lines unchanged.
+func TestRoutingMatrixAIOnly(t *testing.T) {
+	exe, _ := os.Executable()
+	proc := filepath.Base(exe)
+	aiOnly := &nodes.Egress{Mode: "ai_only", Allow: &nodes.EgressAllow{DomainSuffixes: []string{"anthropic.com"}}}
+	ai := func(other string) map[string]string {
+		return map[string]string{matrixAI: "proxy", matrixForeign: other, matrixCN: "direct"}
+	}
+	for _, c := range []struct {
+		where        string
+		whitelist    bool
+		rule, global map[string]string
+	}{
+		{"全局", true, ai("direct"), ai("direct")},
+		{"规则", true, ai("direct"), ai("direct")},
+		{"未列出", false, ai("direct"), ai("direct")},
+		{"未列出", true, map[string]string{matrixAI: "direct", matrixForeign: "direct", matrixCN: "direct"}, ai("direct")},
+		// another (unrestricted) line keeps working as before
+		{"规则@节点X", true, map[string]string{matrixAI: "node-x", matrixForeign: "node-x", matrixCN: "direct"},
+			map[string]string{matrixAI: "node-x", matrixForeign: "node-x", matrixCN: "node-x"}},
+	} {
+		name := fmt.Sprintf("仅AI/白名单=%v/应用=%s", c.whitelist, c.where)
+		t.Run(name, func(t *testing.T) {
+			m := newMatrixEgress(t, placement(matrixOpts(c.whitelist), proc, c.where), aiOnly)
+			m.expect(name, "rule", c.rule)
+			m.expect(name, "global", c.global)
+			m.expect(name, "direct", map[string]string{matrixAI: "direct", matrixForeign: "direct", matrixCN: "direct"})
+		})
+	}
+}
+
+// TestRoutingMatrixBlockedList: destinations the node blocks for every plan go
+// direct (the user's own network) instead of into the tunnel; the rest of the
+// line is unchanged, in 规则 and 全局 alike.
+func TestRoutingMatrixBlockedList(t *testing.T) {
+	exe, _ := os.Executable()
+	proc := filepath.Base(exe)
+	blocked := &nodes.Egress{Mode: "all", Deny: &nodes.EgressAllow{DomainSuffixes: []string{"gov.tw"}}}
+	m := newMatrixEgress(t, placement(matrixOpts(true), proc, "全局"), blocked)
+	m.expect("拦截名单/全局应用", "rule", map[string]string{matrixGov: "direct", matrixForeign: "proxy", matrixCN: "proxy"})
+	m.expect("拦截名单/全局应用", "global", map[string]string{matrixGov: "direct", matrixForeign: "proxy"})
+	// combined with 仅 AI
+	both := &nodes.Egress{Mode: "ai_only", Allow: &nodes.EgressAllow{DomainSuffixes: []string{"anthropic.com"}}, Deny: blocked.Deny}
+	m2 := newMatrixEgress(t, placement(matrixOpts(true), proc, "全局"), both)
+	m2.expect("仅AI+拦截名单", "rule", map[string]string{matrixGov: "direct", matrixAI: "proxy", matrixForeign: "direct"})
 }

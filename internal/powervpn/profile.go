@@ -40,6 +40,9 @@ type Account struct {
 		// "relay:<id>", "landing:<id>", "chain:<id>"); optional (older panels).
 		Key string `json:"key"`
 	} `json:"nodes"`
+	// Egress: destinations this account's nodes will not carry (blocked list,
+	// 仅 AI) — routed direct instead (panel 2026-10-01+; absent on older panels).
+	Egress *nodes.Egress `json:"egress"`
 }
 
 // ErrProfileSignature: a POWER云 profile whose signature does not verify with
@@ -109,6 +112,9 @@ func (p *Profile) Nodes() (list []*nodes.Node, notices []string) {
 			node := &nodes.Node{
 				ID: officialID(a.ID, n.Tag), Name: name, Official: true, AccountID: a.ID,
 				Outbounds: closure, EntryTag: n.Outbound,
+			}
+			if a.Egress.Active() {
+				node.Egress = a.Egress
 			}
 			if key := strings.TrimSpace(n.Key); key != "" {
 				node.OfficialKey = a.ID + "/" + key

@@ -3,6 +3,10 @@
 版本号以发布构建为准（`scripts/build-commercial.ps1 -Version <x.y.z>`，注入 `main.appVersion`），
 每个发布产物的 SHA256 见 `output/proxysplit-v<版本>.manifest.json`。
 
+## v1.9.63
+
+- POWER云 线路不再让本来能打开的网站打不开：线路不提供的网站（政府、政治新闻等，以及「仅 AI」账号的非 AI 网站）自动直连、用你自己的网络，不再经线路被拒；「仅 AI」账号只有 AI、谷歌、GitHub 走线路，国内网站和其它网站照常直连。
+
 ## v1.9.62
 
 - 从 AI 编程官网下载的 ProxySplit 打开就自动登录：节点、浏览器和 Claude Code / Codex 等常用程序都已加好，点「启动」即可（下载 3 天内首次打开有效、只能用一次）。

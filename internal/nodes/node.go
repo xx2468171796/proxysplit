@@ -58,6 +58,9 @@ type Node struct {
 	OfficialKey string            `json:"officialKey,omitempty"`
 	Outbounds   []json.RawMessage `json:"outbounds,omitempty"`
 	EntryTag    string            `json:"entryTag,omitempty"`
+	// Egress is the POWER云 account's client-side routing restriction (signed
+	// profile accounts[].egress). nil / mode "all" = no restriction.
+	Egress *Egress `json:"egress,omitempty"`
 
 	// Runtime measurements (populated by latency/speed tests).
 	// Latency: Google end-to-end latency through the full proxy tunnel.
@@ -70,3 +73,39 @@ type Node struct {
 
 	Raw string `json:"raw,omitempty"` // original share link
 }
+
+// Egress mirrors the panel's AccountProfile.egress — the destinations the
+// node will not carry. The client keeps them OFF the line (direct, the user's
+// own network) instead of tunnelling them only to be rejected:
+//   - Deny (minus DenyExcept suffixes): blocked for every plan → direct;
+//   - Mode "ai_only" (仅 AI): only Allow may use the line, the rest → direct.
+type Egress struct {
+	Mode       string       `json:"mode"`
+	Revision   int          `json:"revision,omitempty"`
+	Allow      *EgressAllow `json:"allow,omitempty"`
+	Deny       *EgressAllow `json:"deny,omitempty"`
+	DenyExcept []string     `json:"denyExcept,omitempty"`
+	// Summary is the panel's human description (Chinese, one sentence each).
+	Summary []string `json:"summary,omitempty"`
+}
+
+// EgressAllow is a panel rule list (field names fixed by the panel).
+type EgressAllow struct {
+	Domains        []string `json:"domains,omitempty"`
+	DomainSuffixes []string `json:"domainSuffixes,omitempty"`
+	DomainKeywords []string `json:"domainKeywords,omitempty"`
+	IPCIDRs        []string `json:"ipCidrs,omitempty"`
+}
+
+// Empty reports whether the list has no entries.
+func (l *EgressAllow) Empty() bool {
+	return l == nil || len(l.Domains)+len(l.DomainSuffixes)+len(l.DomainKeywords)+len(l.IPCIDRs) == 0
+}
+
+// Restricted reports whether traffic through this node must be limited to the
+// allowlist. Unknown modes from a newer panel are treated as unrestricted, the
+// same as an older client (the node still enforces its own policy).
+func (e *Egress) Restricted() bool { return e != nil && e.Mode == "ai_only" }
+
+// Active reports whether the routing has to change at all for this node.
+func (e *Egress) Active() bool { return e != nil && (e.Restricted() || !e.Deny.Empty()) }
