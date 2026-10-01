@@ -623,3 +623,27 @@ func TestQUICBlockedOnlyTowardsTunnel(t *testing.T) {
 		}
 	}
 }
+
+// relayops patch 0005: a full config with a POWER云 Reality outbound carrying
+// relayops_hybrid must pass `sing-box check` on the bundled core (relayops.9+).
+func TestRealityHybridAcceptedByBundledCore(t *testing.T) {
+	bin := singboxPath(t)
+	out, err := exec.Command(bin, "version").Output()
+	if err != nil || !strings.Contains(string(out), "relayops_reality_hybrid") {
+		t.Skip("bundled core has no relayops_reality_hybrid tag")
+	}
+	n := &nodes.Node{ID: "pv", Name: "POWER云", Type: "vless", Official: true, EntryTag: "A", Outbounds: []json.RawMessage{
+		json.RawMessage(`{"tag":"A","type":"vless","server":"203.0.113.9","server_port":443,"uuid":"11111111-2222-4333-8444-555555555555","tls":{"enabled":true,"server_name":"twpro.example.com","utls":{"enabled":true,"fingerprint":"chrome"},"reality":{"enabled":true,"public_key":"ZlkFXvRB7hoekcZZuBoNYi4hjUJk_XiaQE_F5DrYWio","short_id":"5aa8be0990d5ece8"}},"multiplex":{"enabled":true,"protocol":"h2mux","padding":true}}`)}}
+	cfg, err := BuildConfig(n, 17890, "info", Options{RealityHybrid: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(cfg), `"relayops_hybrid"`) {
+		t.Fatalf("hybrid field missing: %s", cfg)
+	}
+	p := filepath.Join(t.TempDir(), "hybrid.json")
+	os.WriteFile(p, cfg, 0o600)
+	if out, err := exec.Command(bin, "check", "-c", p).CombinedOutput(); err != nil {
+		t.Fatalf("bundled core rejected relayops_hybrid: %s", out)
+	}
+}
