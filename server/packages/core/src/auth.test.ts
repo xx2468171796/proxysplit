@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { importSPKI, jwtVerify } from 'jose'
 import { AuthService, hashFingerprint, hashPassword, powervpnUsernameBase } from './auth.js'
+import { classifyRefresh, REFRESH_RETRY_GRACE_MS } from './store.js'
 import type { DeviceRecord, Entitlement, PgStore, SessionRecord, UserRecord } from './store.js'
 
 class FakeStore {
@@ -8,6 +9,10 @@ class FakeStore {
   entitlementValue!: Entitlement
   device!: DeviceRecord
   sessions = new Map<string, SessionRecord>()
+  /** old jti → jti issued by its rotation (Postgres links them by created_at = consumed_at). */
+  successors = new Map<string, string>()
+  clockOffsetMs = 0
+  now() { return new Date(Date.now() + this.clockOffsetMs) }
   revokedFamilies: string[] = []
   async recordLoginFailure() {
     this.user.failedLoginCount += 1
@@ -31,12 +36,17 @@ class FakeStore {
   async rotateSessionAtomic(input: { oldJti: string; familyId: string; oldTokenHash: string; fingerprintHash: string; newJti: string; newTokenHash: string; expiresAt: Date }) {
     const session = this.sessions.get(input.oldJti)
     if (!session) return { ok: false, reason: 'invalid' } as const
-    if (session.familyId !== input.familyId || session.tokenHash !== input.oldTokenHash || session.consumedAt || session.revokedAt || session.expiresAt <= new Date()) {
+    const successorJti = this.successors.get(input.oldJti)
+    const successor = successorJti ? this.sessions.get(successorJti) ?? null : null
+    const verdict = classifyRefresh(session, { familyId: input.familyId, tokenHash: input.oldTokenHash, fingerprintHash: input.fingerprintHash }, successor, this.now())
+    if (verdict === 'replay') {
       await this.revokeFamily(session.familyId)
       return { ok: false, reason: 'replay' } as const
     }
-    if (session.fingerprintHash !== input.fingerprintHash) return { ok: false, reason: 'device' } as const
-    session.consumedAt = new Date()
+    if (verdict === 'device') return { ok: false, reason: 'device' } as const
+    if (verdict === 'retry' && successor) successor.revokedAt = this.now()
+    session.consumedAt = this.now()
+    this.successors.set(input.oldJti, input.newJti)
     this.sessions.set(input.newJti, {
       jti: input.newJti, familyId: session.familyId, userId: session.userId, deviceId: session.deviceId,
       tokenHash: input.newTokenHash, consumedAt: null, revokedAt: null, expiresAt: input.expiresAt,
@@ -99,20 +109,60 @@ describe('commercial auth', () => {
     const login = await auth.login({ username: 'Alice', password: 'correct horse battery staple', device })
     const rotated = await auth.rotate({ refreshToken: login.refreshToken, deviceFingerprint: device.fingerprint })
     expect(rotated.refreshToken).not.toBe(login.refreshToken)
+    // The successor has been used, so presenting the old token again is a real replay.
+    await auth.rotate({ refreshToken: rotated.refreshToken, deviceFingerprint: device.fingerprint })
     await expect(auth.rotate({ refreshToken: login.refreshToken, deviceFingerprint: device.fingerprint })).rejects.toMatchObject({ code: 'REFRESH_REPLAY' })
     expect(store.revokedFamilies).toHaveLength(1)
   })
 
-  it('allows only one winner when the same refresh token is rotated concurrently', async () => {
-    const { auth, device } = await fixture()
+  it('treats a re-sent token whose rotation response was lost as a retry', async () => {
+    const { store, auth, device } = await fixture()
     const login = await auth.login({ username: 'alice', password: 'correct horse battery staple', device })
-    const results = await Promise.allSettled([
+    const lost = await auth.rotate({ refreshToken: login.refreshToken, deviceFingerprint: device.fingerprint })
+    store.clockOffsetMs = 60_000 // the client retries on its next minute tick
+    const retried = await auth.rotate({ refreshToken: login.refreshToken, deviceFingerprint: device.fingerprint })
+    expect(retried.refreshToken).not.toBe(lost.refreshToken)
+    expect(store.revokedFamilies).toHaveLength(0)
+    // The undelivered pair is retired: only the retried token stays usable.
+    await expect(auth.rotate({ refreshToken: lost.refreshToken, deviceFingerprint: device.fingerprint })).rejects.toMatchObject({ code: 'REFRESH_REPLAY' })
+  })
+
+  it('still revokes a re-sent token after the grace window or from another device', async () => {
+    const late = await fixture()
+    const login = await late.auth.login({ username: 'alice', password: 'correct horse battery staple', device: late.device })
+    await late.auth.rotate({ refreshToken: login.refreshToken, deviceFingerprint: late.device.fingerprint })
+    late.store.clockOffsetMs = REFRESH_RETRY_GRACE_MS + 1000
+    await expect(late.auth.rotate({ refreshToken: login.refreshToken, deviceFingerprint: late.device.fingerprint })).rejects.toMatchObject({ code: 'REFRESH_REPLAY' })
+
+    const other = await fixture()
+    const otherLogin = await other.auth.login({ username: 'alice', password: 'correct horse battery staple', device: other.device })
+    await other.auth.rotate({ refreshToken: otherLogin.refreshToken, deviceFingerprint: other.device.fingerprint })
+    await expect(other.auth.rotate({ refreshToken: otherLogin.refreshToken, deviceFingerprint: 'e'.repeat(64) })).rejects.toMatchObject({ code: 'REFRESH_REPLAY' })
+  })
+
+  it('keeps exactly one live token when the same refresh token is rotated concurrently', async () => {
+    const { store, auth, device } = await fixture()
+    const login = await auth.login({ username: 'alice', password: 'correct horse battery staple', device })
+    await Promise.allSettled([
       auth.rotate({ refreshToken: login.refreshToken, deviceFingerprint: device.fingerprint }),
       auth.rotate({ refreshToken: login.refreshToken, deviceFingerprint: device.fingerprint }),
     ])
-    expect(results.filter(result => result.status === 'fulfilled')).toHaveLength(1)
-    const rejected = results.find(result => result.status === 'rejected')
-    expect(rejected).toMatchObject({ reason: { code: 'REFRESH_REPLAY' } })
+    const live = [...store.sessions.values()].filter(s => !s.consumedAt && !s.revokedAt)
+    expect(live).toHaveLength(1)
+  })
+
+  it('classifies refresh presentations', () => {
+    const now = new Date('2026-10-05T04:54:13Z')
+    const base = { familyId: 'f', tokenHash: 'h', consumedAt: null, revokedAt: null, expiresAt: new Date('2026-12-01T00:00:00Z'), fingerprintHash: 'fp' }
+    const input = { familyId: 'f', tokenHash: 'h', fingerprintHash: 'fp' }
+    const consumed = { ...base, consumedAt: new Date('2026-10-05T04:53:12Z') }
+    expect(classifyRefresh(base, input, null, now)).toBe('rotate')
+    expect(classifyRefresh(base, { ...input, fingerprintHash: 'x' }, null, now)).toBe('device')
+    expect(classifyRefresh(consumed, input, { consumedAt: null, revokedAt: null }, now)).toBe('retry')
+    expect(classifyRefresh(consumed, input, { consumedAt: now, revokedAt: null }, now)).toBe('replay')
+    expect(classifyRefresh(consumed, input, { consumedAt: null, revokedAt: now }, now)).toBe('replay')
+    expect(classifyRefresh(consumed, input, null, now)).toBe('replay')
+    expect(classifyRefresh({ ...consumed, revokedAt: now }, input, { consumedAt: null, revokedAt: null }, now)).toBe('replay')
   })
 
   it('issues an Ed25519 lease bound to the authenticated device', async () => {

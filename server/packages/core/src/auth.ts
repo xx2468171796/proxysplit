@@ -218,8 +218,8 @@ export class AuthService{
     }
   }
   async rotate(input:RefreshInput,ip=''){
-    let payload;try{({payload}=await jwtVerify(input.refreshToken,encoder.encode(this.cfg.accessSecret),{algorithms:['HS256']}))}catch{throw new AppError('REFRESH_INVALID','Session expired; sign in again',401)}
-    if(payload.typ!=='refresh'||!payload.jti||!payload.fam||!payload.sub||!payload.did)throw new AppError('REFRESH_INVALID','Session expired; sign in again',401)
+    let payload;try{({payload}=await jwtVerify(input.refreshToken,encoder.encode(this.cfg.accessSecret),{algorithms:['HS256']}))}catch{throw new AppError('REFRESH_INVALID','登录已过期，请重新登录',401)}
+    if(payload.typ!=='refresh'||!payload.jti||!payload.fam||!payload.sub||!payload.did)throw new AppError('REFRESH_INVALID','登录已过期，请重新登录',401)
     const user=await this.store.findUserById(payload.sub);if(!user||user.status!=='active')throw new AppError('ACCOUNT_UNAVAILABLE','Account is unavailable',403)
     const newJti=randomUUID(),familyId=String(payload.fam),deviceId=String(payload.did)
     const refreshToken=await this.refresh(user.id,deviceId,familyId,newJti)
@@ -229,8 +229,8 @@ export class AuthService{
     })
     if(!rotated.ok){
       if(rotated.reason==='device')throw new AppError('DEVICE_MISMATCH','Device verification failed',401)
-      if(rotated.reason==='invalid')throw new AppError('REFRESH_INVALID','Session expired; sign in again',401)
-      throw new AppError('REFRESH_REPLAY','Credential replay detected; all sessions revoked',401)
+      if(rotated.reason==='invalid')throw new AppError('REFRESH_INVALID','登录已过期，请重新登录',401)
+      throw new AppError('REFRESH_REPLAY','登录状态已失效（检测到旧凭据被再次使用），请重新登录',401)
     }
     // Rotation is already committed; an audit sink failure must not hide the
     // newly issued one-time token and strand the client with a consumed token.

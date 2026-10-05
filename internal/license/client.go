@@ -916,6 +916,13 @@ func (c *Client) EnsureEntitled() error {
 	if c.state.RefreshToken != "" {
 		if err := c.refreshLocked(ctx); err != nil {
 			onlineErr = err
+			// A rejected refresh token means the session is gone, not the
+			// membership: send the user back to sign-in instead of telling a
+			// paying customer "暂无有效会员".
+			var apiErr *APIError
+			if errors.As(err, &apiErr) && apiErr.Status == http.StatusUnauthorized {
+				c.clearOnlineSessionLocked()
+			}
 		} else if err := c.acquireLeaseLocked(ctx); err != nil {
 			onlineErr = err
 		} else {

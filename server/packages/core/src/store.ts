@@ -67,6 +67,28 @@ const genRedeemCode=()=>{
 // license-grant helper, to avoid a direct pg type dependency in this package.
 type TxClient={ query(text:string,params?:unknown[]):Promise<{rows:any[];rowCount:number|null}> }
 
+/** 刷新响应丢失的容忍窗口：客户端每分钟刷新一次，断网几轮也够。 */
+export const REFRESH_RETRY_GRACE_MS=10*60_000
+
+export type PresentedSession={familyId:string;tokenHash:string;consumedAt:Date|null;revokedAt:Date|null;expiresAt:Date;fingerprintHash:string}
+export type SessionSuccessor={consumedAt:Date|null;revokedAt:Date|null}|null
+
+/**
+ * 判定一次刷新令牌出示：rotate = 正常轮换；retry = 上一次轮换的响应没送到客户端
+ * （服务器已返回 200，客户端仍拿着旧令牌）；replay = 真的重放，整条会话作废；device = 设备不符。
+ * retry 只在「同一台设备、旧令牌刚被轮换不久、它换出的新令牌从没被用过」时成立：
+ * 偷令牌的人抢先用旧令牌，合法客户端下次拿新令牌来时就是 replay，照样会全部作废。
+ */
+export function classifyRefresh(session:PresentedSession,input:{familyId:string;tokenHash:string;fingerprintHash:string},successor:SessionSuccessor,now:Date):'rotate'|'retry'|'replay'|'device'{
+  if(session.familyId!==input.familyId||session.tokenHash!==input.tokenHash||session.revokedAt||session.expiresAt<=now)return 'replay'
+  if(session.consumedAt){
+    const lostResponse=successor!==null&&!successor.consumedAt&&!successor.revokedAt&&
+      session.fingerprintHash===input.fingerprintHash&&now.getTime()-session.consumedAt.getTime()<=REFRESH_RETRY_GRACE_MS
+    return lostResponse?'retry':'replay'
+  }
+  return session.fingerprintHash===input.fingerprintHash?'rotate':'device'
+}
+
 export function resolvePaidLicenseGrant(
   existing:{planId:string;expiresAt:Date;lifetime:boolean}|null,
   order:{planId:string;durationDays:number|null;lifetime:boolean},
@@ -455,17 +477,24 @@ export class PgStore {
         d.fingerprint_hash AS "fingerprintHash" FROM sessions s JOIN devices d ON d.id=s.device_id
         WHERE s.jti=$1 FOR UPDATE OF s`,[input.oldJti])).rows[0]
       if(!session){await client.query('ROLLBACK');return {ok:false,reason:'invalid'} as const}
-      const replay=session.familyId!==input.familyId||session.tokenHash!==input.oldTokenHash||
-        session.consumedAt||session.revokedAt||session.expiresAt<=new Date()
-      if(replay){
+      // The successor of a consumed token is the session inserted by that very
+      // rotation: same transaction, so created_at equals the parent's consumed_at.
+      const successor=session.consumedAt?(await client.query(`SELECT jti,consumed_at AS "consumedAt",revoked_at AS "revokedAt"
+        FROM sessions WHERE family_id=$1 AND jti<>$2 AND created_at=(SELECT consumed_at FROM sessions WHERE jti=$2) FOR UPDATE`,
+        [session.familyId,input.oldJti])).rows[0]??null:null
+      const verdict=classifyRefresh(session,{familyId:input.familyId,tokenHash:input.oldTokenHash,fingerprintHash:input.fingerprintHash},successor,new Date())
+      if(verdict==='replay'){
         await client.query('UPDATE sessions SET revoked_at=coalesce(revoked_at,now()) WHERE family_id=$1',[session.familyId])
         await client.query('COMMIT')
         return {ok:false,reason:'replay'} as const
       }
-      if(session.fingerprintHash!==input.fingerprintHash){
+      if(verdict==='device'){
         await client.query('ROLLBACK')
         return {ok:false,reason:'device'} as const
       }
+      // Lost response: the unused successor never reached the client; retire it
+      // and rotate again from the token the client still holds.
+      if(verdict==='retry')await client.query('UPDATE sessions SET revoked_at=now() WHERE jti=$1',[successor.jti])
       await client.query('UPDATE sessions SET consumed_at=now() WHERE jti=$1',[input.oldJti])
       await client.query(`INSERT INTO sessions(user_id,device_id,family_id,jti,token_hash,expires_at)
         VALUES($1,$2,$3,$4,$5,$6)`,[session.userId,session.deviceId,session.familyId,input.newJti,input.newTokenHash,input.expiresAt])

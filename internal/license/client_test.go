@@ -236,6 +236,34 @@ func TestReconcileSessionClearsRejectedSessionButKeepsLease(t *testing.T) {
 	}
 }
 
+// A revoked session must land on the sign-in gate, not on "暂无有效会员"
+// (signed in with no lease), which told a paying customer they had no membership.
+func TestEnsureEntitledSignsOutOnRejectedRefresh(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"error":{"message":"登录状态已失效，请重新登录"}}`))
+	}))
+	defer server.Close()
+
+	c := &Client{
+		path:   filepath.Join(t.TempDir(), "license.dat"),
+		apiURL: server.URL,
+		http:   server.Client(),
+		state:  state{SchemaVersion: stateSchemaVersion, Username: "member", AccessToken: "a", RefreshToken: "consumed", DeviceID: "d", Lease: "lease"},
+	}
+	if err := c.EnsureEntitled(); err == nil {
+		t.Fatal("rejected refresh unexpectedly succeeded")
+	}
+	status := c.Status()
+	if status.SignedIn || status.Authenticated {
+		t.Fatalf("revoked session still presented as signed in: %+v", status)
+	}
+	if c.state.Username != "member" {
+		t.Fatalf("username should stay prefilled for sign-in: %+v", c.state)
+	}
+}
+
 func TestReconcileSessionKeepsCacheOnNetworkFailure(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
 	c := &Client{
