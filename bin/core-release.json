@@ -1,9 +1,9 @@
 {
-  "version": "1.14.2-relayops.10",
+  "version": "1.14.2-relayops.14",
   "format": "exe",
-  "url": "http://192.168.110.246:3001/api/packages/gonggong/generic/sing-box/1.14.2-relayops.10/sing-box-1.14.2-windows-amd64.exe",
+  "url": "http://192.168.110.246:3001/api/packages/gonggong/generic/sing-box/1.14.2-relayops.14/sing-box-1.14.2-windows-amd64.exe",
   "urlAuth": "gitea",
-  "sha256": "8b3b66ea74cb7631479ebfdb103499ad9f2362c2bcd364a23266fe5df2c6f875",
-  "source": "PowerVPN 平台自编 sing-box 1.14.2 + relayops.10 补丁（0001–0006；0006 = utls「chrome」指纹为实测 Chrome 154；Gitea generic 包 gonggong/sing-box；`sing-box version` 只打印 1.14.2，relayops 见 Tags）",
-  "verifiedAt": "2026-10-02"
+  "sha256": "046d397124aecad47ecf97390a0d64e5fd4b93b77b9e8c17d95ca0844912fa10",
+  "source": "PowerVPN 平台自编 sing-box 1.14.2 + relayops.14 补丁（0001–0011；0011 = 多路复用开 TCP Brutal 时一条连接满 250 流自动另开，修新连接当场失败；Gitea generic 包 gonggong/sing-box；`sing-box version` 只打印 1.14.2，relayops 见 Tags）",
+  "verifiedAt": "2026-10-07"
 }
