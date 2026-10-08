@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
@@ -78,7 +79,12 @@ func (a *App) LoginPowerVPN() string {
 // AI-site customers, the "POWER云" subscription. Same return contract as
 // LoginPowerVPN. Doesn't wait for a.ready (the download-ticket login runs
 // inside startup).
-func (a *App) finishPowerVPNLogin(ctx context.Context, pv *powervpn.Client) string {
+func (a *App) finishPowerVPNLogin(ctx context.Context, pv *powervpn.Client) (msg string) {
+	defer func() {
+		if msg == "" || strings.HasPrefix(msg, "NOTICE:") {
+			a.svc.TriggerCoreFollow() // signed in: check the standard core now
+		}
+	}()
 	if a.lic != nil && a.lic.Enabled() {
 		tctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 		tok, err := pv.AccessToken(tctx)

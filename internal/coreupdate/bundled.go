@@ -44,7 +44,7 @@ func EnsureBundled(dir string, exe []byte, version, expectedHash string) error {
 	if !upgrade {
 		return nil
 	}
-	if err := installBinary(dir, exe); err != nil {
+	if err := installBinary(dir, exe, false); err != nil {
 		return err
 	}
 	return writeMarker(dir, version, hash[:])

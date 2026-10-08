@@ -4,11 +4,9 @@ import (
 	"context"
 	"fmt"
 	"regexp"
-	"runtime"
 	"strings"
 	"time"
 
-	"proxysplit/internal/coreupdate"
 	"proxysplit/internal/nodes"
 	"proxysplit/internal/powervpn"
 	"proxysplit/internal/subs"
@@ -158,30 +156,4 @@ func (s *Service) officializePasted(parsed []*nodes.Node) []*nodes.Node {
 		out = append(out, list...)
 	}
 	return out
-}
-
-// UpdateCore installs the platform-built sing-box published by the POWER云
-// panel (signature + SHA256 verified). Returns the new version or "ERR:<msg>".
-func (s *Service) UpdateCore() string {
-	pv := s.powervpnClient()
-	if pv == nil {
-		return "ERR:内核更新服务未初始化"
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	info, err := pv.Core(ctx, runtime.GOOS, runtime.GOARCH)
-	cancel()
-	if err != nil {
-		s.log("[core] update check failed: " + err.Error())
-		return "ERR:" + err.Error()
-	}
-	s.mu.Lock()
-	via := s.proxyViaLocked()
-	s.mu.Unlock()
-	v, err := coreupdate.InstallRelease(s.binDir, s.GetCoreVersion(), coreupdate.Release{Version: info.FullVersion(), URL: info.URL, SHA256: info.SHA256}, via)
-	if err != nil {
-		s.log("[core] update failed: " + err.Error())
-		return "ERR:" + err.Error()
-	}
-	s.log(fmt.Sprintf("[core] updated to sing-box %s; restart to apply", v))
-	return v
 }

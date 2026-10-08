@@ -43,10 +43,10 @@ func TestBundledUpgradeDecision(t *testing.T) {
 func TestInstallBinary(t *testing.T) {
 	dir := t.TempDir()
 	dst := filepath.Join(dir, "sing-box.exe")
-	if err := installBinary(dir, []byte("old")); err != nil {
+	if err := installBinary(dir, []byte("old"), false); err != nil {
 		t.Fatal(err)
 	}
-	if err := installBinary(dir, []byte("new")); err != nil {
+	if err := installBinary(dir, []byte("new"), false); err != nil {
 		t.Fatal(err)
 	}
 	got, err := os.ReadFile(dst)
@@ -61,7 +61,7 @@ func TestInstallBinary(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(old, "locked"), []byte("keep"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := installBinary(dir, []byte("replacement")); err == nil {
+	if err := installBinary(dir, []byte("replacement"), false); err == nil {
 		t.Fatal("backup failure ignored")
 	}
 	got, _ = os.ReadFile(dst)

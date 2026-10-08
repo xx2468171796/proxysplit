@@ -20,13 +20,13 @@ import (
 
 var installMu sync.Mutex
 
-// maxZipBytes caps how much of the release zip we will read into memory. The
-// windows-amd64 build is a few MB; 80MB is a generous safety ceiling.
-const maxZipBytes = 80 << 20 // 80MB
+// maxZipBytes caps how much of the downloaded artifact (raw .exe or a zip
+// holding it) we will read into memory. The platform windows-amd64 build is
+// ~82MB (1.14.2-relayops.15); 160MB leaves room for growth.
+const maxZipBytes = 160 << 20 // 160MB
 
-// maxExeBytes caps how much of the extracted sing-box.exe we will read. The
-// binary is ~30-40MB; 80MB is a generous safety ceiling.
-const maxExeBytes = 80 << 20 // 80MB
+// maxExeBytes caps how much of the extracted sing-box.exe we will read.
+const maxExeBytes = 160 << 20 // 160MB
 
 // minExeBytes is a sanity floor: a real sing-box.exe is well over 1MB, so a
 // smaller "MZ" file is almost certainly a stub or corruption.
@@ -56,7 +56,12 @@ func newClient(viaProxy string) (*http.Client, error) {
 	return &http.Client{Transport: tr, Timeout: 5 * time.Minute}, nil
 }
 
-func installBinary(destDir string, exe []byte) error {
+// installBinary atomically replaces destDir/sing-box.exe with exe. The
+// previous file is moved to sing-box.exe.old; keepBackup leaves it there so a
+// core that fails to start can be rolled back (see Rollback / ClearBackup),
+// otherwise it is deleted right away (best effort: a running core keeps it
+// locked until it exits).
+func installBinary(destDir string, exe []byte, keepBackup bool) error {
 	if err := os.MkdirAll(destDir, 0o755); err != nil {
 		return err
 	}
@@ -75,9 +80,9 @@ func installBinary(destDir string, exe []byte) error {
 		return closeErr
 	}
 	dst := filepath.Join(destDir, "sing-box.exe")
-	old := dst + ".old"
+	old := backupPath(destDir)
 	if err := os.Remove(old); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("previous core still in use; restart before updating: %w", err)
+		return fmt.Errorf("%w: %v", ErrBackupBusy, err)
 	}
 	moved := false
 	if err := os.Rename(dst, old); err == nil {
@@ -93,7 +98,9 @@ func installBinary(destDir string, exe []byte) error {
 		}
 		return fmt.Errorf("replace core: %w", err)
 	}
-	_ = os.Remove(old)
+	if !keepBackup {
+		_ = os.Remove(old)
+	}
 	return nil
 }
 

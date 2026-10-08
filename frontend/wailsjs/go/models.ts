@@ -1010,6 +1010,7 @@ export namespace service {
 	    theme: string;
 	    autoUpdateRules: boolean;
 	    autoUpdateApp: boolean;
+	    autoUpdateCoreOff?: boolean;
 	    claudeAccelOff?: boolean;
 	    claudeAccelAutoOff?: boolean;
 	
@@ -1036,6 +1037,7 @@ export namespace service {
 	        this.theme = source["theme"];
 	        this.autoUpdateRules = source["autoUpdateRules"];
 	        this.autoUpdateApp = source["autoUpdateApp"];
+	        this.autoUpdateCoreOff = source["autoUpdateCoreOff"];
 	        this.claudeAccelOff = source["claudeAccelOff"];
 	        this.claudeAccelAutoOff = source["claudeAccelAutoOff"];
 	    }

@@ -195,7 +195,7 @@
     mixedPort: number; tunMode: boolean; lanShare: boolean; excludeSelf: boolean; privateDirect: boolean; blockQUIC: boolean
     remoteDNS: boolean; fakeIP: boolean; autostart: boolean; trayClose: boolean; theme: string
     lanPort: number; lanType: string; lanUser: string; lanPass: string; autoUpdateRules: boolean; autoUpdateApp: boolean
-    claudeAccelOff?: boolean; claudeAccelAutoOff?: boolean
+    autoUpdateCoreOff?: boolean; claudeAccelOff?: boolean; claudeAccelAutoOff?: boolean
   }
 
   // --- demo data (matches the design mockup 1:1, shown in browser preview) ---
@@ -1381,7 +1381,8 @@
     try {
       const res = await WUpdateCore()
       if (!res || res.indexOf('ERR:') === 0) { coreMsg = '失败：' + (res ? res.slice(4) : '内核更新未返回版本') }
-      else { coreVersion = res; coreMsg = '已更新到 v' + coreVersion + '（重启生效）' }
+      else if (res === coreVersion) { coreMsg = '已是最新 v' + res }
+      else { coreVersion = res; coreMsg = '已更新到 v' + res + (status?.coreRunning ? '（已自动重启内核）' : '（下次启动生效）') }
     } catch (err) {
       coreMsg = '失败：' + String(err)
     }
@@ -1565,7 +1566,7 @@
       if (!loaded) await new Promise((r) => setTimeout(r, 100))
     }
     if (isWailsReady()) {
-      EventsOn('log', (line: string) => pushLog(line))
+      EventsOn('log', (line: string) => { pushLog(line); if (line.indexOf('[core] 已安装内核') === 0 || line.indexOf('新内核启动失败') > 0) refreshCoreVersion() })
       EventsOn('app-update', receiveAppUpdate)
       EventsOn('app-update-auto', receiveAutoUpdate)
       EventsOn('app-update-failed', receiveAutoUpdateFailed)
@@ -2542,7 +2543,8 @@
             <div class="setting"><span>ProxySplit 版本<small class="setting-hint">正式版自动检查签名更新，升级后会自动重启且不会改动节点和规则</small></span><div class="core-update"><strong>v{appUpdate.current}</strong><button class="mini" on:click={() => checkAppUpdate(false)} disabled={appUpdateBusy}>{appUpdateBusy ? '检查中…' : '检查软件更新'}</button></div></div>
             <div class="setting"><span>自动更新软件<small class="setting-hint">发现新版本自动下载安装并重启，代理会自动恢复；只有签名和 SHA256 都正确才安装。强制更新的版本不受此开关影响</small></span><label class="switch"><input type="checkbox" bind:checked={settings.autoUpdateApp} on:change={saveSettings} /><i></i></label></div>
             <div class="setting"><span>sing-box 版本</span><strong>{coreVersion || '1.13.14'}</strong></div>
-            <div class="setting"><span>更新内核<small class="setting-hint">从 GitHub 拉最新版（走当前节点）</small></span><div class="core-update"><button class="mini" on:click={updateCore} disabled={coreMsg === '检查中…'}>{@html I.dl} 更新内核</button>{#if coreMsg}<span class="rs-msg" class:err={coreMsg.indexOf('失败') === 0}>{coreMsg}</span>{/if}</div></div>
+            <div class="setting"><span>自动更新内核<small class="setting-hint">每小时检查 POWER云 发布的标准内核，有新版自动下载校验并重启内核（约 1 秒）；新内核起不来会自动换回旧内核</small></span><label class="switch"><input type="checkbox" checked={!settings.autoUpdateCoreOff} on:change={(e) => { settings.autoUpdateCoreOff = !e.currentTarget.checked; saveSettings() }} /><i></i></label></div>
+            <div class="setting"><span>更新内核<small class="setting-hint">立即检查 POWER云 标准内核（签名 + SHA256 校验）</small></span><div class="core-update"><button class="mini" on:click={updateCore} disabled={coreMsg === '检查中…'}>{@html I.dl} 更新内核</button>{#if coreMsg}<span class="rs-msg" class:err={coreMsg.indexOf('失败') === 0}>{coreMsg}</span>{/if}</div></div>
             <div class="setting"><span>本地端口<small class="setting-hint">混合入站 SOCKS5 + HTTP，自动分配</small></span><strong>{running ? (status?.corePort || '—') : '未运行'}</strong></div>
             <div class="setting"><span>日志级别</span><select class="sel" value={logLevel} on:change={changeLogLevel}><option value="error">error</option><option value="warn">warn</option><option value="info">info</option><option value="debug">debug</option></select></div>
             <div class="setting"><span>配置备份<small class="setting-hint">节点 / 规则 / 线路 / 设置 全部存到文件，换机可导回</small></span><div class="cfg-io"><button class="mini" on:click={exportConfig}>{@html I.exp} 导出</button><button class="mini" on:click={importConfig}>{@html I.imp} 导入</button></div></div>

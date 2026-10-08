@@ -86,6 +86,7 @@ sing-box outbound，并按进程名分别路由。
 - 用户配置：`%APPDATA%\proxysplit\config.json`
 - 自动备份：`config.json.bak` 与 exe 同目录 `proxysplit-data.json`
 - 内核运行文件：`%APPDATA%\proxysplit\bin`
+- 内核自动跟随：启动 30 秒后、之后每小时、以及 POWER云 登录后，向面板查一次标准内核（`GET /api/client/core`，签名 + SHA256 校验）；有更新版本就下载替换，代理正在运行时自动重启内核生效（约 1 秒），新内核起不来自动换回旧内核并恢复运行（该版本 24 小时内不再自动装）。设置页「自动更新内核」可关；手动「更新内核」按钮走同一流程。实现见 `internal/service/corefollow.go`、`internal/coreupdate/backup.go`
 - 商业授权票据：使用 Windows DPAPI 加密后保存在本机
 - 节点、订阅、应用路径与规则默认不上传商业服务
 - 更新服务只发布 HTTPS 地址、版本号、SHA256 与独立 Ed25519 签名
@@ -167,4 +168,4 @@ scripts/build.ps1       版本化商业构建与发布签名
 
 ## POWER云 接入（开发者）
 
-与 PowerVPN 面板、平台自编 sing-box 联动的规则（自家节点识别、按设备计数、POWER云 登录、签名公钥、内置内核、三仓联动变更清单与发布顺序）以 PowerVPN 仓 `docs/platform/PowerVPN-客户端接入标准.md` 为准；改 `internal/powervpn`、`internal/coreupdate`、`bin/core-release.json` 或服务端 `/v1/auth/powervpn` 前先读它。
+与 PowerVPN 面板、平台自编 sing-box 联动的规则（自家节点识别、按设备计数、POWER云 登录、签名公钥、内置内核、三仓联动变更清单与发布顺序）以 PowerVPN 仓 `docs/platform/PowerVPN-客户端接入标准.md` 为准；改 `internal/powervpn`、`internal/coreupdate`、`bin/core-release.json` 或服务端 `/v1/auth/powervpn` 前先读它。面板发布新的标准内核后，已安装的客户端每小时自动跟上（见上文「内核自动跟随」），不必等客户端发版；内嵌内核（`bin/core-release.json`）只决定新装 / 升级客户端时的起点版本。

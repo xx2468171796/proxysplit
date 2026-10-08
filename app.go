@@ -119,6 +119,7 @@ func (a *App) startup(ctx context.Context) {
 	go a.powervpnMembershipSync() // AI-site customers: membership follows the POWER云 AI plan
 	go a.resumeAfterUpdate()      // bring the proxy back after an automatic update
 	go a.autoUpdateLoop()         // install new signed releases without prompting
+	svc.StartCoreFollow()         // follow the POWER云 standard core: hourly check, apply automatically
 	go a.ensureDesktopShortcut()  // every launch: recreate / repair the desktop shortcut
 	go removeStaleExecutables()   // old versions an --mcp bridge kept busy during an update
 	go a.initTray()               // system-tray icon (minimise-to-tray, quick start/stop)
@@ -286,9 +287,9 @@ func ensurePayload() (string, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", err
 	}
-	// Remove a leftover .old left by an in-place core update (it may have been
-	// locked while the previous core was running).
-	_ = os.Remove(filepath.Join(dir, "sing-box.exe.old"))
+	// Remove the previous core kept by a panel core update for rollback (it
+	// may have been locked while that core was still running).
+	_ = coreupdate.ClearBackup(dir)
 
 	// v1.8.x moved application matching to sing-box TUN process_name rules.
 	// Remove legacy portable WinDivert payloads left by older versions; no

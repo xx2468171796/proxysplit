@@ -55,6 +55,8 @@ type Settings struct {
 	Theme           string `json:"theme"`
 	AutoUpdateRules bool   `json:"autoUpdateRules"` // 添加节点后自动更新分流规则集(可选,默认关)
 	AutoUpdateApp   bool   `json:"autoUpdateApp"`   // 启动后自动检查已签名的客户端版本
+	// 内核自动跟随面板标准内核（corefollow.go）：默认开启；零值即默认，老配置 / 旧备份导入后自动生效
+	AutoUpdateCoreOff bool `json:"autoUpdateCoreOff,omitempty"`
 	// Claude Code 加速（docs/Claude加速-网关切换.md）：默认开启、自动切换；零值即默认，老配置升级后自动生效
 	ClaudeAccelOff     bool `json:"claudeAccelOff,omitempty"`     // 整个功能关掉（不开本机入口，恢复官方默认）
 	ClaudeAccelAutoOff bool `json:"claudeAccelAutoOff,omitempty"` // 关掉自动切换（只在用户手动点编码模式时编码）
@@ -151,6 +153,11 @@ type Service struct {
 	accelPort        int               // Claude Code 加速本机入口端口（进程内固定）
 	accelOut         string            // 该入口当前走的出站（Claude Code 所用线路）
 	pv               *powervpn.Client  // POWER云 panel client (nil in tests)
+
+	followOnce    sync.Once // core follow (corefollow.go)
+	followStart   sync.Once
+	follower      *coreFollower
+	followTrigger chan struct{}
 }
 
 // New loads (or initializes) config from dataDir.

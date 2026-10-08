@@ -16,15 +16,33 @@ type Release struct {
 	SHA256  string // of the downloaded artifact
 }
 
-// InstallRelease downloads and installs a panel-published core when it is
-// newer than installed (see compareCore: never downgrades, never goes back
-// from a platform build to an official one). The download is tried directly
-// first, then through viaProxy (the running node) if given. Returns the
-// resulting version.
-func InstallRelease(destDir, installed string, r Release, viaProxy string) (string, error) {
-	want, ok := parseCoreVersion(r.Version)
+// NeedsRelease reports whether the panel-published version should replace the
+// installed core: true only when it is strictly newer (compareCore: never
+// downgrade, never go back from a platform build to an official one). An
+// unknown installed version counts as older. Errors only for an invalid
+// offered version.
+func NeedsRelease(installed, offered string) (bool, error) {
+	want, ok := parseCoreVersion(offered)
 	if !ok || (want.suffix != "" && want.relayops < 0) {
-		return "", fmt.Errorf("服务器提供的内核版本无效：%q", r.Version)
+		return false, fmt.Errorf("服务器提供的内核版本无效：%q", offered)
+	}
+	cur, ok := parseCoreVersion(installed)
+	if !ok {
+		return true, nil
+	}
+	return compareCore(cur, want) < 0, nil
+}
+
+// InstallRelease downloads and installs a panel-published core when it is
+// newer than installed (see NeedsRelease). The download is tried directly
+// first, then through viaProxy (the running node) if given. Returns the
+// resulting version. The replaced core is kept as sing-box.exe.old (see
+// Rollback / ClearBackup); a leftover backup that is still locked fails with
+// ErrBackupBusy before anything is downloaded.
+func InstallRelease(destDir, installed string, r Release, viaProxy string) (string, error) {
+	need, err := NeedsRelease(installed, r.Version)
+	if err != nil {
+		return "", err
 	}
 	expected := strings.ToLower(strings.TrimSpace(r.SHA256))
 	if len(expected) != 64 {
@@ -33,17 +51,18 @@ func InstallRelease(destDir, installed string, r Release, viaProxy string) (stri
 	if _, err := hex.DecodeString(expected); err != nil {
 		return "", fmt.Errorf("服务器提供的内核校验值无效")
 	}
-	if cur, ok := parseCoreVersion(installed); ok {
-		switch c := compareCore(cur, want); {
-		case c == 0:
-			return installed, nil // already current
-		case c > 0:
-			return installed, fmt.Errorf("当前内核 %s 不低于服务器版本 %s，无需更新", installed, r.Version)
+	if !need {
+		if older, _ := NeedsRelease(r.Version, installed); !older {
+			return installed, nil // already current (same version)
 		}
+		return installed, fmt.Errorf("当前内核 %s 不低于服务器版本 %s，无需更新", installed, r.Version)
 	}
 
 	installMu.Lock()
 	defer installMu.Unlock()
+	if err := clearBackupLocked(destDir); err != nil {
+		return "", err
+	}
 	body, err := fetchArtifact(r.URL, "")
 	if err != nil && viaProxy != "" {
 		body, err = fetchArtifact(r.URL, viaProxy)
@@ -67,7 +86,8 @@ func InstallRelease(destDir, installed string, r Release, viaProxy string) (stri
 	if len(exe) <= minExeBytes {
 		return "", fmt.Errorf("invalid sing-box.exe: only %d bytes (expected > %d)", len(exe), minExeBytes)
 	}
-	if err := installBinary(destDir, exe); err != nil {
+	backupMarkerLocked(destDir)
+	if err := installBinary(destDir, exe, true); err != nil {
 		return "", err
 	}
 	exeSum := sha256.Sum256(exe)
