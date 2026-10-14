@@ -12,8 +12,11 @@ import (
 // (GET /api/client/core, already signature-verified by the caller).
 type Release struct {
 	Version string // e.g. "1.14.2-relayops.6"
-	URL     string // absolute download URL (raw .exe, or a zip containing sing-box.exe)
-	SHA256  string // of the downloaded artifact
+	URL     string // absolute download URL = origin (raw .exe, or a zip containing sing-box.exe)
+	// URLs are optional mirrors of URL (same bytes), best first. The origin is
+	// always tried last, whether or not it is listed here.
+	URLs   []string
+	SHA256 string // of the downloaded artifact
 }
 
 // NeedsRelease reports whether the panel-published version should replace the
@@ -63,12 +66,20 @@ func InstallRelease(destDir, installed string, r Release, viaProxy string) (stri
 	if err := clearBackupLocked(destDir); err != nil {
 		return "", err
 	}
-	body, err := fetchArtifact(r.URL, "")
-	if err != nil && viaProxy != "" {
-		body, err = fetchArtifact(r.URL, viaProxy)
-	}
-	if err != nil {
-		return "", err
+	var body []byte
+	if mirrors := candidateURLs(r.URLs, r.URL); len(mirrors) > 0 {
+		// Mirrors first (fastest first, resumable), origin always last.
+		if body, err = fetchMultiSource(destDir, mirrors, r.URL, expected, viaProxy); err != nil {
+			return "", err
+		}
+	} else {
+		body, err = fetchArtifact(r.URL, "")
+		if err != nil && viaProxy != "" {
+			body, err = fetchArtifact(r.URL, viaProxy)
+		}
+		if err != nil {
+			return "", err
+		}
 	}
 	sum := sha256.Sum256(body)
 	if hex.EncodeToString(sum[:]) != expected {

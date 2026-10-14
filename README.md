@@ -87,6 +87,7 @@ sing-box outbound，并按进程名分别路由。
 - 自动备份：`config.json.bak` 与 exe 同目录 `proxysplit-data.json`
 - 内核运行文件：`%APPDATA%\proxysplit\bin`
 - 内核自动跟随：启动 30 秒后、之后每小时、以及 POWER云 登录后，向面板查一次标准内核（`GET /api/client/core`，签名 + SHA256 校验）；有更新版本就下载替换，代理正在运行时自动重启内核生效（约 1 秒），新内核起不来自动换回旧内核并恢复运行（该版本 24 小时内不再自动装）。设置页「自动更新内核」可关；手动「更新内核」按钮走同一流程。实现见 `internal/service/corefollow.go`、`internal/coreupdate/backup.go`
+- 内核多源下载：面板在 `GET /api/client/core` 的 `urls` 里给镜像（镜像在前、源站最后；`url` 仍是源站）。下载时先并发探测每个镜像（`Range: bytes=0-262143`，6 秒超时）按速度排序，再向同一个临时文件续传（`Range: bytes=<已下载>-`，换镜像续传；返回 200 就重头来），低于 30 KB/s 持续 20 秒换下一个，每个来源下完都校验 SHA256（不符删临时文件换下一个）；源站永远最后（先直连、再走当前节点）。`urls` 为空或面板不给时与原来完全一样。实现见 `internal/coreupdate/mirror.go`，设计见 powervpn 仓 `docs/platform/下载镜像加速.md`
 - 商业授权票据：使用 Windows DPAPI 加密后保存在本机
 - 节点、订阅、应用路径与规则默认不上传商业服务
 - 更新服务只发布 HTTPS 地址、版本号、SHA256 与独立 Ed25519 签名

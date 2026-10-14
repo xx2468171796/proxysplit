@@ -737,6 +737,9 @@ type CoreInfo struct {
 	Build   string `json:"build"`
 	SHA256  string `json:"sha256"`
 	URL     string `json:"url"`
+	// URLs are optional mirrors (best first, origin last) for the same file;
+	// absolute http(s) after Core(). Part of the signed body like every field.
+	URLs []string `json:"urls"`
 }
 
 // FullVersion is "<version>-<build>", e.g. "1.14.2-relayops.6".
@@ -774,7 +777,27 @@ func (c *Client) Core(ctx context.Context, goos, arch string) (*CoreInfo, error)
 	}
 	base, _ := url.Parse(c.base + "/")
 	ci.URL = base.ResolveReference(u).String()
+	ci.URLs = resolveMirrorURLs(base, ci.URLs)
 	return &ci, nil
+}
+
+// resolveMirrorURLs resolves mirror URLs against the panel base and keeps only
+// absolute http(s) ones (anything else is ignored, never an error: an older or
+// newer panel must keep working).
+func resolveMirrorURLs(base *url.URL, in []string) []string {
+	var out []string
+	for _, raw := range in {
+		u, err := url.Parse(strings.TrimSpace(raw))
+		if err != nil || raw == "" {
+			continue
+		}
+		abs := base.ResolveReference(u)
+		if (abs.Scheme != "http" && abs.Scheme != "https") || abs.Host == "" {
+			continue
+		}
+		out = append(out, abs.String())
+	}
+	return out
 }
 
 func effectivePort(u *url.URL) string {

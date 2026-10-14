@@ -267,7 +267,7 @@ func (s *Service) latestCore(ctx context.Context) (coreupdate.Release, error) {
 	if err != nil {
 		return coreupdate.Release{}, err
 	}
-	return coreupdate.Release{Version: info.FullVersion(), URL: info.URL, SHA256: info.SHA256}, nil
+	return coreupdate.Release{Version: info.FullVersion(), URL: info.URL, URLs: info.URLs, SHA256: info.SHA256}, nil
 }
 
 func (s *Service) installCore(r coreupdate.Release) error {
