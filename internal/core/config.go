@@ -44,8 +44,13 @@ type Options struct {
 	// RemoteDNS enables domain sniffing + remote DNS: sing-box recovers the real
 	// domain from the TLS ClientHello, overriding a possibly-poisoned local IP,
 	// and passes the domain to the node for remote resolution (anti-pollution,
-	// no DNS leak). Requires no DNS interception in our redirect model.
+	// no DNS leak). In TUN configs it also answers foreign names with fake IPs
+	// (see dns.go): no lookup round trip through the node at all.
 	RemoteDNS bool
+
+	// CacheFile persists the DNS cache and the fake-IP table across core
+	// restarts (experimental.cache_file). Only the main core sets it.
+	CacheFile string
 
 	// RealityHybrid: the bundled core carries relayops patch 0005, so POWER云
 	// VLESS + Reality outbounds keep the X25519MLKEM768 key share (ClientHello
@@ -550,6 +555,7 @@ func BuildMultiConfig(lines []LineConfig, logLevel string, opts Options) ([]byte
 		if dr := clashDNSRules(opts); dr != nil {
 			dns["rules"] = dr
 		}
+		dnsCacheOptions(dns)
 		cfg["dns"] = dns
 		rules = append(rules, M{"action": "sniff"}) // must be first
 	}
@@ -791,30 +797,6 @@ func BuildTUNConfig(node *nodes.Node, logLevel string, opts Options) ([]byte, er
 		}
 	}
 
-	// Split DNS: mainland domains resolve via China DNS (dns-direct, DIRECT — no
-	// dependency on the node), foreign domains via dns-remote (through the node).
-	// So a dead/slow node can NEVER break DNS for mainland sites (previously all
-	// DNS went through the node → node down = nothing resolves = "全都打不开").
-	dnsRules := []M{}
-	if dr := clashDNSRules(opts); dr != nil {
-		dnsRules = append(dnsRules, dr...)
-	}
-	dnsRules = append(dnsRules, M{"rule_set": []string{"geosite-cn"}, "server": "dns-direct"})
-	// 远程解析域名 off: every lookup goes to the China resolver directly.
-	dnsFinal := "dns-direct"
-	if opts.RemoteDNS {
-		dnsFinal = "dns-remote"
-	}
-	dnsBlock := M{
-		"servers": []M{
-			// Foreign resolver through the node (anti-pollution) with a 2nd fallback.
-			{"type": "udp", "tag": "dns-remote", "server": "8.8.8.8", "detour": "proxy"},
-			// China resolver, DIRECT — reachable even when the node is down.
-			{"type": "udp", "tag": "dns-direct", "server": "223.5.5.5"},
-		},
-		"rules": dnsRules,
-		"final": dnsFinal,
-	}
 	tunInbounds := []M{
 		{
 			"type":         "tun",
@@ -844,15 +826,18 @@ func BuildTUNConfig(node *nodes.Node, logLevel string, opts Options) ([]byte, er
 		}
 		outs = append(outs, eobs...)
 	}
+	// Split DNS (dns.go): mainland names on the China resolver, DIRECT — a dead
+	// or slow node can never break DNS for mainland sites; foreign names get
+	// fake IPs with 远程解析域名 on.
 	cfg := M{
 		"log":       M{"level": logLevel, "timestamp": true},
-		"dns":       dnsBlock,
+		"dns":       tunDNS(opts, serverHosts(outs)),
 		"inbounds":  tunInbounds,
 		"outbounds": outs,
 		"route":     route,
 	}
-	if clashExp != nil {
-		cfg["experimental"] = clashExp
+	if exp := withCacheFile(clashExp, opts); exp != nil {
+		cfg["experimental"] = exp
 	}
 	return json.MarshalIndent(cfg, "", "  ")
 }

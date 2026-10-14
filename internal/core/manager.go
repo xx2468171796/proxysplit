@@ -261,6 +261,9 @@ func (m *Manager) StartTUN(node *nodes.Node, logLevel, routeMode string, routeRu
 			lastErr = err
 			continue
 		}
+		// The cache file remembers the last live 代理策略 and the core prefers it
+		// over default_mode: put the wanted one back as soon as the API is up.
+		go m.syncClashMode(opts)
 		// TUN has no port to probe; a config/wintun failure makes the process
 		// exit quickly, so a short wait + liveness check is the readiness signal.
 		time.Sleep(2500 * time.Millisecond)
@@ -284,6 +287,9 @@ func (m *Manager) tunConfig(node *nodes.Node, logLevel, routeMode string, routeR
 	opts.RouteRules = routeRules
 	if opts.Split && opts.RuleDir == "" {
 		opts.RuleDir = filepath.Join(m.dataDir, "rules")
+	}
+	if opts.CacheFile == "" {
+		opts.CacheFile = filepath.Join(m.dataDir, "cache.db")
 	}
 	cfg, err := BuildTUNConfig(node, logLevel, opts)
 	return cfg, opts, err
@@ -438,6 +444,9 @@ func (m *Manager) spawn(cfgPath string) error {
 		m.mu.Unlock()
 		close(done)
 		m.onLog("[core] sing-box exited")
+		if active {
+			flushSystemDNS() // a crashed core leaves fake IPs in the system cache
+		}
 		// Do not let a stale exit clear state belonging to a replacement core.
 		if active && m.onExit != nil {
 			m.onExit()
@@ -469,6 +478,8 @@ func (m *Manager) Stop() error {
 	}
 	m.killStrays()                     // nuke any orphaned sing-box (else Stop leaves proxying alive)
 	time.Sleep(300 * time.Millisecond) // grace for the wintun driver to release
+	// Fake IPs only work while the core runs: drop them from the system cache.
+	flushSystemDNS()
 	return nil
 }
 

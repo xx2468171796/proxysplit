@@ -2553,7 +2553,7 @@
           <section class="card">
             <h3>分流引擎</h3>
             <div class="setting"><span>阻止 QUIC 协议<small class="setting-hint">部分浏览器/视频用的新加密协议,不挡住会绕过分流导致代理失效。建议开</small></span><label class="switch"><input type="checkbox" bind:checked={settings.blockQUIC} on:change={saveSettings} /><i></i></label></div>
-            <div class="setting"><span>远程解析域名<small class="setting-hint">把域名交给节点解析,防止运营商劫持/污染。建议开</small></span><label class="switch"><input type="checkbox" bind:checked={settings.remoteDNS} on:change={saveSettings} /><i></i></label></div>
+            <div class="setting"><span>远程解析域名<small class="setting-hint">境外域名不在本机查、直接给虚拟地址（Fake IP）由节点解析：防劫持 / 污染，打开新网站少等一趟跨境查询。关掉则全部用国内 DNS。建议开</small></span><label class="switch"><input type="checkbox" bind:checked={settings.remoteDNS} on:change={saveSettings} /><i></i></label></div>
             <div class="setting"><span>内网直连<small class="setting-hint">访问路由器/NAS/公司内网这类本地地址时不走代理。建议开</small></span><label class="switch"><input type="checkbox" bind:checked={settings.privateDirect} on:change={saveSettings} /><i></i></label></div>
             <div class="setting"><span>代理程序自身不走代理<small class="setting-hint">避免流量绕圈/死循环。建议开</small></span><label class="switch"><input type="checkbox" bind:checked={settings.excludeSelf} on:change={saveSettings} /><i></i></label></div>
           </section>

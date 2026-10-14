@@ -48,8 +48,8 @@ type Settings struct {
 	ExcludeSelf     bool   `json:"excludeSelf"`
 	PrivateDirect   bool   `json:"privateDirect"`
 	BlockQUIC       bool   `json:"blockQUIC"`
-	RemoteDNS       bool   `json:"remoteDNS"`
-	FakeIP          bool   `json:"fakeIP"`
+	RemoteDNS       bool   `json:"remoteDNS"` // 开 = 境外域名 Fake IP、由节点解析（core/dns.go）；关 = 全部国内 DNS
+	FakeIP          bool   `json:"fakeIP"`    // 早期预留、从未接线；Fake IP 跟 RemoteDNS 走，留着只为兼容旧配置
 	Autostart       bool   `json:"autostart"`
 	TrayClose       bool   `json:"trayClose"`
 	Theme           string `json:"theme"`
