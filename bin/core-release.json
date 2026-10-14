@@ -1,9 +1,9 @@
 {
-  "version": "1.14.2-relayops.15",
+  "version": "1.14.3-relayops.1",
   "format": "exe",
-  "url": "http://192.168.110.246:3001/api/packages/gonggong/generic/sing-box/1.14.2-relayops.15/sing-box-1.14.2-windows-amd64.exe",
+  "url": "http://192.168.110.246:3001/api/packages/gonggong/generic/sing-box/1.14.3-relayops.1/sing-box-1.14.3-windows-amd64.exe",
   "urlAuth": "gitea",
-  "sha256": "4d5030859faff57d679e3078809dab2f41a27db185dd41a4c7c44fdebbe1eeb1",
-  "source": "PowerVPN 平台自编 sing-box 1.14.2 + relayops.15 补丁（0001–0011；0011 = 多路复用连接池：满 250 流另开连接、开 Brutal 时最多 max_connections 条且只有一条用 Brutal；Gitea generic 包 gonggong/sing-box；`sing-box version` 只打印 1.14.2，relayops 见 Tags）",
-  "verifiedAt": "2026-10-07"
+  "sha256": "1f112e9d84f0eeec52d5f93f2b464dc84495a2aa971203511b544f9668b09bab",
+  "source": "PowerVPN 平台自编 sing-box 1.14.3 + relayops.1 补丁（0001–0011，跟上游稳定版 1.14.3 重新移植；0003 热更新按 scope 生命周期重写、0011 连接池移植到 sing-mux 0.3.10；Gitea generic 包 gonggong/sing-box；`sing-box version` 打印 1.14.3，relayops 见 Tags）",
+  "verifiedAt": "2026-10-14"
 }
