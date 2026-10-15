@@ -125,8 +125,10 @@ func normalizeRouteRules(rules []core.RouteRule) ([]core.RouteRule, error) {
 	out := make([]core.RouteRule, 0, len(rules))
 	seen := map[string]bool{}
 	for i, raw := range rules {
-		typ := strings.ToLower(strings.TrimSpace(raw.Type))
-		value := strings.TrimSpace(raw.Value)
+		typ, value, err := canonicalRuleInput(strings.ToLower(strings.TrimSpace(raw.Type)), raw.Value)
+		if err != nil {
+			return nil, fmt.Errorf("第 %d 条规则: %w", i+1, err)
+		}
 		action := strings.ToLower(strings.TrimSpace(raw.Action))
 		if value == "" {
 			continue
@@ -140,12 +142,7 @@ func normalizeRouteRules(rules []core.RouteRule) ([]core.RouteRule, error) {
 			return nil, fmt.Errorf("第 %d 条规则动作无效: %s", i+1, raw.Action)
 		}
 		switch typ {
-		case "domain", "suffix":
-			value = strings.ToLower(value)
-			if typ == "suffix" {
-				value = strings.TrimPrefix(value, "*.")
-				value = strings.TrimPrefix(value, ".")
-			}
+		case "domain", "suffix": // already lower-cased and stripped by canonicalRuleInput
 			if err := validateDomainRule(value); err != nil {
 				return nil, fmt.Errorf("第 %d 条规则: %w", i+1, err)
 			}
@@ -174,6 +171,61 @@ func normalizeRouteRules(rules []core.RouteRule) ([]core.RouteRule, error) {
 		out = append(out, core.RouteRule{Type: typ, Value: value, Action: action})
 	}
 	return out, nil
+}
+
+// canonicalRuleInput turns what people actually type into a valid rule: a
+// pasted URL keeps only its host, "*.x.com" / ".x.com" become a suffix rule,
+// ports / trailing dots / full-width dots are dropped, and an IP typed under a
+// domain type becomes an IP rule. Remaining mistakes get a hint on how to write it.
+func canonicalRuleInput(typ, value string) (string, string, error) {
+	value = strings.TrimSpace(strings.NewReplacer("。", ".", "．", ".", "：", ":", "／", "/").Replace(value))
+	if value == "" || typ == "ip" {
+		if typ == "ip" && value != "" && net.ParseIP(value) == nil {
+			if _, _, err := net.ParseCIDR(value); err != nil {
+				return typ, value, fmt.Errorf("「IP 段」只能填 IP 或 CIDR（如 1.1.1.1、10.0.0.0/8），网址请选「域名后缀」：%s", value)
+			}
+		}
+		return typ, value, nil
+	}
+	if typ == "keyword" {
+		return typ, strings.ToLower(value), nil
+	}
+	if typ != "domain" && typ != "suffix" {
+		return typ, value, nil
+	}
+	v := strings.ToLower(value)
+	if _, _, err := net.ParseCIDR(v); err == nil { // before URL stripping eats "/8"
+		return "ip", v, nil
+	}
+	if i := strings.Index(v, "://"); i >= 0 {
+		v = v[i+3:]
+	}
+	if i := strings.IndexAny(v, "/?#"); i >= 0 {
+		v = v[:i]
+	}
+	if i := strings.LastIndex(v, "@"); i >= 0 {
+		v = v[i+1:]
+	}
+	if host, _, err := net.SplitHostPort(v); err == nil {
+		v = host
+	}
+	v = strings.TrimSuffix(v, ".")
+	switch {
+	case strings.HasPrefix(v, "*."):
+		typ, v = "suffix", v[2:]
+	case strings.HasPrefix(v, "."):
+		typ, v = "suffix", v[1:]
+	}
+	if strings.Contains(v, "*") {
+		return typ, v, fmt.Errorf("通配符只能写在开头，如 *.github.com（等同「域名后缀」github.com）；包含某个词请选「关键字」：%s", value)
+	}
+	if net.ParseIP(strings.Trim(v, "[]")) != nil {
+		return "ip", strings.Trim(v, "[]"), nil
+	}
+	if _, _, err := net.ParseCIDR(v); err == nil {
+		return "ip", v, nil
+	}
+	return typ, v, nil
 }
 
 func validateDomainRule(value string) error {

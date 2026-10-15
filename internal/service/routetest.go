@@ -250,6 +250,7 @@ type SelfTestReport struct {
 	Snapshot DiagSnapshot   `json:"snapshot"`
 	DNS      []DNSCheck     `json:"dns"`
 	DNSLogs  []string       `json:"dnsLogs,omitempty"` // core DNS errors while testing
+	Hints    []string       `json:"hints,omitempty"`   // likely causes of the failures
 	Cases    []SelfTestCase `json:"cases"`
 	Failed   int            `json:"failed"`
 	Summary  string         `json:"summary"`
@@ -346,8 +347,35 @@ func (s *Service) SelfTest() SelfTestReport {
 			rep.DNSLogs = append(rep.DNSLogs, l)
 		}
 	}
+	rep.Hints = selfTestHints(rep, s.securityAdvice(rep.Snapshot.Security))
 	rep.Summary = fmt.Sprintf("%d 项检查，%d 项不符合预期；DNS 解析 %d 次，失败 %d 次", len(rep.Cases), rep.Failed, len(rep.DNS), dnsFailed)
 	return rep
+}
+
+// selfTestHints explains failure patterns: a mainland site that was routed
+// direct and still could not connect means something on the machine (usually
+// security software) is blocking the core, not a routing problem.
+func selfTestHints(rep SelfTestReport, securityAdvice string) []string {
+	var hints []string
+	blockedDirect := 0
+	for _, c := range rep.Cases {
+		cn := c.Site == selfTestSites[0].host || c.Site == selfTestSites[1].host
+		if cn && c.Result.Route == "direct" && !c.Result.OK {
+			blockedDirect++
+		}
+	}
+	if blockedDirect > 0 {
+		h := fmt.Sprintf("%d 次访问国内网站已按规则直连，却连不上：不是分流规则的问题，是本机有东西拦了代理内核（常见是安全软件或防火墙）。", blockedDirect)
+		if securityAdvice != "" {
+			h += securityAdvice
+		} else {
+			h += "检查安全软件 / 防火墙是否拦截了 proxysplit.exe 和 sing-box.exe。"
+		}
+		hints = append(hints, h)
+	} else if securityAdvice != "" && rep.Failed > 0 {
+		hints = append(hints, securityAdvice)
+	}
+	return hints
 }
 
 // DNSCheck is one system-resolver lookup made while the core runs (the

@@ -108,6 +108,7 @@ type DiagSnapshot struct {
 	Settings    Settings            `json:"settings"`
 	AppLists    map[string][]string `json:"appLists,omitempty"` // live per-app rule-set files
 	CoreConfig  json.RawMessage     `json:"coreConfig,omitempty"`
+	Security    []string            `json:"security,omitempty"` // running security products (火绒、360 …)
 	Hints       []string            `json:"hints,omitempty"`
 }
 
@@ -155,7 +156,11 @@ func (s *Service) Diagnose() DiagSnapshot {
 		snap.CoreConfig = redactCoreConfig(b)
 	}
 	snap.AppLists = readAppLists(filepath.Join(s.dataDir, "rules"))
+	snap.Security = DetectSecuritySoftware()
 	snap.Hints = diagHints(snap)
+	if advice := s.securityAdvice(snap.Security); advice != "" {
+		snap.Hints = append(snap.Hints, advice)
+	}
 	return snap
 }
 

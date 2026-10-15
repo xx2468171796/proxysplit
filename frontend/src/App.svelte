@@ -2263,17 +2263,36 @@
               {#if custRuleMsg && custRuleMsg !== '应用中…'}<span class="rs-msg">{custRuleMsg}</span>{/if}
             </div>
           </div>
+          <details class="cr-guide">
+            <summary>怎么填？（点开看写法）</summary>
+            <table>
+              <thead><tr><th>匹配方式</th><th>填什么</th><th>能匹配</th><th>匹配不到</th></tr></thead>
+              <tbody>
+                <tr><td><b>域名后缀</b>（推荐）</td><td><code>zygskins.cn</code></td><td>zygskins.cn、www.zygskins.cn、a.b.zygskins.cn</td><td>myzygskins.cn</td></tr>
+                <tr><td>完整域名</td><td><code>www.zygskins.cn</code></td><td>只有 www.zygskins.cn 这一个</td><td>zygskins.cn、api.zygskins.cn</td></tr>
+                <tr><td>关键字</td><td><code>zygskins</code></td><td>域名里含这个词的都算，如 zygskins.com、cdn-zygskins.net</td><td>—（范围大，慎用）</td></tr>
+                <tr><td>IP 段</td><td><code>1.1.1.1</code> 或 <code>10.0.0.0/8</code></td><td>这个 IP / 这一段 IP</td><td>域名（填域名请选上面三种）</td></tr>
+              </tbody>
+            </table>
+            <ul>
+              <li>只填域名本身：不要 <code>https://</code>、路径、端口。直接粘贴网址也行，保存时会自动只留域名（<code>https://www.x.com/a</code> → <code>www.x.com</code>）。</li>
+              <li><code>*.x.com</code> 或 <code>.x.com</code> 会自动改成「域名后缀 x.com」；通配符只能写在开头。</li>
+              <li>想管一个网站的所有子域名，就选「域名后缀」填主域名；「完整域名」只管填的那一个。</li>
+              <li>规则从上往下第一条匹配的生效；「代理策略」为「规则」时才生效；「只代理列出的」模式下，「走代理」只对列出的应用起作用，没列出的应用仍直连。</li>
+              <li>国内服务器上的网站（比如我们自己的 *.zygskins.cn）走境外节点反而可能打不开，一般设「直连」即可。</li>
+            </ul>
+          </details>
           <div class="cr-list">
             {#if customRules.length > 0}<div class="cr-head"><span>匹配方式</span><span>内容</span><span>动作</span><span></span></div>{/if}
             {#each customRules as r, i}
               <div class="cr-row">
                 <select bind:value={r.type}>
-                  <option value="suffix">域名后缀</option>
-                  <option value="domain">完整域名</option>
+                  <option value="suffix">域名后缀（含子域名）</option>
+                  <option value="domain">完整域名（仅这一个）</option>
                   <option value="keyword">关键字</option>
                   <option value="ip">IP 段(CIDR)</option>
                 </select>
-                <input bind:value={r.value} placeholder={r.type === 'ip' ? '如 1.1.1.1/32、10.0.0.0/8' : r.type === 'keyword' ? '如 google' : '如 github.com'} />
+                <input bind:value={r.value} placeholder={r.type === 'ip' ? '如 1.1.1.1 或 10.0.0.0/8' : r.type === 'keyword' ? '如 zygskins（域名含这个词即匹配）' : r.type === 'domain' ? '如 www.zygskins.cn（只匹配这一个）' : '如 zygskins.cn（含所有子域名）'} />
                 <select bind:value={r.action}>
                   <option value="proxy">走代理</option>
                   <option value="direct">直连</option>
@@ -2828,9 +2847,17 @@
   .rs-note b { color: var(--brand-600); }
 
   /* custom-rules editor */
-  .cr-head, .cr-row { display: grid; grid-template-columns: 132px minmax(0, 1fr) 110px 34px; gap: 10px; align-items: center; }
+  .cr-head, .cr-row { display: grid; grid-template-columns: 178px minmax(0, 1fr) 110px 34px; gap: 10px; align-items: center; }
   .cr-head { font-size: 11px; color: var(--muted-2); font-weight: 600; padding: 2px 2px 8px; }
   .cr-row { padding: 6px 0; }
+  .cr-guide { margin: 0 17px 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--soft); padding: 8px 12px; font-size: 12.5px; color: var(--ink); }
+  .cr-guide summary { cursor: pointer; font-weight: 600; color: var(--brand); }
+  .cr-guide table { width: 100%; border-collapse: collapse; margin: 10px 0 6px; }
+  .cr-guide th, .cr-guide td { text-align: left; padding: 5px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  .cr-guide th { color: var(--muted-2); font-weight: 600; font-size: 11.5px; }
+  .cr-guide code { background: var(--surface-3, var(--line)); border-radius: 4px; padding: 0 4px; font-size: 12px; }
+  .cr-guide ul { margin: 6px 0 2px; padding-left: 18px; color: var(--muted); }
+  .cr-guide li { margin: 3px 0; }
   .cr-row select, .cr-row input { width: 100%; min-width: 0; box-sizing: border-box; border: 1px solid var(--line); background: var(--soft); color: var(--ink); border-radius: 8px; padding: 7px 10px; font-size: 13px; font-family: inherit; }
   .cr-row select:focus, .cr-row input:focus { outline: none; border-color: var(--brand); }
 

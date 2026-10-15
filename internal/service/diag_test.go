@@ -122,3 +122,27 @@ func TestIsProbePath(t *testing.T) {
 		}
 	}
 }
+
+func TestMatchSecurity(t *testing.T) {
+	got := matchSecurity(map[string]bool{"hipsdaemon.exe": true, "usysdiag.exe": true, "chrome.exe": true, "360tray.exe": true})
+	if strings.Join(got, ",") != "火绒,360 安全卫士 / 360 杀毒" {
+		t.Fatalf("got %v", got)
+	}
+	if matchSecurity(map[string]bool{"chrome.exe": true}) != nil {
+		t.Fatal("no product expected")
+	}
+}
+
+func TestSelfTestHintsBlockedDirect(t *testing.T) {
+	rep := SelfTestReport{Cases: []SelfTestCase{
+		{Site: "www.baidu.com", Result: RouteTestResult{Route: "direct", OK: false}},
+		{Site: "www.google.com", Result: RouteTestResult{Route: "direct", OK: false}}, // blocked network, normal
+	}}
+	h := selfTestHints(rep, "检测到安全软件：火绒。")
+	if len(h) != 1 || !strings.Contains(h[0], "1 次") || !strings.Contains(h[0], "火绒") {
+		t.Fatalf("hints = %v", h)
+	}
+	if len(selfTestHints(SelfTestReport{}, "")) != 0 {
+		t.Fatal("no hints expected when all fine")
+	}
+}

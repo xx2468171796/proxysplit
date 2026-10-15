@@ -1510,7 +1510,7 @@ func (s *Service) startLocked() error {
 		tunOpts := clashOptsFor(clashPort)
 		tunOpts.AccelOutbound = "proxy" // 整机全局：Claude Code 也走主节点
 		if err := s.core.StartTUN(node, level, tunRoute, nil, tunOpts); err != nil {
-			return fmt.Errorf("core(TUN): %w", err)
+			return s.withSecurityHint(fmt.Errorf("core(TUN): %w", err))
 		}
 		s.mu.Lock()
 		s.accelOut = tunOpts.AccelOutbound
@@ -1541,7 +1541,7 @@ func (s *Service) startLocked() error {
 	sum := s.splitOptionsLocked(&opts, node)
 	s.mu.Unlock()
 	if err := s.core.StartTUN(node, level, tunRoute, nil, opts); err != nil {
-		return fmt.Errorf("core(应用分流 TUN): %w", err)
+		return s.withSecurityHint(fmt.Errorf("core(应用分流 TUN): %w", err))
 	}
 
 	s.mu.Lock()
