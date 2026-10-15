@@ -195,13 +195,14 @@ func closeProcessConnections(port int, secret string, names map[string]bool) int
 // 规则 / 走了哪个出口" answer that raw logs only hint at — sourced from the same
 // Clash API /connections snapshot that already feeds the traffic counters.
 type ConnInfo struct {
-	Process  string `json:"process"`  // exe basename, e.g. chrome.exe
-	Host     string `json:"host"`     // target host (or destination IP)
-	Dest     string `json:"dest"`     // ip:port
-	Network  string `json:"network"`  // tcp | udp
-	Rule     string `json:"rule"`     // matched rule, e.g. "process_name chrome.exe"
-	OutTag   string `json:"outTag"`   // raw outbound tag (proxy|direct|reject|node-<id>)
-	Outbound string `json:"outbound"` // friendly exit label (直连/拦截/<节点名>)
+	Process  string `json:"process"`        // exe basename, e.g. chrome.exe
+	Path     string `json:"path,omitempty"` // full exe path (tells same-named programs apart)
+	Host     string `json:"host"`           // target host (or destination IP)
+	Dest     string `json:"dest"`           // ip:port
+	Network  string `json:"network"`        // tcp | udp
+	Rule     string `json:"rule"`           // matched rule, e.g. "process_name chrome.exe"
+	OutTag   string `json:"outTag"`         // raw outbound tag (proxy|direct|reject|node-<id>)
+	Outbound string `json:"outbound"`       // friendly exit label (直连/拦截/<节点名>)
 	Upload   int64  `json:"upload"`
 	Download int64  `json:"download"`
 }
@@ -281,7 +282,7 @@ func clashConnections(port int, secret string) ([]ConnInfo, error) {
 			tag = c.Chains[n-1]
 		}
 		out = append(out, ConnInfo{
-			Process: proc, Host: host, Dest: dest, Network: c.Metadata.Network,
+			Process: proc, Path: c.Metadata.ProcessPath, Host: host, Dest: dest, Network: c.Metadata.Network,
 			Rule: rule, OutTag: tag, Upload: c.Upload, Download: c.Download,
 		})
 	}

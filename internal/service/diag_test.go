@@ -107,3 +107,18 @@ func TestRouteCategory(t *testing.T) {
 		t.Error("stopped core must be direct")
 	}
 }
+
+func TestIsProbePath(t *testing.T) {
+	dir := `C:\Users\ADMINI~1\AppData\Local\Temp\ps-route-123`
+	for path, want := range map[string]bool{
+		`C:\Users\Administrator\AppData\Local\Temp\ps-route-123\msedge.exe`:         true, // long form of the 8.3 temp dir
+		`c:/users/administrator/appdata/local/temp/ps-route-123/MSEDGE.EXE`:         true,
+		`C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe`:              false, // the real, running Edge
+		`C:\Users\Administrator\AppData\Local\Temp\ps-route-1234\msedge.exe`:        false,
+		`C:\Users\Administrator\AppData\Local\Temp\ps-route-123\msedgewebview2.exe`: false,
+	} {
+		if got := isProbePath(path, dir, "msedge.exe"); got != want {
+			t.Errorf("%s: got %v want %v", path, got, want)
+		}
+	}
+}

@@ -121,7 +121,7 @@ func (s *Service) RouteTest(process, rawURL string) RouteTestResult {
 				if conns, err := clashConnections(port, secret); err == nil {
 					mu.Lock()
 					for _, c := range conns {
-						if strings.EqualFold(c.Process, process) {
+						if isProbePath(c.Path, dir, process) { // our copy only, not a running program of the same name
 							seen[c.Host+"|"+c.Dest] = RouteHop{Host: c.Host, Dest: c.Dest, Rule: c.Rule, OutTag: c.OutTag}
 						}
 					}
@@ -164,14 +164,13 @@ func (s *Service) RouteTest(process, rawURL string) RouteTestResult {
 	ids := map[string]bool{}
 	logHops := map[string]RouteHop{}
 	lines := s.logs.since(mark)
-	suffix := strings.ToLower(`\` + process)
 	for _, raw := range lines {
 		l := ansiRe.ReplaceAllString(raw, "")
 		m := logIDRe.FindStringSubmatch(l)
 		if m == nil {
 			continue
 		}
-		if strings.Contains(m[2], "found process path:") && strings.HasSuffix(strings.ToLower(strings.TrimSpace(m[2])), suffix) {
+		if path, found := strings.CutPrefix(m[2], "router: found process path: "); found && isProbePath(path, dir, process) {
 			ids[m[1]] = true
 		}
 	}
@@ -204,6 +203,14 @@ func (s *Service) RouteTest(process, rawURL string) RouteTestResult {
 		res.Note = "没有抓到这次请求的连接记录（日志级别需为 info 或 debug）。"
 	}
 	return res
+}
+
+// isProbePath reports whether a process path is our renamed curl copy: its
+// unique temp folder plus the program name (the core reports long paths while
+// os.MkdirTemp may return an 8.3 short one, so whole paths can differ).
+func isProbePath(path, dir, process string) bool {
+	p := strings.ToLower(strings.ReplaceAll(strings.TrimSpace(path), "/", `\`))
+	return strings.Contains(p, `\`+strings.ToLower(filepath.Base(dir))+`\`) && strings.HasSuffix(p, `\`+strings.ToLower(process))
 }
 
 // routeCategory summarises a probe as direct / node / reject / unknown.
