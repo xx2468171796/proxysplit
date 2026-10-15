@@ -41,6 +41,20 @@ Invoke-RestMethod http://127.0.0.1:18088/api/diag/selftest -Method Post -Headers
 Invoke-RestMethod http://127.0.0.1:18088/api/diag/route-test -Method Post -Headers $h -ContentType 'application/json' -Body '{"process":"chrome.exe","url":"https://www.baidu.com"}'
 ```
 
+## 不登录的远程测试：cmd/diagrun
+
+装了正式版但登录不方便（比如别人正在用那台电脑）时，用 `cmd/diagrun` 在那台机器上直接跑同一套分流代码和真实内核（TUN），不需要界面、不需要登录：
+
+1. 本机 `go build -o diagrun.exe ./cmd/diagrun`，和 `bin\sing-box.exe` + 三个 `.srs` 一起放到目标机，例如 `C:\ProgramData\ps-diagrun\`（exe 旁边一个 `bin` 目录）。
+2. 节点链接含密码，**只经标准输入传入**：先把链接写进临时文件，再 `cmd /c "diagrun.exe -link - -mode whitelist -app chrome.exe=rule < link.txt"`，跑完立刻删掉链接文件和 `%TEMP%\proxysplit-diagrun`（里面的配置也有密码）。
+3. 常用参数：`-mode whitelist|blacklist|tun`、`-clash rule|global|direct`、`-app 名称=线路`（可多个）、`-custom 类型:值:动作`（可多个）、`-test 程序=网址`（可多个）、`-cold 15s`（启动后立刻持续测 DNS）、`-loglevel debug`、`-limit 4m`（到时强制停止）。
+4. 需要管理员权限；默认「只代理列出的」不影响远控等未列出程序，但开关 TUN 的瞬间可能卡一两秒。
+5. 堡垒机远控客户端里 PowerShell 的 `$input` 收不到标准输入，用 `[Console]::In.ReadToEnd()` 读。
+
+## 已知问题：不存在的域名解析要等 12 秒（2026-10-15 实测）
+
+电脑 DNS 是公网地址（如 223.5.5.5）时，开着代理查**不存在的域名**，系统解析器要等约 12 秒才返回「不存在」；正常域名、没有 IPv6 地址的域名都不受影响。原因：Windows 对「不存在」要等所有网卡的 DNS 都回答，而 TUN 的 `strict_route` 在 Windows 上会拦掉其它网卡的 DNS，那边一直不回。关掉 `strict_route` 后降到 0.07 秒，但实测仍偶发 10 秒，且会失去防 DNS 泄漏，所以暂未改。DNS 是内网地址（如路由器 192.168.x.1）的电脑不经过内核解析，不受影响。
+
 ## 代码位置
 
 - `internal/service/diag.go`：快照、日志缓冲、脱敏、提示

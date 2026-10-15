@@ -240,11 +240,12 @@ type SelfTestCase struct {
 
 // SelfTestReport is the outcome of SelfTest.
 type SelfTestReport struct {
-	Snapshot DiagSnapshot      `json:"snapshot"`
-	DNS      map[string]string `json:"dns"`
-	Cases    []SelfTestCase    `json:"cases"`
-	Failed   int               `json:"failed"`
-	Summary  string            `json:"summary"`
+	Snapshot DiagSnapshot   `json:"snapshot"`
+	DNS      []DNSCheck     `json:"dns"`
+	DNSLogs  []string       `json:"dnsLogs,omitempty"` // core DNS errors while testing
+	Cases    []SelfTestCase `json:"cases"`
+	Failed   int            `json:"failed"`
+	Summary  string         `json:"summary"`
 }
 
 var selfTestSites = []struct{ host, url string }{
@@ -258,17 +259,9 @@ var selfTestSites = []struct{ host, url string }{
 // against mainland and foreign sites, comparing with what the current
 // 代理策略 / 分流模式 / lines should produce.
 func (s *Service) SelfTest() SelfTestReport {
-	rep := SelfTestReport{Snapshot: s.Diagnose(), DNS: map[string]string{}}
-	for _, site := range selfTestSites {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		ips, err := net.DefaultResolver.LookupHost(ctx, site.host)
-		cancel()
-		if err != nil {
-			rep.DNS[site.host] = "失败: " + err.Error()
-		} else {
-			rep.DNS[site.host] = strings.Join(ips, ", ")
-		}
-	}
+	rep := SelfTestReport{Snapshot: s.Diagnose()}
+	mark := s.logs.mark()
+	rep.DNS = append(rep.DNS, dnsRound(1)...)
 
 	s.mu.Lock()
 	all := s.allLinesLocked()
@@ -318,10 +311,12 @@ func (s *Service) SelfTest() SelfTestReport {
 				exp = "" // a custom rule or a POWER云 access scope decides: report only
 			}
 			c := SelfTestCase{Process: p.name, Listed: listed, Site: site.host, Expect: exp, Result: s.RouteTest(p.name, site.url)}
+			// Going direct to a foreign site may legitimately fail (blocked network).
+			reached := c.Result.OK || exp == "reject" || (exp == "direct" && !cn)
 			switch {
 			case exp == "":
 				c.Verdict = "info"
-			case c.Result.Route == exp && (exp == "reject" || c.Result.OK):
+			case c.Result.Route == exp && reached:
 				c.Verdict = "pass"
 			default:
 				c.Verdict = "FAIL"
@@ -330,8 +325,50 @@ func (s *Service) SelfTest() SelfTestReport {
 			rep.Cases = append(rep.Cases, c)
 		}
 	}
-	rep.Summary = fmt.Sprintf("%d 项检查，%d 项不符合预期", len(rep.Cases), rep.Failed)
+	rep.DNS = append(rep.DNS, dnsRound(2)...)
+	dnsFailed := 0
+	for _, d := range rep.DNS {
+		if d.Error != "" {
+			dnsFailed++
+		}
+	}
+	for _, l := range s.logs.since(mark) {
+		l = ansiRe.ReplaceAllString(l, "")
+		low := strings.ToLower(l)
+		if strings.Contains(low, "dns") && (strings.Contains(l, "ERROR") || strings.Contains(l, "WARN")) && len(rep.DNSLogs) < 60 {
+			rep.DNSLogs = append(rep.DNSLogs, l)
+		}
+	}
+	rep.Summary = fmt.Sprintf("%d 项检查，%d 项不符合预期；DNS 解析 %d 次，失败 %d 次", len(rep.Cases), rep.Failed, len(rep.DNS), dnsFailed)
 	return rep
+}
+
+// DNSCheck is one system-resolver lookup made while the core runs (the
+// lookup goes through the core's DNS hijack like any program's).
+type DNSCheck struct {
+	Round  int    `json:"round"`
+	Host   string `json:"host"`
+	Millis int64  `json:"ms"`
+	Result string `json:"result,omitempty"`
+	Error  string `json:"error,omitempty"`
+}
+
+func dnsRound(round int) []DNSCheck {
+	var out []DNSCheck
+	for _, site := range selfTestSites {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		start := time.Now()
+		ips, err := net.DefaultResolver.LookupHost(ctx, site.host)
+		cancel()
+		c := DNSCheck{Round: round, Host: site.host, Millis: time.Since(start).Milliseconds()}
+		if err != nil {
+			c.Error = err.Error()
+		} else {
+			c.Result = strings.Join(ips, ", ")
+		}
+		out = append(out, c)
+	}
+	return out
 }
 
 // expectRoute is what the routing contract promises (see BuildTUNConfig):
