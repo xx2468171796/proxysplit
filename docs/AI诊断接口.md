@@ -20,8 +20,13 @@ ProxySplit 内置一组诊断接口，让 AI（或工程师）在任何一台装
 | `GET/POST /api/custom-rules` `{"rules":[{"type":"suffix","value":"x.com","action":"proxy"}]}` | `proxysplit_set_custom_rules` | 读取 / 整体替换自定义规则 |
 | `POST /api/split-mode` `{"mode":"whitelist"}` | `proxysplit_set_split_mode` | 分流模式：whitelist = 只代理列出的，blacklist = 默认全走代理 |
 | `POST /api/log-level` `{"level":"info"}` | — | 日志级别；路由测试读日志需要 info 或 debug |
+| `GET /api/account` | `proxysplit_account` | 登录与会员状态（ProxySplit 账号、POWER云） |
+| `POST /api/account/login` `{"username","password"}` | — | 用 ProxySplit 账号登录（密码经标准输入传给 curl，别写进命令行） |
+| `GET/POST /api/settings`（POST 只传要改的字段，如 `{"tunMode":true}`） | `proxysplit_set_settings` | 读取 / 修改设置：整机全局、阻止 QUIC、远程解析、内网直连等 |
+| `POST /api/nodes/add` `{"text":"链接
+链接"}`；`POST /api/nodes/remove` `{"id"}` | `proxysplit_add_nodes` | 导入 / 删除节点 |
 
-原有接口（状态、节点、应用、代理策略、启动 / 停止）不变。
+原有接口（状态、节点、应用、代理策略、启动 / 停止）不变。装好并启动软件后，AI 经堡垒机 `run_command` 调这些接口就能从登录到测试全程远程操作，不用点界面。
 
 ## 路由测试原理
 

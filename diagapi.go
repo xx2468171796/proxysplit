@@ -58,6 +58,54 @@ func (a *App) registerDiagAPI(mux *http.ServeMux, auth func(func(http.ResponseWr
 		_ = json.NewDecoder(r.Body).Decode(&b)
 		writeJSON(w, 200, okOr(a.svc.SetRuleMode(b.Mode)))
 	}))
+	// GET /api/account — login / membership state (ProxySplit account + POWER云).
+	mux.HandleFunc("/api/account", auth(func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, 200, map[string]any{"license": a.GetLicenseStatus(), "powervpn": a.GetPowerVPNStatus()})
+	}))
+	// POST /api/account/login {"username","password"} — ProxySplit account login.
+	mux.HandleFunc("/api/account/login", auth(func(w http.ResponseWriter, r *http.Request) {
+		var b struct {
+			Username string `json:"username"`
+			Password string `json:"password"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&b)
+		if strings.TrimSpace(b.Username) == "" || b.Password == "" {
+			writeJSON(w, 400, map[string]string{"error": "username and password required"})
+			return
+		}
+		writeJSON(w, 200, okOr(a.Login(strings.TrimSpace(b.Username), b.Password)))
+	}))
+	// GET /api/settings ; POST a partial object, e.g. {"tunMode":true,"blockQUIC":false}
+	mux.HandleFunc("/api/settings", auth(func(w http.ResponseWriter, r *http.Request) {
+		set := a.GetSettings()
+		if r.Method == http.MethodGet {
+			if set.LanPass != "" {
+				set.LanPass = "***"
+			}
+			writeJSON(w, 200, set)
+			return
+		}
+		if err := json.NewDecoder(r.Body).Decode(&set); err != nil { // overlays only the given fields
+			writeJSON(w, 400, map[string]string{"error": "body must be a JSON object of settings fields"})
+			return
+		}
+		writeJSON(w, 200, okOr(a.SetSettings(set)))
+	}))
+	// POST /api/nodes/add {"text":"<share links, one per line>"} ; POST /api/nodes/remove {"id"}
+	mux.HandleFunc("/api/nodes/add", auth(func(w http.ResponseWriter, r *http.Request) {
+		var b struct {
+			Text string `json:"text"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&b)
+		writeJSON(w, 200, a.AddNodes(b.Text))
+	}))
+	mux.HandleFunc("/api/nodes/remove", auth(func(w http.ResponseWriter, r *http.Request) {
+		var b struct {
+			ID string `json:"id"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&b)
+		writeJSON(w, 200, okOr(a.RemoveNode(b.ID)))
+	}))
 	// POST /api/log-level {"level":"info|debug|warn"}
 	mux.HandleFunc("/api/log-level", auth(func(w http.ResponseWriter, r *http.Request) {
 		var b struct {
@@ -96,6 +144,13 @@ func diagMCPTools() []map[string]any {
 		{"name": "proxysplit_set_custom_rules", "description": "整体替换自定义规则(代理策略为「规则」时生效)。rules 为数组，每项 {type: domain|suffix|keyword|ip, value, action: proxy|direct|block}。", "inputSchema": map[string]any{"type": "object", "properties": map[string]any{
 			"rules": map[string]any{"type": "array", "items": map[string]any{"type": "object"}},
 		}, "required": []string{"rules"}}},
+		{"name": "proxysplit_account", "description": "登录与会员状态(ProxySplit 账号、POWER云)。", "inputSchema": empty},
+		{"name": "proxysplit_set_settings", "description": "修改设置，只传要改的字段，如 {\"settings\":{\"tunMode\":true}}(tunMode=整机全局、blockQUIC、remoteDNS、privateDirect 等，字段名同 proxysplit_diagnose 里的 settings)。", "inputSchema": map[string]any{"type": "object", "properties": map[string]any{
+			"settings": map[string]any{"type": "object"},
+		}, "required": []string{"settings"}}},
+		{"name": "proxysplit_add_nodes", "description": "导入节点分享链接(每行一个)。", "inputSchema": map[string]any{"type": "object", "properties": map[string]any{
+			"text": str("分享链接，每行一个"),
+		}, "required": []string{"text"}}},
 		{"name": "proxysplit_set_split_mode", "description": "设置分流模式：whitelist=只代理列出的应用，blacklist=默认全走代理。", "inputSchema": map[string]any{"type": "object", "properties": map[string]any{
 			"mode": map[string]any{"type": "string", "enum": []string{"whitelist", "blacklist"}},
 		}, "required": []string{"mode"}}},
@@ -106,15 +161,27 @@ func diagMCPTools() []map[string]any {
 func (a *App) diagMCPCall(name string, args json.RawMessage) (string, bool) {
 	j := func(v any) string { b, _ := json.MarshalIndent(v, "", " "); return string(b) }
 	var m struct {
-		Process string           `json:"process"`
-		URL     string           `json:"url"`
-		N       int              `json:"n"`
-		Grep    string           `json:"grep"`
-		Rules   []core.RouteRule `json:"rules"`
-		Mode    string           `json:"mode"`
+		Process  string           `json:"process"`
+		URL      string           `json:"url"`
+		N        int              `json:"n"`
+		Grep     string           `json:"grep"`
+		Rules    []core.RouteRule `json:"rules"`
+		Mode     string           `json:"mode"`
+		Text     string           `json:"text"`
+		Settings json.RawMessage  `json:"settings"`
 	}
 	_ = json.Unmarshal(args, &m)
 	switch name {
+	case "proxysplit_account":
+		return j(map[string]any{"license": a.GetLicenseStatus(), "powervpn": a.GetPowerVPNStatus()}), true
+	case "proxysplit_set_settings":
+		set := a.GetSettings()
+		if err := json.Unmarshal(m.Settings, &set); err != nil {
+			return "错误: settings 必须是对象", true
+		}
+		return j(okOr(a.SetSettings(set))), true
+	case "proxysplit_add_nodes":
+		return j(a.AddNodes(m.Text)), true
 	case "proxysplit_diagnose":
 		return j(a.diagSnapshot()), true
 	case "proxysplit_route_test":
