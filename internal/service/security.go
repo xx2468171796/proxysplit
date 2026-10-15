@@ -2,8 +2,10 @@ package service
 
 import (
 	"fmt"
+	"net"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"proxysplit/internal/proc"
 )
@@ -60,6 +62,31 @@ func (s *Service) securityAdvice(products []string) string {
 	}
 	return fmt.Sprintf("检测到安全软件：%s。开代理后如果网站打不开（连本该直连的国内网站也打不开），多半是它拦了 ProxySplit：在它的「信任区 / 白名单 / 联网控制」里放行 proxysplit.exe 和 %s，然后重新启动代理。",
 		strings.Join(products, "、"), filepath.Join(s.binDir, "sing-box.exe"))
+}
+
+// PostStartCheck runs right after the core starts: when neither mainland probe
+// site can be reached, the core is most likely being blocked (the start itself
+// succeeds, so the user would otherwise just see "nothing opens"). Returns a
+// user-facing explanation, or "" when the network works.
+func (s *Service) PostStartCheck() string {
+	time.Sleep(2 * time.Second) // let routes and DNS hijack settle
+	if !s.core.Running() {
+		return ""
+	}
+	for _, addr := range []string{"www.baidu.com:443", "www.qq.com:443"} {
+		if c, err := net.DialTimeout("tcp", addr, 5*time.Second); err == nil {
+			c.Close()
+			return ""
+		}
+	}
+	msg := "开启代理后连不上国内网站（百度、QQ 都连不上）。"
+	if advice := s.securityAdvice(DetectSecuritySoftware()); advice != "" {
+		msg += advice
+	} else {
+		msg += "常见原因是安全软件或防火墙拦截了 proxysplit.exe 和 sing-box.exe，请在它的信任区 / 白名单里放行后重新启动代理；如果关掉代理也上不了网，就是网络本身的问题。"
+	}
+	s.log("[check] " + msg)
+	return msg
 }
 
 // withSecurityHint appends the security-software advice to a start failure.

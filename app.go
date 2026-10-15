@@ -631,7 +631,17 @@ func (a *App) Start() string {
 // startService delegates to Service.Start, whose internal guard covers every
 // UI, tray, local-control and live-reload restart route.
 func (a *App) startService() error {
-	return a.svc.Start()
+	if err := a.svc.Start(); err != nil {
+		return err
+	}
+	// The core can start fine yet be blocked by security software, leaving the
+	// user with "nothing opens" and no error: check, and say why in the UI.
+	go func() {
+		if msg := a.svc.PostStartCheck(); msg != "" && a.ctx != nil {
+			runtime.EventsEmit(a.ctx, "net-blocked", msg)
+		}
+	}()
+	return nil
 }
 
 // Commercial account/licensing. Development builds have no injected API URL,

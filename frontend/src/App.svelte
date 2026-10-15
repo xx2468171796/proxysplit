@@ -280,6 +280,7 @@
   let ruleMode: 'blacklist' | 'whitelist' = 'whitelist' // 只代理列出的（默认/推荐）
   let linkText = ''
   let addMsg = ''
+  let netBlockedMsg = '' // 开代理后连不上网（多半被安全软件拦截），常驻到用户关闭
   let query = ''
   let newApp = ''
   let procs: Proc[] = []
@@ -1570,6 +1571,7 @@
       EventsOn('app-update', receiveAppUpdate)
       EventsOn('app-update-auto', receiveAutoUpdate)
       EventsOn('app-update-failed', receiveAutoUpdateFailed)
+      EventsOn('net-blocked', (msg: string) => { netBlockedMsg = msg })
       EventsOn('license-expired', async (message: string) => {
         toast('会员授权已停止：' + message)
         await refreshLicense(); await refreshStatus(); await loadCommerce()
@@ -1702,6 +1704,13 @@
 
 {#if license.enabled && !license.authenticated}
   <main class:license-login={!license.signedIn} class:member-gate={license.signedIn}>
+    {#if netBlockedMsg}
+      <div class="updatebar netblock-bar">
+        <span class="updatebar-icon">!</span>
+        <div><strong>开代理后连不上网</strong><small>{netBlockedMsg}</small></div>
+        <button on:click={() => (netBlockedMsg = '')}>知道了</button>
+      </div>
+    {/if}
     {#if appUpdate.available && appUpdate.release && !appUpdate.release.mandatory}
       <div class="updatebar gate-updatebar">
         <span class="updatebar-icon">↗</span>
@@ -3148,6 +3157,9 @@
   textarea:focus, input:focus { border-color: #93c5fd; box-shadow: 0 0 0 3px rgba(59,130,246,.12); }
   input { border: 1px solid #e2e8f0; border-radius: var(--r2); padding: 9px 12px; background: var(--soft); outline: none; font-size: 13px; transition: border-color var(--tr), box-shadow var(--tr); }
   .toast { color: var(--ok-600); font-size: 13px; margin-top: 8px; }
+  .netblock-bar { border-color: #f59e0b; background: color-mix(in srgb, #f59e0b 12%, var(--surface, #fff)); }
+  .netblock-bar .updatebar-icon { background: #f59e0b; color: #fff; }
+  .netblock-bar small { white-space: normal; line-height: 1.5; }
   /* 表头和每一行必须共用同一组父级轨道。之前每行各算一次 `auto`
      操作列，表头的“操作”很窄、数据行按钮很宽，导致四列整体错位。 */
   .ntable { display: grid; grid-template-columns: minmax(140px, 2fr) minmax(60px, .5fr) minmax(72px, .6fr) 76px auto; gap: 2px 12px; min-width: 700px; }

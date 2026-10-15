@@ -136,11 +136,19 @@ func TestMatchSecurity(t *testing.T) {
 func TestSelfTestHintsBlockedDirect(t *testing.T) {
 	rep := SelfTestReport{Cases: []SelfTestCase{
 		{Site: "www.baidu.com", Result: RouteTestResult{Route: "direct", OK: false}},
+		{Site: "www.qq.com", Result: RouteTestResult{Route: "direct", OK: true}},
 		{Site: "www.google.com", Result: RouteTestResult{Route: "direct", OK: false}}, // blocked network, normal
 	}}
 	h := selfTestHints(rep, "检测到安全软件：火绒。")
 	if len(h) != 1 || !strings.Contains(h[0], "1 次") || !strings.Contains(h[0], "火绒") {
 		t.Fatalf("hints = %v", h)
+	}
+	down := SelfTestReport{DNS: []DNSCheck{{Error: "timeout"}, {Error: "timeout"}}, Cases: []SelfTestCase{
+		{Site: "www.baidu.com", Result: RouteTestResult{Route: "reject"}},
+		{Site: "www.qq.com", Result: RouteTestResult{Route: "reject"}},
+	}}
+	if h := selfTestHints(down, ""); len(h) != 1 || !strings.Contains(h[0], "内核本身被拦") {
+		t.Fatalf("all-down hints = %v", h)
 	}
 	if len(selfTestHints(SelfTestReport{}, "")) != 0 {
 		t.Fatal("no hints expected when all fine")

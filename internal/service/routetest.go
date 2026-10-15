@@ -357,15 +357,33 @@ func (s *Service) SelfTest() SelfTestReport {
 // security software) is blocking the core, not a routing problem.
 func selfTestHints(rep SelfTestReport, securityAdvice string) []string {
 	var hints []string
-	blockedDirect := 0
+	blockedDirect, cnTotal, cnFailed, dnsFailed := 0, 0, 0, 0
 	for _, c := range rep.Cases {
-		cn := c.Site == selfTestSites[0].host || c.Site == selfTestSites[1].host
-		if cn && c.Result.Route == "direct" && !c.Result.OK {
-			blockedDirect++
+		if c.Site != selfTestSites[0].host && c.Site != selfTestSites[1].host {
+			continue
+		}
+		cnTotal++
+		if !c.Result.OK {
+			cnFailed++
+			if c.Result.Route == "direct" {
+				blockedDirect++
+			}
 		}
 	}
-	if blockedDirect > 0 {
-		h := fmt.Sprintf("%d 次访问国内网站已按规则直连，却连不上：不是分流规则的问题，是本机有东西拦了代理内核（常见是安全软件或防火墙）。", blockedDirect)
+	for _, d := range rep.DNS {
+		if d.Error != "" {
+			dnsFailed++
+		}
+	}
+	allDown := (cnTotal > 0 && cnFailed == cnTotal) || (len(rep.DNS) > 0 && dnsFailed == len(rep.DNS))
+	var h string
+	switch {
+	case allDown:
+		h = "开代理后国内网站全部打不开 / 域名解析全部失败：代理内核本身被拦了，不是分流规则的问题（常见是安全软件或防火墙）。"
+	case blockedDirect > 0:
+		h = fmt.Sprintf("%d 次访问国内网站已按规则直连，却连不上：不是分流规则的问题，是本机有东西拦了代理内核（常见是安全软件或防火墙）。", blockedDirect)
+	}
+	if h != "" {
 		if securityAdvice != "" {
 			h += securityAdvice
 		} else {
