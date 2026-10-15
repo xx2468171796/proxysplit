@@ -2,6 +2,7 @@
 > 当前快照，最后更新：2026-10-08。历史发布过程见 Git，不在此重复堆积。
 
 ## 当前状态
+- 2026-10-15 16:22：**v1.9.67 已上线 stable（只发客户端，强制更新 mandatory=true，min 仍 1.9.51）**，commit de1fcaf（tag v1.9.67），SHA256 fa012deb9374546e24d293d21ea7d5984512f8b86bb54d00a691f9829b1ca801，99,407,872 字节，内嵌内核 1.14.3-relayops.1；releases id c18096bf-ee29-4594-a975-2a1cdfb93063（经堡垒机 db_query 写 sz-pg-proxysplit + audit_logs）；sz incoming/client-v1.9.67-de1fcaf（previous/ = 1.9.66 latest，回滚 = 该目录 `python3 publish-client.py rollback` 并删 releases 表 1.9.67 那行）。内容：内置分流诊断与自检接口。验收：公网 latest API = 1.9.67 mandatory；飞牛下载版本化 / latest / ai-latest 整包 sha 一致；internal/updater 以 1.9.66 身份 Check 通过（验签 + TLS pin）。
 - 2026-10-14 21:24：**v1.9.66 已上线 stable（只发客户端，非强制，min 1.9.51）**，commit ee829b3（tag v1.9.66，含 ca494b2 内核多源下载 + e10c1cc 内嵌内核 r17），SHA256 55d19ab6c180cfae9bf007fb8e06530e53f3062ca47ed85703e9dd411ef347bf，99,338,752 字节，内嵌内核 1.14.3-relayops.1（windows sha 1f112e9d…）；releases id 231ca955-7028-4454-a934-fd80ff5be1a8；sz incoming/client-v1.9.66-ee829b3（previous/ = 1.9.65 latest，回滚 = 该目录 `python3 publish-client.py rollback` 并删 releases 表 1.9.66 那行）。**内核更新多源下载**（internal/coreupdate/mirror.go）：面板 /api/client/core 的 urls（深圳 powerdl → DC9 → tw-pro → 天理云 → 源站最后）测速择优、跨源续传、每源校验 sha256。验收：公网 latest API = 1.9.66；飞牛下载版本化 / latest / ai-latest 三个地址整包 sha 一致（tw-bbr3 ↔ 深圳大文件仍会中途截断，验收用国内机）。登记用本机 ~/.config/proxysplit/shenzhen-admin.txt 调 /v1/admin/releases（Node 脚本，用完删）；fetch-core.ps1 的 GITEA_TOKEN 用堡垒机资产 197（旧 xuan 令牌已废）。
 - 2026-10-08 19:06：**v1.9.65 已上线 stable（只发客户端，非强制，min 1.9.51）**，commit 4f99d43（tag v1.9.65），SHA256 e780a715385eeec01310b34b30c28b63abe437413ee7f689bda5fdbd4d75f0ad，99,253,248 字节，内嵌内核 1.14.2-relayops.15；releases id b0f4ea0c-2d9a-4e50-94ad-fd17a11dbe53；sz incoming/client-v1.9.65-4f99d43（previous/ = 1.9.64 latest，回滚 = 该目录 `python3 publish-client.py rollback` 并删 releases 表 1.9.65 那行）。验收：公网 latest API = 1.9.65 且签名与 manifest 一致；tw-bbr3 / sz 下载版本化与 latest / ai-latest 整包 sha 一致（tw-bbr3 首次下载 latest 中途截断，重下正常）。发版：登记用本机 ~/.config/proxysplit/shenzhen-admin.txt 调 /v1/admin/releases（Node 脚本），没用 release-all.ps1（直连 ssh）。服务端没动。
 - 2026-10-08（随 1.9.65 发布）：**内核自动跟随**（公司规定：面板发布新标准内核，所有客户端自动跟上）。internal/service/corefollow.go：启动 30 秒后 + 每小时 + POWER云 登录后查 /api/client/core，比本机新就装（coreupdate 保留 sing-box.exe.old + 版本标记备份），代理在跑则在 lifecycleMu 下停 + 启，新内核起不来 → coreupdate.Rollback 换回旧内核再启，该版本 24 小时内不自动装；失败指数退避（2 分钟起、封顶 1 小时）；与手动按钮共用单飞。设置 autoUpdateCoreOff（零值 = 开）。下载上限 160 MB。
@@ -56,7 +57,7 @@
 - 新节点 twpro-中转（vless reality，出口 122.116.1.113）链接已存堡垒机资产 id 113，勿写进仓库。
 
 ## 架构与部署
-- **排查分流先用内置诊断接口**（2026-10-15，未发版）：本机 18088 的 /api/diag、/api/diag/selftest、/api/diag/route-test（改名 curl 冒充程序真实访问，看命中规则和出口）及同名 MCP 工具，说明见 docs/AI诊断接口.md。远程机器经堡垒机 run_command 调。
+- **排查分流先用内置诊断接口**（2026-10-15，随 1.9.67 上线）：本机 18088 的 /api/diag、/api/diag/selftest、/api/diag/route-test（改名 curl 冒充程序真实访问，看命中规则和出口）及同名 MCP 工具，说明见 docs/AI诊断接口.md。远程机器经堡垒机 run_command 调。
 - 客户端：Go + Wails + Svelte，sing-box 原生 TUN + process_name；早期 WinDivert 已移除。
 - 服务端：Fastify + PostgreSQL + Redis；会员真源在服务端，Ed25519 离线租约绑定账号/设备/硬件/期限。
 - 2026-09-25 起生产不再自带 PG/Redis 容器：用深圳共享 PG（库 proxysplit，堡垒机数据源 sz-pg-proxysplit）和共享 Redis db9（ACL 用户 proxysplit，只能碰 proxysplit:* 与 fastify-rate-limit-*）；api 经 host.docker.internal 连宿主机（docker-compose.prod.yml extra_hosts）。凭据在堡垒机资产，别往仓库写。
