@@ -786,6 +786,7 @@ export namespace service {
 	}
 	export class ConnInfo {
 	    process: string;
+	    path?: string;
 	    host: string;
 	    dest: string;
 	    network: string;
@@ -802,6 +803,7 @@ export namespace service {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.process = source["process"];
+	        this.path = source["path"];
 	        this.host = source["host"];
 	        this.dest = source["dest"];
 	        this.network = source["network"];
