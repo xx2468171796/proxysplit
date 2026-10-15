@@ -56,6 +56,7 @@
 - 新节点 twpro-中转（vless reality，出口 122.116.1.113）链接已存堡垒机资产 id 113，勿写进仓库。
 
 ## 架构与部署
+- **排查分流先用内置诊断接口**（2026-10-15，未发版）：本机 18088 的 /api/diag、/api/diag/selftest、/api/diag/route-test（改名 curl 冒充程序真实访问，看命中规则和出口）及同名 MCP 工具，说明见 docs/AI诊断接口.md。远程机器经堡垒机 run_command 调。
 - 客户端：Go + Wails + Svelte，sing-box 原生 TUN + process_name；早期 WinDivert 已移除。
 - 服务端：Fastify + PostgreSQL + Redis；会员真源在服务端，Ed25519 离线租约绑定账号/设备/硬件/期限。
 - 2026-09-25 起生产不再自带 PG/Redis 容器：用深圳共享 PG（库 proxysplit，堡垒机数据源 sz-pg-proxysplit）和共享 Redis db9（ACL 用户 proxysplit，只能碰 proxysplit:* 与 fastify-rate-limit-*）；api 经 host.docker.internal 连宿主机（docker-compose.prod.yml extra_hosts）。凭据在堡垒机资产，别往仓库写。

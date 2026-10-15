@@ -188,6 +188,8 @@ func (a *App) startAPIServer() {
 		writeJSON(w, 200, map[string]any{"ok": true})
 	}))
 
+	a.registerDiagAPI(mux, auth, writeJSON)
+
 	// POST /mcp — a real Model Context Protocol server (JSON-RPC 2.0 over HTTP)
 	// so Claude Code / Codex can use ProxySplit as native MCP tools.
 	mux.HandleFunc("/mcp", auth(func(w http.ResponseWriter, r *http.Request) {
@@ -207,7 +209,7 @@ func (a *App) startAPIServer() {
 // mcpTools is the tool catalog advertised over MCP.
 func mcpTools() []map[string]any {
 	strProp := func(desc string) map[string]any { return map[string]any{"type": "string", "description": desc} }
-	return []map[string]any{
+	return append([]map[string]any{
 		{"name": "proxysplit_status", "description": "查看 ProxySplit 代理当前状态(是否运行、活动节点、策略、应用规则)。", "inputSchema": map[string]any{"type": "object", "properties": map[string]any{}}},
 		{"name": "proxysplit_list_nodes", "description": "列出所有可用节点(含 id/名称)。", "inputSchema": map[string]any{"type": "object", "properties": map[string]any{}}},
 		{"name": "proxysplit_select_node", "description": "选择活动节点。", "inputSchema": map[string]any{"type": "object", "properties": map[string]any{"id": strProp("节点 id(来自 proxysplit_list_nodes)")}, "required": []string{"id"}}},
@@ -221,7 +223,7 @@ func mcpTools() []map[string]any {
 		{"name": "proxysplit_set_mode", "description": "设置总代理策略。", "inputSchema": map[string]any{"type": "object", "properties": map[string]any{"clash": map[string]any{"type": "string", "enum": []string{"rule", "global", "direct"}}}, "required": []string{"clash"}}},
 		{"name": "proxysplit_start", "description": "启动代理。", "inputSchema": map[string]any{"type": "object", "properties": map[string]any{}}},
 		{"name": "proxysplit_stop", "description": "停止代理。", "inputSchema": map[string]any{"type": "object", "properties": map[string]any{}}},
-	}
+	}, diagMCPTools()...)
 }
 
 // handleMCP implements the minimal MCP JSON-RPC 2.0 methods over HTTP.
@@ -312,6 +314,9 @@ func (a *App) mcpCall(name string, args json.RawMessage) string {
 		a.svc.Stop()
 		return "代理已停止"
 	default:
+		if text, ok := a.diagMCPCall(name, args); ok {
+			return text
+		}
 		return "未知工具: " + name
 	}
 }
@@ -335,13 +340,16 @@ func aiPrompt(url, token string) string {
 6) 移除某程序：POST %s/api/apps/remove  body {"match":"chrome.exe"}
 7) 设置总代理策略：POST %s/api/mode  body {"clash":"rule"}  (rule/global/direct)
 8) 启动代理：POST %s/api/start    停止：POST %s/api/stop
+9) 排查分流问题：GET %s/api/diag（状态与实际配置）；POST %s/api/diag/selftest（一键自检）；
+   POST %s/api/diag/route-test body {"process":"chrome.exe","url":"https://www.baidu.com"}（以该程序身份真实访问，看走了哪条规则、从哪出去）；
+   GET %s/api/diag/logs?n=300&grep=baidu（最近日志）
 
 示例（让 Chrome 走智能分流并启动）：
 curl -s -H "Authorization: Bearer %s" -H "Content-Type: application/json" -d "{\"match\":\"chrome.exe\",\"line\":\"rule\"}" %s/api/apps
 curl -s -H "Authorization: Bearer %s" -X POST %s/api/start
 
 当我说「让某某程序走代理」时，你就用接口 5 把它加进去(默认 line=rule)，需要时先 /api/start。操作完调用 /api/status 汇报结果。`,
-		url, token, url, url, url, url, url, url, url, url, url, token, url, token, url)
+		url, token, url, url, url, url, url, url, url, url, url, url, url, url, url, token, url, token, url)
 }
 
 // mcpConfig returns a Claude-Code / Codex style MCP config snippet. It runs

@@ -138,6 +138,7 @@ type Service struct {
 	cfg              Config
 	core             *core.Manager
 	onLog            func(string)
+	logs             logRing // recent lines for diagnostics (diag.go)
 	startedAt        time.Time
 	activeFP         map[string]string // running line id -> content fingerprint (change detection)
 	clashPort        int               // clash_api external controller port of the running core
@@ -227,6 +228,7 @@ func (s *Service) SetLogSink(fn func(string)) {
 }
 
 func (s *Service) log(line string) {
+	s.logs.add(line)
 	s.mu.Lock()
 	fn := s.onLog
 	s.mu.Unlock()
