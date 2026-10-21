@@ -176,12 +176,12 @@ func (s *Switcher) tick() {
 		}
 	}
 	if err == nil && !h.FallbackOK {
-		// 版本闸门：官方当前握手（中继签名告知）与本机兜底握手不同，中继一断编码端就只能拿旧指纹连官方——
+		// 版本闸门：中继交来的官方当前握手本机复刻不了，中继一断编码端就只能拿对不上的指纹连官方——
 		// 宁可不加速，让 Claude Code 自己直连官方；升级 ProxySplit 后自动恢复。不防抖：一次就退
 		s.mu.Lock()
 		s.st.Handshake = h.Handshake
 		s.mu.Unlock()
-		s.toOfficial(staleReason(h.Handshake), h.Relay, h.RTT.Milliseconds())
+		s.toOfficial(staleReason(h), h.Relay, h.RTT.Milliseconds())
 		return
 	}
 	s.mu.Lock()
@@ -226,11 +226,11 @@ func (s *Switcher) toEncode(h HelloResult) {
 	s.setMode(ModeEncode, "落地 "+h.Relay+" 已验证")
 }
 
-func staleReason(handshake string) string {
-	if handshake == "" {
+func staleReason(h HelloResult) string {
+	if h.Handshake == "" {
 		return "落地中继版本较旧，确认不了官方当前连接方式，先不加速"
 	}
-	return "Claude Code 官方连接方式已更新（" + handshake + "），本机 ProxySplit 还没跟上，先不加速；升级到最新版后自动恢复"
+	return "Claude Code 官方连接方式已更新（" + h.Handshake + "），本机 ProxySplit 还跟不上（" + h.FallbackErr + "），先不加速；升级到最新版后自动恢复"
 }
 
 func (s *Switcher) toOfficial(reason, relay string, rtt int64) {

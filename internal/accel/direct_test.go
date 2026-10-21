@@ -2,11 +2,9 @@ package accel
 
 import (
 	"bytes"
-	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
-	"fmt"
 	"io"
 	"net"
 	"os"
@@ -95,11 +93,15 @@ func TestFallbackHelloMatchesOfficialClaudeCode(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	spec, err := mustProfile(t, relayProfile(t)).spec()
+	if err != nil {
+		t.Fatal(err)
+	}
 	c, s := net.Pipe()
 	defer s.Close()
 	go func() {
 		tc := utls.UClient(c, &utls.Config{ServerName: "localhost", NextProtos: []string{"http/1.1"}}, utls.HelloCustom)
-		if err := tc.ApplyPreset(claudeHelloSpec()); err != nil {
+		if err := tc.ApplyPreset(spec); err != nil {
 			c.Close()
 			return
 		}
@@ -144,21 +146,78 @@ func types(h clientHello) []uint16 {
 	return out
 }
 
-// fallbackHandshake must equal the relay's handshake fingerprint (sub2api accel
-// TlsProfile::handshake_sha256: sorted compact JSON without "name") of the
-// profile that claudeHelloSpec reproduces — a copy of the relay's stable profile.
-func TestFallbackHandshakeIsRelayProfileFingerprint(t *testing.T) {
+// relayProfile is the relay's stable handshake profile since Claude Code 2.1.302
+// (/var/lib/accel/tls-profile-stable.json on the relays).
+func relayProfile(t *testing.T) []byte {
+	t.Helper()
 	raw, err := os.ReadFile("testdata/claude-code-2.1.302-profile.json")
 	if err != nil {
 		t.Fatal(err)
 	}
-	var m map[string]any
-	if err := json.Unmarshal(raw, &m); err != nil {
+	return raw
+}
+
+func mustProfile(t *testing.T, raw []byte) *tlsProfile {
+	t.Helper()
+	hs, err := handshakeSHA256(raw)
+	if err != nil {
 		t.Fatal(err)
 	}
-	delete(m, "name")
-	canon, _ := json.Marshal(m) // map keys marshal sorted, no whitespace — same as serde_json
-	if got := fmt.Sprintf("%x", sha256.Sum256(canon)); got != fallbackHandshake {
-		t.Fatalf("fallbackHandshake = %s, profile fingerprint %s", fallbackHandshake, got)
+	p, err := parseProfile(raw, hs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
+// Same value as sub2api accel tls_profile.rs handshake_sha256_ignores_name: both
+// sides canonicalise the profile the same way, so the signed hs matches.
+func TestHandshakeSHA256MatchesRelay(t *testing.T) {
+	hs, err := handshakeSHA256(relayProfile(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hs != "538b268b4fe30bacce5110b34cd963b9f545c3934a2f183097fe32ad54b0406d" {
+		t.Fatalf("fingerprint %s differs from the relay's", hs)
+	}
+}
+
+// Anything the client can't reproduce exactly turns the fallback off.
+func TestParseProfileRejectsWhatItCannotReproduce(t *testing.T) {
+	base := relayProfile(t)
+	hs, _ := handshakeSHA256(base)
+	if _, err := parseProfile(base, strings.Repeat("0", 64)); err == nil {
+		t.Error("profile not matching the signed fingerprint accepted")
+	}
+	if _, err := parseProfile(nil, hs); err == nil {
+		t.Error("missing profile accepted")
+	}
+	for name, edit := range map[string]func(map[string]any){
+		"unknown field":  func(m map[string]any) { m["ech_grease"] = true },
+		"unknown cipher": func(m map[string]any) { m["ciphers"] = m["ciphers"].(string) + ":NEW-CIPHER" },
+		"unknown group":  func(m map[string]any) { m["curves"] = "X25519MLKEM1024:X25519" },
+		"unknown sigalg": func(m map[string]any) { m["sigalgs"] = "mldsa65:" + m["sigalgs"].(string) },
+		"grease":         func(m map[string]any) { m["grease"] = true },
+		"permute":        func(m map[string]any) { m["permute_extensions"] = true },
+		"h2":             func(m map[string]any) { m["alpn"] = []any{"h2", "http/1.1"} },
+		"tls 1.3 only":   func(m map[string]any) { m["min_version"] = "1.3" },
+		"format v2":      func(m map[string]any) { m["v"] = 2 },
+	} {
+		var m map[string]any
+		_ = json.Unmarshal(base, &m)
+		edit(m)
+		raw, _ := json.Marshal(m)
+		h, _ := handshakeSHA256(raw)
+		if _, err := parseProfile(raw, h); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
+	}
+	// a pure config change the client knows (e.g. 2.1.302 adding ed25519) is followed without a release
+	var m map[string]any
+	_ = json.Unmarshal(base, &m)
+	m["sigalgs"] = "ed25519:" + m["sigalgs"].(string)
+	raw, _ := json.Marshal(m)
+	if p := mustProfile(t, raw); !strings.HasPrefix(p.Sigalgs, "ed25519:") {
+		t.Error("known config change not followed")
 	}
 }

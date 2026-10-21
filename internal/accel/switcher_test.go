@@ -14,10 +14,10 @@ import (
 	"time"
 )
 
-// relayCtl 控制假中继：up = 是否应答；hs = 报给编码端的握手指纹（"" = 0.6.1 及以前的中继，不报）
+// relayCtl 控制假中继：up = 是否应答；profile = 交给编码端的握手配置 JSON（"" = 0.6.1 及以前的中继，不报）
 type relayCtl struct {
-	up atomic.Bool
-	hs atomic.Value
+	up      atomic.Bool
+	profile atomic.Value
 }
 
 // fakeRelay 只实现打招呼和健康检查（签名用给定私钥）
@@ -49,9 +49,10 @@ func fakeRelay(t *testing.T, key ed25519.PrivateKey, rc *relayCtl) string {
 						nonce := strings.TrimPrefix(req.target, "/__accel/hello?nonce=")
 						sig := base64.RawURLEncoding.EncodeToString(ed25519.Sign(key, []byte("accel-hello-v1|fake|"+nonce)))
 						body = fmt.Sprintf(`{"v":1,"relay":"fake","sig":%q}`, sig)
-						if hs, _ := rc.hs.Load().(string); hs != "" {
+						if prof, _ := rc.profile.Load().(string); prof != "" {
+							hs, _ := handshakeSHA256([]byte(prof))
 							sig2 := base64.RawURLEncoding.EncodeToString(ed25519.Sign(key, []byte("accel-hello-v2|fake|"+nonce+"|claude-code-test|"+hs)))
-							body = fmt.Sprintf(`{"v":1,"relay":"fake","sig":%q,"tls":{"name":"claude-code-test","hs":%q},"sig2":%q}`, sig, hs, sig2)
+							body = fmt.Sprintf(`{"v":1,"relay":"fake","sig":%q,"tls":{"name":"claude-code-test","hs":%q,"profile":%s},"sig2":%q}`, sig, hs, prof, sig2)
 						}
 					}
 					fmt.Fprintf(c, "HTTP/1.1 200 OK\r\nContent-Length: %d\r\n\r\n%s", len(body), body)
@@ -78,7 +79,7 @@ func (f *fakeEnv) env() Env {
 func setup(t *testing.T, signer ed25519.PrivateKey, trusted ed25519.PublicKey) (*Switcher, *fakeEnv, *relayCtl, *ClaudeSettings) {
 	up := &relayCtl{}
 	up.up.Store(true)
-	up.hs.Store(fallbackHandshake)
+	up.profile.Store(string(relayProfile(t)))
 	addr := fakeRelay(t, signer, up)
 	eng := New(Config{
 		ListenAddr: "127.0.0.1:0",
@@ -183,11 +184,12 @@ func TestSwitcherOffOrProxyDownMeansOfficial(t *testing.T) {
 	}
 }
 
-// 版本闸门：中继报的官方当前握手与本机兜底握手不同 → 不接管 Claude Code；一致了自动恢复
+// 版本闸门：中继交来的官方当前握手本机复刻不了 → 不接管 Claude Code；复刻得了自动恢复
 func TestSwitcherStaysOfficialWhenFallbackHandshakeStale(t *testing.T) {
 	pub, priv, _ := ed25519.GenerateKey(nil)
 	sw, _, rc, cfg := setup(t, priv, pub)
-	rc.hs.Store("0000000000000000000000000000000000000000000000000000000000000000")
+	newer := strings.Replace(string(relayProfile(t)), `"grease":false`, `"grease":true`, 1) // 官方换了本机复刻不了的东西
+	rc.profile.Store(newer)
 	sw.tick()
 	st := sw.State()
 	if st.Mode != ModeOfficial || !strings.Contains(st.Reason, "官方连接方式已更新") || st.Handshake != "claude-code-test" {
@@ -196,16 +198,16 @@ func TestSwitcherStaysOfficialWhenFallbackHandshakeStale(t *testing.T) {
 	if cfg.Active("http://" + sw.eng.Addr()) {
 		t.Fatal("握手过期不应改 Claude Code 配置")
 	}
-	rc.hs.Store(fallbackHandshake) // 升级后一致
+	rc.profile.Store(string(relayProfile(t))) // 能复刻
 	sw.Kick()
 	sw.tick()
 	if st := sw.State(); st.Mode != ModeEncode {
 		t.Fatalf("握手一致应切到编码模式：%+v", st)
 	}
-	rc.hs.Store("1111111111111111111111111111111111111111111111111111111111111111") // 官方又换了
+	rc.profile.Store(newer) // 官方又换了
 	sw.Kick()
 	sw.tick()
-	if st := sw.State(); st.Mode != ModeOfficial || sw.eng.fallbackOK() {
+	if st := sw.State(); st.Mode != ModeOfficial || sw.eng.fallback() != nil {
 		t.Fatalf("官方换握手后应立即退回官方并停用兜底：%+v", st)
 	}
 }
@@ -214,7 +216,7 @@ func TestSwitcherStaysOfficialWhenFallbackHandshakeStale(t *testing.T) {
 func TestSwitcherOldRelayWithoutHandshakeStaysOfficial(t *testing.T) {
 	pub, priv, _ := ed25519.GenerateKey(nil)
 	sw, _, rc, _ := setup(t, priv, pub)
-	rc.hs.Store("")
+	rc.profile.Store("")
 	sw.tick()
 	if st := sw.State(); st.Mode != ModeOfficial || !strings.Contains(st.Reason, "较旧") {
 		t.Fatalf("旧中继应留在官方默认：%+v", st)

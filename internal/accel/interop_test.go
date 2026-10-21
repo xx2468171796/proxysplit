@@ -161,12 +161,12 @@ func TestInteropRejectsBadAndExpiredTokens(t *testing.T) {
 	}
 }
 
-// 兜底直连的握手指纹要与 Claude Code（Bun）一致
+// 兜底直连按中继握手配置复刻的指纹要与 Claude Code（Bun）一致
 func TestInteropDirectFingerprint(t *testing.T) {
 	e := New(Config{UpstreamHost: "tls.peet.ws", Dial: func(h string, p uint16) (net.Conn, error) {
 		return net.Dial("tcp", net.JoinHostPort(h, fmt.Sprint(p)))
 	}})
-	c, err := e.dialOfficial()
+	c, err := e.dialOfficial(mustProfile(t, relayProfile(t)))
 	if err != nil {
 		t.Fatal(err)
 	}

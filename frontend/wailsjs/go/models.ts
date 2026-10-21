@@ -6,6 +6,7 @@ export namespace accel {
 	    direct: number;
 	    resumed: number;
 	    errors: number;
+	    held: number;
 	    reqBytes: number;
 	    frameBytes: number;
 	
@@ -20,6 +21,7 @@ export namespace accel {
 	        this.direct = source["direct"];
 	        this.resumed = source["resumed"];
 	        this.errors = source["errors"];
+	        this.held = source["held"];
 	        this.reqBytes = source["reqBytes"];
 	        this.frameBytes = source["frameBytes"];
 	    }
@@ -33,6 +35,7 @@ export namespace accel {
 	    relay: string;
 	    rttMs: number;
 	    gatewayInUse: boolean;
+	    handshake: string;
 	    addr: string;
 	    // Go type: time
 	    since: any;
@@ -52,6 +55,7 @@ export namespace accel {
 	        this.relay = source["relay"];
 	        this.rttMs = source["rttMs"];
 	        this.gatewayInUse = source["gatewayInUse"];
+	        this.handshake = source["handshake"];
 	        this.addr = source["addr"];
 	        this.since = this.convertValues(source["since"], null);
 	        this.stats = this.convertValues(source["stats"], Stats);

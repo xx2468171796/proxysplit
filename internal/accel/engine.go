@@ -70,8 +70,8 @@ type Engine struct {
 	addr   string
 	store  *store
 	pool   *pool
-	usable atomic.Bool  // 由切换器根据打招呼结果设置
-	hsOK   atomic.Int64 // 最近一次打招呼确认兜底握手与官方当前一致的时间（UnixNano，0 = 没确认）
+	usable atomic.Bool                     // 由切换器根据打招呼结果设置
+	fb     atomic.Pointer[fallbackProfile] // 最近一次打招呼拿到、本机复刻得了的握手配置
 
 	mu    sync.Mutex
 	relay string                      // 当前落地名（打招呼得到）
@@ -180,17 +180,27 @@ type HelloResult struct {
 	RTT   time.Duration `json:"rtt"`
 	// Handshake 中继当前连官方用的握手配置名（如 claude-code-2.1.302，cc-follow 自动跟进）；旧中继不报 = ""
 	Handshake string `json:"handshake"`
-	// FallbackOK 本机兜底直连的握手与中继当前握手相同（签名验过）：编码端可以自己连官方
+	// FallbackOK 中继交来的握手配置（指纹经签名担保）本机复刻得了：编码端可以按它自己连官方
 	FallbackOK bool `json:"fallbackOk"`
+	// FallbackErr 复刻不了的原因（官方换了需要改代码的东西）
+	FallbackErr string `json:"fallbackErr,omitempty"`
 }
 
-// fallbackTrust 打招呼确认握手一致后，这么久内中继连不上仍可兜底直连（官方很少一天内连换两次握手）
-const fallbackTrust = 6 * time.Hour
+// fallbackTrust 拿到握手配置后，这么久内中继连不上仍按它兜底直连（之后的打招呼会换成最新的）
+const fallbackTrust = 2 * time.Hour
 
-// fallbackOK 本机兜底握手最近确认过与官方当前一致
-func (e *Engine) fallbackOK() bool {
-	t := e.hsOK.Load()
-	return t != 0 && time.Since(time.Unix(0, t)) < fallbackTrust
+type fallbackProfile struct {
+	p  *tlsProfile
+	at time.Time
+}
+
+// fallback 兜底直连用的握手配置；nil = 没有（从没拿到、复刻不了或太久没确认）→ 不兜底
+func (e *Engine) fallback() *tlsProfile {
+	f := e.fb.Load()
+	if f == nil || time.Since(f.at) > fallbackTrust {
+		return nil
+	}
+	return f.p
 }
 
 // Hello 经当前代理入口给中继发随机数，验签通过返回落地名
@@ -219,8 +229,9 @@ func (e *Engine) Hello() (HelloResult, error) {
 		Relay string `json:"relay"`
 		Sig   string `json:"sig"`
 		TLS   struct {
-			Name string `json:"name"`
-			HS   string `json:"hs"`
+			Name    string          `json:"name"`
+			HS      string          `json:"hs"`
+			Profile json.RawMessage `json:"profile"`
 		} `json:"tls"`
 		Sig2 string `json:"sig2"`
 	}
@@ -238,17 +249,19 @@ func (e *Engine) Hello() (HelloResult, error) {
 			// 握手名和指纹只认 v2 签名覆盖的（0.6.2 起的中继）；旧中继 / 验不过 = 不知道官方当前握手，不兜底
 			sig2, _ := base64.RawURLEncoding.DecodeString(strings.TrimRight(h.Sig2, "="))
 			msg2 := []byte("accel-hello-v2|" + h.Relay + "|" + nonce + "|" + h.TLS.Name + "|" + h.TLS.HS)
+			var fb *fallbackProfile
 			if len(sig2) == ed25519.SignatureSize && ed25519.Verify(k, msg2, sig2) {
-				r.Handshake, r.FallbackOK = h.TLS.Name, h.TLS.HS == fallbackHandshake
+				r.Handshake = h.TLS.Name
+				if p, err := parseProfile(h.TLS.Profile, h.TLS.HS); err != nil {
+					r.FallbackErr = err.Error()
+				} else {
+					r.FallbackOK, fb = true, &fallbackProfile{p: p, at: time.Now()}
+				}
 			}
 			e.mu.Lock()
 			e.relay = h.Relay
 			e.mu.Unlock()
-			if r.FallbackOK {
-				e.hsOK.Store(time.Now().UnixNano())
-			} else {
-				e.hsOK.Store(0)
-			}
+			e.fb.Store(fb)
 			return r, nil
 		}
 	}
@@ -293,17 +306,18 @@ func (e *Engine) serve(c net.Conn) {
 		if e.usable.Load() && len(req.body) > 0 {
 			keep, handled, pending = e.viaRelay(c, br, req, head)
 		}
+		fb := e.fallback()
 		switch {
 		case handled:
-		case !e.fallbackOK():
-			// 官方换了握手、本机兜底还是旧的（或没确认过）：不拿对不上的指纹去连官方，让 Claude Code 稍后重试。
+		case fb == nil:
+			// 没有中继交来、本机复刻得了的官方当前握手：不拿可能过期的指纹去连官方，让 Claude Code 稍后重试。
 			// 切换器同时把 Claude Code 配置还原成官方默认，重开的会话由 Claude Code 自己直连
 			e.stats.held.Add(1)
 			keep = writeLocalJSON(c, "503 Service Unavailable", heldBody) == nil
 		default:
 			// pending 可能是中继路径起的 peeker（中继明确没发出去才会走到这里）：留着，下一轮先等它
 			e.stats.direct.Add(1)
-			keep = e.direct(c, req, head)
+			keep = e.direct(c, req, head, fb)
 		}
 		if !keep || !req.keepAlive {
 			return
