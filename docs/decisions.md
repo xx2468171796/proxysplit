@@ -4,7 +4,10 @@
 > 结论与坑已提炼到 `docs/memory/<主题>.md`；这里是事实存档，按标题取（`node ~/.ankotti/ai-kit/mem.mjs <关键词>`），不要整份读。
 > 约定：sz = 深圳生产机；incoming = sz `/opt/proxysplit/incoming/`；客户端回滚 = 该版本 incoming 目录 `python3 publish-client.py rollback` 并删 releases 表里该版本那行。
 
-## 2026-10-22 前端用 @ankotti/admin-ui 重写（未发版）
+## v1.9.75（2026-10-22 01:43，stable，强制）
+- 2026-10-22 01:43：**v1.9.75 已上线 stable（强制，min 1.9.51）**，commit f1e121c（tag v1.9.75），SHA256 e0d05448e453d3196352b4928c42dfd1bb35bc82056fc597c000adb265dd1a48，100,392,448 字节，内嵌内核 1.14.3-relayops.1；releases id 35290b86-d6cd-4b2f-9caf-441cfd06f746（经堡垒机 db_query 插 releases + audit_logs）；sz incoming/client-v1.9.75-f1e121c（previous/ = 1.9.74，回滚 = 该目录 `python3 publish-client.py rollback` 并删 releases 表 1.9.75 那行）。内容：界面用 @ankotti/admin-ui 重写（见下一节）+ 新墨色图标。保持强制的原因：服务端只看 latest 那条的 mandatory，设成非强制会让还没升到 1.9.71–1.9.74 的老用户不再被强制。验收：go vet / go test / 前端门禁全过；公网 latest API = 1.9.75 mandatory；飞牛下载版本化 / latest / ai-latest 整包 sha 一致；internal/updater 以 1.9.74 身份 Check → 下载 → 验签通过。
+
+## 2026-10-22 前端用 @ankotti/admin-ui 重写（随 v1.9.75 上线）
 - 前端已用 @ankotti/admin-ui 重写（React 19 + Vite 8 + TS 7 + pnpm 12.9.1，替换旧的单文件 Svelte）；分支 feat/admin-ui-frontend。
 - 主色近黑墨色（浅色 #1c1f24 / 深色 #6b7584，组件库深色会把主色压暗，近黑会看不见），无背景光晕，motionStyle calm；新图标墨色圆角方块 + 白色分叉箭头。
 - 门禁 `pnpm --dir frontend check`（typecheck / biome / vitest / admin-ui-audit / check-size）；开发预览 `pnpm --dir frontend dev` 无 Wails 时自动装 mock（?theme=dark ?gate=login|member ?split=1 ?update=1|force）；结构见 docs/architecture.md。

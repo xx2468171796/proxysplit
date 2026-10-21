@@ -2,8 +2,8 @@
 > 最后更新：2026-10-22。细节按下方路由表读 docs/memory/，逐版发布史在 docs/decisions.md（按标题取）。
 
 ## 当前状态
-- 线上：**v1.9.74 stable（强制，min 1.9.51）**，commit c60a4a1，部署在深圳 sz（/opt/proxysplit/incoming/client-v1.9.74-c60a4a1，previous/ = 1.9.73）；服务端自 2026-10-05 的 0a3cfc9 起未动。
-- 前端已用 @ankotti/admin-ui 重写（React 19 + Vite 8 + TS 7 + pnpm 12.9.1，替换旧单文件 Svelte），分支 feat/admin-ui-frontend，未发版；门禁 `pnpm --dir frontend check`，预览 `pnpm --dir frontend dev`。
+- 线上：**v1.9.75 stable（强制，min 1.9.51）**，commit f1e121c，部署在深圳 sz（/opt/proxysplit/incoming/client-v1.9.75-f1e121c，previous/ = 1.9.74）；服务端自 2026-10-05 的 0a3cfc9 起未动。
+- 前端已用 @ankotti/admin-ui 重写（React 19 + Vite 8 + TS 7 + pnpm 12.9.1，替换旧单文件 Svelte），随 v1.9.75 上线（已并入 main）；门禁 `pnpm --dir frontend check`，预览 `pnpm --dir frontend dev`。
 - 技术栈：Go + Wails + React 前端，sing-box 原生 TUN + process_name；服务端 Fastify + 深圳共享 PG（堡垒机数据源 sz-pg-proxysplit）。
 
 ## 红线（不得做）
