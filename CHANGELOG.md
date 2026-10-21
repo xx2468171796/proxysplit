@@ -3,6 +3,11 @@
 版本号以发布构建为准（`scripts/build-commercial.ps1 -Version <x.y.z>`，注入 `main.appVersion`），
 每个发布产物的 SHA256 见 `output/proxysplit-v<版本>.manifest.json`。
 
+## v1.9.73
+
+- Claude Code 加速（官方订阅直登）更稳更安全：加速中继断开时本机兜底直连官方用的连接方式更新到与当前 Claude Code（2.1.302 起）完全一致。
+- 新增版本闸门：官方 Claude Code 换了连接方式而本机 ProxySplit 还没升级时，自动不加速、让 Claude Code 自己直连官方，绝不用过期的连接特征访问官方（防风控）；升级后自动恢复加速。需要落地中继 0.6.2（已全部上线）。
+
 ## v1.9.72
 
 - AI 劫持模式只管 Claude（Claude Code 命令行、Claude 客户端、claude.ai 网页）和 OpenAI（ChatGPT、Codex 命令行）：Gemini、Cursor、Copilot、DeepSeek 等其他 AI 不再被劫持和锁住，关掉软件也能照常用。

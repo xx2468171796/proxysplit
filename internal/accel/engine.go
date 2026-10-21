@@ -58,6 +58,7 @@ type Stats struct {
 	Direct     int64 `json:"direct"`
 	Resumed    int64 `json:"resumed"`
 	Errors     int64 `json:"errors"`
+	Held       int64 `json:"held"`       // 兜底握手过期、没敢直连而让 Claude Code 重试的请求
 	ReqBytes   int64 `json:"reqBytes"`   // 编码前请求体总量
 	FrameBytes int64 `json:"frameBytes"` // 实际发出的帧总量
 }
@@ -69,13 +70,14 @@ type Engine struct {
 	addr   string
 	store  *store
 	pool   *pool
-	usable atomic.Bool // 由切换器根据打招呼结果设置
+	usable atomic.Bool  // 由切换器根据打招呼结果设置
+	hsOK   atomic.Int64 // 最近一次打招呼确认兜底握手与官方当前一致的时间（UnixNano，0 = 没确认）
 
 	mu    sync.Mutex
 	relay string                      // 当前落地名（打招呼得到）
 	known map[string]map[Sha]struct{} // 各落地已有的请求体
 
-	stats struct{ requests, relayed, direct, resumed, errors, reqBytes, frameBytes atomic.Int64 }
+	stats struct{ requests, relayed, direct, resumed, errors, held, reqBytes, frameBytes atomic.Int64 }
 	wg    sync.WaitGroup
 	quit  chan struct{}
 }
@@ -131,7 +133,7 @@ func (e *Engine) Close() {
 
 func (e *Engine) Stats() Stats {
 	s := &e.stats
-	return Stats{s.requests.Load(), s.relayed.Load(), s.direct.Load(), s.resumed.Load(), s.errors.Load(), s.reqBytes.Load(), s.frameBytes.Load()}
+	return Stats{s.requests.Load(), s.relayed.Load(), s.direct.Load(), s.resumed.Load(), s.errors.Load(), s.held.Load(), s.reqBytes.Load(), s.frameBytes.Load()}
 }
 
 func (e *Engine) acceptLoop() {
@@ -176,6 +178,19 @@ func (e *Engine) keeper() {
 type HelloResult struct {
 	Relay string        `json:"relay"`
 	RTT   time.Duration `json:"rtt"`
+	// Handshake 中继当前连官方用的握手配置名（如 claude-code-2.1.302，cc-follow 自动跟进）；旧中继不报 = ""
+	Handshake string `json:"handshake"`
+	// FallbackOK 本机兜底直连的握手与中继当前握手相同（签名验过）：编码端可以自己连官方
+	FallbackOK bool `json:"fallbackOk"`
+}
+
+// fallbackTrust 打招呼确认握手一致后，这么久内中继连不上仍可兜底直连（官方很少一天内连换两次握手）
+const fallbackTrust = 6 * time.Hour
+
+// fallbackOK 本机兜底握手最近确认过与官方当前一致
+func (e *Engine) fallbackOK() bool {
+	t := e.hsOK.Load()
+	return t != 0 && time.Since(time.Unix(0, t)) < fallbackTrust
 }
 
 // Hello 经当前代理入口给中继发随机数，验签通过返回落地名
@@ -203,6 +218,11 @@ func (e *Engine) Hello() (HelloResult, error) {
 	var h struct {
 		Relay string `json:"relay"`
 		Sig   string `json:"sig"`
+		TLS   struct {
+			Name string `json:"name"`
+			HS   string `json:"hs"`
+		} `json:"tls"`
+		Sig2 string `json:"sig2"`
 	}
 	if err := json.Unmarshal(body, &h); err != nil {
 		return HelloResult{}, errors.New("打招呼响应不合法")
@@ -214,10 +234,22 @@ func (e *Engine) Hello() (HelloResult, error) {
 	msg := []byte("accel-hello-v1|" + h.Relay + "|" + nonce)
 	for _, k := range e.cfg.HelloKeys {
 		if ed25519.Verify(k, msg, sig) {
+			r := HelloResult{Relay: h.Relay, RTT: time.Since(start)}
+			// 握手名和指纹只认 v2 签名覆盖的（0.6.2 起的中继）；旧中继 / 验不过 = 不知道官方当前握手，不兜底
+			sig2, _ := base64.RawURLEncoding.DecodeString(strings.TrimRight(h.Sig2, "="))
+			msg2 := []byte("accel-hello-v2|" + h.Relay + "|" + nonce + "|" + h.TLS.Name + "|" + h.TLS.HS)
+			if len(sig2) == ed25519.SignatureSize && ed25519.Verify(k, msg2, sig2) {
+				r.Handshake, r.FallbackOK = h.TLS.Name, h.TLS.HS == fallbackHandshake
+			}
 			e.mu.Lock()
 			e.relay = h.Relay
 			e.mu.Unlock()
-			return HelloResult{Relay: h.Relay, RTT: time.Since(start)}, nil
+			if r.FallbackOK {
+				e.hsOK.Store(time.Now().UnixNano())
+			} else {
+				e.hsOK.Store(0)
+			}
+			return r, nil
 		}
 	}
 	return HelloResult{}, errors.New("落地签名验不过（不是我们的节点）")
@@ -261,7 +293,14 @@ func (e *Engine) serve(c net.Conn) {
 		if e.usable.Load() && len(req.body) > 0 {
 			keep, handled, pending = e.viaRelay(c, br, req, head)
 		}
-		if !handled {
+		switch {
+		case handled:
+		case !e.fallbackOK():
+			// 官方换了握手、本机兜底还是旧的（或没确认过）：不拿对不上的指纹去连官方，让 Claude Code 稍后重试。
+			// 切换器同时把 Claude Code 配置还原成官方默认，重开的会话由 Claude Code 自己直连
+			e.stats.held.Add(1)
+			keep = writeLocalJSON(c, "503 Service Unavailable", heldBody) == nil
+		default:
 			// pending 可能是中继路径起的 peeker（中继明确没发出去才会走到这里）：留着，下一轮先等它
 			e.stats.direct.Add(1)
 			keep = e.direct(c, req, head)
@@ -270,6 +309,14 @@ func (e *Engine) serve(c net.Conn) {
 			return
 		}
 	}
+}
+
+// heldBody 是 Anthropic 错误格式：Claude Code 把 5xx 当临时错误自动重试，重试用完会把这段话显示给用户
+var heldBody = []byte(`{"type":"error","error":{"type":"api_error","message":"ProxySplit 加速暂时不可用，且 Claude Code 官方连接方式已更新、本机版本还没跟上，为防风控没有改用本机直连。请重开 Claude Code（会自动直连官方），或把 ProxySplit 升级到最新版。"}}`)
+
+func writeLocalJSON(w io.Writer, status string, body []byte) error {
+	_, err := fmt.Fprintf(w, "HTTP/1.1 %s\r\nContent-Type: application/json\r\nContent-Length: %d\r\n\r\n%s", status, len(body), body)
+	return err
 }
 
 func writeLocal(w io.Writer, status string, body []byte) error {
