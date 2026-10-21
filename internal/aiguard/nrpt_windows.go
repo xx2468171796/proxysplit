@@ -34,13 +34,34 @@ const (
 	gpoPolicyKey   = `SOFTWARE\Policies\Microsoft\Windows NT\DNSClient\DnsPolicyConfig`
 )
 
+// nrptRule identifies one rule of ours: the comment marks it, namespaces are
+// its content. Tests use their own comment and namespaces.
+type nrptRule struct {
+	comment    string
+	namespaces []string
+}
+
+func lockRule() nrptRule { return nrptRule{comment: ruleComment, namespaces: Namespaces()} }
+
 // Installed reports whether our NRPT rule exists with the current namespaces
 // and server (an outdated list counts as not installed, so Install refreshes it).
-func Installed() bool {
-	want := Namespaces()
+func Installed() bool { return lockRule().installed() }
+
+// Present reports whether any rule of ours exists (current or outdated).
+func Present() bool { return lockRule().present() }
+
+// Install (re)writes our NRPT rule and flushes the DNS cache, so names cached
+// before the lock (resolved by the ISP) are not used afterwards.
+func Install() error { return lockRule().install() }
+
+// Remove deletes our NRPT rule (other rules untouched) and flushes the cache.
+func Remove() error { return lockRule().remove() }
+
+func (r nrptRule) installed() bool {
+	want := slices.Clone(r.namespaces)
 	slices.Sort(want)
 	found := false
-	eachOurRule(func(k registry.Key) {
+	r.each(func(k registry.Key) {
 		names, _, err := k.GetStringsValue("Name")
 		server, _, err2 := k.GetStringValue("GenericDNSServers")
 		if err != nil || err2 != nil || strings.TrimSpace(server) != DNSServer {
@@ -54,10 +75,9 @@ func Installed() bool {
 	return found
 }
 
-// Present reports whether any rule of ours exists (current or outdated).
-func Present() bool {
+func (r nrptRule) present() bool {
 	found := false
-	eachOurRule(func(registry.Key) { found = true })
+	r.each(func(registry.Key) { found = true })
 	return found
 }
 
@@ -73,7 +93,7 @@ func GroupPolicyActive() bool {
 	return err == nil && len(subs) > 0
 }
 
-func eachOurRule(fn func(registry.Key)) {
+func (r nrptRule) each(fn func(registry.Key)) {
 	root, err := registry.OpenKey(registry.LOCAL_MACHINE, localPolicyKey, registry.ENUMERATE_SUB_KEYS)
 	if err != nil {
 		return
@@ -88,25 +108,22 @@ func eachOurRule(fn func(registry.Key)) {
 		if err != nil {
 			continue
 		}
-		if c, _, err := k.GetStringValue("Comment"); err == nil && c == ruleComment {
+		if c, _, err := k.GetStringValue("Comment"); err == nil && c == r.comment {
 			fn(k)
 		}
 		k.Close()
 	}
 }
 
-// Install (re)writes our NRPT rule and flushes the DNS cache, so names cached
-// before the lock (resolved by the ISP) are not used afterwards.
-func Install() error {
-	return runPS(`$ErrorActionPreference = 'Stop'
+func (r nrptRule) install() error {
+	return r.runPS(`$ErrorActionPreference = 'Stop'
 Get-DnsClientNrptRule | Where-Object { $_.Comment -eq $env:PS_AI_COMMENT } | ForEach-Object { Remove-DnsClientNrptRule -Name $_.Name -Force }
 Add-DnsClientNrptRule -Namespace ($env:PS_AI_NS -split ',') -NameServers $env:PS_AI_DNS -Comment $env:PS_AI_COMMENT -DisplayName 'ProxySplit AI' | Out-Null
 Clear-DnsClientCache`)
 }
 
-// Remove deletes our NRPT rule (other rules untouched) and flushes the cache.
-func Remove() error {
-	return runPS(`$ErrorActionPreference = 'Stop'
+func (r nrptRule) remove() error {
+	return r.runPS(`$ErrorActionPreference = 'Stop'
 Get-DnsClientNrptRule | Where-Object { $_.Comment -eq $env:PS_AI_COMMENT } | ForEach-Object { Remove-DnsClientNrptRule -Name $_.Name -Force }
 Clear-DnsClientCache`)
 }
@@ -122,14 +139,14 @@ func FlushCache() {
 }
 
 // runPS runs a fixed script; values go in through the environment (no quoting).
-func runPS(script string) error {
+func (r nrptRule) runPS(script string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script)
 	cmd.Env = append(os.Environ(),
-		"PS_AI_NS="+strings.Join(Namespaces(), ","),
+		"PS_AI_NS="+strings.Join(r.namespaces, ","),
 		"PS_AI_DNS="+DNSServer,
-		"PS_AI_COMMENT="+ruleComment,
+		"PS_AI_COMMENT="+r.comment,
 	)
 	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: 0x08000000}
 	out, err := cmd.CombinedOutput()
