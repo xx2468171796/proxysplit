@@ -144,10 +144,11 @@ func newMatrixEgress(t *testing.T, opts Options, egress *nodes.Egress) *matrix {
 	cfg["outbounds"] = outs
 	hosts := M{matrixForeign: "127.0.0.1", matrixCN: "127.0.0.1", matrixAI: "127.0.0.1", matrixGov: "127.0.0.1"}
 	dns := cfg["dns"].(map[string]interface{})
-	dns["servers"] = []M{
-		{"type": "hosts", "tag": "dns-remote", "predefined": hosts},
-		{"type": "hosts", "tag": "dns-direct", "predefined": hosts},
+	var hostServers []M
+	for _, s := range dns["servers"].([]interface{}) {
+		hostServers = append(hostServers, M{"type": "hosts", "tag": s.(map[string]interface{})["tag"], "predefined": hosts})
 	}
+	dns["servers"] = hostServers
 	p := filepath.Join(t.TempDir(), "matrix.json")
 	b, _ := json.MarshalIndent(cfg, "", " ")
 	os.WriteFile(p, b, 0o600)

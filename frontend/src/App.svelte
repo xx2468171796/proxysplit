@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte'
   import brandIcon from './assets/proxysplit-logo.svg'
+  import AIEnvCard from './AIEnvCard.svelte'
   import {
     AddNodes as WAddNodes,
     AddManualNode as WAddManualNode,
@@ -1922,6 +1923,8 @@
           <section class="card kpi"><span class="kpi-icon orange">{@html I.apps}</span><div><div class="kpi-label">应用规则</div><div class="kpi-value">{ruleCount}<small>{proxyCount} 条代理</small></div></div></section>
           <section class="card kpi"><span class="kpi-icon">{@html I.users}</span><div><div class="kpi-label">活动连接</div><div class="kpi-value">{activeConns}<small>{running ? uptime : '未运行'}</small></div></div></section>
         </div>
+
+        {#if license.channel === 'aigw'}<AIEnvCard />{/if}
 
         <div class="grid main-grid">
           <div class="grid">

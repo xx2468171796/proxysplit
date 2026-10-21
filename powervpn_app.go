@@ -83,6 +83,7 @@ func (a *App) finishPowerVPNLogin(ctx context.Context, pv *powervpn.Client) (msg
 	defer func() {
 		if msg == "" || strings.HasPrefix(msg, "NOTICE:") {
 			a.svc.TriggerCoreFollow() // signed in: check the standard core now
+			a.afterSignIn()           // AI-site customers: lock + proxy on (aiguard_app.go)
 		}
 	}()
 	if a.lic != nil && a.lic.Enabled() {

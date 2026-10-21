@@ -135,6 +135,10 @@ type Options struct {
 	// otherwise send direct). 代理策略 直连 still wins so a paused core stays paused.
 	AccelPort     int
 	AccelOutbound string
+
+	// AIGuard pins AI services to our own line for AI-site customers (see
+	// aiguard.go); nil = off.
+	AIGuard *AIGuard
 }
 
 const accelInbound = "accel-in"
@@ -650,10 +654,11 @@ func BuildTUNConfig(node *nodes.Node, logLevel string, opts Options) ([]byte, er
 	//  6. 代理策略 规则 — custom rules, per-app lines, then final.
 	// Per-app process lists live in hot-reloaded rule-set files (SplitRuleSets),
 	// so adding/removing apps between existing lists needs no core restart.
-	rules := []M{
-		{"action": "sniff"},
-		{"protocol": "dns", "action": "hijack-dns"},
-	}
+	rules := aiGuardHijack(opts) // the AI lock's loopback DNS listener
+	rules = append(rules,
+		M{"action": "sniff"},
+		M{"protocol": "dns", "action": "hijack-dns"},
+	)
 	rules = append(rules, accelRules(opts, clashExp != nil)...)
 	if opts.Split {
 		// 拦截 cuts the app off completely — LAN, our own API, everything — so it
@@ -669,6 +674,11 @@ func BuildTUNConfig(node *nodes.Node, logLevel string, opts Options) ([]byte, er
 	if !opts.ProxyPrivate {
 		rules = append(rules, M{"ip_is_private": true, "outbound": "direct"})
 	}
+	// AI 强制走线路: ahead of ourselves (the AI environment check probes through
+	// it) and of every app list / 代理策略; kept out of restrictEgress below.
+	aiAt := len(rules)
+	aiRules := aiGuardRules(opts)
+	rules = append(rules, aiRules...)
 	if self := strings.TrimSpace(opts.SelfProcess); self != "" {
 		rules = append(rules, M{"process_name": []string{self}, "outbound": "direct"})
 	}
@@ -770,7 +780,9 @@ func BuildTUNConfig(node *nodes.Node, logLevel string, opts Options) ([]byte, er
 	for _, en := range opts.ExtraNodes {
 		restricted.add(en.Tag, en.Node)
 	}
-	rules, finalOut = restrictEgress(rules, finalOut, restricted)
+	pre, _ := restrictEgress(rules[:aiAt:aiAt], "", restricted)
+	post, finalOut := restrictEgress(rules[aiAt+len(aiRules):], finalOut, restricted)
+	rules = append(append(pre, aiRules...), post...)
 
 	route := M{
 		"rules":                   rules,
@@ -796,6 +808,9 @@ func BuildTUNConfig(node *nodes.Node, logLevel string, opts Options) ([]byte, er
 	// So a dead/slow node can NEVER break DNS for mainland sites (previously all
 	// DNS went through the node → node down = nothing resolves = "全都打不开").
 	dnsRules := []M{}
+	// AI names first: through the line in every clash mode, IPv4 only.
+	aiDNSRules, aiDNSSrv := aiGuardDNS(opts)
+	dnsRules = append(dnsRules, aiDNSRules...)
 	if dr := clashDNSRules(opts); dr != nil {
 		dnsRules = append(dnsRules, dr...)
 	}
@@ -805,15 +820,19 @@ func BuildTUNConfig(node *nodes.Node, logLevel string, opts Options) ([]byte, er
 	if opts.RemoteDNS {
 		dnsFinal = "dns-remote"
 	}
+	dnsServers := []M{
+		// Foreign resolver through the node (anti-pollution) with a 2nd fallback.
+		{"type": "udp", "tag": "dns-remote", "server": "8.8.8.8", "detour": "proxy"},
+		// China resolver, DIRECT — reachable even when the node is down.
+		{"type": "udp", "tag": "dns-direct", "server": "223.5.5.5"},
+	}
+	if aiDNSSrv != nil {
+		dnsServers = append(dnsServers, aiDNSSrv)
+	}
 	dnsBlock := M{
-		"servers": []M{
-			// Foreign resolver through the node (anti-pollution) with a 2nd fallback.
-			{"type": "udp", "tag": "dns-remote", "server": "8.8.8.8", "detour": "proxy"},
-			// China resolver, DIRECT — reachable even when the node is down.
-			{"type": "udp", "tag": "dns-direct", "server": "223.5.5.5"},
-		},
-		"rules": dnsRules,
-		"final": dnsFinal,
+		"servers": dnsServers,
+		"rules":   dnsRules,
+		"final":   dnsFinal,
 	}
 	tunInbounds := []M{
 		{
@@ -831,6 +850,9 @@ func BuildTUNConfig(node *nodes.Node, logLevel string, opts Options) ([]byte, er
 	}
 	if opts.AccelPort > 0 {
 		tunInbounds = append(tunInbounds, M{"type": "mixed", "tag": accelInbound, "listen": "127.0.0.1", "listen_port": opts.AccelPort})
+	}
+	if in := aiGuardInbound(opts); in != nil {
+		tunInbounds = append(tunInbounds, in)
 	}
 	outs := append(proxyObs[:1:1], M{"type": "direct", "tag": "direct"})
 	outs = append(outs, proxyObs[1:]...)

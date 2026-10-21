@@ -754,6 +754,62 @@ export namespace proc {
 
 export namespace service {
 	
+	export class AIEnvItem {
+	    id: string;
+	    name: string;
+	    status: string;
+	    detail: string;
+	    fix?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new AIEnvItem(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.status = source["status"];
+	        this.detail = source["detail"];
+	        this.fix = source["fix"];
+	    }
+	}
+	export class AIEnvReport {
+	    items: AIEnvItem[];
+	    exitIp?: string;
+	    exitLoc?: string;
+	    checkedAt: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new AIEnvReport(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.items = this.convertValues(source["items"], AIEnvItem);
+	        this.exitIp = source["exitIp"];
+	        this.exitLoc = source["exitLoc"];
+	        this.checkedAt = source["checkedAt"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class AppRule {
 	    match: string;
 	    path: string;

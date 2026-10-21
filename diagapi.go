@@ -35,6 +35,17 @@ func (a *App) registerDiagAPI(mux *http.ServeMux, auth func(func(http.ResponseWr
 	mux.HandleFunc("/api/diag/selftest", auth(func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 200, a.svc.SelfTest())
 	}))
+	// GET /api/ai-env — AI 环境检测; POST /api/ai-env/fix {"id":"guard|timezone|clock|autostart|all"}
+	mux.HandleFunc("/api/ai-env", auth(func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, 200, a.CheckAIEnv())
+	}))
+	mux.HandleFunc("/api/ai-env/fix", auth(func(w http.ResponseWriter, r *http.Request) {
+		var b struct {
+			ID string `json:"id"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&b)
+		writeJSON(w, 200, okOr(a.FixAIEnv(b.ID)))
+	}))
 	// GET /api/custom-rules ; POST {"rules":[{"type":"suffix","value":"x.com","action":"proxy"}]}
 	mux.HandleFunc("/api/custom-rules", auth(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet {

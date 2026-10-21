@@ -115,6 +115,8 @@ func (a *App) startup(ctx context.Context) {
 	a.startAccel()
 	a.startAutoLogin(ctx) // AI-site download: sign in with the ticket in the file name (background)
 	a.finishStartup(nil)
+	go a.aiGuardBoot()        // AI-site customers: AI pinned to our line + DNS lock + proxy on at once
+	go svc.MigrateAutostart() // Run-key autostart never launched the elevated app: move it to a logon task
 	go a.licenseWatchdog()
 	go a.powervpnMembershipSync() // AI-site customers: membership follows the POWER云 AI plan
 	go a.resumeAfterUpdate()      // bring the proxy back after an automatic update
@@ -161,6 +163,9 @@ func (a *App) licenseWatchdog() {
 	for {
 		select {
 		case <-ticker.C:
+			if a.svc != nil && a.lic != nil {
+				a.syncAIGuard() // channel learned from the server / lock removed by someone
+			}
 			if a.svc == nil || a.lic == nil || !a.lic.Enabled() || !a.lic.Status().SignedIn {
 				continue
 			}
@@ -634,14 +639,19 @@ func (a *App) startService() error {
 	if err := a.svc.Start(); err != nil {
 		return err
 	}
-	// The core can start fine yet be blocked by security software, leaving the
-	// user with "nothing opens" and no error: check, and say why in the UI.
+	a.watchNetBlocked()
+	return nil
+}
+
+// watchNetBlocked: the core can start fine yet be blocked by security
+// software, leaving the user with "nothing opens" and no error: check, and say
+// why in the UI.
+func (a *App) watchNetBlocked() {
 	go func() {
 		if msg := a.svc.PostStartCheck(); msg != "" && a.ctx != nil {
 			runtime.EventsEmit(a.ctx, "net-blocked", msg)
 		}
 	}()
-	return nil
 }
 
 // Commercial account/licensing. Development builds have no injected API URL,
@@ -657,7 +667,11 @@ func (a *App) Login(username, password string) string {
 	if a.lic == nil {
 		return "授权模块尚未初始化"
 	}
-	return errStr(a.lic.Login(username, password))
+	if err := a.lic.Login(username, password); err != nil {
+		return err.Error()
+	}
+	a.afterSignIn()
+	return ""
 }
 
 func (a *App) Register(username, email, password string) string {
@@ -831,7 +845,9 @@ func (a *App) Logout() string {
 		return ""
 	}
 	a.svc.Stop()
-	return errStr(a.lic.Logout())
+	err := a.lic.Logout()
+	a.syncAIGuard() // signed out: lift the AI lock
+	return errStr(err)
 }
 
 // Stop stops everything.

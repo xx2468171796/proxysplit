@@ -154,8 +154,11 @@ type Service struct {
 	accelPort        int               // Claude Code 加速本机入口端口（进程内固定）
 	accelOut         string            // 该入口当前走的出站（Claude Code 所用线路）
 	pv               *powervpn.Client  // POWER云 panel client (nil in tests)
+	aiGuard          bool              // AI 强制走线路（aiguard.go；App 按中转站客户开关）
+	aiGuardOut       string            // 运行中的内核 AI 走的出站（"" = 没开）
+	aiDNSListen      string            // 运行中的内核给 AI 锁应答 DNS 的本机地址（"" = 没有）
 
-	followOnce    sync.Once // core follow (corefollow.go)
+	followOnce   sync.Once // core follow (corefollow.go)
 	followStart   sync.Once
 	follower      *coreFollower
 	followTrigger chan struct{}
@@ -1509,11 +1512,19 @@ func (s *Service) startLocked() error {
 		s.mu.Unlock()
 		tunOpts := clashOptsFor(clashPort)
 		tunOpts.AccelOutbound = "proxy" // 整机全局：Claude Code 也走主节点
+		s.mu.Lock()
+		extra := map[string]*nodes.Node{}
+		s.applyAIGuardLocked(&tunOpts, node.ID, extra)
+		for tag, n := range extra {
+			tunOpts.ExtraNodes = append(tunOpts.ExtraNodes, core.ExtraNode{Tag: tag, Node: n})
+		}
+		s.mu.Unlock()
 		if err := s.core.StartTUN(node, level, tunRoute, nil, tunOpts); err != nil {
 			return s.withSecurityHint(fmt.Errorf("core(TUN): %w", err))
 		}
 		s.mu.Lock()
 		s.accelOut = tunOpts.AccelOutbound
+		s.noteAIGuardStartedLocked(tunOpts.AIGuard)
 		s.mu.Unlock()
 		s.mu.Lock()
 		s.startedAt = time.Now()
@@ -1549,6 +1560,7 @@ func (s *Service) startLocked() error {
 	s.activeFP = nil
 	s.run = &runState{node: node, level: level, route: tunRoute, base: base, targets: sum.targets}
 	s.accelOut = opts.AccelOutbound
+	s.noteAIGuardStartedLocked(opts.AIGuard)
 	s.mu.Unlock()
 
 	s.applySystemProxyOnStart()
@@ -1714,6 +1726,13 @@ func (s *Service) splitOptionsLocked(opts *core.Options, node *nodes.Node) split
 			opts.SplitDefault = &d
 		}
 	}
+	sort.Strings(directApps)
+	sort.Strings(blockApps)
+	opts.SplitDirect, opts.SplitBlock = directApps, blockApps
+	opts.SplitScoped = scopedRules
+	sum.direct, sum.blocked = len(directApps), len(blockApps)
+	opts.AccelOutbound = claudeOutbound(opts)
+	s.applyAIGuardLocked(opts, activeID, extraByTag) // may add the AI line as an extra node
 	extraTags := make([]string, 0, len(extraByTag))
 	for tag := range extraByTag {
 		extraTags = append(extraTags, tag)
@@ -1723,12 +1742,6 @@ func (s *Service) splitOptionsLocked(opts *core.Options, node *nodes.Node) split
 	for _, tag := range extraTags {
 		opts.ExtraNodes = append(opts.ExtraNodes, core.ExtraNode{Tag: tag, Node: extraByTag[tag]})
 	}
-	sort.Strings(directApps)
-	sort.Strings(blockApps)
-	opts.SplitDirect, opts.SplitBlock = directApps, blockApps
-	opts.SplitScoped = scopedRules
-	sum.direct, sum.blocked = len(directApps), len(blockApps)
-	opts.AccelOutbound = claudeOutbound(opts)
 	return sum
 }
 

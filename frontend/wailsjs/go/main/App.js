@@ -26,6 +26,10 @@ export function ChangeAccountPassword(arg1, arg2) {
   return window['go']['main']['App']['ChangeAccountPassword'](arg1, arg2);
 }
 
+export function CheckAIEnv() {
+  return window['go']['main']['App']['CheckAIEnv']();
+}
+
 export function CheckAppUpdate() {
   return window['go']['main']['App']['CheckAppUpdate']();
 }
@@ -48,6 +52,10 @@ export function ExportAppRules() {
 
 export function ExportConfig() {
   return window['go']['main']['App']['ExportConfig']();
+}
+
+export function FixAIEnv(arg1) {
+  return window['go']['main']['App']['FixAIEnv'](arg1);
 }
 
 export function GetAIControlInfo() {
