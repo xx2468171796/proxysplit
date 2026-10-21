@@ -1,0 +1,42 @@
+/*
+ * 设计令牌 —— 全站颜色的唯一来源（front-site 配方生成，品牌色改这里）。
+ * CSS 直接写 var(--x)；dongxiao 动效组件经 theme-provider 读成具体色值再当 props 传。
+ * 只写具体色值（#rrggbb），不要在令牌里引用别的变量 —— getComputedStyle 读到的是原文。
+ * 新增令牌时同步 tokens.ts 的 TOKEN_NAMES。
+ * 配色跟桌面客户端一致：近黑墨色主色、暖灰底，不用渐变和光晕（业主 2026-10-22）。
+ */
+
+/* 浅色 */
+:root,
+[data-theme="light"] {
+  --brand: #1c1f24;
+  --brand-strong: #0e1013;
+  --accent: #5b6472;
+  --highlight: #9a5b13;
+  --bg: #f7f7f5;
+  --bg-soft: #efefec;
+  --surface: #ffffff;
+  --border: #e3e3df;
+  --text: #17191c;
+  --text-muted: #5f646b;
+  --on-brand: #ffffff;
+  --fx-glow: #d6d6d2;
+  color-scheme: light;
+}
+
+/* 深色 */
+[data-theme="dark"] {
+  --brand: #e8e8e6;
+  --brand-strong: #ffffff;
+  --accent: #9aa3b0;
+  --highlight: #e0a458;
+  --bg: #111214;
+  --bg-soft: #18191c;
+  --surface: #1c1e21;
+  --border: #2b2d31;
+  --text: #ededeb;
+  --text-muted: #a2a6ad;
+  --on-brand: #111214;
+  --fx-glow: #34373c;
+  color-scheme: dark;
+}

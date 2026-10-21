@@ -1,0 +1,32 @@
+{
+  "name": "proxysplit-website",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@12.9.1",
+  "scripts": {
+    "dev": "vite --port 5288 --strictPort --host 127.0.0.1",
+    "build": "tsc --noEmit -p tsconfig.json && vite build",
+    "preview": "vite preview --port 5289 --strictPort --host 127.0.0.1",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "lint": "biome check src",
+    "check:size": "node scripts/check-size.mjs",
+    "check:bundle": "vite build && xingneng bundle --dist dist --config xingneng.bundle.json",
+    "check": "pnpm typecheck && pnpm lint && pnpm check:size && pnpm check:bundle"
+  },
+  "dependencies": {
+    "@ankotti/admin-ui": "git+http://s3.alonelife.top:32109/admin/yanzheng.git#adminUI-v8.45.0&path:/packages/adminUI",
+    "dongxiao": "git+http://s3.alonelife.top:32109/admin/yanzheng.git#dongxiao-v1.6.0&path:/packages/dongxiao",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "xingneng": "git+http://s3.alonelife.top:32109/admin/yanzheng.git#xingneng-v1.0.0&path:/packages/xingneng"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.5.15",
+    "@types/node": "26.6.5",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@vitejs/plugin-react": "6.1.1",
+    "typescript": "7.0.2",
+    "vite": "8.3.2"
+  }
+}

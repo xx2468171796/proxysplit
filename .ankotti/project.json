@@ -18,5 +18,5 @@
   ],
   "status": "active",
   "adopted": true,
-  "verify": ["pnpm --dir frontend check"]
+  "verify": ["pnpm --dir frontend check", "pnpm --dir website check"]
 }

@@ -1,0 +1,30 @@
+{
+  "screens": {
+    "app": {
+      "entries": [
+        "index.html"
+      ],
+      "js": "300KB",
+      "css": "40KB"
+    }
+  },
+  "heavy": [
+    "echarts",
+    "zrender",
+    "mermaid",
+    "elkjs",
+    "cytoscape",
+    "katex",
+    "@tiptap",
+    "prosemirror",
+    "yjs",
+    "three",
+    "@react-three",
+    "(^|[\\\\/_-])ogl([\\\\/@._-]|$)",
+    "gsap",
+    "matter-js",
+    "postprocessing",
+    "maath",
+    "troika"
+  ]
+}

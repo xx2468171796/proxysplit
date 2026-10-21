@@ -135,6 +135,11 @@ if (-not $SkipTests) {
     Run 'pnpm.cmd' @('test') (Join-Path $root 'server')
 }
 Run 'pnpm.cmd' @('build') (Join-Path $root 'server')
+# 官网（website/，React + dongxiao）：check 里含首屏体积门禁并产出 website/dist。
+if (-not (Test-Path (Join-Path $root 'website\node_modules'))) {
+    Run 'pnpm.cmd' @('install', '--frozen-lockfile') (Join-Path $root 'website')
+}
+Run 'pnpm.cmd' @('check') (Join-Path $root 'website')
 
 if ($PreflightOnly) {
     Write-Host "`nPreflight passed. No artifact was built and production was not changed." -ForegroundColor Green
@@ -171,6 +176,13 @@ try {
     $adminDist = Join-Path $root 'server\apps\admin\dist'
     if (-not (Test-Path (Join-Path $adminDist 'index.html'))) { throw 'Admin dist was not built' }
     Copy-Item -Recurse -Force $adminDist (Join-Path $stage 'apps\admin\dist')
+    # nginx 的站点根是 apps/site：放官网构建产物（不带 .vite/ 构建清单）。
+    $siteDist = Join-Path $root 'website\dist'
+    if (-not (Test-Path (Join-Path $siteDist 'index.html'))) { throw 'Website dist was not built' }
+    $siteStage = Join-Path $stage 'apps\site'
+    New-Item -ItemType Directory -Path $siteStage -Force | Out-Null
+    Get-ChildItem -LiteralPath $siteDist -Force | Where-Object { $_.Name -ne '.vite' } |
+        Copy-Item -Destination $siteStage -Recurse -Force
     $archive = Join-Path $temp "proxysplit-server-$releaseId.tar.gz"
     Run 'tar' @('-czf', $archive, '-C', $stage, '.')
 
