@@ -34,7 +34,7 @@ func TestEnsureCreatesRepairsAndKeeps(t *testing.T) {
 	exeA, exeB = LongPath(exeA), LongPath(exeB)
 	lnk := filepath.Join(dir, "ProxySplit.lnk")
 
-	if err := ensureIn(dir, "ProxySplit", exeA); err != nil {
+	if _, err := ensureIn(dir, "ProxySplit", exeA, false); err != nil {
 		t.Fatal(err)
 	}
 	if got := target(t, lnk); !strings.EqualFold(got, exeA) {
@@ -42,18 +42,27 @@ func TestEnsureCreatesRepairsAndKeeps(t *testing.T) {
 	}
 	before, _ := os.Stat(lnk)
 	time.Sleep(1100 * time.Millisecond)
-	if err := ensureIn(dir, "ProxySplit", exeA); err != nil {
+	if _, err := ensureIn(dir, "ProxySplit", exeA, false); err != nil {
 		t.Fatal(err)
 	}
 	if after, _ := os.Stat(lnk); !after.ModTime().Equal(before.ModTime()) {
 		t.Fatal("an up-to-date shortcut was rewritten")
 	}
 	os.Remove(lnk) // user deleted it
-	if err := ensureIn(dir, "ProxySplit", exeA); err != nil || !strings.EqualFold(target(t, lnk), exeA) {
+	if _, err := ensureIn(dir, "ProxySplit", exeA, false); err != nil || !strings.EqualFold(target(t, lnk), exeA) {
 		t.Fatalf("deleted shortcut not recreated: %v", err)
 	}
-	if err := ensureIn(dir, "ProxySplit", exeB); err != nil || !strings.EqualFold(target(t, lnk), exeB) {
+	if _, err := ensureIn(dir, "ProxySplit", exeB, false); err != nil || !strings.EqualFold(target(t, lnk), exeB) {
 		t.Fatalf("stale shortcut target not corrected: %v", err)
+	}
+	// After an update the icon may have changed: force rewrites an up-to-date shortcut.
+	before, _ = os.Stat(lnk)
+	time.Sleep(1100 * time.Millisecond)
+	if got, err := ensureIn(dir, "ProxySplit", exeB, true); err != nil || got != lnk {
+		t.Fatalf("forced refresh: %q, %v", got, err)
+	}
+	if after, _ := os.Stat(lnk); after.ModTime().Equal(before.ModTime()) {
+		t.Fatal("forced refresh did not rewrite the shortcut")
 	}
 }
 
@@ -67,7 +76,7 @@ func TestEnsureOddPathCharacters(t *testing.T) {
 	os.WriteFile(exe, []byte("MZ"), 0o755)
 	exe = LongPath(exe)
 	lnk := filepath.Join(dir, "ProxySplit.lnk")
-	if err := ensureIn(dir, "ProxySplit", exe); err != nil {
+	if _, err := ensureIn(dir, "ProxySplit", exe, false); err != nil {
 		t.Fatal(err)
 	}
 	got, err := ReadTarget(lnk)
@@ -76,7 +85,7 @@ func TestEnsureOddPathCharacters(t *testing.T) {
 	}
 	before, _ := os.Stat(lnk)
 	time.Sleep(1100 * time.Millisecond)
-	if err := ensureIn(dir, "ProxySplit", exe); err != nil {
+	if _, err := ensureIn(dir, "ProxySplit", exe, false); err != nil {
 		t.Fatal(err)
 	}
 	if after, _ := os.Stat(lnk); !after.ModTime().Equal(before.ModTime()) {

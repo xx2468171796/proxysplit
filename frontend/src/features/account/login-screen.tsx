@@ -3,7 +3,6 @@
 import { AuthLayout, Button, Note, Steps, Tabs } from "@ankotti/admin-ui";
 import { Globe } from "lucide-react";
 import { useState } from "react";
-import { UpdateBanner } from "../../app/banners";
 import { useFeedback } from "../../app/use-feedback";
 import logo from "../../assets/proxysplit-logo.svg";
 import { useStore } from "../../shared/store";
@@ -58,7 +57,6 @@ export function LoginScreen() {
 
   return (
     <div className="ps-gate">
-      <UpdateBanner />
       <AuthLayout
         logo={<img src={logo} alt="" className="ps-auth-logo" />}
         title="ProxySplit"

@@ -19,7 +19,45 @@ import (
 // "<name>.lnk" pointing at exePath. It is cheap to call on every launch: an
 // existing shortcut that already points at exePath is left untouched, a
 // deleted one is recreated and a stale target (the exe moved) is corrected.
-func EnsureDesktop(name, exePath string) error { return ensureIn("", name, exePath) }
+func EnsureDesktop(name, exePath string) error {
+	_, err := ensureIn("", name, exePath, false)
+	return err
+}
+
+// RefreshDesktop rewrites the desktop shortcut even when it already points at
+// exePath, then tells Explorer to drop its cached icons. Call it once after an
+// update: the exe icon may have changed, and the icon cache otherwise keeps
+// showing the old picture on the desktop until Windows happens to rebuild it.
+func RefreshDesktop(name, exePath string) error {
+	lnk, err := ensureIn("", name, exePath, true)
+	if err != nil {
+		return err
+	}
+	notifyIconChanged(lnk)
+	return nil
+}
+
+var (
+	shell32            = windows.NewLazySystemDLL("shell32.dll")
+	procSHChangeNotify = shell32.NewProc("SHChangeNotify")
+)
+
+const (
+	shcneUpdateItem   = 0x00002000
+	shcneAssocChanged = 0x08000000
+	shcnfIDList       = 0x0000
+	shcnfPathW        = 0x0005
+)
+
+// notifyIconChanged asks the shell to repaint the shortcut and flush cached
+// icons (SHCNE_ASSOCCHANGED is what installers send after an icon changes).
+func notifyIconChanged(lnk string) {
+	if p, err := windows.UTF16PtrFromString(lnk); err == nil {
+		procSHChangeNotify.Call(shcneUpdateItem, shcnfPathW, uintptr(unsafe.Pointer(p)), 0)
+		runtime.KeepAlive(p)
+	}
+	procSHChangeNotify.Call(shcneAssocChanged, shcnfIDList, 0, 0)
+}
 
 // ensureIn does the work; dir "" means the user's desktop (the known folder,
 // so a Desktop redirected to OneDrive or another drive is followed).
@@ -29,28 +67,30 @@ func EnsureDesktop(name, exePath string) error { return ensureIn("", name, exePa
 // with characters it cannot represent (ß, emoji… on Chinese Windows), and
 // passing paths through a PowerShell script needs quoting that typographic
 // quotes break.
-func ensureIn(dir, name, exePath string) error {
+// force rewrites the shortcut even when its target is already exePath. It
+// returns the shortcut's path.
+func ensureIn(dir, name, exePath string, force bool) (string, error) {
 	exePath, err := filepath.Abs(exePath)
 	if err != nil {
-		return err
+		return "", err
 	}
 	// Windows stores the long form (C:\Users\Administrator, not ADMINI~1);
 	// compare in that form or an up-to-date shortcut is rewritten every launch.
 	exePath = LongPath(exePath)
 	if dir == "" {
 		if dir, err = windows.KnownFolderPath(windows.FOLDERID_Desktop, 0); err != nil {
-			return fmt.Errorf("desktop folder: %w", err)
+			return "", fmt.Errorf("desktop folder: %w", err)
 		}
 	}
 	lnk := filepath.Join(dir, name+".lnk")
 
-	return withCOM(func() error {
+	return lnk, withCOM(func() error {
 		link, err := newShellLink()
 		if err != nil {
 			return err
 		}
 		defer link.release()
-		if current, err := link.loadTarget(lnk); err == nil && strings.EqualFold(current, exePath) {
+		if current, err := link.loadTarget(lnk); !force && err == nil && strings.EqualFold(current, exePath) {
 			return nil
 		}
 		return link.save(lnk, exePath, filepath.Dir(exePath), name)

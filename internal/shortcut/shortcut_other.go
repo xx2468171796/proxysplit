@@ -4,3 +4,6 @@ package shortcut
 
 // EnsureDesktop is a no-op outside Windows.
 func EnsureDesktop(name, exePath string) error { return nil }
+
+// RefreshDesktop is a no-op outside Windows.
+func RefreshDesktop(name, exePath string) error { return nil }

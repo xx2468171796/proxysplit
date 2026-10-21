@@ -35,13 +35,12 @@ export function CoreSection() {
   const checking = useStore(appUpdate, (s) => s.busy);
   const coreUpdating = useStore(system, (s) => s.coreUpdating);
   const logLevel = useStore(system, (s) => s.logLevel);
-  const autoApp = useStore(data, (s) => s.settings.autoUpdateApp);
   const autoCore = useStore(data, (s) => !s.settings.autoUpdateCoreOff);
 
   return (
     <Panel
       title="内核与更新"
-      description="正式版自动检查签名更新；内核来自 POWER云，签名 + SHA256 校验通过才安装。"
+      description="每次打开都会检查新版本，有新版自动下载安装并重启（代理自动恢复）；签名与 SHA256 校验通过才安装。内核来自 POWER云，同样校验后才装。"
       actions={
         <>
           <Button
@@ -71,13 +70,6 @@ export function CoreSection() {
       <CoreFacts />
       <div className="ps-set-gap">
         <FormSection>
-          <SwitchField
-            id="auto-update-app"
-            label="自动更新软件"
-            hint="发现新版本自动下载安装并重启，代理会自动恢复；签名和 SHA256 都正确才安装。强制更新的版本不受此开关影响"
-            checked={autoApp}
-            onChange={(on) => save({ autoUpdateApp: on })}
-          />
           <SwitchField
             id="auto-update-core"
             label="自动更新内核"

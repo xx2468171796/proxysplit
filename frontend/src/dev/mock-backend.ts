@@ -1,10 +1,27 @@
 // 只在 `vite dev` 且不在 Wails 里时装上：给浏览器预览和截图验收一份逼真的假后端。生产包不含本文件。
-// 地址参数：?theme=dark|system 主题，?gate=login 未登录页，?gate=member 无权益会员页（&full=1 设备名额已满），?split=1 拆单付款，?update=1 有新版本，?update=force 强制升级。
+// 地址参数：?showcase=1 官网截图（普通用户、不显示 AI 劫持），?theme=dark|system 主题，?gate=login 未登录页，?gate=member 无权益会员页（&full=1 设备名额已满），?split=1 拆单付款，?update=1 有新版本，?update=force 强制升级。
 type Fn = (...args: unknown[]) => unknown;
 
 const params = new URLSearchParams(location.search);
 const gate = params.get("gate");
 const update = params.get("update");
+const showcase = params.get("showcase") === "1";
+
+// 官网截图用的程序图标：字母方块（不用真实商标）。
+const ICON_TONES: Record<string, string> = {
+  code: "#2b6cb0",
+  chrome: "#c05621",
+  wechat: "#2f855a",
+  node: "#4a5568",
+  discord: "#5a67d8",
+  telegram: "#3182ce",
+};
+function monogram(path: string): string {
+  const exe = (path.split(/[\\/]/).pop() ?? "?").replace(/\.exe$/i, "");
+  const tone = ICON_TONES[exe.toLowerCase()] ?? "#4a5568";
+  const svg = `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='${tone}'/><text x='16' y='21.5' font-family='Segoe UI,Arial' font-size='15' font-weight='600' fill='white' text-anchor='middle'>${exe.charAt(0).toUpperCase()}</text></svg>`;
+  return `data:image/svg+xml,${encodeURIComponent(svg)}`;
+}
 
 const nodes = [
   {
@@ -124,7 +141,7 @@ const license = {
   signedIn: gate !== "login",
   authenticated: !gate,
   deviceLimitReached: params.get("full") === "1",
-  username: "xuan",
+  username: showcase ? "chen" : "xuan",
   plan: gate ? "" : "超级会员 · 年付",
   planCode: gate ? "" : "premium-year",
   tier: "premium",
@@ -299,7 +316,7 @@ const impl: Record<string, Fn> = {
     gatewayInUse: false,
     stats: { requests: 120, relayed: 96, resumed: 1, reqBytes: 9_800_000, frameBytes: 310_000 },
   }),
-  GetAIHijack: () => ({ on: true, locked: false, visible: true }),
+  GetAIHijack: () => ({ on: true, locked: false, visible: !showcase }),
   CheckAIEnv: () => ({
     exitIp: "203.0.113.8",
     exitLoc: "台湾 台北",
@@ -368,7 +385,7 @@ const impl: Record<string, Fn> = {
     params.get("split") === "1"
       ? { split: true, orders: [mockOrder("PS1a", 20000), mockOrder("PS1b", 12800)] }
       : { split: false, orders: [], order: mockOrder("PS1", 32800) },
-  GetAppIcon: () => "",
+  GetAppIcon: (path) => (showcase ? monogram(String(path)) : ""),
   TestApp: () => 66,
   TestLatency: () => 0,
   SpeedTest: () => ({ mbps: 11.2, err: "" }),

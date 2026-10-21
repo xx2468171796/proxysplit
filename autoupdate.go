@@ -12,10 +12,12 @@ import (
 	"proxysplit/internal/shortcut"
 )
 
-// Automatic updates: the client installs new signed releases by itself, no
-// prompt. A release marked mandatory (强制更新) installs even when the user has
-// turned automatic updates off. If the proxy was running it is started again
-// after the new version launches, so an update never silently drops the proxy.
+// Automatic updates are forced (owner, 2026-10-22): every launch checks right
+// away and any newer signed release is installed without asking — neither the
+// release's mandatory flag nor the old "auto update" setting can skip it. The
+// UI blocks with a full-screen dialog meanwhile. If the proxy was running it is
+// started again after the new version launches, so an update never silently
+// drops the proxy.
 //
 // If an install fails (the install helper restores and relaunches the old
 // version, e.g. because antivirus quarantined the new exe), that release is not
@@ -24,8 +26,8 @@ import (
 // update button keeps working.
 
 const (
-	autoUpdateFirstDelay = 20 * time.Second
-	autoUpdateInterval   = 6 * time.Hour
+	autoUpdateFirstDelay = 5 * time.Second
+	autoUpdateInterval   = time.Hour
 	resumeFileName       = "resume-after-update.json"
 	resumeMaxAge         = 10 * time.Minute
 	failedUpdateFileName = "update-failed.json"
@@ -89,9 +91,6 @@ func (a *App) tryAutoUpdate() {
 	st := a.upd.Check(ctx)
 	cancel()
 	if !st.Available || st.Release == nil {
-		return
-	}
-	if !st.Release.Mandatory && !a.svc.GetSettings().AutoUpdateApp {
 		return
 	}
 	if data, err := os.ReadFile(failedUpdatePath()); err == nil && recentlyFailed(data, st.Release.Version, time.Now()) {
@@ -174,7 +173,9 @@ func installFailed(st resumeState, running string) bool {
 }
 
 // ensureDesktopShortcut keeps a desktop shortcut to this executable on every
-// launch (recreated if the user deleted it, corrected if the exe moved).
+// launch (recreated if the user deleted it, corrected if the exe moved). The
+// first launch of a new version also rewrites it and flushes the shell icon
+// cache, so a changed app icon shows on the desktop right away.
 // Development builds skip it so they don't take over the real shortcut.
 func (a *App) ensureDesktopShortcut() {
 	if appVersion == "dev" {
@@ -184,7 +185,13 @@ func (a *App) ensureDesktopShortcut() {
 	if err != nil {
 		return
 	}
-	if err := shortcut.EnsureDesktop("ProxySplit", exe); err != nil {
+	marker := filepath.Join(dataDir(), "shortcut-version")
+	if seen, _ := os.ReadFile(marker); string(seen) == appVersion {
+		err = shortcut.EnsureDesktop("ProxySplit", exe)
+	} else if err = shortcut.RefreshDesktop("ProxySplit", exe); err == nil {
+		_ = os.WriteFile(marker, []byte(appVersion), 0o600)
+	}
+	if err != nil {
 		runtime.LogWarning(a.ctx, "desktop shortcut: "+err.Error())
 	}
 }

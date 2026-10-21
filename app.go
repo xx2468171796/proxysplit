@@ -256,7 +256,8 @@ func (a *App) domReady(ctx context.Context) {
 			"window.dispatchEvent(new CustomEvent('proxysplit:bootstrap',{detail:window.__PROXYSPLIT_BOOTSTRAP__}));"
 		runtime.WindowExecJS(ctx, script)
 		a.markStartedOK()
-		if a.svc != nil && a.svc.GetSettings().AutoUpdateApp {
+		// Updates are forced: always check on launch so the UI can block at once.
+		if a.svc != nil {
 			update := a.CheckAppUpdate()
 			runtime.EventsEmit(ctx, "app-update", update)
 		}

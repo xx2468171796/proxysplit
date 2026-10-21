@@ -56,7 +56,7 @@ async function loadSecondary(say: Say): Promise<void> {
     refreshCustomRules(),
     refreshAccel(),
   ]);
-  if (data.get().settings.autoUpdateApp) await checkAppUpdate(true);
+  await checkAppUpdate(true);
   await loadCommerce();
   const s = license.get().status;
   if (!license.get().membershipPrompted && s.signedIn && (!s.authenticated || s.planCode === "trial")) {
@@ -90,7 +90,7 @@ async function onLicenseChanged(say: Say): Promise<void> {
   if (plan && plan !== before) say(`会员权益已更新：${plan}`);
 }
 
-/** 每秒：运行状态 + 分流健康（日志页再加实时连接）；3 秒：Claude 加速；1 分钟：套餐；6 小时：静默检查更新。 */
+/** 每秒：运行状态 + 分流健康（日志页再加实时连接）；3 秒：Claude 加速；1 分钟：套餐；1 小时：检查更新（有新版即强制升级）。 */
 function startTimers(isLogsPage: () => boolean): Array<ReturnType<typeof setInterval>> {
   return [
     setInterval(() => {
@@ -100,9 +100,7 @@ function startTimers(isLogsPage: () => boolean): Array<ReturnType<typeof setInte
     }, 1000),
     setInterval(() => void refreshAccel(), 3000),
     setInterval(() => void loadCommerce(), 60_000),
-    setInterval(() => {
-      if (data.get().settings.autoUpdateApp) void checkAppUpdate(true);
-    }, 6 * 3600_000),
+    setInterval(() => void checkAppUpdate(true), 3600_000),
   ];
 }
 

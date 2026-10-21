@@ -3,7 +3,7 @@
 import { Button, ConfirmDialog, InlineAlert, Panel } from "@ankotti/admin-ui";
 import { LogOut } from "lucide-react";
 import { useState } from "react";
-import { NetBlockedBanner, UpdateBanner } from "../../app/banners";
+import { NetBlockedBanner } from "../../app/banners";
 import logo from "../../assets/proxysplit-logo.svg";
 import { useStore } from "../../shared/store";
 import { license } from "../../state/account";
@@ -74,7 +74,6 @@ export function MemberGate({ netBlocked, onDismissNetBlocked }: Props) {
   return (
     <div className="ps-gate">
       <NetBlockedBanner netBlocked={netBlocked} onDismissNetBlocked={onDismissNetBlocked} />
-      <UpdateBanner />
       <div className="ps-gate-column">
         <GateHeader />
         {error ? (

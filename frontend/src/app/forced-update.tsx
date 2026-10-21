@@ -1,17 +1,17 @@
-// 强制升级：版本标了 mandatory 时整屏拦住、不可关闭，登录 / 会员闸门之外同样生效。
+// 强制升级（业主 2026-10-22）：只要有新版本就整屏拦住、不可关闭，后台同时自动安装；登录 / 会员闸门之外同样生效。
 import { Button, Dialog, DialogFooter, Note } from "@ankotti/admin-ui";
 import { useStore } from "../shared/store";
 import { appUpdate, installAppUpdate } from "../state/update";
 import { useFeedback } from "./use-feedback";
 
-const TITLE = "需要升级后才能继续使用";
+const TITLE = "发现新版本，正在升级";
 
 export function ForcedUpdateDialog() {
   const { say } = useFeedback();
   const info = useStore(appUpdate, (s) => s.info);
   const busy = useStore(appUpdate, (s) => s.busy);
   const release = info.available ? info.release : undefined;
-  if (!release?.mandatory) return null;
+  if (!release) return null;
   return (
     <Dialog
       open
@@ -36,7 +36,7 @@ export function ForcedUpdateDialog() {
       <Note as="p">
         {busy
           ? "正在自动下载并安装，完成后软件会自动重启，代理会自动恢复。"
-          : `当前版本 v${info.current} 已停止支持，需完成升级后才能继续使用。`}
+          : `当前版本 v${info.current} 需要升级后才能继续使用；自动升级没完成时点上面的按钮重试。`}
       </Note>
       <Note as="p">升级包已通过 Ed25519 签名与 SHA256 双重校验，不会改动你的节点与规则。</Note>
     </Dialog>
