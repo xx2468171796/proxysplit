@@ -3,6 +3,10 @@
 版本号以发布构建为准（`scripts/build-commercial.ps1 -Version <x.y.z>`，注入 `main.appVersion`），
 每个发布产物的 SHA256 见 `output/proxysplit-v<版本>.manifest.json`。
 
+## v1.9.74
+
+- Claude Code 加速更稳：官方换了本机暂时复刻不了的连接方式而暂停加速时，已经打开的 Claude Code 会话继续走加速中继（中继本身是官方当前连接方式），不再收到「稍后重试」；暂停期间不再每 3 秒反复检查中继。
+
 ## v1.9.73
 
 - Claude Code 加速（官方订阅直登）更安全：加速中继断开时本机兜底直连官方，用的连接方式现在由我们的落地中继实时下发（与官方当前的 Claude Code 完全一致，以前写死在软件里、早已过期），官方更新后自动跟上，不用等软件升级。

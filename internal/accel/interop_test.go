@@ -189,3 +189,24 @@ func TestInteropDirectFingerprint(t *testing.T) {
 		t.Fatalf("JA4 与中继（BoringSSL）不一致：%s，应为 %s", r.TLS.JA4, want)
 	}
 }
+
+// 兜底直连：按中继打招呼交来的握手配置复刻，经本机直连真官方（官方无凭据回 401），不走中继
+func TestInteropFallbackDirectToOfficial(t *testing.T) {
+	relay := os.Getenv("ACCEL_INTEROP_RELAY")
+	seed := b64(os.Getenv("ACCEL_INTEROP_USER_SEED"))
+	e := interopEngine(t, relay, userToken(seed, "interop_fb", time.Now().Add(time.Hour).Unix()))
+	h, err := e.Hello()
+	if err != nil || !h.FallbackOK {
+		t.Fatalf("打招呼应交来可复刻的握手：%+v %v", h, err)
+	}
+	t.Logf("落地 %s，握手 %s", h.Relay, h.Handshake)
+	e.SetUsable(false) // 模拟中继不可用
+	code, resp := post(t, e.Addr(), body(10))
+	t.Logf("官方 %d %.120q", code, resp)
+	if code != 401 && code != 400 {
+		t.Fatalf("应由官方回 401 / 400：%d", code)
+	}
+	if s := e.Stats(); s.Direct != 1 || s.Relayed != 0 || s.Held != 0 {
+		t.Fatalf("应兜底直连：%+v", s)
+	}
+}

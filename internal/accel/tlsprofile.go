@@ -15,7 +15,8 @@ import (
 // 兜底直连的握手不写死在客户端：中继打招呼时把它连官方用的稳定握手配置（sub2api accel TlsProfile，cc-follow 自动跟官方）
 // 整份交过来，编码端按 BoringSSL 的规则复刻成 ClientHello。官方只改了配置能表达的东西（加签名算法、换组……）时客户端自动跟上，
 // 不用发新版；配置里有这里不认识的字段 / 取值（官方换了需要改代码的东西）→ 复刻不了 → 不兜底、不接管 Claude Code。
-// 与官方实抓逐字节比对见 direct_test.go。
+// 与官方实抓逐字节比对见 direct_test.go。下面的词表 sub2api 哨兵 guard/internal/features/proxysplit_fallback.go 抄了一份
+// （判断 cc-follow 推的新配置这里复刻不复刻得了，复刻不了就告警），改这里要同改那边。
 
 // tlsProfile 与 accel/src/tls_profile.rs 的 TlsProfile 字段一一对应
 type tlsProfile struct {

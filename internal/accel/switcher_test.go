@@ -18,6 +18,7 @@ import (
 type relayCtl struct {
 	up      atomic.Bool
 	profile atomic.Value
+	hellos  atomic.Int32
 }
 
 // fakeRelay 只实现打招呼和健康检查（签名用给定私钥）
@@ -47,6 +48,7 @@ func fakeRelay(t *testing.T, key ed25519.PrivateKey, rc *relayCtl) string {
 					body := "ok"
 					if strings.HasPrefix(req.target, "/__accel/hello?nonce=") {
 						nonce := strings.TrimPrefix(req.target, "/__accel/hello?nonce=")
+						rc.hellos.Add(1)
 						sig := base64.RawURLEncoding.EncodeToString(ed25519.Sign(key, []byte("accel-hello-v1|fake|"+nonce)))
 						body = fmt.Sprintf(`{"v":1,"relay":"fake","sig":%q}`, sig)
 						if prof, _ := rc.profile.Load().(string); prof != "" {
@@ -197,6 +199,14 @@ func TestSwitcherStaysOfficialWhenFallbackHandshakeStale(t *testing.T) {
 	}
 	if cfg.Active("http://" + sw.eng.Addr()) {
 		t.Fatal("握手过期不应改 Claude Code 配置")
+	}
+	if !sw.eng.usable.Load() {
+		t.Fatal("中继本身是好的：已指向编码端的会话应继续走中继，不该收 503")
+	}
+	n := rc.hellos.Load()
+	sw.tick() // 不到复查时间不再打招呼（以前每 3 秒打一次）
+	if st := sw.State(); st.Mode != ModeOfficial || rc.hellos.Load() != n {
+		t.Fatalf("应仍是官方默认且不再打招呼：%+v，打招呼 %d → %d", st, n, rc.hellos.Load())
 	}
 	rc.profile.Store(string(relayProfile(t))) // 能复刻
 	sw.Kick()

@@ -177,11 +177,14 @@ func (s *Switcher) tick() {
 	}
 	if err == nil && !h.FallbackOK {
 		// 版本闸门：中继交来的官方当前握手本机复刻不了，中继一断编码端就只能拿对不上的指纹连官方——
-		// 宁可不加速，让 Claude Code 自己直连官方；升级 ProxySplit 后自动恢复。不防抖：一次就退
+		// 宁可不加速，让新开的 Claude Code 自己直连官方；升级 ProxySplit 后自动恢复。不防抖：一次就退。
+		// 中继本身是好的（它的握手就是官方当前的）：已经指向编码端的会话继续走中继，不让它们白白收 503
 		s.mu.Lock()
 		s.st.Handshake = h.Handshake
+		s.fails = 0
+		s.nextProbe = time.Now().Add(probeOfficial)
 		s.mu.Unlock()
-		s.toOfficial(staleReason(h), h.Relay, h.RTT.Milliseconds())
+		s.toOfficialKeepRelay(staleReason(h), h.Relay, h.RTT.Milliseconds(), true)
 		return
 	}
 	s.mu.Lock()
@@ -234,8 +237,13 @@ func staleReason(h HelloResult) string {
 }
 
 func (s *Switcher) toOfficial(reason, relay string, rtt int64) {
-	// 编码端不关：之前打开、仍指向它的 Claude Code 会话照常能用（中继不可用时它原样直连官方）
-	s.eng.SetUsable(false)
+	s.toOfficialKeepRelay(reason, relay, rtt, false)
+}
+
+// toOfficialKeepRelay 还原 Claude Code 配置（新会话直连官方）。编码端不关：之前打开、仍指向它的会话照常能用——
+// relayOK = 中继验过、能用，就继续走中继；否则按中继交来的握手兜底直连，没有就回可重试的 503
+func (s *Switcher) toOfficialKeepRelay(reason, relay string, rtt int64, relayOK bool) {
+	s.eng.SetUsable(relayOK)
 	err := s.cfg.Restore()
 	s.mu.Lock()
 	defer s.mu.Unlock()
