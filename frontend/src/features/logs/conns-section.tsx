@@ -9,7 +9,7 @@ import { useFillHeight } from "./use-fill-height";
 
 type Row = Conn & { key: string };
 
-function OutBadge({ c }: { c: Conn }) {
+export function OutBadge({ c }: { c: Conn }) {
   if (c.outTag === "reject" || c.outTag === "block") {
     return (
       <StatusBadge tone="danger" variant="dot">

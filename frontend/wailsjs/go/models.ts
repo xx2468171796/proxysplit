@@ -566,6 +566,20 @@ export namespace main {
 	        this.err = source["err"];
 	    }
 	}
+	export class ReleaseNote {
+	    version: string;
+	    items: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new ReleaseNote(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.version = source["version"];
+	        this.items = source["items"];
+	    }
+	}
 	export class SpeedResult {
 	    mbps: number;
 	    err: string;
@@ -871,6 +885,9 @@ export namespace service {
 	    outbound: string;
 	    upload: number;
 	    download: number;
+	    id?: string;
+	    source?: string;
+	    start?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new ConnInfo(source);
@@ -888,6 +905,9 @@ export namespace service {
 	        this.outbound = source["outbound"];
 	        this.upload = source["upload"];
 	        this.download = source["download"];
+	        this.id = source["id"];
+	        this.source = source["source"];
+	        this.start = source["start"];
 	    }
 	}
 	export class LineHealth {
@@ -1021,6 +1041,178 @@ export namespace service {
 		}
 	}
 	
+	export class PortAccess {
+	    time: string;
+	    client: string;
+	    host: string;
+	    network: string;
+	    outbound: string;
+	    rule: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new PortAccess(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.time = source["time"];
+	        this.client = source["client"];
+	        this.host = source["host"];
+	        this.network = source["network"];
+	        this.outbound = source["outbound"];
+	        this.rule = source["rule"];
+	    }
+	}
+	export class PortClient {
+	    ip: string;
+	    conns: number;
+	    total: number;
+	    upload: number;
+	    download: number;
+	    firstSeen: string;
+	    lastSeen: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new PortClient(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.ip = source["ip"];
+	        this.conns = source["conns"];
+	        this.total = source["total"];
+	        this.upload = source["upload"];
+	        this.download = source["download"];
+	        this.firstSeen = source["firstSeen"];
+	        this.lastSeen = source["lastSeen"];
+	    }
+	}
+	export class PortDetail {
+	    conns: ConnInfo[];
+	    access: PortAccess[];
+	    logs: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new PortDetail(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.conns = this.convertValues(source["conns"], ConnInfo);
+	        this.access = this.convertValues(source["access"], PortAccess);
+	        this.logs = source["logs"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class ProxyPort {
+	    id: string;
+	    name: string;
+	    enabled: boolean;
+	    port: number;
+	    protocol: string;
+	    lan: boolean;
+	    user: string;
+	    pass: string;
+	    mode: string;
+	    node: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ProxyPort(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.enabled = source["enabled"];
+	        this.port = source["port"];
+	        this.protocol = source["protocol"];
+	        this.lan = source["lan"];
+	        this.user = source["user"];
+	        this.pass = source["pass"];
+	        this.mode = source["mode"];
+	        this.node = source["node"];
+	    }
+	}
+	export class ProxyPortStatus {
+	    id: string;
+	    name: string;
+	    enabled: boolean;
+	    port: number;
+	    protocol: string;
+	    lan: boolean;
+	    user: string;
+	    pass: string;
+	    mode: string;
+	    node: string;
+	    running: boolean;
+	    error?: string;
+	    nodeName: string;
+	    conns: number;
+	    upload: number;
+	    download: number;
+	    clients: PortClient[];
+	
+	    static createFrom(source: any = {}) {
+	        return new ProxyPortStatus(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.enabled = source["enabled"];
+	        this.port = source["port"];
+	        this.protocol = source["protocol"];
+	        this.lan = source["lan"];
+	        this.user = source["user"];
+	        this.pass = source["pass"];
+	        this.mode = source["mode"];
+	        this.node = source["node"];
+	        this.running = source["running"];
+	        this.error = source["error"];
+	        this.nodeName = source["nodeName"];
+	        this.conns = source["conns"];
+	        this.upload = source["upload"];
+	        this.download = source["download"];
+	        this.clients = this.convertValues(source["clients"], PortClient);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	
 	export class RuleImportPreview {
 	    schemaVersion: number;

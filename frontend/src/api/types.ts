@@ -212,7 +212,61 @@ export type Conn = {
   outTag: string;
   upload: number;
   download: number;
+  /** 端口代理的连接才有：内核连接 id / 来访客户端 IP / 开始时间（RFC3339） */
+  id?: string;
+  source?: string;
+  start?: string;
 };
+
+export type PortProtocol = "mixed" | "socks" | "http";
+export type PortMode = "rule" | "global" | "direct";
+
+/** 端口代理：一个本地监听端口 = 一条独立线路（自己的内核进程）。 */
+export type ProxyPort = {
+  id: string;
+  name: string;
+  enabled: boolean;
+  port: number;
+  protocol: PortProtocol;
+  /** true = 0.0.0.0 局域网可连，false = 仅 127.0.0.1 */
+  lan: boolean;
+  user: string;
+  pass: string;
+  mode: PortMode;
+  /** 节点 id，'' = 当前选中的节点 */
+  node: string;
+};
+
+export type PortClient = {
+  ip: string;
+  conns: number;
+  total: number;
+  upload: number;
+  download: number;
+  firstSeen: string;
+  lastSeen: string;
+};
+
+export type ProxyPortStatus = ProxyPort & {
+  running: boolean;
+  error?: string;
+  nodeName: string;
+  conns: number;
+  upload: number;
+  download: number;
+  clients: PortClient[];
+};
+
+export type PortAccess = {
+  time: string;
+  client: string;
+  host: string;
+  network: string;
+  outbound: string;
+  rule: string;
+};
+
+export type PortDetail = { conns: Conn[]; access: PortAccess[]; logs: string[] };
 
 export type AIControlInfo = { url: string; token: string; prompt: string; mcpConfig: string; running: boolean };
 

@@ -20,7 +20,11 @@ import type {
   MemberOrder,
   MemberPlan,
   Node,
+  PortDetail,
+  PortMode,
   Proc,
+  ProxyPort,
+  ProxyPortStatus,
   RouteRule,
   RuleImportPreview,
   RuleSet,
@@ -41,6 +45,7 @@ const asArg = <T>(v: unknown): T => v as T;
 export type OrderCreated = { order?: MemberOrder; orders: MemberOrder[]; split: boolean; err?: string };
 export type QrResult = { data: string; err: string };
 export type SpeedResult = { mbps: number; err: string };
+export type ReleaseNote = { version: string; items: string[] };
 
 export const api = {
   // 启动与状态
@@ -58,6 +63,8 @@ export const api = {
   coreVersion: () => W.GetCoreVersion(),
   updateCore: () => W.UpdateCore(),
   lanIP: () => W.GetLanIP(),
+  updateNotes: async () => arr((await W.GetUpdateNotes()) as ReleaseNote[]).map((n) => ({ ...n, items: arr(n.items) })),
+  markUpdateNotesSeen: () => W.MarkUpdateNotesSeen(),
 
   // 节点
   nodes: async () => arr((await W.GetNodes()) as Node[]),
@@ -98,6 +105,18 @@ export const api = {
   updateRuleSets: () => W.UpdateRuleSets(),
   customRules: async () => arr((await W.GetCustomRules()) as RouteRule[]),
   setCustomRules: (rules: RouteRule[]) => W.SetCustomRules(asArg(rules)),
+
+  // 端口代理
+  proxyPorts: async () =>
+    arr((await W.GetProxyPorts()) as ProxyPortStatus[]).map((p) => ({ ...p, clients: arr(p.clients) })),
+  saveProxyPort: (p: ProxyPort) => W.SaveProxyPort(asArg(p)),
+  deleteProxyPort: (id: string) => W.DeleteProxyPort(id),
+  setProxyPortEnabled: (id: string, on: boolean) => W.SetProxyPortEnabled(id, on),
+  setProxyPortMode: (id: string, mode: PortMode) => W.SetProxyPortMode(id, mode),
+  proxyPortDetail: async (id: string, client: string): Promise<PortDetail> => {
+    const d = (await W.GetProxyPortDetail(id, client)) as PortDetail | null;
+    return { conns: arr(d?.conns), access: arr(d?.access), logs: arr(d?.logs) };
+  },
 
   // 订阅
   subs: async () => arr((await W.GetSubs()) as Sub[]),

@@ -1,0 +1,33 @@
+/* 端口代理页：错误文字、详情弹窗布局、弹窗里占满一行的块。只用 admin-ui 色卡变量。 */
+.ps-port-err {
+  color: var(--aui-danger);
+}
+
+.ps-port-full {
+  grid-column: 1 / -1;
+}
+
+.ps-port-detail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--aui-space-4);
+}
+
+.ps-port-detail-block {
+  display: flex;
+  flex-direction: column;
+  gap: var(--aui-space-2);
+}
+
+.ps-port-detail-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--aui-space-2);
+}
+
+.ps-port-detail-head small {
+  margin-left: var(--aui-space-2);
+  font-size: var(--aui-fs-note);
+  color: var(--aui-note);
+}

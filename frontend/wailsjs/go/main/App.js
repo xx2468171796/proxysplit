@@ -42,6 +42,10 @@ export function CreateMembershipOrder(arg1) {
   return window['go']['main']['App']['CreateMembershipOrder'](arg1);
 }
 
+export function DeleteProxyPort(arg1) {
+  return window['go']['main']['App']['DeleteProxyPort'](arg1);
+}
+
 export function EditSub(arg1, arg2, arg3) {
   return window['go']['main']['App']['EditSub'](arg1, arg2, arg3);
 }
@@ -166,6 +170,14 @@ export function GetPowerVPNStatus() {
   return window['go']['main']['App']['GetPowerVPNStatus']();
 }
 
+export function GetProxyPortDetail(arg1, arg2) {
+  return window['go']['main']['App']['GetProxyPortDetail'](arg1, arg2);
+}
+
+export function GetProxyPorts() {
+  return window['go']['main']['App']['GetProxyPorts']();
+}
+
 export function GetRouting() {
   return window['go']['main']['App']['GetRouting']();
 }
@@ -192,6 +204,10 @@ export function GetSubs() {
 
 export function GetSystemProxy() {
   return window['go']['main']['App']['GetSystemProxy']();
+}
+
+export function GetUpdateNotes() {
+  return window['go']['main']['App']['GetUpdateNotes']();
 }
 
 export function ImportAppRules(arg1) {
@@ -228,6 +244,10 @@ export function Logout() {
 
 export function LogoutPowerVPN() {
   return window['go']['main']['App']['LogoutPowerVPN']();
+}
+
+export function MarkUpdateNotesSeen() {
+  return window['go']['main']['App']['MarkUpdateNotesSeen']();
 }
 
 export function OpenGitHub() {
@@ -286,6 +306,10 @@ export function Restart() {
   return window['go']['main']['App']['Restart']();
 }
 
+export function SaveProxyPort(arg1) {
+  return window['go']['main']['App']['SaveProxyPort'](arg1);
+}
+
 export function SelectNode(arg1) {
   return window['go']['main']['App']['SelectNode'](arg1);
 }
@@ -328,6 +352,14 @@ export function SetLines(arg1) {
 
 export function SetLogLevel(arg1) {
   return window['go']['main']['App']['SetLogLevel'](arg1);
+}
+
+export function SetProxyPortEnabled(arg1, arg2) {
+  return window['go']['main']['App']['SetProxyPortEnabled'](arg1, arg2);
+}
+
+export function SetProxyPortMode(arg1, arg2) {
+  return window['go']['main']['App']['SetProxyPortMode'](arg1, arg2);
 }
 
 export function SetRouting(arg1) {

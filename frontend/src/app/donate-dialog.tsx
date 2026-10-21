@@ -6,11 +6,14 @@ import donateQR from "../assets/images/donate.png";
 import { useStore } from "../shared/store";
 import { isAigwChannel, license } from "../state/account";
 import { data } from "../state/data";
+import { updateNotes } from "./update-notes-dialog";
 
 const WAIT_SECONDS = 3;
 
 export function DonateDialog() {
-  const loaded = useStore(data, (s) => s.loaded);
+  const dataLoaded = useStore(data, (s) => s.loaded);
+  const notesSettled = useStore(updateNotes, (s) => s.settled);
+  const loaded = dataLoaded && notesSettled;
   const status = useStore(license, (s) => s.status);
   const eligible = !isAigwChannel(status) && (!status.enabled || status.authenticated);
   const [shown, setShown] = useState<"pending" | "open" | "closed">("pending");

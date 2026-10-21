@@ -8,7 +8,7 @@ import {
   SlowLoadingNote,
   useSlowLoading,
 } from "@ankotti/admin-ui";
-import { Gauge, LayoutGrid, Logs, Rss, Server, Settings, ShieldCheck } from "lucide-react";
+import { Gauge, LayoutGrid, Logs, Plug, Rss, Server, Settings, ShieldCheck } from "lucide-react";
 import type { ReactNode } from "react";
 import logo from "../assets/proxysplit-logo.svg";
 import { AccountDialogs } from "../features/account/account-dialogs";
@@ -16,6 +16,7 @@ import { AppsPage } from "../features/apps/apps-page";
 import { LogsPage } from "../features/logs/logs-page";
 import { NodesPage } from "../features/nodes/nodes-page";
 import { OverviewPage } from "../features/overview/overview-page";
+import { PortsPage } from "../features/ports/ports-page";
 import { RulesPage } from "../features/rules/rules-page";
 import { SettingsPage } from "../features/settings/settings-page";
 import { SubsPage } from "../features/subs/subs-page";
@@ -26,17 +27,19 @@ import { Banners } from "./banners";
 import { DonateDialog } from "./donate-dialog";
 import { HeaderControls } from "./header-controls";
 import { navigate, type PageId, usePage } from "./nav";
+import { UpdateNotesDialog } from "./update-notes-dialog";
 
 const PAGES: Record<PageId, { title: string; icon: NavItem["icon"]; render: () => ReactNode }> = {
   overview: { title: "概览", icon: Gauge, render: () => <OverviewPage /> },
   nodes: { title: "节点", icon: Server, render: () => <NodesPage /> },
   apps: { title: "应用分流", icon: LayoutGrid, render: () => <AppsPage /> },
+  ports: { title: "端口代理", icon: Plug, render: () => <PortsPage /> },
   rules: { title: "分流规则", icon: ShieldCheck, render: () => <RulesPage /> },
   subs: { title: "订阅", icon: Rss, render: () => <SubsPage /> },
   logs: { title: "日志", icon: Logs, render: () => <LogsPage /> },
   settings: { title: "设置", icon: Settings, render: () => <SettingsPage /> },
 };
-const ORDER: PageId[] = ["overview", "nodes", "apps", "rules", "subs", "logs", "settings"];
+const ORDER: PageId[] = ["overview", "nodes", "apps", "ports", "rules", "subs", "logs", "settings"];
 
 type Props = { netBlocked: string; onDismissNetBlocked: () => void };
 
@@ -88,6 +91,7 @@ export function MainShell({ netBlocked, onDismissNetBlocked }: Props) {
       {dialogs}
       <AccountDialogs />
       <DonateDialog />
+      <UpdateNotesDialog />
     </>
   );
 }

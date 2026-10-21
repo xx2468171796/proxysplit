@@ -29,6 +29,8 @@ export function CopyToClipboard(arg1:string):Promise<string>;
 
 export function CreateMembershipOrder(arg1:string):Promise<main.OrderResult>;
 
+export function DeleteProxyPort(arg1:string):Promise<void>;
+
 export function EditSub(arg1:string,arg2:string,arg3:string):Promise<string>;
 
 export function ExportAppRules():Promise<string>;
@@ -91,6 +93,10 @@ export function GetPaymentQR(arg1:string):Promise<main.QRResult>;
 
 export function GetPowerVPNStatus():Promise<main.PowerVPNStatus>;
 
+export function GetProxyPortDetail(arg1:string,arg2:string):Promise<service.PortDetail>;
+
+export function GetProxyPorts():Promise<Array<service.ProxyPortStatus>>;
+
 export function GetRouting():Promise<service.Routing>;
 
 export function GetRuleMode():Promise<string>;
@@ -104,6 +110,8 @@ export function GetStatus():Promise<service.Status>;
 export function GetSubs():Promise<Array<service.Sub>>;
 
 export function GetSystemProxy():Promise<boolean>;
+
+export function GetUpdateNotes():Promise<Array<main.ReleaseNote>>;
 
 export function ImportAppRules(arg1:string):Promise<string>;
 
@@ -122,6 +130,8 @@ export function LoginPowerVPN():Promise<string>;
 export function Logout():Promise<string>;
 
 export function LogoutPowerVPN():Promise<string>;
+
+export function MarkUpdateNotesSeen():Promise<void>;
 
 export function OpenGitHub():Promise<void>;
 
@@ -151,6 +161,8 @@ export function ResetConfig():Promise<void>;
 
 export function Restart():Promise<string>;
 
+export function SaveProxyPort(arg1:service.ProxyPort):Promise<string>;
+
 export function SelectNode(arg1:string):Promise<string>;
 
 export function SetAIHijack(arg1:boolean):Promise<string>;
@@ -172,6 +184,10 @@ export function SetDefaultLine(arg1:string):Promise<string>;
 export function SetLines(arg1:Array<service.Line>):Promise<string>;
 
 export function SetLogLevel(arg1:string):Promise<string>;
+
+export function SetProxyPortEnabled(arg1:string,arg2:boolean):Promise<string>;
+
+export function SetProxyPortMode(arg1:string,arg2:string):Promise<string>;
 
 export function SetRouting(arg1:service.Routing):Promise<string>;
 
