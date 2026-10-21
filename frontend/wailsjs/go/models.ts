@@ -1086,7 +1086,6 @@ export namespace service {
 	    autostart: boolean;
 	    trayClose: boolean;
 	    theme: string;
-	    autoUpdateRules: boolean;
 	    autoUpdateApp: boolean;
 	    autoUpdateCoreOff?: boolean;
 	    claudeAccelOff?: boolean;
@@ -1113,7 +1112,6 @@ export namespace service {
 	        this.autostart = source["autostart"];
 	        this.trayClose = source["trayClose"];
 	        this.theme = source["theme"];
-	        this.autoUpdateRules = source["autoUpdateRules"];
 	        this.autoUpdateApp = source["autoUpdateApp"];
 	        this.autoUpdateCoreOff = source["autoUpdateCoreOff"];
 	        this.claudeAccelOff = source["claudeAccelOff"];
