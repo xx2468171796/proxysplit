@@ -1,4 +1,4 @@
-# Whole-site release, local half: checks, signed client build and the server
+﻿# Whole-site release, local half: checks, signed client build and the server
 # archive (API source + admin dist + website dist). It never touches production:
 # upload / deploy / register go through the baolei bastion (docs/RELEASE-PROCESS.md).
 #   .\scripts\release-all.ps1 -Version 1.9.77               # build + stage
