@@ -27,7 +27,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/release-all.ps1 
 
 1. `run_command sz`：`mkdir -p /opt/proxysplit/incoming/<release-id>`。
 2. 四个文件各用 `transfer_link`（upload）拿一次性链接，本机 `curl -fT` 上传；服务器上 `sha256sum` 核对。
-3. `run_command sz`：`sh /opt/proxysplit/incoming/<id>/remote-deploy.sh /opt/proxysplit <id> <tar> <exe> <manifest>`（约 5 分钟）。
+3. `run_command sz`：`sh /opt/proxysplit/incoming/<id>/remote-deploy.sh /opt/proxysplit <id> <tar> <exe> <manifest>`（约 5 分钟）。tar / exe / manifest 必须写**绝对路径**（脚本中途会 cd 到 release 目录，相对路径到「放安装包」那步会找不到，v1.9.77 踩过）。
 
 `remote-deploy.sh` 会：`pg_dump` 备份到 `backups/postgres-<id>.sql.gz` → 构建 API 镜像并迁移 → 健康检查 → 放版本化安装包并原子替换 `proxysplit-latest.exe`（`proxysplit-ai-latest.exe` 软链跟着走）→ 切换 `current` 软链 → `openresty -t`。OpenResty 站点配置在服务器上统一管理，脚本不覆盖。
 

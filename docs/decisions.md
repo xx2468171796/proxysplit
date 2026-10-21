@@ -4,6 +4,13 @@
 > 结论与坑已提炼到 `docs/memory/<主题>.md`；这里是事实存档，按标题取（`node ~/.ankotti/ai-kit/mem.mjs <关键词>`），不要整份读。
 > 约定：sz = 深圳生产机；incoming = sz `/opt/proxysplit/incoming/`；客户端回滚 = 该版本 incoming 目录 `python3 publish-client.py rollback` 并删 releases 表里该版本那行。
 
+## v1.9.77（2026-10-22 03:20，全站发布，强制）
+- **全站发布**：release id 20261022-031739-3059197-v1.9.77，sz current 切到该目录，上一版 releases/20261022-021444-37136b1-v1.9.76；备份 backups/postgres-20261022-031739-3059197-v1.9.77.sql.gz；服务端代码无变化、无新迁移（官网文案更新）。
+- 客户端 v1.9.77：exe 源 commit 3059197（tag v1.9.77），SHA256 67772ae15597c30909d69ff996798c02ee794de07839e4127f6ad39119a40125，100,534,784 字节，内核 1.14.3-relayops.1；releases id e18e0754-fe79-4729-88a3-cbf402337c80（强制，min 1.9.51）+ audit_logs。客户端回滚 = downloads 的 latest / latest.manifest 换回 1.9.76 版本化文件并删 releases 表 1.9.77 那行。
+- 内容：端口代理（docs/memory/proxy-ports.md）、升级后弹出本次更新内容、官网加两条功能说明并修 admin-ui-audit。
+- 发布坑：release-all.ps1 从 Git Bash 调用时 tar 是 GNU tar（把 C: 当远程主机）→ 改用 System32\tar.exe；脚本无 BOM 时 PowerShell 5.1 读乱中文注释吞掉下一行（$siteDist 未定义）→ 存为带 BOM 的 UTF-8；remote-deploy.sh 的 exe / manifest 要传绝对路径，这次 API 已切换后在「放安装包」一步失败，按脚本原步骤手工补完。
+- 验收：go test / vet、前端与官网门禁全过；独立审计 9 条问题全部修复并加测试；飞牛取公网 latest = 1.9.77 mandatory，/health、官网、/admin/ 200，官网含新功能文案，三个下载地址整包 sha 一致。
+
 ## v1.9.76（2026-10-22 02:21，全站发布，强制）
 - **全站发布**（服务端 + 后台 + 新官网 + 客户端），经堡垒机手工执行 remote-deploy.sh（没用 release-all.ps1 的 ssh/scp）：release id 20261022-021444-37136b1-v1.9.76，sz current 切到该目录，上一版 releases/20261005-130907-0a3cfc9-v1.9.64；迁移前备份 backups/postgres-20261022-021444-37136b1-v1.9.76.sql.gz；服务端代码无变化（只删旧静态官网、后台加 favicon），无新迁移。
 - 客户端 v1.9.76：exe 源 commit bbee7b7（tag v1.9.76），SHA256 6ab7b85bb25e22eff6572ae52d2920846aa947f476571c0133ce34756283f0ec，100,400,640 字节，内核 1.14.3-relayops.1；releases 行 + audit_logs 经 db_query 插入（强制，min 1.9.51）。remote-deploy.sh 直接换了 downloads 的 latest / ai-latest，所以没走 publish-client.py；客户端回滚 = 把 downloads/proxysplit-latest.exe 与 latest.manifest.json 换回 1.9.75 的版本化文件并删 releases 表 1.9.76 那行。
