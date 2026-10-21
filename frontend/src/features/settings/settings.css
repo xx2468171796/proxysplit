@@ -1,0 +1,21 @@
+.ps-set-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--aui-space-2);
+}
+
+.ps-set-note {
+  margin-top: var(--aui-space-3);
+  line-height: 1.6;
+}
+
+.ps-set-sub {
+  margin-top: var(--aui-space-4);
+  padding-top: var(--aui-space-4);
+  border-top: 1px solid var(--aui-line);
+}
+
+.ps-set-gap {
+  margin-top: var(--aui-space-4);
+}

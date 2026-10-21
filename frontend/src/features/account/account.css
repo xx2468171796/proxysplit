@@ -1,0 +1,277 @@
+/* 账号与会员：登录页、会员闸门整页、套餐卡片、付款框。只用 admin-ui 变量。 */
+
+.ps-auth-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--aui-space-3);
+}
+
+.ps-auth-form-actions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--aui-space-2);
+  margin-top: var(--aui-space-1);
+}
+
+.ps-auth-logo {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+/* 会员闸门：不在 AdminShell 里的整页，居中一栏 */
+.ps-gate {
+  height: 100%;
+  overflow-x: hidden;
+  overflow-y: auto;
+  background: var(--aui-canvas);
+}
+
+.ps-gate-column {
+  max-width: 1040px;
+  margin: 0 auto;
+  padding: var(--aui-space-6) var(--aui-space-4) 40px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--aui-space-4);
+  box-sizing: border-box;
+}
+
+.ps-gate-head {
+  display: flex;
+  align-items: center;
+  gap: var(--aui-space-3);
+}
+
+.ps-gate-logo {
+  width: 40px;
+  height: 40px;
+  flex: none;
+}
+
+.ps-gate-title {
+  margin: 0;
+  font-size: var(--aui-fs-title);
+  font-weight: var(--aui-fw-strong);
+  color: var(--aui-text);
+  line-height: 1.3;
+}
+
+.ps-gate-sub {
+  margin: 2px 0 0;
+  font-size: var(--aui-fs-body);
+  color: var(--aui-secondary);
+}
+
+.ps-gate-block {
+  border: 1px solid var(--aui-line);
+  border-radius: var(--aui-radius-lg);
+  background: var(--aui-surface);
+  overflow: hidden;
+}
+
+/* 套餐 */
+.ps-plans {
+  display: flex;
+  flex-direction: column;
+  gap: var(--aui-space-5);
+}
+
+.ps-plan-group-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--aui-space-2);
+  margin-bottom: var(--aui-space-2);
+}
+
+.ps-plan-group-head b {
+  font-size: var(--aui-fs-card);
+  font-weight: var(--aui-fw-strong);
+  color: var(--aui-text);
+}
+
+.ps-plan-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: var(--aui-space-3);
+}
+
+.ps-plan-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--aui-space-2);
+  padding: var(--aui-space-4);
+  border: 1px solid var(--aui-line);
+  border-radius: var(--aui-radius-lg);
+  background: var(--aui-surface);
+  min-width: 0;
+  height: 100%;
+  box-sizing: border-box;
+}
+
+.ps-plan-card[data-tier="premium"] {
+  border-color: var(--aui-primary-mid);
+  background: var(--aui-wash);
+}
+
+.ps-plan-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--aui-space-2);
+}
+
+.ps-plan-name {
+  margin: 0;
+  font-size: var(--aui-fs-card);
+  font-weight: var(--aui-fw-strong);
+  color: var(--aui-text);
+}
+
+.ps-plan-desc {
+  margin: 0;
+  font-size: var(--aui-fs-note);
+  color: var(--aui-secondary);
+  line-height: 1.5;
+  min-height: 3em;
+}
+
+.ps-plan-price {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  color: var(--aui-text);
+  font-variant-numeric: tabular-nums;
+}
+
+.ps-plan-price small {
+  font-size: var(--aui-fs-body);
+}
+
+.ps-plan-price strong {
+  font-size: var(--aui-fs-display);
+  font-weight: var(--aui-fw-strong);
+  line-height: 1.1;
+}
+
+.ps-plan-price del {
+  margin-left: var(--aui-space-1);
+  font-size: var(--aui-fs-note);
+  color: var(--aui-note);
+}
+
+.ps-plan-highlights {
+  font-size: var(--aui-fs-note);
+  color: var(--aui-note);
+}
+
+.ps-plan-card > :last-child {
+  margin-top: auto;
+}
+
+/* 永久套餐：一行宽卡 */
+.ps-plan-card[data-wide] {
+  flex-direction: row;
+  align-items: center;
+  gap: var(--aui-space-4);
+}
+
+.ps-plan-wide-copy {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--aui-space-2);
+}
+
+.ps-plan-wide-buy {
+  display: flex;
+  align-items: center;
+  gap: var(--aui-space-3);
+  flex: none;
+}
+
+.ps-plan-card[data-wide] > :last-child {
+  margin-top: 0;
+}
+
+.ps-plan-card[data-wide] .ps-plan-desc {
+  min-height: 0;
+}
+
+/* 付款 */
+.ps-pay {
+  display: flex;
+  gap: var(--aui-space-4);
+  align-items: flex-start;
+}
+
+.ps-pay-qr {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--aui-space-2);
+  flex: none;
+}
+
+.ps-pay-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--aui-space-2);
+}
+
+.ps-pay-title {
+  margin: 0;
+  font-size: var(--aui-fs-card);
+  font-weight: var(--aui-fw-strong);
+  color: var(--aui-text);
+}
+
+.ps-redeem-inline {
+  display: flex;
+  gap: var(--aui-space-2);
+  align-items: flex-start;
+}
+
+.ps-redeem-inline > :first-child {
+  flex: 1;
+  min-width: 0;
+}
+
+.ps-pw-form {
+  display: grid;
+  grid-template-columns: 1fr 1fr auto;
+  gap: var(--aui-space-3);
+  align-items: end;
+}
+
+.ps-account-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--aui-space-2);
+}
+
+@media (max-width: 760px) {
+  .ps-pay,
+  .ps-plan-card[data-wide] {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .ps-pw-form {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* 普通 / 超级会员两组并排，窄了自动上下排 */
+.ps-plan-groups {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
+  gap: var(--aui-space-5);
+}
+
+.ps-pay-info > :first-child {
+  align-self: flex-start;
+}

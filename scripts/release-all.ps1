@@ -124,9 +124,9 @@ Step 'Client and server regression checks'
 Run 'go' @('test', './...')
 Run 'go' @('vet', './...')
 if (-not (Test-Path (Join-Path $root 'frontend\node_modules'))) {
-    Run 'npm.cmd' @('ci') (Join-Path $root 'frontend')
+    Run 'pnpm.cmd' @('install', '--frozen-lockfile') (Join-Path $root 'frontend')
 }
-Run 'npm.cmd' @('run', 'check') (Join-Path $root 'frontend')
+Run 'pnpm.cmd' @('check') (Join-Path $root 'frontend')
 if (-not (Test-Path (Join-Path $root 'server\node_modules'))) {
     Run 'pnpm.cmd' @('install', '--frozen-lockfile') (Join-Path $root 'server')
 }

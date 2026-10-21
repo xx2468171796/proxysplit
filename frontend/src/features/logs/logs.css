@@ -1,0 +1,17 @@
+.ps-conn-dest {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--aui-space-2);
+  min-width: 0;
+}
+
+.ps-conn-dest small {
+  font-size: var(--aui-fs-note);
+  color: var(--aui-note);
+}
+
+.ps-log-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}

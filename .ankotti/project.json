@@ -7,7 +7,9 @@
     "ecosystemHub": "http://192.168.110.246:8771"
   },
   "mcp": "ecosystem",
-  "stack": "Go + Wails + Svelte + sing-box (TUN + process_name)",
+  "stack": "Go + Wails + React 19 + @ankotti/admin-ui + sing-box (TUN + process_name)",
+  "scale": "small",
+  "adminUi": "latest",
   "dependsOn": [],
   "provides": [
     "Windows 单文件应用分流代理",
@@ -15,5 +17,6 @@
     "本地 AI 控制 HTTP/MCP 接口"
   ],
   "status": "active",
-  "adopted": true
+  "adopted": true,
+  "verify": ["pnpm --dir frontend check"]
 }

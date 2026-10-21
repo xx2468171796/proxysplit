@@ -1,65 +1,20 @@
-# Svelte + TS + Vite
+# ProxySplit 界面
 
-This template should help get you started developing with Svelte and TypeScript in Vite.
+React 19 + Vite 8 + TypeScript 7 + 公司组件库 `@ankotti/admin-ui`（钉 tag，见 `package.json`），由 Wails 内嵌进 exe。结构和规则见 `../docs/architecture.md`。
 
-## Recommended IDE Setup
+## 常用命令
 
-[VS Code](https://code.visualstudio.com/)
-
-+ [Svelte](https://marketplace.visualstudio.com/items?itemName=svelte.svelte-vscode).
-
-## Need an official Svelte framework?
-
-Check out [SvelteKit](https://github.com/sveltejs/kit#readme), which is also powered by Vite. Deploy anywhere with its
-serverless-first approach and adapt to various platforms, with out of the box support for TypeScript, SCSS, and Less,
-and easily-added support for mdsvex, GraphQL, PostCSS, Tailwind CSS, and more.
-
-## Technical considerations
-
-**Why use this over SvelteKit?**
-
-- It brings its own routing solution which might not be preferable for some users.
-- It is first and foremost a framework that just happens to use Vite under the hood, not a Vite app.
-  `vite dev` and `vite build` wouldn't work in a SvelteKit environment, for example.
-
-This template contains as little as possible to get started with Vite + TypeScript + Svelte, while taking into account
-the developer experience with regards to HMR and intellisense. It demonstrates capabilities on par with the
-other `create-vite` templates and is a good starting point for beginners dipping their toes into a Vite + Svelte
-project.
-
-Should you later need the extended capabilities and extensibility provided by SvelteKit, the template has been
-structured similarly to SvelteKit so that it is easy to migrate.
-
-**Why `global.d.ts` instead of `compilerOptions.types` inside `jsconfig.json` or `tsconfig.json`?**
-
-Setting `compilerOptions.types` shuts out all other types not explicitly listed in the configuration. Using triple-slash
-references keeps the default TypeScript setting of accepting type information from the entire workspace, while also
-adding `svelte` and `vite/client` type information.
-
-**Why include `.vscode/extensions.json`?**
-
-Other templates indirectly recommend extensions via the README, but this file allows VS Code to prompt the user to
-install the recommended extension upon opening the project.
-
-**Why enable `allowJs` in the TS template?**
-
-While `allowJs: false` would indeed prevent the use of `.js` files in the project, it does not prevent the use of
-JavaScript syntax in `.svelte` files. In addition, it would force `checkJs: false`, bringing the worst of both worlds:
-not being able to guarantee the entire codebase is TypeScript, and also having worse typechecking for the existing
-JavaScript. In addition, there are valid use cases in which a mixed codebase may be relevant.
-
-**Why is HMR not preserving my local component state?**
-
-HMR state preservation comes with a number of gotchas! It has been disabled by default in both `svelte-hmr`
-and `@sveltejs/vite-plugin-svelte` due to its often surprising behavior. You can read the
-details [here](https://github.com/rixo/svelte-hmr#svelte-hmr).
-
-If you have state that's important to retain within a component, consider creating an external store which would not be
-replaced by HMR.
-
-```ts
-// store.ts
-// An extremely simple external store
-import { writable } from 'svelte/store'
-export default writable(0)
+```bash
+pnpm install          # 依赖（admin-ui 从公司 Gitea 按 tag 拉取）
+pnpm dev              # 浏览器预览：没有 Wails 时自动换成假后端（src/dev/mock-backend.ts）
+pnpm check            # 类型检查 + Biome + 单测 + admin-ui-audit + 文件体量
+pnpm build            # 生成 dist/，wails build 会自动调用
 ```
+
+浏览器预览参数：`?gate=login` 未登录页，`?gate=member` 无权益会员页，`?update=1` 有新版本，`?update=force` 强制升级。
+
+## 约定
+
+- 只有 `src/api/backend.ts` 调 Go；数据和动作在 `src/state/`；页面在 `src/features/<页面>/`，只读 store、调动作。
+- 控件、颜色、间距只用 admin-ui 的组件和 `var(--aui-…)` 变量；自己的少量样式类名以 `ps-` 开头。
+- 升级组件库：`node ~/.ankotti/ai-kit/admin-ui.mjs upgrade`，读包里 CHANGELOG，再跑 `pnpm audit:ui` 改到 0 错误。

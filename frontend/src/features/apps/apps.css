@@ -1,0 +1,52 @@
+/* 应用分流页：运行指示点、测试结果文字、进程选择器。只用 admin-ui 色卡变量。 */
+.ps-ellipsis {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ps-run-dot {
+  width: 7px;
+  height: 7px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--aui-soft-strong);
+}
+
+.ps-run-dot[data-on] {
+  background: var(--aui-success);
+}
+
+.ps-lat {
+  font-variant-numeric: tabular-nums;
+}
+
+.ps-lat[data-tone="ok"] {
+  color: var(--aui-success);
+}
+
+.ps-lat[data-tone="err"] {
+  color: var(--aui-danger);
+}
+
+.ps-picker {
+  display: flex;
+  flex-direction: column;
+  gap: var(--aui-space-3);
+}
+
+.ps-picker-list {
+  max-height: 340px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  outline-offset: -2px;
+  border: 1px solid var(--aui-line);
+  border-radius: var(--aui-radius);
+}
+
+/* 自动表格布局下长路径会把列撑宽：给应用格子一个上限，路径省略显示。 */
+.ps-rule-app {
+  max-width: 210px;
+}

@@ -1,7 +1,9 @@
-import {defineConfig} from 'vite'
-import {svelte} from '@sveltejs/vite-plugin-svelte'
+import react from "@vitejs/plugin-react";
+import { defineConfig } from "vite";
 
-// https://vitejs.dev/config/
+// Wails 把 dist 嵌进 exe，用相对路径加载资源。
 export default defineConfig({
-  plugins: [svelte()]
-})
+  plugins: [react()],
+  base: "./",
+  server: { forwardConsole: true },
+});

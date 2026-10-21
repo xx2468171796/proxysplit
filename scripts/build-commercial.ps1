@@ -41,7 +41,7 @@ if ($tlsSpki -notmatch '^([a-fA-F0-9]{64}|[A-Za-z0-9+/]{43}=)$') {
     throw 'TLS SPKI profile value is invalid'
 }
 
-$requiredCommands = @('go', 'node', 'npm', 'git')
+$requiredCommands = @('go', 'node', 'pnpm', 'git')
 foreach ($name in $requiredCommands) {
     if (-not (Get-Command $name -ErrorAction SilentlyContinue)) {
         throw "Required build command is unavailable: $name"

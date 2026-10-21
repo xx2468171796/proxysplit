@@ -1,0 +1,13 @@
+/* 节点列：类型标签 + 名称 / 地址两行 */
+.ps-node-cell {
+  display: flex;
+  align-items: center;
+  gap: var(--aui-space-2);
+  min-width: 0;
+}
+
+/* 延迟结果：测出新值时 data-aui-flash 底色闪一下 */
+.ps-latency {
+  display: inline-flex;
+  border-radius: var(--aui-radius-sm);
+}

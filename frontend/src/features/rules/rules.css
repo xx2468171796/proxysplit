@@ -1,0 +1,63 @@
+/* 分流规则页：路由规则编辑行、写法说明。只用 admin-ui 色卡变量。 */
+.ps-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--aui-space-4);
+}
+
+.ps-full {
+  grid-column: 1 / -1;
+}
+
+.ps-rr {
+  display: flex;
+  flex-direction: column;
+  gap: var(--aui-space-2);
+}
+
+.ps-rr-row {
+  display: grid;
+  grid-template-columns: 200px minmax(0, 1fr) 120px 28px;
+  gap: var(--aui-space-2);
+  align-items: center;
+}
+
+.ps-rr[data-variant="short"] .ps-rr-row {
+  grid-template-columns: 140px minmax(0, 1fr) 110px 28px;
+}
+
+.ps-rr-head {
+  font-size: var(--aui-fs-note);
+  color: var(--aui-note);
+}
+
+.ps-rr-empty {
+  padding: var(--aui-space-3) 0;
+}
+
+.ps-guide {
+  display: flex;
+  flex-direction: column;
+  gap: var(--aui-space-3);
+}
+
+.ps-guide-notes {
+  margin: 0;
+  padding-left: var(--aui-space-6);
+  display: flex;
+  flex-direction: column;
+  gap: var(--aui-space-1);
+  font-size: var(--aui-fs-body);
+  color: var(--aui-secondary);
+  line-height: 1.6;
+}
+
+.ps-guide code,
+.ps-guide-notes code {
+  font-family: var(--aui-font-mono);
+  font-size: var(--aui-fs-tag);
+  padding: 0 4px;
+  border-radius: var(--aui-radius-sm);
+  background: var(--aui-soft);
+  color: var(--aui-text);
+}
