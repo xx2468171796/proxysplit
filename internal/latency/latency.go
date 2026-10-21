@@ -30,9 +30,9 @@ const connectivityURL = "https://www.google.com/generate_204"
 // Result is a latency/speed measurement. Latency and TCPLatency are two distinct
 // metrics and are always reported separately:
 //   - Latency:    Google 延迟 — full end-to-end HTTPS 204 round-trip through the
-//                 complete proxy tunnel. Reflects real usability.
+//     complete proxy tunnel. Reflects real usability.
 //   - TCPLatency: TCP 延迟 — raw TCP (+protocol handshake) connect time to the
-//                 node's edge. Reflects transport-layer reachability only.
+//     node's edge. Reflects transport-layer reachability only.
 //
 // Each field is -1 on failure and 0 when that metric was not measured.
 type Result struct {

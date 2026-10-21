@@ -31,7 +31,6 @@ export type AppRule = {
 };
 
 export type RouteRule = { type: string; value: string; action: string };
-export type Routing = { enabled: boolean; mode: string; rules: RouteRule[] };
 
 export type Line = {
   id: string;
@@ -42,7 +41,7 @@ export type Line = {
   builtin: boolean;
 };
 
-export type LineHealth = { id: string; name: string; node: string; latency: number; ok: boolean };
+type LineHealth = { id: string; name: string; node: string; latency: number; ok: boolean };
 export type Health = {
   running: boolean;
   capturing: boolean;
@@ -51,7 +50,7 @@ export type Health = {
   lines: LineHealth[];
 };
 
-export type CoreStats = {
+type CoreStats = {
   running?: boolean;
   activeConns: number;
   totalConns: number;
@@ -184,7 +183,7 @@ export type Announcement = {
   publishedAt: string;
 };
 
-export type AppRelease = {
+type AppRelease = {
   version: string;
   minimumVersion: string;
   url: string;

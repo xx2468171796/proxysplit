@@ -35,8 +35,3 @@ export function ThemeProvider({ theme, children }: ThemeProviderProps) {
 export function useTokens(): ThemeTokens {
   return useContext(ThemeContext).tokens;
 }
-
-/** 当前主题名（light / dark）：给有 theme / lightMode 开关的特效组件用 */
-export function useThemeName(): ThemeName {
-  return useContext(ThemeContext).theme;
-}

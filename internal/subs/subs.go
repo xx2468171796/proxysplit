@@ -27,16 +27,6 @@ type Result struct {
 	Notices  []string // e.g. device limit reached (official only)
 }
 
-// Fetch downloads a subscription URL and returns the nodes it contains
-// (compat mode only; kept for callers without a POWER云 client).
-func Fetch(url string, viaProxy string) ([]*nodes.Node, error) {
-	res, err := FetchWith(url, viaProxy, nil)
-	if err != nil {
-		return nil, err
-	}
-	return res.Nodes, nil
-}
-
 // FetchWith downloads a subscription. With a POWER云 client it identifies as
 // "ProxySplit/<version>" with the device headers (design §2.2); a response
 // carrying a valid X-PowerVPN-Signature (type profile) becomes an official

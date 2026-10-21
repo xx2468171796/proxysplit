@@ -109,7 +109,7 @@ func TestFetchDeclaredProfileWithBadSignatureSaysUpgrade(t *testing.T) {
 		t.Fatal("must still be a signature error")
 	}
 	// Without a POWER云 client (plain Fetch) the declared profile is still reported.
-	if _, err := Fetch(srv.URL, ""); !errors.Is(err, powervpn.ErrProfileSignature) {
+	if _, err := FetchWith(srv.URL, "", nil); !errors.Is(err, powervpn.ErrProfileSignature) {
 		t.Fatalf("plain fetch err = %v", err)
 	}
 	// No type header: unchanged compat path (the body is no subscription → error,

@@ -36,7 +36,7 @@ function visitorId(): string {
 const VISITOR = visitorId();
 
 /** 下载走 /v1/download/<file>?v=<访客>：服务端记一次后 302 到真实文件。 */
-export const downloadUrl = (file: string) => `/v1/download/${file}?v=${encodeURIComponent(VISITOR)}`;
+const downloadUrl = (file: string) => `/v1/download/${file}?v=${encodeURIComponent(VISITOR)}`;
 export const LATEST_DOWNLOAD = downloadUrl("proxysplit-latest.exe");
 
 export function trackView(): void {

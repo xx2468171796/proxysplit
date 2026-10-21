@@ -4,7 +4,7 @@ import type { Conn, Health, Status } from "../api/types";
 import { stripAnsi } from "../shared/format";
 import { createStore } from "../shared/store";
 
-export type RecentLog = { time: string; level: "INFO" | "WARN" | "ERROR"; msg: string };
+type RecentLog = { time: string; level: "INFO" | "WARN" | "ERROR"; msg: string };
 
 export type RuntimeState = {
   status: Status | null;

@@ -7,7 +7,7 @@
 为不同应用设置规则、直连、拦截或指定线路；所有匹配与路由由 sing-box
 在本机完成，节点、订阅和应用规则优先保存在本机。
 
-[![下载](https://img.shields.io/badge/⬇_下载_v1.9.52-2563eb?style=for-the-badge)](https://proxysplit.zygskins.cn/download/proxysplit-v1.9.52.exe)
+[![下载](https://img.shields.io/badge/⬇_下载最新版-1c1f24?style=for-the-badge)](https://proxysplit.zygskins.cn/download/proxysplit-latest.exe)
 &nbsp;
 ![平台](https://img.shields.io/badge/Windows_10/11-x64-334155?style=for-the-badge)
 ![内核](https://img.shields.io/badge/core-sing--box-16a34a?style=for-the-badge)
@@ -47,7 +47,7 @@ ProxySplit **不提供任何翻墙、VPN、代理节点、订阅或网络线路�
 ## 下载与使用
 
 前往 **[ProxySplit 官网](https://proxysplit.zygskins.cn)** 下载
-`proxysplit-v1.9.52.exe`。这是便携式单文件版本：
+最新版安装包（`proxysplit-latest.exe`）。这是便携式单文件版本，有新版会自动升级：
 
 1. 在「节点」页添加你有权使用的合法网络配置。
 2. 在「应用分流」页选择应用并分配规则或线路。
@@ -153,7 +153,7 @@ internal/updater/       签名更新检查、下载验证与 Windows 原地升�
 internal/license/       商业登录、设备绑定、离线租约与 DPAPI
 server/apps/api/        商业 API
 server/apps/admin/      商业运营后台
-server/apps/site/       官方网站
+website/                官方网站（React + admin-ui + dongxiao，发布时放进 apps/site）
 scripts/                构建、正式签名构建与发布脚本（流程见 docs/RELEASE-PROCESS.md）
 ```
 

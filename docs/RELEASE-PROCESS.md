@@ -1,97 +1,48 @@
-# ProxySplit 通用发布流程
+# ProxySplit 发布流程
 
-这份流程是客户端、API、运营后台和官网的唯一正式发布入口。
+客户端、API、运营后台和官网都按这里发布。服务器只经堡垒机（baolei MCP）操作，不直连 ssh / scp。
+每次发版都是强制更新（`mandatory=true`，`minimum_version` 保持 1.9.51），官网跟客户端一起发。
 
-> **只发客户端**（服务端不动）不跑 `release-all.ps1`，按 [docs/memory/release-process.md](memory/release-process.md)「只发客户端的标准流程」：
-> 正式构建 → 传深圳 incoming → `publish-client.py prepare` → 登记 releases → `promote` → 验收。后续 Codex、Claude Code
-或人工接手时，不要再手工复制单个文件、手改官网版本号或直接覆盖线上目录。
+- **全站发布**：服务端、后台或官网有改动时用，下面第 1–5 步。
+- **只发客户端**：服务端不动时，按 [docs/memory/release-process.md](memory/release-process.md)「只发客户端的标准流程」（incoming + `publish-client.py`）。
 
-## 一条命令
+## 1. 定版
 
-先把准备发布的代码提交到 `main`，确保工作区干净，然后执行：
+CHANGELOG 写好新版本一节并提交到 `main`，工作区保持干净。
 
-```powershell
-.\scripts\release-all.ps1 `
-  -Version 1.9.35 `
-  -Title "节点列表体验优化" `
-  -Summary "节点表头和内容严格对齐" `
-  -Changelog "统一表格列轨道；修复窄窗口布局。"
+## 2. 本机检查、构建、打包
+
+签名私钥（堡垒机资产 116）写到 `server/secrets/shenzhen-release-private.pem`（LF 换行，SHA256 与 `build/release-kit/profile.json` 一致），用完立刻删。在 Bash 里：
+
+```bash
+trap 'rm -f server/secrets/shenzhen-release-private.pem' EXIT
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/release-all.ps1 -Version x.y.z
 ```
 
-只做环境、测试和构建链检查，不修改生产：
+脚本依次做：干净 `main` 检查 → 版本必须比线上新 → Go test/vet、前端 `check`、服务端 typecheck/test/build、官网 `check`（含首屏体积门禁）→ 签名构建 exe → 用 `git archive HEAD:server` 加后台 dist 和官网 dist 组装服务端包。产物在 `output/release-<release-id>/`：服务端 tar.gz、exe、manifest、`remote-deploy.sh`。只检查不构建用 `-PreflightOnly`。
 
-```powershell
-.\scripts\release-all.ps1 -Version 1.9.35 -PreflightOnly
-```
+构建会重新生成 `frontend/wailsjs` 绑定，有变化就随后提交。
 
-可选参数：
+## 3. 上传并部署（堡垒机）
 
-- `-MinimumVersion 1.9.20`：允许升级的最低客户端版本，默认等于新版本。
-- `-Channel beta`：测试通道，默认 `stable`。
-- `-Mandatory`：强制升级。
-- `-SkipTests`：只在紧急且测试已由 CI 完整执行时使用；类型检查和构建仍不会跳过。
+1. `run_command sz`：`mkdir -p /opt/proxysplit/incoming/<release-id>`。
+2. 四个文件各用 `transfer_link`（upload）拿一次性链接，本机 `curl -fT` 上传；服务器上 `sha256sum` 核对。
+3. `run_command sz`：`sh /opt/proxysplit/incoming/<id>/remote-deploy.sh /opt/proxysplit <id> <tar> <exe> <manifest>`（约 5 分钟）。
 
-## 自动完成的事情
+`remote-deploy.sh` 会：`pg_dump` 备份到 `backups/postgres-<id>.sql.gz` → 构建 API 镜像并迁移 → 健康检查 → 放版本化安装包并原子替换 `proxysplit-latest.exe`（`proxysplit-ai-latest.exe` 软链跟着走）→ 切换 `current` 软链 → `openresty -t`。OpenResty 站点配置在服务器上统一管理，脚本不覆盖。
 
-1. 要求 `main`、干净 Git 工作区，并记录精确 commit。
-2. 校验工具、正式公钥、TLS Pin、发布私钥和管理员凭据。
-3. 执行 Go test/vet、前端门禁（`pnpm --dir frontend check`）、服务端 typecheck/test/build。
-4. Garble 构建 Windows EXE，写入 FileVersion/ProductVersion，生成 SHA256 和 Ed25519 更新签名。
-5. 从 Git commit 组装服务端源码，并加入刚构建的后台 `dist`。
-6. 上传到唯一 release 目录；迁移前自动 `pg_dump`；构建并健康检查 API。
-7. 原子切换 `/opt/proxysplit/current`，更新 Nginx、官网和后台。
-8. 原子发布版本化安装包及 `proxysplit-latest.exe`。
-9. 调用后台 API 登记版本，最后验证 health、latest API 和两个下载地址。
+## 4. 登记版本（堡垒机 db_query，数据源 sz-pg-proxysplit）
 
-## 文件与职责
+在一个事务里插 `releases`（version、minimum_version='1.9.51'、url、sha256、signature 取自 manifest，mandatory=true，title / summary / changelog，channel='stable'）和 `audit_logs`（action `admin.release.create`，ip 不能为空）。字段照上一版那行抄。
 
-| 文件 | 用途 |
-|---|---|
-| `scripts/release-all.ps1` | 本机总编排，后续 AI 只调用它 |
-| `scripts/build-commercial.ps1` | 客户端正式签名构建 |
-| `scripts/remote-deploy.sh` | 服务端迁移、备份、容器、原子切换 |
-| `build/release-kit/profile.json` | 可提交的生产地址、SSH 和公钥配置 |
-| `server/secrets/shenzhen-release-private.pem` | 本机更新签名私钥，禁止提交 |
-| `~/.config/proxysplit/shenzhen-admin.txt` | 本机后台账号，禁止提交 |
+## 5. 验收与收尾
 
-管理员凭据文件格式：
+- 用国内机（飞牛）：`/v1/releases/latest?channel=stable` 是新版本且 mandatory；`/health` 200；官网和 `/admin/` 200；版本化 / latest / ai-latest 三个下载地址整包 SHA256 与 manifest 一致。
+- 浏览器打开官网，确认无报错、套餐能加载、页脚版本正确。
+- 写回 sz 机器笔记（`update_machine_knowledge`，页面 proxysplit）、`.ankotti/MEMORY.md` 与 `docs/decisions.md`；推送 `gitea` 和 `origin`（GitHub 令牌只临时放请求头），打 tag；`report`。
 
-```text
-URL=https://proxysplit.zygskins.cn
-USERNAME=...
-PASSWORD=...
-SSH=proxysplit-shenzhen
-```
+## 回滚
 
-## 版本和缓存约定
-
-- 官网源码不再写死 `v1.9.x`，默认链接固定为
-  `/download/proxysplit-latest.exe`，页面加载后以 latest API 更新显示。
-- 每个正式包仍保留不可变地址 `/download/proxysplit-vX.Y.Z.exe`。
-- 官网普通 HTML 使用 `no-cache`；带指纹的静态 assets 才允许长期缓存。
-- 客户端版本只来自发布命令参数，构建脚本会同步 Go、Wails、Windows 资源并在结束后恢复源码。
-
-## 失败、重跑与回滚
-
-- 本地检查或构建失败：生产完全不变，修复后重新运行同一命令。
-- 迁移前会生成 `/opt/proxysplit/backups/postgres-<release-id>.sql.gz`。
-- 新 API 未健康：不会切换官网/后台软链接，脚本报错并保留日志。
-- Nginx 验证失败：脚本自动把 `current` 软链接切回前一版。
-- 数据库迁移是前向兼容设计，**不要自动执行降级 SQL**。需要数据恢复时先停 API，
-  由负责人确认备份时间点后恢复。
-- 若服务器已部署但“登记自动更新版本”失败，可修复后台凭据/网络后重跑；由于版本记录唯一，
-  重跑前先确认 `/v1/releases` 是否已经存在该版本。
-
-生产检查：
-
-```powershell
-Invoke-RestMethod https://proxysplit.zygskins.cn/health
-Invoke-RestMethod "https://proxysplit.zygskins.cn/v1/releases/latest?channel=stable"
-ssh proxysplit-shenzhen "readlink -f /opt/proxysplit/current; docker ps --filter name=proxysplit"
-```
-
-## 发布后的固定收尾
-
-1. 把版本、commit、SHA256、release 目录和验证结果写入 `.ankotti/MEMORY.md`。
-2. `git push origin main` 和 `git push gitea main`。
-3. 调用 ecosystem `report` 汇报版本、结果和阻塞。
+- 服务端：`cd` 上一版 `releases/<id>` 目录，`docker compose -f docker-compose.prod.yml up -d api`，并把 `current` 软链切回去（迁移都是加法，不跑降级 SQL）。
+- 客户端：把 `downloads/proxysplit-latest.exe` 和 `proxysplit-latest.manifest.json` 换回上一版的版本化文件，再删 `releases` 表里新版本那行。
+- 需要恢复数据时先停 API，由负责人确认备份时间点后再恢复。

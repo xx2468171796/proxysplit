@@ -1,12 +1,12 @@
 /** 令牌的 TypeScript 侧：名字清单 + 读取函数。值的唯一来源是 tokens.css。 */
 
-export const THEME_NAMES = ["light", "dark"] as const;
+const THEME_NAMES = ["light", "dark"] as const;
 export type ThemeName = (typeof THEME_NAMES)[number];
 
 /** 站点默认主题（front-site 配方的 --style） */
 export const DEFAULT_THEME: ThemeName = "light";
 
-export const TOKEN_NAMES = [
+const TOKEN_NAMES = [
   "brand",
   "brand-strong",
   "accent",
@@ -20,7 +20,7 @@ export const TOKEN_NAMES = [
   "on-brand",
   "fx-glow",
 ] as const;
-export type TokenName = (typeof TOKEN_NAMES)[number];
+type TokenName = (typeof TOKEN_NAMES)[number];
 export type ThemeTokens = Readonly<Record<TokenName, string>>;
 
 /** 无 DOM 或令牌缺失时的中性兜底；只是防空，不是第二份主题 */

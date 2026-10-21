@@ -44,6 +44,3 @@ Ed25519 离线租约绑定账号 / 设备 / 硬件 / 期限；minimumVersion 会
 - 订单新增 checkout_url（电脑收银台）/ merchant_name；网关换线时 API 打 warn 日志。
 - 退款：后台订单「退款」→ POST /v1/admin/orders/:no/refund {reason}，整组拆单一起退，只扣未用时长（权益流水 license_grants 记录每次发放的 start/end；refundedLicense 纯函数有单测）；2026-09-26 之前的订单无流水，只标退款不动会员，需手动调；钱在支付宝商户后台原路退。
 - 单笔回调到账走 grantWithinTx（以前漏了试用剩余时长合并）。
-
-## 迁移原文条目（来自旧 MEMORY.md，供核对）
-- **POWER云 接入是公司标准**（2026-09-29，commit 9a5a6d8）：改 internal/powervpn、internal/coreupdate、bin/core-release.json、PanelPublicKey、服务端 /v1/auth/powervpn 前先读 powervpn 仓 `docs/platform/PowerVPN-客户端接入标准.md`（字段合同 openspec/changes/client-device-identity/design.md），按其第 8 节清单三处一起改，发布顺序 面板 → 节点 → 本仓服务端 → 客户端。换签名密钥必须先发带新公钥的客户端。

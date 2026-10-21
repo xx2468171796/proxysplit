@@ -505,28 +505,6 @@ func (m *Manager) pump(r interface{ Read([]byte) (int, error) }) {
 // FreePort returns an unused loopback TCP port.
 func FreePort() (int, error) { return freePort() }
 
-// FreePorts returns n DISTINCT unused loopback ports. It keeps every probe
-// listener open until all ports are chosen, so the OS cannot hand the same
-// just-freed ephemeral port to two callers.
-func FreePorts(n int) ([]int, error) {
-	var ls []net.Listener
-	defer func() {
-		for _, l := range ls {
-			l.Close()
-		}
-	}()
-	ports := make([]int, 0, n)
-	for i := 0; i < n; i++ {
-		l, err := net.Listen("tcp", "127.0.0.1:0")
-		if err != nil {
-			return nil, err
-		}
-		ls = append(ls, l)
-		ports = append(ports, l.Addr().(*net.TCPAddr).Port)
-	}
-	return ports, nil
-}
-
 // --- helpers ---
 
 func freePort() (int, error) {

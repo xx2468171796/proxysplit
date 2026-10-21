@@ -353,15 +353,6 @@ func startPeek(br *bufio.Reader) *peeker {
 	return p
 }
 
-func (p *peeker) closed() bool {
-	select {
-	case <-p.done:
-		return p.err != nil
-	default:
-		return false
-	}
-}
-
 // ---- 经中继发送（可续传）----
 
 type delivered int
@@ -370,17 +361,6 @@ const (
 	deliveredDone delivered = iota
 	deliveredNotSent
 )
-
-func (e *Engine) currentKnown() map[Sha]struct{} {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	k := e.known[e.relay]
-	if k == nil {
-		k = map[Sha]struct{}{}
-		e.known[e.relay] = k
-	}
-	return k
-}
 
 func (e *Engine) remember(sha Sha) {
 	e.mu.Lock()

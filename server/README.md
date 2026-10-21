@@ -66,7 +66,7 @@ docker compose -f docker-compose.prod.yml up -d api
 ```
 
 宿主机 Nginx 使用 `deploy/proxysplit.nginx.conf`，对外统一入口为
-`https://proxysplit.zygskins.cn`；官网静态文件位于 `apps/site`，管理台位于
+`https://proxysplit.zygskins.cn`；官网静态文件位于 `apps/site`（由仓库根的 `website/` 构建，发布时放入），管理台位于
 `/admin/`，版本下载位于 `/download/`。管理台与 API 同源，`/v1/*` 和
 `/health` 反向代理到仅监听 `127.0.0.1:18780` 的 API 容器。
 

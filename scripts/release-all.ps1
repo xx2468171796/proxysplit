@@ -1,17 +1,12 @@
-# One-command release for the desktop client, API, admin UI and public website.
-# Run from any directory:
-#   .\scripts\release-all.ps1 -Version 1.9.35 -Title "..." -Summary "..."
+# Whole-site release, local half: checks, signed client build and the server
+# archive (API source + admin dist + website dist). It never touches production:
+# upload / deploy / register go through the baolei bastion (docs/RELEASE-PROCESS.md).
+#   .\scripts\release-all.ps1 -Version 1.9.77               # build + stage
+#   .\scripts\release-all.ps1 -Version 1.9.77 -PreflightOnly
 param(
     [Parameter(Mandatory = $true)]
     [ValidatePattern('^\d+\.\d+\.\d+$')]
     [string]$Version,
-    [string]$Title = "",
-    [string]$Summary = "",
-    [string]$Changelog = "",
-    [string]$MinimumVersion = "",
-    [ValidateSet('stable', 'beta')]
-    [string]$Channel = "stable",
-    [switch]$Mandatory,
     [switch]$PreflightOnly,
     [switch]$SkipTests
 )
@@ -49,47 +44,11 @@ function Run([string]$file, [string[]]$arguments, [string]$workingDirectory = $r
     }
 }
 
-function Expand-UserPath([string]$path) {
-    if ($path.StartsWith('~/') -or $path.StartsWith('~\')) {
-        return Join-Path $HOME $path.Substring(2)
-    }
-    return $path
-}
-
-function Read-KeyValueFile([string]$path) {
-    $values = @{}
-    foreach ($line in Get-Content -LiteralPath $path) {
-        if ($line -match '^\s*([^#=\s]+)\s*=\s*(.*)\s*$') {
-            $values[$matches[1].ToUpperInvariant()] = $matches[2]
-        }
-    }
-    return $values
-}
-
-function Api([string]$method, [string]$url, $body = $null, [string]$token = '') {
-    $headers = @{ Accept = 'application/json' }
-    if ($token) { $headers.Authorization = "Bearer $token" }
-    $params = @{
-        Method = $method
-        Uri = $url
-        Headers = $headers
-        TimeoutSec = 30
-    }
-    if ($null -ne $body) {
-        $params.ContentType = 'application/json; charset=utf-8'
-        $params.Body = ($body | ConvertTo-Json -Depth 8)
-    }
-    return Invoke-RestMethod @params
-}
-
 Step 'Release preflight'
-foreach ($command in @('git', 'go', 'node', 'npm.cmd', 'pnpm.cmd', 'tar', 'ssh', 'scp')) {
+foreach ($command in @('git', 'go', 'node', 'pnpm.cmd', 'tar')) {
     if (-not (Get-Command $command -ErrorAction SilentlyContinue)) {
         throw "Required command is missing: $command"
     }
-}
-if (-not (Test-Path -LiteralPath (Join-Path $root 'scripts\remote-deploy.sh'))) {
-    throw 'Remote deploy script is missing'
 }
 $dirty = (& git -C $root status --porcelain)
 if ($dirty) {
@@ -99,46 +58,27 @@ $branch = (& git -C $root branch --show-current).Trim()
 if ($branch -ne 'main') { throw "Production releases must run from main, current branch: $branch" }
 $sourceCommit = (& git -C $root rev-parse HEAD).Trim()
 
-$credentialsPath = Expand-UserPath ([string]$profile.adminCredentialsFile)
-if (-not (Test-Path -LiteralPath $credentialsPath -PathType Leaf)) {
-    throw "Admin credentials are missing: $credentialsPath"
-}
-$credentials = Read-KeyValueFile $credentialsPath
-foreach ($key in @('USERNAME', 'PASSWORD')) {
-    if (-not $credentials.ContainsKey($key) -or [string]::IsNullOrWhiteSpace($credentials[$key])) {
-        throw "Admin credentials file has no $key"
-    }
-}
-
 $baseUrl = ([string]$profile.commercialApiUrl).TrimEnd('/')
-$latest = Api 'GET' "$baseUrl/v1/releases/latest?channel=$Channel"
+$latest = Invoke-RestMethod -Uri "$baseUrl/v1/releases/latest?channel=stable" -Headers @{ Accept = 'application/json' } -TimeoutSec 30
 if ($latest.release -and ([version]$Version -le [version]$latest.release.version)) {
     throw "Version $Version must be newer than published $($latest.release.version)"
 }
-if (-not $Title) { $Title = "ProxySplit v$Version" }
-if (-not $Summary) { $Summary = $Title }
-if (-not $Changelog) { $Changelog = $Summary }
-if (-not $MinimumVersion) { $MinimumVersion = $Version }
 
 Step 'Client and server regression checks'
 Run 'go' @('test', './...')
 Run 'go' @('vet', './...')
-if (-not (Test-Path (Join-Path $root 'frontend\node_modules'))) {
-    Run 'pnpm.cmd' @('install', '--frozen-lockfile') (Join-Path $root 'frontend')
+foreach ($dir in @('frontend', 'server', 'website')) {
+    if (-not (Test-Path (Join-Path $root "$dir\node_modules"))) {
+        Run 'pnpm.cmd' @('install', '--frozen-lockfile') (Join-Path $root $dir)
+    }
 }
 Run 'pnpm.cmd' @('check') (Join-Path $root 'frontend')
-if (-not (Test-Path (Join-Path $root 'server\node_modules'))) {
-    Run 'pnpm.cmd' @('install', '--frozen-lockfile') (Join-Path $root 'server')
-}
 Run 'pnpm.cmd' @('typecheck') (Join-Path $root 'server')
 if (-not $SkipTests) {
     Run 'pnpm.cmd' @('test') (Join-Path $root 'server')
 }
 Run 'pnpm.cmd' @('build') (Join-Path $root 'server')
 # 官网（website/，React + dongxiao）：check 里含首屏体积门禁并产出 website/dist。
-if (-not (Test-Path (Join-Path $root 'website\node_modules'))) {
-    Run 'pnpm.cmd' @('install', '--frozen-lockfile') (Join-Path $root 'website')
-}
 Run 'pnpm.cmd' @('check') (Join-Path $root 'website')
 
 if ($PreflightOnly) {
@@ -161,16 +101,16 @@ if ($actualHash -ne ([string]$manifest.sha256).ToLowerInvariant()) { throw 'Clie
 Step 'Assemble immutable server release'
 $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
 $releaseId = "$stamp-$($sourceCommit.Substring(0, 7))-v$Version"
+$outDir = Join-Path $root "output\release-$releaseId"
 $temp = Join-Path ([IO.Path]::GetTempPath()) "proxysplit-release-$([guid]::NewGuid().ToString('N'))"
 $stage = Join-Path $temp 'server'
-New-Item -ItemType Directory -Path $stage -Force | Out-Null
+New-Item -ItemType Directory -Path $stage, $outDir -Force | Out-Null
 try {
     $sourceTar = Join-Path $temp 'source.tar'
     # -c core.autocrlf=false: `git archive HEAD:server` reads .gitattributes from
     # the server subtree only; without this, a Windows autocrlf=true dev machine
     # would still rewrite shell scripts to CRLF and break Linux container
-    # entrypoints (`exec ...: no such file or directory`). Belt-and-suspenders
-    # alongside server/.gitattributes.
+    # entrypoints (`exec ...: no such file or directory`).
     Run 'git' @('-c', 'core.autocrlf=false', '-C', $root, 'archive', '--format=tar', '-o', $sourceTar, 'HEAD:server')
     Run 'tar' @('-xf', $sourceTar, '-C', $stage)
     $adminDist = Join-Path $root 'server\apps\admin\dist'
@@ -183,60 +123,14 @@ try {
     New-Item -ItemType Directory -Path $siteStage -Force | Out-Null
     Get-ChildItem -LiteralPath $siteDist -Force | Where-Object { $_.Name -ne '.vite' } |
         Copy-Item -Destination $siteStage -Recurse -Force
-    $archive = Join-Path $temp "proxysplit-server-$releaseId.tar.gz"
-    Run 'tar' @('-czf', $archive, '-C', $stage, '.')
-
-    Step "Upload and switch production: $releaseId"
-    $sshAlias = [string]$profile.sshAlias
-    $productionRoot = [string]$profile.productionRoot
-    $remoteIncoming = "$productionRoot/incoming/$releaseId"
-    Run 'ssh' @($sshAlias, "mkdir -p '$remoteIncoming'")
-    Run 'scp' @($archive, $exe, $manifestPath, (Join-Path $root 'scripts\remote-deploy.sh'), "${sshAlias}:${remoteIncoming}/")
-    $remoteArchive = "$remoteIncoming/$([IO.Path]::GetFileName($archive))"
-    $remoteExe = "$remoteIncoming/$([IO.Path]::GetFileName($exe))"
-    $remoteManifest = "$remoteIncoming/$([IO.Path]::GetFileName($manifestPath))"
-    Run 'ssh' @($sshAlias, "chmod 0755 '$remoteIncoming/remote-deploy.sh' && '$remoteIncoming/remote-deploy.sh' '$productionRoot' '$releaseId' '$remoteArchive' '$remoteExe' '$remoteManifest'")
+    Run 'tar' @('-czf', (Join-Path $outDir "proxysplit-server-$releaseId.tar.gz"), '-C', $stage, '.')
 } finally {
     Remove-Item -LiteralPath $temp -Recurse -Force -ErrorAction SilentlyContinue
 }
+Copy-Item -LiteralPath $exe, $manifestPath, (Join-Path $root 'scripts\remote-deploy.sh') -Destination $outDir
 
-Step 'Register automatic update release'
-$login = Api 'POST' "$baseUrl/v1/auth/login" @{
-    username = $credentials.USERNAME
-    password = $credentials.PASSWORD
-    device = @{
-        fingerprint = 'codexreleasepublisher20260724stable'
-        name = 'Automated release workflow'
-        platform = 'windows'
-        appVersion = $Version
-    }
-}
-if (-not $login.accessToken) { throw 'Admin login returned no access token' }
-$releaseBody = @{
-    version = $Version
-    minimumVersion = $MinimumVersion
-    url = [string]$manifest.url
-    sha256 = [string]$manifest.sha256
-    signature = [string]$manifest.signature
-    mandatory = [bool]$Mandatory
-    title = $Title
-    summary = $Summary
-    changelog = $Changelog
-    channel = $Channel
-}
-$null = Api 'POST' "$baseUrl/v1/admin/releases" $releaseBody $login.accessToken
-
-Step 'Production acceptance'
-$published = Api 'GET' "$baseUrl/v1/releases/latest?channel=$Channel"
-if (-not $published.release -or $published.release.version -ne $Version) {
-    throw 'Latest release API did not switch to the new version'
-}
-$download = Invoke-WebRequest -Method Head -UseBasicParsing -Uri "$baseUrl/download/proxysplit-v$Version.exe" -TimeoutSec 30
-if ($download.StatusCode -ne 200) { throw 'Versioned download is unavailable' }
-$latestDownload = Invoke-WebRequest -Method Head -UseBasicParsing -Uri "$baseUrl/download/proxysplit-latest.exe" -TimeoutSec 30
-if ($latestDownload.StatusCode -ne 200) { throw 'Latest download alias is unavailable' }
-$health = Api 'GET' "$baseUrl/health"
-Write-Host "`nReleased v$Version successfully." -ForegroundColor Green
-Write-Host "Commit : $sourceCommit"
-Write-Host "SHA256 : $actualHash"
-Write-Host "Release: $releaseId"
+Write-Host "`nStaged v$Version (not deployed)." -ForegroundColor Green
+Write-Host "Release id: $releaseId"
+Write-Host "Files     : $outDir"
+Write-Host "SHA256    : $actualHash"
+Write-Host "Next      : upload the four files to sz $($profile.productionRoot)/incoming/$releaseId via the bastion and run remote-deploy.sh (docs/RELEASE-PROCESS.md)."

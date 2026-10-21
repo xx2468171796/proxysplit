@@ -15,7 +15,7 @@
 - AI 劫持只管 Claude 与 OpenAI，且只能界面「恢复」解除，不加命令行 / 远程解锁。
 - 加速兜底握手复刻不了就不接管、不直连；词表与 sub2api 两边同改。
 - 动 POWER云 接入（powervpn / coreupdate / core-release.json / PanelPublicKey）前先读 powervpn 仓接入标准。
-- 不把 release-all.ps1（部署全站）当作只发客户端的脚本；只发客户端走 incoming + publish-client.py；全站发布经堡垒机手工跑 remote-deploy.sh（release-all 里的 ssh/scp 不能用）。
+- 全站发布按 docs/RELEASE-PROCESS.md（release-all.ps1 只构建打包，部署经堡垒机）；只发客户端走 incoming + publish-client.py。
 - 每次发版都设 mandatory=true（服务端只看 latest 那条）。
 - 不随意改生产构建路径（Dockerfile 用 npmmirror）；不用旧 Svelte / npm 流程。
 

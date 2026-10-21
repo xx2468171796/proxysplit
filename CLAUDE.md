@@ -12,7 +12,7 @@ Per-app proxy client for Windows (Go 1.26 + Wails 2 + sing-box TUN) with a comme
 - `frontend/` — React 19 + `@ankotti/admin-ui`, layers `api / state / features / app`; `frontend/wailsjs/` is generated.
 - `server/` — commercial API and admin console (pnpm workspace).
 - `website/` — official site (React + `@ankotti/admin-ui` + dongxiao effects, standalone Vite); `pnpm --dir website check` includes the first-screen bundle gate; release copies `website/dist` into `apps/site`. Screenshots in `website/public/shots/` come from `pnpm --dir frontend dev` with `?showcase=1`.
-- `scripts/` — builds and releases; `docs/` — design docs, `docs/memory/` topic notes, `docs/archive/` old material.
+- `scripts/` — builds and releases; `docs/` — design docs, `docs/memory/` topic notes, `docs/decisions.md` release history.
 
 ## Gates (run before handing back)
 - Go: `go vet ./...` and `go test ./...`.

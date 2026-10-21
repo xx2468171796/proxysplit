@@ -15,6 +15,3 @@
 
 ## DNS 已知问题
 系统 DNS 为公网地址时，开代理后查不存在的域名要等约 12 秒（strict_route 拦其它网卡 DNS，Windows 等全部网卡回答），详见 docs/AI诊断接口.md「已知问题」。
-
-## 迁移原文条目（来自旧 MEMORY.md，供核对）
-- **排查分流先用内置诊断接口**（2026-10-15，随 1.9.67 上线）：本机 18088 的 /api/diag、/api/diag/selftest、/api/diag/route-test（改名 curl 冒充程序真实访问，看命中规则和出口）及同名 MCP 工具，说明见 docs/AI诊断接口.md。远程机器经堡垒机 run_command 调。

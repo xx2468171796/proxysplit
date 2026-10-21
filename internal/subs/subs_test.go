@@ -39,14 +39,14 @@ proxies:
 `))
 	}))
 	defer server.Close()
-	got, err := Fetch(server.URL, "")
+	res, err := FetchWith(server.URL, "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if userAgent != "Clash.Meta" {
 		t.Fatalf("User-Agent=%q", userAgent)
 	}
-	if len(got) != 1 || got[0].Type != "vmess" {
+	if got := res.Nodes; len(got) != 1 || got[0].Type != "vmess" {
 		t.Fatalf("unexpected nodes: %+v", got)
 	}
 }

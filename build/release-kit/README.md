@@ -10,20 +10,20 @@
 正式发布只需在仓库根目录执行：
 
 ```powershell
-.\scripts\build-commercial.ps1 -Version 1.9.15
+.\scripts\build-commercial.ps1 -Version x.y.z
 ```
 
 仅检查环境和构建资料：
 
 ```powershell
-.\scripts\build-commercial.ps1 -Version 1.9.15 -CheckOnly
+.\scripts\build-commercial.ps1 -Version x.y.z -CheckOnly
 ```
 
 正式产物输出到：
 
 ```text
-output/proxysplit-v1.9.15.exe
-output/proxysplit-v1.9.15.manifest.json
+output/proxysplit-vx.y.z.exe
+output/proxysplit-vx.y.z.manifest.json
 output/proxysplit.exe
 ```
 
@@ -35,12 +35,12 @@ output/proxysplit.exe
 server/secrets/shenzhen-release-private.pem
 ```
 
-该目录被 `.gitignore` 排除，但文件已经在当前项目工作区内，Codex、Claude Code
-等本机 AI 均可由包装脚本自动使用，不需要再询问参数。
+该目录被 `.gitignore` 排除。私钥平时不留在本机：构建前从堡垒机资产 116 取出写到这里，
+构建完立刻删除（做法见 docs/RELEASE-PROCESS.md）。
 
 私钥不能明文提交到当前远程 Git 仓库。否则任何拿到仓库的人都能伪造客户端自动更新，
 相当于失去整个客户端发布链的控制权。仓库中的 `profile.json` 保存私钥路径和 SHA256，
 包装脚本会在构建前校验完整性。
 
-如果换到一台全新电脑，需由项目所有者通过安全介质把同一私钥放回上述路径；不能从
+换电脑时同样从资产 116 取；不能从
 GitHub 下载私钥，也不能临时生成新私钥，否则现有客户端不会信任新签名。

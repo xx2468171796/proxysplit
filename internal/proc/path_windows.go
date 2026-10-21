@@ -3,7 +3,6 @@
 package proc
 
 import (
-	"strings"
 
 	"golang.org/x/sys/windows"
 )
@@ -21,13 +20,4 @@ func exePath(pid uint32) (string, error) {
 		return "", err
 	}
 	return windows.UTF16ToString(buf[:size]), nil
-}
-
-// BaseName returns the lowercased final path element, e.g. "code.exe".
-func BaseName(p string) string {
-	p = strings.ReplaceAll(p, "/", "\\")
-	if i := strings.LastIndex(p, "\\"); i >= 0 {
-		p = p[i+1:]
-	}
-	return strings.ToLower(p)
 }
