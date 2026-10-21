@@ -4,74 +4,67 @@
 // never reach an account-sensitive AI service from the customer's own,
 // mainland IP).
 //
-// ai.json is a verbatim copy of the company rule pack's "ai" category
-// (powervpn repo packages/core/data/rulepack/ai.json). Update it by copying the
-// file again and bumping RulepackVersion; never edit the list here by hand.
+// Scope (owner, 2026-10-21): Claude (Claude Code CLI, the Claude desktop app,
+// claude.ai) and OpenAI (ChatGPT web / app, Codex CLI) only — the services our
+// relay customers' accounts live on. Other AI products are not hijacked: the
+// lock would leave them unusable whenever ProxySplit is off. The domains are the
+// Claude / OpenAI part of the company rule pack's "ai" category (powervpn repo
+// packages/core/data/rulepack/ai.json).
 package aiguard
 
-import (
-	_ "embed"
-	"encoding/json"
-	"strings"
-)
+import "strings"
 
-// RulepackVersion is the rule-pack version ai.json was copied from.
-const RulepackVersion = "2026.10.16.1"
-
-//go:embed ai.json
-var aiJSON []byte
-
-type category struct {
-	ID           string   `json:"id"`
-	DomainSuffix []string `json:"domain_suffix"`
-	Domain       []string `json:"domain"`
-	IPCIDR       []string `json:"ip_cidr"`
+// lockSuffixes are hijacked AND locked (unresolvable while ProxySplit is off).
+var lockSuffixes = []string{
+	// Claude: api / console / statsig.anthropic.com, claude.ai (web, desktop
+	// app, Claude Code OAuth login), claude.com, file previews.
+	"anthropic.com", "claude.ai", "claude.com", "claudeusercontent.com",
+	// OpenAI: api / auth.openai.com, chatgpt.com (web, app, Codex CLI backend),
+	// static and user content, chat.com / sora.com.
+	"openai.com", "chatgpt.com", "chat.com", "oaistatic.com", "oaiusercontent.com", "sora.com",
 }
 
-var ai = mustParse(aiJSON)
+// routeOnlySuffixes go through the AI line too but are not locked: shared by
+// many other sites. challenges.cloudflare.com is the human check on the
+// claude.ai / chatgpt.com sign-in pages — it must see the same IP as the site.
+var routeOnlySuffixes = []string{"challenges.cloudflare.com"}
 
-func mustParse(raw []byte) category {
-	var c category
-	if err := json.Unmarshal(raw, &c); err != nil || c.ID != "ai" || len(c.DomainSuffix) == 0 {
-		panic("aiguard: bad embedded ai.json")
-	}
-	return c
-}
+// ipCIDRs are Anthropic's own ranges (claude.ai, api.anthropic.com) for
+// traffic dialled by IP.
+var ipCIDRs = []string{"160.79.104.0/23", "2607:6bc0::/48"}
 
-// DomainSuffixes are the AI service domains (each matches itself and every
+// DomainSuffixes are routed through the AI line (each matches itself and every
 // subdomain, sing-box domain_suffix semantics).
-func DomainSuffixes() []string { return append([]string(nil), ai.DomainSuffix...) }
+func DomainSuffixes() []string {
+	return append(append([]string(nil), lockSuffixes...), routeOnlySuffixes...)
+}
 
-// Domains are exact-match AI hosts (usually empty).
-func Domains() []string { return append([]string(nil), ai.Domain...) }
+// Domains are exact-match AI hosts (none at the moment).
+func Domains() []string { return nil }
 
-// IPCIDRs are AI providers' own address ranges (traffic dialled by IP).
-func IPCIDRs() []string { return append([]string(nil), ai.IPCIDR...) }
+// IPCIDRs are AI providers' own address ranges.
+func IPCIDRs() []string { return append([]string(nil), ipCIDRs...) }
 
 // Namespaces is the NRPT namespace list for the lock: ".x" covers the
 // subdomains of x and "x" the name itself (NRPT has no single entry for both).
 func Namespaces() []string {
-	out := make([]string, 0, 2*len(ai.DomainSuffix)+len(ai.Domain))
-	for _, s := range ai.DomainSuffix {
-		s = strings.Trim(strings.ToLower(s), ".")
+	out := make([]string, 0, 2*len(lockSuffixes))
+	for _, s := range lockSuffixes {
 		out = append(out, "."+s, s)
-	}
-	for _, d := range ai.Domain {
-		out = append(out, strings.Trim(strings.ToLower(d), "."))
 	}
 	return out
 }
 
-// Covers reports whether host is on the AI list (used by checks and tests).
-func Covers(host string) bool {
+// Covers reports whether host is hijacked (routed through the AI line).
+func Covers(host string) bool { return matches(host, DomainSuffixes()) }
+
+// Locked reports whether host is unresolvable while ProxySplit is off.
+func Locked(host string) bool { return matches(host, lockSuffixes) }
+
+func matches(host string, suffixes []string) bool {
 	h := strings.Trim(strings.ToLower(host), ".")
-	for _, s := range ai.DomainSuffix {
+	for _, s := range suffixes {
 		if h == s || strings.HasSuffix(h, "."+s) {
-			return true
-		}
-	}
-	for _, d := range ai.Domain {
-		if h == d {
 			return true
 		}
 	}

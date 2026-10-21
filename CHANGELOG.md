@@ -3,6 +3,12 @@
 版本号以发布构建为准（`scripts/build-commercial.ps1 -Version <x.y.z>`，注入 `main.appVersion`），
 每个发布产物的 SHA256 见 `output/proxysplit-v<版本>.manifest.json`。
 
+## v1.9.72
+
+- AI 劫持模式只管 Claude（Claude Code 命令行、Claude 客户端、claude.ai 网页）和 OpenAI（ChatGPT、Codex 命令行）：Gemini、Cursor、Copilot、DeepSeek 等其他 AI 不再被劫持和锁住，关掉软件也能照常用。
+- 两家登录页的人机验证（Cloudflare）也走同一条线路，出口 IP 一致；它只走线路、不锁。
+- AI 环境检测分别实测 Claude 和 ChatGPT / Codex 的出口地区。
+
 ## v1.9.71
 
 - AI 编程官网客户：Claude、ChatGPT 等 AI 服务一律走我们的 POWER云 线路，不管哪个程序、选的是规则 / 全局 / 直连；没有可用线路时直接拦住，绝不用本机 IP 访问。AI 域名只解析 IPv4，QUIC 退回 TCP。

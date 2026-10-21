@@ -43,9 +43,14 @@
    其他代理 / VPN（进程、虚拟网卡、代理环境变量、别人设的系统代理）、开机自启。
    可修的项：立即保护（加锁 + 启动代理）、改台北时区、立即对时、开机自启；「一键修复」全部执行（不会替用户把恢复过的劫持模式重新打开）。
 
-## AI 名单
-`internal/aiguard/ai.json` = 公司规则包 `ai` 类别原样拷贝（powervpn 仓 `packages/core/data/rulepack/ai.json`，
-版本记在 `aiguard.RulepackVersion`）。规则包升版后重新拷贝并改版本号，不在这里手改。
+## 劫持范围（业主 2026-10-21 定：只管 Claude 和 OpenAI 两家）
+名单在 `internal/aiguard/list.go`（取公司规则包 `ai` 类别里这两家的部分，v1.9.72 起；1.9.71 曾整份照搬、连 Gemini / Cursor / DeepSeek 等也锁了）：
+- **Claude**（Claude Code 命令行、Claude 桌面客户端、claude.ai 网页）：anthropic.com（api / console / statsig）、claude.ai、claude.com、
+  claudeusercontent.com，以及 Anthropic 自有段 160.79.104.0/23、2607:6bc0::/48。
+- **OpenAI**（ChatGPT 网页 / 客户端、Codex 命令行）：openai.com（api / auth）、chatgpt.com（Codex 后端）、chat.com、oaistatic.com、
+  oaiusercontent.com、sora.com。
+- **只走线路、不锁**：challenges.cloudflare.com（两家登录页的人机验证，要和网站同一个出口 IP；别的网站也用它，关软件时不锁）。
+- 名单变了，已安装的锁会被当作「过期」自动按新名单重写。
 
 ## 已知限制
 - 应用自带 DoH（Firefox TRR 等）拿到的地址不经锁；劫持模式下这类流量仍进隧道、按嗅探到的域名走 AI 线路，但 ECH 外层 SNI 可能认不出。

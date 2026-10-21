@@ -5,15 +5,23 @@ import (
 	"testing"
 )
 
-func TestListCoversAIServices(t *testing.T) {
-	for _, h := range []string{"api.anthropic.com", "claude.ai", "chatgpt.com", "ab.chatgpt.com", "cdn.oaistatic.com", "Claude.AI."} {
-		if !Covers(h) {
-			t.Errorf("%s not covered", h)
+// Claude (Claude Code CLI, desktop app, web) and OpenAI (ChatGPT, Codex CLI)
+// hosts are hijacked and locked; other AI products and ordinary sites are not.
+func TestScopeIsClaudeAndOpenAI(t *testing.T) {
+	for _, h := range []string{
+		"api.anthropic.com", "console.anthropic.com", "statsig.anthropic.com", "claude.ai", "www.claude.com", "Claude.AI.",
+		"api.openai.com", "auth.openai.com", "chatgpt.com", "ab.chatgpt.com", "cdn.oaistatic.com", "files.oaiusercontent.com",
+	} {
+		if !Covers(h) || !Locked(h) {
+			t.Errorf("%s must be hijacked and locked", h)
 		}
 	}
-	for _, h := range []string{"baidu.com", "notanthropic.com", "google.com", "github.com"} {
-		if Covers(h) {
-			t.Errorf("%s must not be on the AI list", h)
+	if !Covers("challenges.cloudflare.com") || Locked("challenges.cloudflare.com") {
+		t.Error("Cloudflare's sign-in check goes through the line but must not be locked")
+	}
+	for _, h := range []string{"gemini.google.com", "deepseek.com", "cursor.com", "githubcopilot.com", "baidu.com", "notanthropic.com", "google.com"} {
+		if Covers(h) || Locked(h) {
+			t.Errorf("%s is out of scope", h)
 		}
 	}
 }
@@ -21,13 +29,13 @@ func TestListCoversAIServices(t *testing.T) {
 // NRPT needs ".x" for subdomains and "x" for the name itself.
 func TestNamespacesCoverNameAndSubdomains(t *testing.T) {
 	ns := Namespaces()
-	for _, want := range []string{".anthropic.com", "anthropic.com", ".claude.ai", "claude.ai", ".chatgpt.com", "chatgpt.com"} {
+	for _, want := range []string{".anthropic.com", "anthropic.com", ".claude.ai", "claude.ai", ".chatgpt.com", "chatgpt.com", ".openai.com"} {
 		if !slices.Contains(ns, want) {
 			t.Errorf("namespace %s missing", want)
 		}
 	}
-	if len(ns) != 2*len(DomainSuffixes())+len(Domains()) {
-		t.Errorf("unexpected namespace count %d", len(ns))
+	if slices.Contains(ns, ".challenges.cloudflare.com") {
+		t.Error("route-only domain locked")
 	}
 }
 

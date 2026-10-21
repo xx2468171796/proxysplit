@@ -38,9 +38,13 @@ type AIEnvReport struct {
 	CheckedAt string      `json:"checkedAt"`
 }
 
-// aiTraceURL answers with the visitor's IP and country (Cloudflare trace on an
-// AI host: the request takes exactly the route AI traffic takes).
-var aiTraceURL = "https://chatgpt.com/cdn-cgi/trace"
+// aiServices are the hijacked services, each probed on its own host: a
+// Cloudflare trace answers with the visitor's IP and country, so the request
+// takes exactly the route that service's traffic takes.
+var aiServices = []struct{ id, name, traceURL string }{
+	{"exit-claude", "Claude 出口（Claude Code / 客户端 / 网页）", "https://claude.ai/cdn-cgi/trace"},
+	{"exit-openai", "ChatGPT / Codex 出口", "https://chatgpt.com/cdn-cgi/trace"},
+}
 
 // aiProbeHost is resolved through the system resolver (the NRPT lock path).
 const aiProbeHost = "api.anthropic.com"
@@ -53,9 +57,9 @@ type traceResult struct {
 	err     error
 }
 
-func fetchTrace(ctx context.Context) traceResult {
+func fetchTrace(ctx context.Context, url string) traceResult {
 	cl := &http.Client{Timeout: 10 * time.Second, Transport: &http.Transport{Proxy: nil, DisableKeepAlives: true}}
-	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, aiTraceURL, nil)
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	sent := time.Now()
 	resp, err := cl.Do(req)
 	if err != nil {
@@ -91,27 +95,42 @@ func lookupAI(ctx context.Context) ([]net.IPAddr, error) {
 // AIEnvCheck runs every check (≈ up to 10 s: one HTTPS request + one lookup).
 func (s *Service) AIEnvCheck(ctx context.Context) AIEnvReport {
 	var wg sync.WaitGroup
-	tr := traceResult{err: errNotProtected}
+	traces := make([]traceResult, len(aiServices))
+	for i := range traces {
+		traces[i] = traceResult{err: errNotProtected}
+	}
 	var addrs []net.IPAddr
 	var dnsErr error
-	// Contact the AI host only while AI is pinned to our line: otherwise the
-	// check itself would reach it from the customer's own (mainland) IP.
+	// Contact the AI hosts only while AI is pinned to our line: otherwise the
+	// check itself would reach them from the customer's own (mainland) IP.
 	if running, line := s.AIGuardLine(); running && line != "" && s.AIDNSListening() {
-		wg.Add(1)
-		go func() { defer wg.Done(); tr = fetchTrace(ctx) }()
+		for i, svc := range aiServices {
+			wg.Add(1)
+			go func() { defer wg.Done(); traces[i] = fetchTrace(ctx, svc.traceURL) }()
+		}
 	}
 	wg.Add(1)
 	go func() { defer wg.Done(); addrs, dnsErr = lookupAI(ctx) }()
 	wg.Wait()
 
-	rep := AIEnvReport{ExitIP: tr.ip, ExitLoc: tr.loc, CheckedAt: time.Now().Format(time.RFC3339)}
+	rep := AIEnvReport{CheckedAt: time.Now().Format(time.RFC3339)}
+	clock := traces[0]
+	for _, tr := range traces {
+		if tr.err == nil && rep.ExitIP == "" {
+			rep.ExitIP, rep.ExitLoc, clock = tr.ip, tr.loc, tr
+		}
+	}
 	add := func(it AIEnvItem) { rep.Items = append(rep.Items, it) }
 	add(s.guardItem())
-	add(exitItem(tr))
+	for i, svc := range aiServices {
+		it := exitItem(traces[i])
+		it.ID, it.Name = svc.id, svc.name
+		add(it)
+	}
 	add(dnsItem(addrs, dnsErr))
 	add(ipv6Item(s.AIGuardOn()))
 	add(timezoneItem())
-	add(clockItem(tr))
+	add(clockItem(clock))
 	add(s.conflictItem())
 	add(autostartItem(s.GetAutostart()))
 	return rep
