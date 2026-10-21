@@ -7,9 +7,9 @@ package core
 // never from the customer's own (mainland) IP:
 //   - QUIC to AI is rejected, so the connection retries over TCP where the
 //     domain is always sniffed (and the TLS fingerprint is the browser's own);
-//   - AI names resolve through Outbound, IPv4 only: the tunnel has no IPv6
-//     address, an AAAA answer (or an HTTPS record's ipv6hint) would let the
-//     app connect around it;
+//   - AI names resolve through Outbound, IPv4 only (AAAA / HTTPS answers
+//     blanked, short TTL), and the TUN gets an IPv6 address so any IPv6 the
+//     app learns elsewhere still enters the tunnel instead of going around it;
 //   - DNSListen is the loopback DNS server the Windows AI lock (NRPT, package
 //     aiguard) sends AI names to. Loopback so a lookup can never leave the
 //     machine: core up = answered here, core down = refused at once (a
@@ -52,6 +52,25 @@ func (g *AIGuard) match(withIPs bool) M {
 	}
 	return m
 }
+
+// aiTUN6 gives the TUN an IPv6 address while the guard is on, so IPv6 also
+// enters the tunnel (an AI address learnt outside our DNS — app DoH, hosts
+// file — would otherwise go straight out over IPv6); non-AI IPv6 still
+// follows the normal rules.
+const aiTUN6 = "fdfe:dcba:9876::1/126"
+
+// tunAddresses is the TUN inbound's address list.
+func tunAddresses(opts Options) []string {
+	if opts.AIGuard.active() {
+		return []string{"172.19.0.1/30", aiTUN6}
+	}
+	return []string{"172.19.0.1/30"}
+}
+
+// aiDNSTTL caps the TTL clients see for AI names, so after the core stops
+// cached addresses run out within seconds (the service also flushes the
+// Windows cache on stop); the core keeps its own cache.
+const aiDNSTTL = 10
 
 // aiGuardInbound is the loopback DNS listener (nil when off / no address).
 func aiGuardInbound(opts Options) M {
@@ -107,5 +126,6 @@ func aiGuardDNS(opts Options) (rules []M, server M) {
 	route := cloneMatch(m)
 	route["action"] = "route"
 	route["server"] = target
+	route["rewrite_ttl"] = aiDNSTTL
 	return []M{noV6, route}, server
 }

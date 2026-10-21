@@ -62,6 +62,10 @@ export function GetAIControlInfo() {
   return window['go']['main']['App']['GetAIControlInfo']();
 }
 
+export function GetAIHijack() {
+  return window['go']['main']['App']['GetAIHijack']();
+}
+
 export function GetAnnouncements() {
   return window['go']['main']['App']['GetAnnouncements']();
 }
@@ -284,6 +288,10 @@ export function Restart() {
 
 export function SelectNode(arg1) {
   return window['go']['main']['App']['SelectNode'](arg1);
+}
+
+export function SetAIHijack(arg1) {
+  return window['go']['main']['App']['SetAIHijack'](arg1);
 }
 
 export function SetAppRules(arg1) {

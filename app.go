@@ -845,9 +845,8 @@ func (a *App) Logout() string {
 		return ""
 	}
 	a.svc.Stop()
-	err := a.lic.Logout()
-	a.syncAIGuard() // signed out: lift the AI lock
-	return errStr(err)
+	// 劫持模式 stays on after sign-out: only the in-app 恢复 lifts it.
+	return errStr(a.lic.Logout())
 }
 
 // Stop stops everything.

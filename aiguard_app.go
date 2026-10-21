@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -14,12 +16,13 @@ import (
 	"proxysplit/internal/service"
 )
 
-// AI 强制走线路（设计 docs/AI强制走线路.md）：AI 编程官网（中转站渠道）的客户登录后，
+// AI 劫持模式（设计 docs/AI强制走线路.md）：开启后
 //   - 内核里 AI 服务一律走 POWER云 线路（service.SetAIGuard），不管哪个程序、哪种代理策略；
 //   - 系统 DNS 锁（aiguard NRPT）：AI 域名只能由隧道里的 DNS 解析，ProxySplit 停了 / 退了 / 被杀了就解析不了，
-//     AI 直接访问不通，绝不会用客户本机（国内）IP 出去；
+//     AI 直接访问不通，绝不会用客户本机（国内）网络出去；
 //   - 打开程序（含开机自启）就自动启动代理，不用手动点。
-// 退出登录即撤锁；程序被删了还锁着时用 proxysplit.exe --unlock-ai 解除。
+// 开关是这台电脑上持久的状态（<数据目录>/ai-hijack）：AI 编程官网客户第一次登录自动开启；
+// **只有在软件里点「恢复」才关闭**——退出登录、关软件、重启电脑、删数据目录都不解除（锁还在 = 开启）。
 
 var aiGuardMu sync.Mutex
 
@@ -29,14 +32,113 @@ const aiLockRetryAfter = 10 * time.Minute
 
 var aiLockFailedAt time.Time
 
-// aiGuardWanted: an AI-site customer is signed in on this device. Development
-// builds (no licensing) follow the channel alone so the feature can be tested.
+const (
+	hijackOn  = "on"
+	hijackOff = "off" // the user pressed 恢复 in the app
+)
+
+func hijackFile() string { return filepath.Join(dataDir(), "ai-hijack") }
+
+func readHijack() string {
+	raw, _ := os.ReadFile(hijackFile())
+	return strings.TrimSpace(string(raw))
+}
+
+func writeHijack(state string) error {
+	if err := os.MkdirAll(dataDir(), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(hijackFile(), []byte(state+"\n"), 0o644)
+}
+
+// aiGuardWanted: 劫持模式 is on. Undecided devices turn it on when the lock
+// already exists (a reset data directory must not unlock) or an AI-site
+// customer is signed in (development builds: the channel alone). Only
+// SetAIHijack(false) — the in-app 恢复 — turns it off.
 func (a *App) aiGuardWanted() bool {
 	if a.svc == nil || a.lic == nil {
 		return false
 	}
+	state := readHijack()
+	if state != "" {
+		on, _ := hijackDecision(state, false, false)
+		return on
+	}
 	st := a.licenseStatus()
-	return st.Channel == channelAIGW && (!st.Enabled || st.SignedIn)
+	on, record := hijackDecision(state, aiguard.Present(), st.Channel == channelAIGW && st.Enabled && st.SignedIn)
+	if record {
+		a.turnHijackOn()
+	}
+	return on
+}
+
+// hijackDecision is the 劫持模式 rule: a recorded choice always wins (only the
+// in-app 恢复 records "off"); undecided devices switch on — and record it —
+// when our lock already exists or an AI-site customer is signed in.
+func hijackDecision(state string, lockPresent, aiCustomerSignedIn bool) (on, record bool) {
+	switch state {
+	case hijackOn:
+		return true, false
+	case hijackOff:
+		return false, false
+	}
+	if lockPresent || aiCustomerSignedIn {
+		return true, true
+	}
+	return false, false
+}
+
+// turnHijackOn records 劫持模式 on and, this once, turns on login autostart so
+// AI works right after boot (a user may turn autostart off again later).
+func (a *App) turnHijackOn() {
+	if err := writeHijack(hijackOn); err != nil {
+		a.svc.LogLine("[AI] 记录劫持模式失败：" + err.Error())
+	}
+	if !a.svc.GetAutostart() {
+		if err := a.svc.SetAutostart(true); err == nil {
+			a.svc.LogLine("[AI] 已开启开机自启，开机后 AI 也能直接用")
+		}
+	}
+}
+
+// AIHijackState is the 劫持模式 switch shown on the overview card.
+type AIHijackState struct {
+	On      bool `json:"on"`      // 劫持模式开着
+	Locked  bool `json:"locked"`  // 系统 DNS 锁已加上
+	Visible bool `json:"visible"` // 显示卡片：AI 编程官网客户，或劫持开着 / 恢复过
+}
+
+// GetAIHijack reports the switch.
+func (a *App) GetAIHijack() AIHijackState {
+	<-a.ready
+	if a.svc == nil || a.lic == nil {
+		return AIHijackState{}
+	}
+	on := a.aiGuardWanted()
+	return AIHijackState{On: on, Locked: aiguard.Installed(), Visible: on || readHijack() != "" || a.licenseStatus().Channel == channelAIGW}
+}
+
+// SetAIHijack is the only way to turn 劫持模式 off (恢复) or back on, and only
+// from inside the app. Returns "" or a Chinese error message.
+func (a *App) SetAIHijack(on bool) string {
+	<-a.ready
+	if a.svc == nil {
+		return "程序尚未初始化完成"
+	}
+	if !on {
+		if err := writeHijack(hijackOff); err != nil {
+			return "保存失败：" + err.Error()
+		}
+		a.syncAIGuard()
+		if aiguard.Present() {
+			return "解除系统 DNS 锁失败，详情看「日志」页"
+		}
+		a.svc.LogLine("[AI] 已在软件里恢复：劫持模式关闭，AI 不再强制走线路（关掉软件时 AI 会走本机网络）")
+		return ""
+	}
+	a.turnHijackOn()
+	a.svc.LogLine("[AI] 已开启劫持模式")
+	return errStr(a.fixAIEnvItem("guard"))
 }
 
 // syncAIGuard brings the core rules and the DNS lock in line with
@@ -91,12 +193,7 @@ func (a *App) autoStartForAI() {
 		return
 	}
 	a.watchNetBlocked()
-	a.svc.LogLine("[AI] 已自动启动代理（AI 编程官网客户：打开即保护）")
-	if !a.svc.GetAutostart() {
-		if err := a.svc.SetAutostart(true); err == nil {
-			a.svc.LogLine("[AI] 已开启开机自启，开机后 AI 也能直接用")
-		}
-	}
+	a.svc.LogLine("[AI] 已自动启动代理（劫持模式：打开即保护）")
 }
 
 // aiGuardBoot runs once at startup, after a download-ticket sign-in (if any)
@@ -154,7 +251,7 @@ func (a *App) fixAIEnvItem(id string) error {
 	switch id {
 	case "guard":
 		if !a.aiGuardWanted() {
-			return errors.New("请先用 AI 编程官网账号登录")
+			a.turnHijackOn()
 		}
 		aiGuardMu.Lock()
 		aiLockFailedAt = time.Time{} // the user asked: try the lock again now
@@ -183,14 +280,4 @@ func (a *App) fixAIEnvItem(id string) error {
 		return a.svc.SetAutostart(true)
 	}
 	return fmt.Errorf("未知的修复项：%s", id)
-}
-
-// runUnlockAI implements --unlock-ai.
-func runUnlockAI() int {
-	if err := aiguard.Remove(); err != nil {
-		println(err.Error())
-		return 1
-	}
-	println("已解除 ProxySplit 的 AI 访问锁")
-	return 0
 }

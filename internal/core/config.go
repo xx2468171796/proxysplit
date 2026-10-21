@@ -659,7 +659,10 @@ func BuildTUNConfig(node *nodes.Node, logLevel string, opts Options) ([]byte, er
 		M{"action": "sniff"},
 		M{"protocol": "dns", "action": "hijack-dns"},
 	)
-	rules = append(rules, accelRules(opts, clashExp != nil)...)
+	guarded := opts.AIGuard.active()
+	if !guarded {
+		rules = append(rules, accelRules(opts, clashExp != nil)...)
+	}
 	if opts.Split {
 		// 拦截 cuts the app off completely — LAN, our own API, everything — so it
 		// comes before the always-direct housekeeping rules.
@@ -670,15 +673,19 @@ func BuildTUNConfig(node *nodes.Node, logLevel string, opts Options) ([]byte, er
 			}
 		}
 	}
+	// AI 强制走线路: ahead of the Claude Code accelerator (its fallback dials
+	// api.anthropic.com), ourselves (the AI environment check probes through
+	// it) and every app list / 代理策略; kept out of restrictEgress below.
+	aiAt := len(rules)
+	aiRules := aiGuardRules(opts)
+	rules = append(rules, aiRules...)
+	if guarded {
+		rules = append(rules, accelRules(opts, clashExp != nil)...)
+	}
 	rules = append(rules, directDomainRules(opts)...)
 	if !opts.ProxyPrivate {
 		rules = append(rules, M{"ip_is_private": true, "outbound": "direct"})
 	}
-	// AI 强制走线路: ahead of ourselves (the AI environment check probes through
-	// it) and of every app list / 代理策略; kept out of restrictEgress below.
-	aiAt := len(rules)
-	aiRules := aiGuardRules(opts)
-	rules = append(rules, aiRules...)
 	if self := strings.TrimSpace(opts.SelfProcess); self != "" {
 		rules = append(rules, M{"process_name": []string{self}, "outbound": "direct"})
 	}
@@ -838,7 +845,7 @@ func BuildTUNConfig(node *nodes.Node, logLevel string, opts Options) ([]byte, er
 		{
 			"type":         "tun",
 			"tag":          "tun-in",
-			"address":      []string{"172.19.0.1/30"},
+			"address":      tunAddresses(opts),
 			"mtu":          1500,
 			"auto_route":   true,
 			"strict_route": true,

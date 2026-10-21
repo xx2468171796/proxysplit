@@ -29,12 +29,9 @@ var updateTLSSPKISHA256 string
 //
 //	--mcp         stdio MCP server for AI agents; starts the app on demand (mcpbridge.go)
 //	--background  start in the tray without showing the window (used by --mcp)
-//	--unlock-ai   remove the AI DNS lock and exit (support: the program was deleted
-//	              while signed in, AI sites no longer resolve; aiguard_app.go)
 const (
 	mcpFlag        = "--mcp"
 	backgroundFlag = "--background"
-	unlockAIFlag   = "--unlock-ai"
 )
 
 func hasFlag(args []string, flag string) bool {
@@ -52,9 +49,6 @@ func main() {
 			os.Exit(1)
 		}
 		return
-	}
-	if hasFlag(os.Args[1:], unlockAIFlag) {
-		os.Exit(runUnlockAI())
 	}
 
 	// Create an instance of the app structure

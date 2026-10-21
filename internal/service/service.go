@@ -1444,6 +1444,11 @@ func (s *Service) Start() error {
 
 // startLocked starts the core; caller holds lifecycleMu.
 func (s *Service) startLocked() error {
+	if s.core.Running() {
+		// A second start (auto-start racing 启动 / resume-after-update) must not
+		// overwrite the running core's clash port, secret and stats.
+		return nil
+	}
 	s.mu.Lock()
 	guard := s.startGuard
 	s.mu.Unlock()
@@ -1762,6 +1767,7 @@ func (s *Service) stopLocked() {
 	clearSysProxy := s.sysProxyOn
 	s.mu.Unlock()
 	s.core.Stop()
+	s.flushAIDNSOnStop()
 	// Never leave the OS pointing at a now-dead proxy (would black-hole all HTTP).
 	// Done synchronously here (the async onCoreExit is a crash-only safety net).
 	if clearSysProxy {

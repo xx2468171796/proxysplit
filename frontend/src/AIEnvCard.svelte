@@ -2,15 +2,36 @@
   // AI 环境检测（AI 编程官网客户，概览页）：AI 是否只走我们的线路、出口、DNS 锁、IPv6、时区、时间、
   // 其他代理 / VPN、开机自启。后端 App.CheckAIEnv / FixAIEnv（aiguard_app.go）。
   import { onMount } from 'svelte'
-  import { CheckAIEnv, FixAIEnv } from '../wailsjs/go/main/App'
+  import { CheckAIEnv, FixAIEnv, GetAIHijack, SetAIHijack } from '../wailsjs/go/main/App'
+  import { EventsOn } from '../wailsjs/runtime/runtime.js'
 
   type Item = { id: string; name: string; status: 'ok' | 'warn' | 'fail' | 'info'; detail: string; fix?: string }
   type Report = { items: Item[]; exitIp?: string; exitLoc?: string; checkedAt: string }
+  type Hijack = { on: boolean; locked: boolean; visible: boolean }
 
   let report: Report | null = null
+  let hijack: Hijack = { on: false, locked: false, visible: false }
   let checking = false
   let fixing = ''
   let msg = ''
+  let confirmRestore = false
+
+  async function loadHijack() {
+    try { hijack = (await GetAIHijack()) as Hijack } catch { /* 启动中 */ }
+  }
+
+  async function setHijack(on: boolean) {
+    confirmRestore = false
+    fixing = on ? 'hijack-on' : 'hijack-off'
+    msg = ''
+    try {
+      const err = await SetAIHijack(on)
+      msg = err ? err : on ? '已开启劫持模式' : '已恢复：AI 不再强制走线路'
+    } catch (e) { msg = String(e) }
+    fixing = ''
+    await loadHijack()
+    await check()
+  }
 
   const fixLabel: Record<string, string> = { guard: '立即保护', timezone: '改成台北时间', clock: '立即对时', autostart: '开启' }
   const statusText: Record<string, string> = { ok: '正常', warn: '建议处理', fail: '有风险', info: '—' }
@@ -36,10 +57,41 @@
     await check()
   }
 
-  onMount(check)
+  onMount(() => {
+    loadHijack().then(() => { if (hijack.visible) check() })
+    const off = EventsOn('ai-autostart-failed', (m: string) => { msg = '劫持模式自动启动代理失败：' + m })
+    // sign-in elsewhere in the app can switch 劫持模式 on while this card is shown
+    const timer = setInterval(async () => {
+      const was = hijack.visible
+      await loadHijack()
+      if (hijack.visible && !was) check()
+    }, 5000)
+    return () => { clearInterval(timer); off() }
+  })
 </script>
 
+{#if hijack.visible}
 <section class="card ai-env">
+  <div class="hijack" class:off={!hijack.on}>
+    <div class="txt">
+      <b>劫持模式：{hijack.on ? '已开启' : '已关闭'}</b>
+      <small>{hijack.on
+        ? 'AI 网站只能经我们的线路访问；关掉软件、退出登录、重启电脑都保持劫持，AI 不会走本机（大陆）网络。只能在这里「恢复」。'
+        : '已恢复：关掉软件时 AI 会走本机网络，有封号风险。'}</small>
+    </div>
+    {#if hijack.on}
+      <button class="act" disabled={!!fixing} on:click={() => (confirmRestore = true)}>恢复</button>
+    {:else}
+      <button class="act primary" disabled={!!fixing} on:click={() => setHijack(true)}>{fixing === 'hijack-on' ? '开启中…' : '开启劫持'}</button>
+    {/if}
+  </div>
+  {#if confirmRestore}
+    <div class="confirm">
+      <span>确定恢复？恢复后 AI 不再强制走我们的线路，<b>关掉 ProxySplit 时 AI 会直接用本机（大陆）网络访问，账号可能被风控封禁</b>。</span>
+      <button class="act danger" disabled={!!fixing} on:click={() => setHijack(false)}>{fixing === 'hijack-off' ? '恢复中…' : '确定恢复'}</button>
+      <button class="act" on:click={() => (confirmRestore = false)}>取消</button>
+    </div>
+  {/if}
   <div class="head">
     <div>
       <div class="title">AI 环境检测</div>
@@ -67,6 +119,7 @@
   {/if}
   {#if msg}<p class="msg">{msg}</p>{/if}
 </section>
+{/if}
 
 <style>
   .ai-env { padding: 0; overflow: hidden; }
@@ -95,4 +148,10 @@
   .state[data-s='warn'] { color: var(--warn, #e6a23c); }
   .state[data-s='fail'] { color: var(--danger); }
   .msg { margin: 0; padding: 8px 17px 12px; font-size: 11px; color: var(--muted); }
+  .hijack { display: flex; align-items: center; gap: 12px; padding: 12px 17px; background: var(--ok-tint); border-bottom: 1px solid var(--line); }
+  .hijack.off { background: var(--bad-bg); }
+  .hijack b { color: var(--ink); font-size: 13px; }
+  .confirm { display: flex; align-items: center; gap: 8px; padding: 10px 17px; font-size: 12px; color: var(--ink-2); border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+  .confirm span { flex: 1; min-width: 240px; line-height: 1.5; }
+  .act.danger { border-color: var(--danger); background: var(--danger); color: #fff; }
 </style>

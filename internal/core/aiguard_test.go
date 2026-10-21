@@ -77,7 +77,8 @@ func TestAIGuardConfig(t *testing.T) {
 	guard := guardFor("node-x")
 	guard.DNSListen = "127.0.0.53"
 	opts := Options{Split: true, SplitWhitelist: true, RemoteDNS: true, RuleDir: t.TempDir(), GeoDir: filepath.Join("..", "..", "bin"),
-		ExtraNodes: []ExtraNode{{Tag: "node-x", Node: extra}}, AIGuard: guard}
+		ExtraNodes: []ExtraNode{{Tag: "node-x", Node: extra}}, AIGuard: guard,
+		ClashController: "127.0.0.1:1", AccelPort: 18765, AccelOutbound: "direct"}
 	raw, err := BuildTUNConfig(node, "warn", opts)
 	if err != nil {
 		t.Fatal(err)
@@ -99,8 +100,28 @@ func TestAIGuardConfig(t *testing.T) {
 	if noV6["action"] != "predefined" || noV6["rcode"] != "NOERROR" || noV6["query_type"] == nil || noV6["domain_suffix"] == nil {
 		t.Fatalf("first DNS rule (blank AAAA / HTTPS) = %v", noV6)
 	}
-	if route["server"] != aiDNSServer || route["strategy"] != nil {
+	if route["server"] != aiDNSServer || route["strategy"] != nil || route["rewrite_ttl"] != float64(aiDNSTTL) {
 		t.Fatalf("second DNS rule = %v", route)
+	}
+	tun := cfg.Inbounds[0]
+	if addrs, _ := tun["address"].([]any); len(addrs) != 2 || addrs[1] != aiTUN6 {
+		t.Fatalf("TUN must carry IPv6 while guarded: %v", tun["address"])
+	}
+	// The accelerator's fallback dials api.anthropic.com through accel-in: the
+	// AI rules must come first (accel-in → direct must not win, clash 直连 included).
+	aiRoute, firstAccel := -1, -1
+	for i, r := range cfg.Route.Rules {
+		if r["outbound"] == "node-x" && r["domain_suffix"] != nil && aiRoute < 0 {
+			aiRoute = i
+		}
+		if r["inbound"] != nil && firstAccel < 0 {
+			if in, _ := r["inbound"].([]any); len(in) == 1 && in[0] == accelInbound {
+				firstAccel = i
+			}
+		}
+	}
+	if aiRoute < 0 || firstAccel < 0 || aiRoute > firstAccel {
+		t.Fatalf("AI route at %d must precede the accelerator rules at %d", aiRoute, firstAccel)
 	}
 	listener := false
 	for _, in := range cfg.Inbounds {

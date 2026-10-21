@@ -111,7 +111,12 @@ func (s *Service) applyAIGuardLocked(opts *core.Options, activeID string, extra 
 	listen := s.aiDNSListen
 	if !s.core.Running() {
 		listen = aiguard.DNSServer
-		if err := loopbackDNSFree(listen); err != nil {
+		err := loopbackDNSFree(listen)
+		if err != nil {
+			s.core.CleanStrays() // an orphaned core of ours may still hold the port
+			err = loopbackDNSFree(listen)
+		}
+		if err != nil {
 			listen = ""
 			s.log("[AI] 本机 DNS 端口被占用（多半是别的代理软件），AI 网站会打不开：" + err.Error())
 		}
@@ -129,6 +134,18 @@ func (s *Service) noteAIGuardStartedLocked(g *core.AIGuard) {
 	}
 	s.aiGuardOut, s.aiDNSListen = g.Outbound, g.DNSListen
 	aiguard.FlushCache()
+}
+
+// flushAIDNSOnStop empties the Windows DNS cache once the core is gone (stop,
+// restart, crash): AI addresses resolved through the line must not be reused
+// while nothing is tunnelling — the lock only holds for fresh lookups.
+func (s *Service) flushAIDNSOnStop() {
+	s.mu.Lock()
+	guarded := s.aiGuard || s.aiGuardOut != ""
+	s.mu.Unlock()
+	if guarded {
+		aiguard.FlushCache()
+	}
 }
 
 // AIDNSListening: the running core answers the AI lock's DNS queries.

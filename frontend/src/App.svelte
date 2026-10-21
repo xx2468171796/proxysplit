@@ -1924,7 +1924,7 @@
           <section class="card kpi"><span class="kpi-icon">{@html I.users}</span><div><div class="kpi-label">活动连接</div><div class="kpi-value">{activeConns}<small>{running ? uptime : '未运行'}</small></div></div></section>
         </div>
 
-        {#if license.channel === 'aigw'}<AIEnvCard />{/if}
+        <AIEnvCard />
 
         <div class="grid main-grid">
           <div class="grid">

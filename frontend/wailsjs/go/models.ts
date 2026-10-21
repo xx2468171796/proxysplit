@@ -288,6 +288,22 @@ export namespace main {
 	        this.running = source["running"];
 	    }
 	}
+	export class AIHijackState {
+	    on: boolean;
+	    locked: boolean;
+	    visible: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new AIHijackState(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.on = source["on"];
+	        this.locked = source["locked"];
+	        this.visible = source["visible"];
+	    }
+	}
 	export class AddResult {
 	    added: number;
 	    skipped: number;

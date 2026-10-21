@@ -95,6 +95,7 @@ func (s *Service) applySystemProxyOnStart() {
 // skipped Stop), clear the OS proxy so the user's HTTP isn't black-holed. The
 // intent (sysProxyWant) is kept so a manual restart re-applies it.
 func (s *Service) onCoreExit() {
+	s.flushAIDNSOnStop() // core gone: no cached AI address may outlive the tunnel
 	s.mu.Lock()
 	on := s.sysProxyOn
 	s.mu.Unlock()

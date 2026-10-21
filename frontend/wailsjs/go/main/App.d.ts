@@ -39,6 +39,8 @@ export function FixAIEnv(arg1:string):Promise<string>;
 
 export function GetAIControlInfo():Promise<main.AIControlInfo>;
 
+export function GetAIHijack():Promise<main.AIHijackState>;
+
 export function GetAnnouncements():Promise<main.AnnouncementsResult>;
 
 export function GetAppIcon(arg1:string):Promise<string>;
@@ -150,6 +152,8 @@ export function ResetConfig():Promise<void>;
 export function Restart():Promise<string>;
 
 export function SelectNode(arg1:string):Promise<string>;
+
+export function SetAIHijack(arg1:boolean):Promise<string>;
 
 export function SetAppRules(arg1:Array<service.AppRule>):Promise<string>;
 

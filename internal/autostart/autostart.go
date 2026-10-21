@@ -68,10 +68,17 @@ func Disable() error {
 func Enabled() bool { return taskExists() || runValue() != "" }
 
 // MigrateLegacy turns a legacy Run value (which never started the elevated
-// app) into the logon task. Reports whether it migrated.
+// app) into the logon task for the program it named (exePath when that file
+// is gone). Reports whether it migrated.
 func MigrateLegacy(exePath string) (bool, error) {
-	if runValue() == "" || taskExists() {
+	v := runValue()
+	if v == "" || taskExists() {
 		return false, nil
+	}
+	if p := strings.Trim(strings.TrimSpace(v), `"`); p != "" {
+		if _, err := os.Stat(p); err == nil {
+			exePath = p
+		}
 	}
 	return true, Enable(exePath)
 }

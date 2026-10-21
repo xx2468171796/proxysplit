@@ -3,6 +3,7 @@ package service
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -43,6 +44,8 @@ var aiTraceURL = "https://chatgpt.com/cdn-cgi/trace"
 
 // aiProbeHost is resolved through the system resolver (the NRPT lock path).
 const aiProbeHost = "api.anthropic.com"
+
+var errNotProtected = errors.New("没有在走我们的线路，为免用本机网络访问 AI，这次不检测出口")
 
 type traceResult struct {
 	ip, loc string
@@ -88,11 +91,16 @@ func lookupAI(ctx context.Context) ([]net.IPAddr, error) {
 // AIEnvCheck runs every check (≈ up to 10 s: one HTTPS request + one lookup).
 func (s *Service) AIEnvCheck(ctx context.Context) AIEnvReport {
 	var wg sync.WaitGroup
-	var tr traceResult
+	tr := traceResult{err: errNotProtected}
 	var addrs []net.IPAddr
 	var dnsErr error
-	wg.Add(2)
-	go func() { defer wg.Done(); tr = fetchTrace(ctx) }()
+	// Contact the AI host only while AI is pinned to our line: otherwise the
+	// check itself would reach it from the customer's own (mainland) IP.
+	if running, line := s.AIGuardLine(); running && line != "" && s.AIDNSListening() {
+		wg.Add(1)
+		go func() { defer wg.Done(); tr = fetchTrace(ctx) }()
+	}
+	wg.Add(1)
 	go func() { defer wg.Done(); addrs, dnsErr = lookupAI(ctx) }()
 	wg.Wait()
 
@@ -114,7 +122,7 @@ func (s *Service) guardItem() AIEnvItem {
 	running, line := s.AIGuardLine()
 	switch {
 	case !s.AIGuardOn():
-		it.Status, it.Detail = "fail", "没开启（只对 AI 编程官网账号开启，请用 AI 编程官网账号登录）"
+		it.Status, it.Detail = "fail", "劫持模式已关闭（在软件里恢复过）：关掉 ProxySplit 时 AI 会走本机网络，有封号风险。点上方「开启劫持」"
 	case !aiguard.Installed():
 		it.Status, it.Detail, it.Fix = "fail", "系统 DNS 锁没加上：ProxySplit 关掉时 AI 可能用本机 IP 直连", "guard"
 	case aiguard.GroupPolicyActive():
@@ -134,6 +142,8 @@ func (s *Service) guardItem() AIEnvItem {
 func exitItem(tr traceResult) AIEnvItem {
 	it := AIEnvItem{ID: "exit", Name: "AI 出口地区"}
 	switch {
+	case errors.Is(tr.err, errNotProtected):
+		it.Status, it.Detail = "info", tr.err.Error()
 	case tr.err != nil:
 		it.Status, it.Detail = "fail", "连不上 AI 服务："+tr.err.Error()
 	case aiguard.ExitRegionRisky(tr.loc):
@@ -172,7 +182,7 @@ func ipv6Item(guard bool) AIEnvItem {
 	case !aiguard.HasGlobalIPv6():
 		it.Status, it.Detail = "ok", "本机没有公网 IPv6，不会绕开隧道"
 	case guard:
-		it.Status, it.Detail = "ok", "本机有公网 IPv6；AI 已限定只用 IPv4、走线路"
+		it.Status, it.Detail = "ok", "本机有公网 IPv6；AI 只解析 IPv4，IPv6 流量也进隧道，绕不过去"
 	default:
 		it.Status, it.Detail = "warn", "本机有公网 IPv6，AI 可能经 IPv6 用本机地址直连"
 	}

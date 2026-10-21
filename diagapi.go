@@ -35,6 +35,10 @@ func (a *App) registerDiagAPI(mux *http.ServeMux, auth func(func(http.ResponseWr
 	mux.HandleFunc("/api/diag/selftest", auth(func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 200, a.svc.SelfTest())
 	}))
+	// GET /api/ai-hijack — 劫持模式状态（只读：恢复只能在软件界面里点）
+	mux.HandleFunc("/api/ai-hijack", auth(func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, 200, a.GetAIHijack())
+	}))
 	// GET /api/ai-env — AI 环境检测; POST /api/ai-env/fix {"id":"guard|timezone|clock|autostart|all"}
 	mux.HandleFunc("/api/ai-env", auth(func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 200, a.CheckAIEnv())
