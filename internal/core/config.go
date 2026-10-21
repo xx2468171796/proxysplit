@@ -124,6 +124,9 @@ type Options struct {
 	// SelfProcess is our own executable name, kept out of the tunnel (代理程序
 	//自身不走代理). Empty = not excluded.
 	SelfProcess string
+	// PortProcessPath is the core binary the 端口代理 processes run from: their
+	// already-routed traffic must leave the TUN untouched (no second hop).
+	PortProcessPath string
 	// BlockQUIC rejects QUIC (UDP 443) headed for the tunnel so browsers fall back
 	// to TCP, where the domain can always be sniffed and routed.
 	BlockQUIC bool
@@ -688,6 +691,9 @@ func BuildTUNConfig(node *nodes.Node, logLevel string, opts Options) ([]byte, er
 	}
 	if self := strings.TrimSpace(opts.SelfProcess); self != "" {
 		rules = append(rules, M{"process_name": []string{self}, "outbound": "direct"})
+	}
+	if opts.PortProcessPath != "" {
+		rules = append(rules, M{"process_path": []string{opts.PortProcessPath}, "outbound": "direct"})
 	}
 	var scopedProxy []ScopedRule
 	if opts.Split {

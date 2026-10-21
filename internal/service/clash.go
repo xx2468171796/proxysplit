@@ -205,6 +205,9 @@ type ConnInfo struct {
 	Outbound string `json:"outbound"`       // friendly exit label (直连/拦截/<节点名>)
 	Upload   int64  `json:"upload"`
 	Download int64  `json:"download"`
+	ID       string `json:"id,omitempty"`     // clash connection id
+	Source   string `json:"source,omitempty"` // client ip (proxy-port inbounds)
+	Start    string `json:"start,omitempty"`  // RFC3339 start time
 }
 
 func baseName(p string) string {
@@ -247,12 +250,15 @@ func clashConnections(port int, secret string) ([]ConnInfo, error) {
 				DestinationPort string `json:"destinationPort"`
 				Process         string `json:"process"`
 				ProcessPath     string `json:"processPath"`
+				SourceIP        string `json:"sourceIP"`
 			} `json:"metadata"`
 			Upload      int64    `json:"upload"`
 			Download    int64    `json:"download"`
 			Chains      []string `json:"chains"`
 			Rule        string   `json:"rule"`
 			RulePayload string   `json:"rulePayload"`
+			ID          string   `json:"id"`
+			Start       string   `json:"start"`
 		} `json:"connections"`
 	}
 	if err := json.NewDecoder(io.LimitReader(resp.Body, 16<<20)).Decode(&payload); err != nil {
@@ -284,6 +290,7 @@ func clashConnections(port int, secret string) ([]ConnInfo, error) {
 		out = append(out, ConnInfo{
 			Process: proc, Path: c.Metadata.ProcessPath, Host: host, Dest: dest, Network: c.Metadata.Network,
 			Rule: rule, OutTag: tag, Upload: c.Upload, Download: c.Download,
+			ID: c.ID, Source: c.Metadata.SourceIP, Start: c.Start,
 		})
 	}
 	return out, nil

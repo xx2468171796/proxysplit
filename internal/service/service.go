@@ -95,6 +95,7 @@ type Config struct {
 	APIToken     string           `json:"apiToken,omitempty"`     // stable token for the local AI-control HTTP API
 	CustomRules  []core.RouteRule `json:"customRules,omitempty"`  // global user rules (域名/IP → 代理/直连/拦截), highest priority
 	RuleSets     map[string]bool  `json:"ruleSets,omitempty"`     // bundled rule-set file -> enabled
+	ProxyPorts   []ProxyPort      `json:"proxyPorts,omitempty"`   // 端口代理（指纹浏览器 / 局域网客户端），每个端口独立内核进程
 
 	Apps []string `json:"apps,omitempty"` // legacy; migrated to Rules on load
 }
@@ -163,6 +164,8 @@ type Service struct {
 	followTrigger chan struct{}
 
 	ruleSyncStart sync.Once // rule-set mirror sync (rulesets.go)
+
+	ports portSet // 端口代理运行状态（proxyports.go）
 }
 
 // New loads (or initializes) config from dataDir.
@@ -174,9 +177,10 @@ func New(binDir, dataDir string) (*Service, error) {
 	s.load()
 	s.clashMode = s.cfg.ClashMode // restore last runtime mode (rule|global|direct)
 	s.core = core.NewManager(filepath.Join(binDir, "sing-box.exe"), dataDir, func(line string) { s.log(line) })
-	s.core.SetOnExit(s.onCoreExit) // clear a dangling system proxy if the core crashes
-	s.core.CleanStrays()           // kill orphaned sing-box from a prior crash (else it keeps proxying)
-	s.healStaleSystemProxy()       // recover from a prior crash that left one dangling
+	s.core.SetOnExit(s.onCoreExit)                             // clear a dangling system proxy if the core crashes
+	s.core.CleanStrays()                                       // kill orphaned sing-box from a prior crash (else it keeps proxying)
+	core.KillPortStrays(filepath.Join(binDir, "sing-box.exe")) // 端口代理 orphans, before any port can start
+	s.healStaleSystemProxy()                                   // recover from a prior crash that left one dangling
 	s.startScheduler()
 	go s.healthLoop() // live line/node reachability for the status panel
 	return s, nil
@@ -564,6 +568,7 @@ func (s *Service) SelectNode(id string) string {
 	s.cfg.SelectedID = id
 	s.save()
 	s.mu.Unlock()
+	go s.restartPortsFollowingActive()
 	return restartMsg(s.applyLive())
 }
 
@@ -1498,7 +1503,7 @@ func (s *Service) startLocked() error {
 		return core.Options{RemoteDNS: set.RemoteDNS, GeoDir: s.binDir, ClashController: ctl, ClashSecret: clashSecret, ClashMode: wantMode,
 			LanShare: set.LanShare, LanPort: set.LanPort, LanType: set.LanType, LanUser: set.LanUser, LanPass: set.LanPass,
 			CustomRules: custom, RuleSets: &ruleSets, DirectDomains: s.directDomains(),
-			ProxyPrivate: !set.PrivateDirect, BlockQUIC: set.BlockQUIC, SelfProcess: selfProcess(set.ExcludeSelf),
+			ProxyPrivate: !set.PrivateDirect, BlockQUIC: set.BlockQUIC, SelfProcess: selfProcess(set.ExcludeSelf), PortProcessPath: s.portProcessPath(),
 			AccelPort: accelPort, RealityHybrid: realityHybrid}
 	}
 

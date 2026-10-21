@@ -35,21 +35,22 @@ var payloadFS embed.FS
 
 // App is the Wails-bound application object.
 type App struct {
-	ctx        context.Context
-	svc        *service.Service
-	lic        *license.Client
-	upd        *updater.Client
-	forceQuit  bool        // set when the user picks 退出 from the tray (allow real close)
-	installing atomic.Bool // an update install is in progress (auto and manual must not race)
-	trayUp     bool        // the tray icon initialized OK (only then may we hide to it)
-	apiUp      bool        // the local AI-control HTTP API is listening
-	background bool        // started with --background: window hidden, tray only
-	ready      chan struct{}
-	readyOnce  sync.Once
-	initErr    error
-	accel      *accelRuntime                // Claude Code 加速（accel_app.go）
-	pv         *powervpn.Client             // POWER云 账号 / 自家节点（powervpn_app.go）
-	autoLogin  atomic.Pointer[autoLoginRun] // 免登录下载（channel.go）；nil = 这次启动没有
+	freshInstall bool // no config.json before this launch: no "what changed" dialog
+	ctx          context.Context
+	svc          *service.Service
+	lic          *license.Client
+	upd          *updater.Client
+	forceQuit    bool        // set when the user picks 退出 from the tray (allow real close)
+	installing   atomic.Bool // an update install is in progress (auto and manual must not race)
+	trayUp       bool        // the tray icon initialized OK (only then may we hide to it)
+	apiUp        bool        // the local AI-control HTTP API is listening
+	background   bool        // started with --background: window hidden, tray only
+	ready        chan struct{}
+	readyOnce    sync.Once
+	initErr      error
+	accel        *accelRuntime                // Claude Code 加速（accel_app.go）
+	pv           *powervpn.Client             // POWER云 账号 / 自家节点（powervpn_app.go）
+	autoLogin    atomic.Pointer[autoLoginRun] // 免登录下载（channel.go）；nil = 这次启动没有
 }
 
 // NewApp creates the App.
@@ -82,6 +83,10 @@ func (a *App) startup(ctx context.Context) {
 			return
 		}
 		bin = binDir() // dev fallback: use ./bin
+	}
+	// Before New: it writes config.json even on a fresh install (release_notes.go).
+	if _, err := os.Stat(filepath.Join(dataDir(), "config.json")); err != nil {
+		a.freshInstall = true
 	}
 	svc, err := service.New(bin, dataDir())
 	if err != nil {
@@ -123,6 +128,7 @@ func (a *App) startup(ctx context.Context) {
 	go a.autoUpdateLoop()         // install new signed releases without prompting
 	svc.StartCoreFollow()         // follow the POWER云 standard core: hourly check, apply automatically
 	svc.StartRuleSync()           // rule-sets from the Shenzhen mirror: check at launch, then every 6 h
+	go svc.StartProxyPorts()      // 端口代理：开启的端口随软件启动
 	go a.ensureDesktopShortcut()  // every launch: recreate / repair the desktop shortcut
 	go removeStaleExecutables()   // old versions an --mcp bridge kept busy during an update
 	go a.initTray()               // system-tray icon (minimise-to-tray, quick start/stop)
@@ -273,6 +279,7 @@ func (a *App) shutdown(ctx context.Context) {
 	a.stopAccel() // 先把 Claude Code 配置还原成官方默认，再停内核
 	if a.svc != nil {
 		a.svc.Stop()
+		a.svc.StopProxyPorts()
 	}
 }
 

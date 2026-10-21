@@ -484,7 +484,7 @@ func (m *Manager) killStrays() {
 	// environment variable: PowerShell ends a '…' string at typographic quotes
 	// too, so quoting it into the script text would break on such names.
 	ps := "Get-CimInstance Win32_Process -Filter \"Name='sing-box.exe'\" | " +
-		"Where-Object { $_.ExecutablePath -and ($_.ExecutablePath -ieq $env:PS_SINGBOX_PATH) } | " +
+		"Where-Object { $_.ExecutablePath -and ($_.ExecutablePath -ieq $env:PS_SINGBOX_PATH) -and ($_.CommandLine -notlike '*" + PortDirName + "*') } | " +
 		"ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }"
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -494,11 +494,13 @@ func (m *Manager) killStrays() {
 	_ = cmd.Run()
 }
 
-func (m *Manager) pump(r interface{ Read([]byte) (int, error) }) {
+func (m *Manager) pump(r interface{ Read([]byte) (int, error) }) { pumpLines(r, m.onLog) }
+
+func pumpLines(r interface{ Read([]byte) (int, error) }, onLog LogFunc) {
 	sc := bufio.NewScanner(r)
 	sc.Buffer(make([]byte, 64*1024), 1024*1024)
 	for sc.Scan() {
-		m.onLog(sc.Text())
+		onLog(sc.Text())
 	}
 }
 
