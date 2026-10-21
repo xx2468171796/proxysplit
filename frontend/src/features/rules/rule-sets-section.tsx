@@ -1,10 +1,9 @@
-// 规则库（geosite / geoip）：启停、手动更新；可选「添加节点后自动更新」。
+// 规则库（geosite / geoip）：启停、手动更新；平时由客户端从深圳镜像自动同步。
 import {
   Button,
   CellText,
   type Column,
   DataTable,
-  FormField,
   InlineAlert,
   Panel,
   ResourcePanel,
@@ -16,7 +15,6 @@ import { useState } from "react";
 import type { RuleSet } from "../../api/types";
 import { useFeedback } from "../../app/use-feedback";
 import { useStore } from "../../shared/store";
-import { data, saveSettings } from "../../state/data";
 import { routing, setRuleSetEnabled, updateRuleSets } from "../../state/routing";
 import { isRunning, runtime } from "../../state/runtime";
 
@@ -65,28 +63,12 @@ const COLUMNS: Column<RuleSet>[] = [
 ];
 
 function AutoUpdatePanel() {
-  const { say } = useFeedback();
-  const auto = useStore(data, (s) => s.settings.autoUpdateRules);
   return (
     <Panel title="更新方式">
-      <div className="ps-stack">
-        <FormField
-          label="添加节点后自动更新规则库"
-          htmlFor="rules-auto-update"
-          hint="打开后每次加完节点自动更新一次。需代理运行中（规则库源在墙外，走节点下载）。默认关，手动更新更可控。"
-        >
-          <Switch
-            id="rules-auto-update"
-            checked={auto}
-            onCheckedChange={(on) =>
-              void saveSettings({ autoUpdateRules: on }).then((e) => say(e ? `保存失败：${e}` : ""))
-            }
-          />
-        </FormField>
-        <InlineAlert density="compact" title="规则库来自 sing-box 官方（SagerNet），已内置最新版">
-          更新走当前节点下载（直连被墙），所以更新前请先「启动」并连上节点。
-        </InlineAlert>
-      </div>
+      <InlineAlert density="compact" title="自动更新，不用管">
+        规则库来自 sing-box 官方（SagerNet），我们的国内服务器每天同步一次。软件打开后会自动检查，之后每 6
+        小时再查一次，有新版就下载、校验后直接生效，不用开代理，也不用重启。想马上更新就点「手动更新规则库」。
+      </InlineAlert>
     </Panel>
   );
 }

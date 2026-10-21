@@ -118,7 +118,6 @@ const settings = {
   lanType: "mixed",
   lanUser: "",
   lanPass: "",
-  autoUpdateRules: false,
   autoUpdateApp: true,
 };
 const startedAt = Date.now();

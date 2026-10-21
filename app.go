@@ -122,6 +122,7 @@ func (a *App) startup(ctx context.Context) {
 	go a.resumeAfterUpdate()      // bring the proxy back after an automatic update
 	go a.autoUpdateLoop()         // install new signed releases without prompting
 	svc.StartCoreFollow()         // follow the POWER云 standard core: hourly check, apply automatically
+	svc.StartRuleSync()           // rule-sets from the Shenzhen mirror: check at launch, then every 6 h
 	go a.ensureDesktopShortcut()  // every launch: recreate / repair the desktop shortcut
 	go removeStaleExecutables()   // old versions an --mcp bridge kept busy during an update
 	go a.initTray()               // system-tray icon (minimise-to-tray, quick start/stop)

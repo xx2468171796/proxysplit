@@ -109,7 +109,6 @@ export type Settings = {
   lanType: string;
   lanUser: string;
   lanPass: string;
-  autoUpdateRules: boolean;
   autoUpdateApp: boolean;
   autoUpdateCoreOff?: boolean;
   claudeAccelOff?: boolean;

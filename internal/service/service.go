@@ -38,23 +38,22 @@ type Sub struct {
 
 // Settings holds user-tunable options.
 type Settings struct {
-	MixedPort       int    `json:"mixedPort"`
-	TunMode         bool   `json:"tunMode"` // true = system-wide TUN; false = sing-box process_name application split
-	LanShare        bool   `json:"lanShare"`
-	LanPort         int    `json:"lanPort"` // fixed port for the LAN proxy inbound (0 => 7890)
-	LanType         string `json:"lanType"` // mixed | socks | http
-	LanUser         string `json:"lanUser"` // LAN proxy auth username (empty = no auth)
-	LanPass         string `json:"lanPass"` // LAN proxy auth password
-	ExcludeSelf     bool   `json:"excludeSelf"`
-	PrivateDirect   bool   `json:"privateDirect"`
-	BlockQUIC       bool   `json:"blockQUIC"`
-	RemoteDNS       bool   `json:"remoteDNS"`
-	FakeIP          bool   `json:"fakeIP"`
-	Autostart       bool   `json:"autostart"`
-	TrayClose       bool   `json:"trayClose"`
-	Theme           string `json:"theme"`
-	AutoUpdateRules bool   `json:"autoUpdateRules"` // 添加节点后自动更新分流规则集(可选,默认关)
-	AutoUpdateApp   bool   `json:"autoUpdateApp"`   // 启动后自动检查已签名的客户端版本
+	MixedPort     int    `json:"mixedPort"`
+	TunMode       bool   `json:"tunMode"` // true = system-wide TUN; false = sing-box process_name application split
+	LanShare      bool   `json:"lanShare"`
+	LanPort       int    `json:"lanPort"` // fixed port for the LAN proxy inbound (0 => 7890)
+	LanType       string `json:"lanType"` // mixed | socks | http
+	LanUser       string `json:"lanUser"` // LAN proxy auth username (empty = no auth)
+	LanPass       string `json:"lanPass"` // LAN proxy auth password
+	ExcludeSelf   bool   `json:"excludeSelf"`
+	PrivateDirect bool   `json:"privateDirect"`
+	BlockQUIC     bool   `json:"blockQUIC"`
+	RemoteDNS     bool   `json:"remoteDNS"`
+	FakeIP        bool   `json:"fakeIP"`
+	Autostart     bool   `json:"autostart"`
+	TrayClose     bool   `json:"trayClose"`
+	Theme         string `json:"theme"`
+	AutoUpdateApp bool   `json:"autoUpdateApp"` // 启动后自动检查已签名的客户端版本
 	// 内核自动跟随面板标准内核（corefollow.go）：默认开启；零值即默认，老配置 / 旧备份导入后自动生效
 	AutoUpdateCoreOff bool `json:"autoUpdateCoreOff,omitempty"`
 	// Claude Code 加速（docs/Claude加速-网关切换.md）：默认开启、自动切换；零值即默认，老配置升级后自动生效
@@ -158,10 +157,12 @@ type Service struct {
 	aiGuardOut       string            // 运行中的内核 AI 走的出站（"" = 没开）
 	aiDNSListen      string            // 运行中的内核给 AI 锁应答 DNS 的本机地址（"" = 没有）
 
-	followOnce   sync.Once // core follow (corefollow.go)
+	followOnce    sync.Once // core follow (corefollow.go)
 	followStart   sync.Once
 	follower      *coreFollower
 	followTrigger chan struct{}
+
+	ruleSyncStart sync.Once // rule-set mirror sync (rulesets.go)
 }
 
 // New loads (or initializes) config from dataDir.
@@ -485,9 +486,6 @@ func (s *Service) AddNodes(text string) (added, skipped int) {
 	}
 	s.save()
 	s.mu.Unlock()
-	if added > 0 {
-		s.maybeAutoUpdateRules() // opt-in: refresh rule-sets after adding a node
-	}
 	return added, skip
 }
 
@@ -527,7 +525,6 @@ func (s *Service) AddManualNode(nodeType, name, server string, port int, usernam
 	if added == 0 {
 		return "节点已存在"
 	}
-	s.maybeAutoUpdateRules() // opt-in: refresh rule-sets after adding a node
 	return ""
 }
 
@@ -1358,20 +1355,21 @@ func (s *Service) GetCoreVersion() string {
 	return s.core.Version()
 }
 
-// UpdateRuleSets refreshes the bundled geosite/geoip rule-sets, downloading
-// through the running node when the core is up (raw.githubusercontent is blocked
-// behind the GFW). Returns a status string for the UI.
+// UpdateRuleSets refreshes the bundled geosite/geoip rule-sets from the Shenzhen
+// mirror, falling back to upstream through the running node when the core is up
+// (raw.githubusercontent is blocked behind the GFW). Returns a status string for
+// the UI.
 func (s *Service) UpdateRuleSets() string {
 	via := ""
 	if s.core.Running() && s.core.Port() > 0 {
 		via = fmt.Sprintf("127.0.0.1:%d", s.core.Port())
 	}
-	n, err := geoupdate.Update(s.binDir, via)
+	res, err := geoupdate.Update(s.binDir, via)
 	if err != nil {
 		s.log(fmt.Sprintf("[geo] update failed: %v", err))
 		return err.Error()
 	}
-	s.log(fmt.Sprintf("[geo] updated %d rule-set(s); restart to apply", n))
+	s.log(fmt.Sprintf("[geo] %d rule-set(s) current, %d replaced (%d from upstream)", res.Current, res.Changed, res.Upstream))
 	return ""
 }
 

@@ -34,7 +34,6 @@ const DEFAULT_SETTINGS: Settings = {
   lanType: "mixed",
   lanUser: "",
   lanPass: "",
-  autoUpdateRules: false,
   autoUpdateApp: true,
 };
 

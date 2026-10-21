@@ -10,6 +10,7 @@ import (
 	"unicode"
 
 	"proxysplit/internal/core"
+	"proxysplit/internal/geoupdate"
 )
 
 // RuleSetInfo describes one bundled sing-box rule-set (.srs) for the 规则 page.
@@ -258,22 +259,34 @@ func (s *Service) SetCustomRules(rules []core.RouteRule) string {
 	return ""
 }
 
-// maybeAutoUpdateRules refreshes the rule-sets in the background after a node is
-// added, when the user opted in AND the proxy is running (the download goes
-// through the node, since the rule-set host is GFW-blocked).
-func (s *Service) maybeAutoUpdateRules() {
-	s.mu.Lock()
-	on := s.cfg.Settings.AutoUpdateRules
-	running := s.core.Running() && s.core.Port() > 0
-	s.mu.Unlock()
-	if !on || !running {
+const (
+	ruleSyncFirstDelay = 30 * time.Second
+	ruleSyncInterval   = 6 * time.Hour
+)
+
+// StartRuleSync keeps the rule-sets in step with the Shenzhen mirror (updated
+// daily): a check shortly after launch, then every few hours. Direct
+// connection, no proxy needed; only files whose sha256 differs are downloaded.
+// sing-box reloads local rule-sets when the file changes, so no restart.
+func (s *Service) StartRuleSync() {
+	s.ruleSyncStart.Do(func() {
+		go func() {
+			time.Sleep(ruleSyncFirstDelay)
+			for {
+				s.syncRuleSets()
+				time.Sleep(ruleSyncInterval)
+			}
+		}()
+	})
+}
+
+func (s *Service) syncRuleSets() {
+	res, err := geoupdate.Sync(s.binDir)
+	if err != nil {
+		s.log(fmt.Sprintf("[rules] 规则库自动同步失败（下次再试）: %v", err))
 		return
 	}
-	go func() {
-		if msg := s.UpdateRuleSets(); msg != "" {
-			s.log("[rules] 自动更新规则集失败: " + msg)
-		} else {
-			s.log("[rules] 已自动更新分流规则集")
-		}
-	}()
+	if res.Changed > 0 {
+		s.log(fmt.Sprintf("[rules] 规则库已从深圳镜像更新 %d 个文件", res.Changed))
+	}
 }
