@@ -150,9 +150,7 @@ p {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--surface);
-  box-shadow:
-    0 1px 2px rgb(0 0 0 / 4%),
-    0 12px 32px -16px rgb(0 0 0 / 14%);
+  box-shadow: var(--aui-shadow-md);
 }
 
 .ps-window-bar {
@@ -354,7 +352,7 @@ p {
 .ps-steps li {
   counter-increment: step;
   padding-top: 20px;
-  border-top: 2px solid var(--text);
+  border-top: 1px solid var(--border);
 }
 
 .ps-steps li::before {
@@ -483,7 +481,7 @@ p {
 }
 
 .ps-register-msg.is-bad {
-  color: #b42318;
+  color: var(--aui-danger);
 }
 
 .ps-fineprint {
@@ -570,23 +568,15 @@ p {
 }
 
 .ps-copy {
-  font: inherit;
-  padding: 6px 12px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--surface);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   color: var(--text-muted);
-  cursor: pointer;
 }
 
 .ps-copy b {
   color: var(--text);
   margin-left: 4px;
-}
-
-.ps-copy span {
-  margin-left: 8px;
-  color: var(--text);
 }
 
 .ps-footer-legal {

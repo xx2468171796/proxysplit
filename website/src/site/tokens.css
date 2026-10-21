@@ -1,3 +1,4 @@
+/* admin-ui-audit-ignore-file hard-colour: 对外营销官网的品牌色板，全站颜色唯一来源（front-site 配方），dongxiao 需读具体色值，不走后台 palette
 /*
  * 设计令牌 —— 全站颜色的唯一来源（front-site 配方生成，品牌色改这里）。
  * CSS 直接写 var(--x)；dongxiao 动效组件经 theme-provider 读成具体色值再当 props 传。

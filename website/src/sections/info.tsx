@@ -1,5 +1,5 @@
 // 使用步骤、使用须知（合规声明原文保留）、常见问题、页脚联系方式。
-import { useState } from "react";
+import { CopyButton } from "@ankotti/admin-ui";
 import { LATEST_DOWNLOAD } from "../api";
 
 const STEPS = [
@@ -79,20 +79,11 @@ export function Faq() {
 }
 
 function CopyChip({ label, value }: { label: string; value: string }) {
-  const [copied, setCopied] = useState(false);
-  const copy = () =>
-    void navigator.clipboard.writeText(value).then(
-      () => {
-        setCopied(true);
-        setTimeout(() => setCopied(false), 1600);
-      },
-      () => undefined,
-    );
   return (
-    <button type="button" className="ps-copy" onClick={copy} title={`点击复制${label}`}>
+    <span className="ps-copy aui-copy-host">
       {label} <b>{value}</b>
-      <span aria-live="polite">{copied ? "已复制" : ""}</span>
-    </button>
+      <CopyButton text={value} label={label} size="sm" />
+    </span>
   );
 }
 
