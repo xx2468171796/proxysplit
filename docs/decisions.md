@@ -4,6 +4,16 @@
 > 结论与坑已提炼到 `docs/memory/<主题>.md`；这里是事实存档，按标题取（`node ~/.ankotti/ai-kit/mem.mjs <关键词>`），不要整份读。
 > 约定：sz = 深圳生产机；incoming = sz `/opt/proxysplit/incoming/`；客户端回滚 = 该版本 incoming 目录 `python3 publish-client.py rollback` 并删 releases 表里该版本那行。
 
+## v1.9.76（2026-10-22 02:21，全站发布，强制）
+- **全站发布**（服务端 + 后台 + 新官网 + 客户端），经堡垒机手工执行 remote-deploy.sh（没用 release-all.ps1 的 ssh/scp）：release id 20261022-021444-37136b1-v1.9.76，sz current 切到该目录，上一版 releases/20261005-130907-0a3cfc9-v1.9.64；迁移前备份 backups/postgres-20261022-021444-37136b1-v1.9.76.sql.gz；服务端代码无变化（只删旧静态官网、后台加 favicon），无新迁移。
+- 客户端 v1.9.76：exe 源 commit bbee7b7（tag v1.9.76），SHA256 6ab7b85bb25e22eff6572ae52d2920846aa947f476571c0133ce34756283f0ec，100,400,640 字节，内核 1.14.3-relayops.1；releases 行 + audit_logs 经 db_query 插入（强制，min 1.9.51）。remote-deploy.sh 直接换了 downloads 的 latest / ai-latest，所以没走 publish-client.py；客户端回滚 = 把 downloads/proxysplit-latest.exe 与 latest.manifest.json 换回 1.9.75 的版本化文件并删 releases 表 1.9.76 那行。
+- 内容：有新版一律自动升级（不再看 mandatory / 开关），升级后刷新桌面快捷方式图标；规则库走深圳镜像（见下一节）；官网 React + admin-ui + dongxiao 重做。
+- 验收：go vet / go test / 前端与官网门禁全过；飞牛取公网 latest API = 1.9.76 mandatory，/health 200，官网与 /admin/ 200，三个下载地址整包 sha 一致；浏览器打开线上官网无报错，套餐接口 200，页脚显示 v1.9.76。
+
+## 2026-10-22 规则库深圳镜像
+- sz：/opt/proxysplit/bin/rules-sync.py（仓库 server/deploy/）+ systemd proxysplit-rules.timer（每天 05:00），GitHub raw → jsDelivr，校验 SRS 头 / ≤8MB / 不缩水一半以上，原子替换、旧版放 previous/，manifest.json 带 sha256；OpenResty `/rules/`（previous/ 404）。sz 能直连 GitHub。systemd 下没有 UTF-8 locale，Python 打中文会 UnicodeEncodeError，服务里设了 PYTHONIOENCODING=utf-8。
+- 客户端 internal/geoupdate：Sync（只走镜像、直连、sha 一致不下载）与 Update（镜像不行再回退上游，可经节点 SOCKS）；service.StartRuleSync 启动 30 秒后 + 每 6 小时；sing-box 本地 rule_set 文件变化自动重载，不重启。去掉「添加节点后自动更新规则库」开关（autoUpdateRules）。
+
 ## v1.9.75（2026-10-22 01:43，stable，强制）
 - 2026-10-22 01:43：**v1.9.75 已上线 stable（强制，min 1.9.51）**，commit f1e121c（tag v1.9.75），SHA256 e0d05448e453d3196352b4928c42dfd1bb35bc82056fc597c000adb265dd1a48，100,392,448 字节，内嵌内核 1.14.3-relayops.1；releases id 35290b86-d6cd-4b2f-9caf-441cfd06f746（经堡垒机 db_query 插 releases + audit_logs）；sz incoming/client-v1.9.75-f1e121c（previous/ = 1.9.74，回滚 = 该目录 `python3 publish-client.py rollback` 并删 releases 表 1.9.75 那行）。内容：界面用 @ankotti/admin-ui 重写（见下一节）+ 新墨色图标。保持强制的原因：服务端只看 latest 那条的 mandatory，设成非强制会让还没升到 1.9.71–1.9.74 的老用户不再被强制。验收：go vet / go test / 前端门禁全过；公网 latest API = 1.9.75 mandatory；飞牛下载版本化 / latest / ai-latest 整包 sha 一致；internal/updater 以 1.9.74 身份 Check → 下载 → 验签通过。
 

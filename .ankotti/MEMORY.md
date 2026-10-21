@@ -2,7 +2,7 @@
 > 最后更新：2026-10-22。细节按下方路由表读 docs/memory/，逐版发布史在 docs/decisions.md（按标题取）。
 
 ## 当前状态
-- 线上：**v1.9.75 stable（强制，min 1.9.51）**，commit f1e121c，部署在深圳 sz（/opt/proxysplit/incoming/client-v1.9.75-f1e121c，previous/ = 1.9.74）；服务端自 2026-10-05 的 0a3cfc9 起未动。
+- 线上：**v1.9.76 stable（强制，min 1.9.51）**，2026-10-22 全站发布（服务端 / 后台 / 新官网 / 客户端），sz current = releases/20261022-021444-37136b1-v1.9.76。客户端有新版一律自动升级；规则库由 sz 每天同步、客户端从 /rules/ 自动拉（见 docs/memory/routing.md）。
 - 前端已用 @ankotti/admin-ui 重写（React 19 + Vite 8 + TS 7 + pnpm 12.9.1，替换旧单文件 Svelte），随 v1.9.75 上线（已并入 main）；门禁 `pnpm --dir frontend check`，预览 `pnpm --dir frontend dev`。
 - 技术栈：Go + Wails + React 前端，sing-box 原生 TUN + process_name；服务端 Fastify + 深圳共享 PG（堡垒机数据源 sz-pg-proxysplit）。
 
@@ -15,7 +15,8 @@
 - AI 劫持只管 Claude 与 OpenAI，且只能界面「恢复」解除，不加命令行 / 远程解锁。
 - 加速兜底握手复刻不了就不接管、不直连；词表与 sub2api 两边同改。
 - 动 POWER云 接入（powervpn / coreupdate / core-release.json / PanelPublicKey）前先读 powervpn 仓接入标准。
-- 不把 release-all.ps1（部署全站）当作只发客户端的脚本；只发客户端走 incoming + publish-client.py。
+- 不把 release-all.ps1（部署全站）当作只发客户端的脚本；只发客户端走 incoming + publish-client.py；全站发布经堡垒机手工跑 remote-deploy.sh（release-all 里的 ssh/scp 不能用）。
+- 每次发版都设 mandatory=true（服务端只看 latest 那条）。
 - 不随意改生产构建路径（Dockerfile 用 npmmirror）；不用旧 Svelte / npm 流程。
 
 ## 路由表（主题 → 文件）

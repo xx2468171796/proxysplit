@@ -31,3 +31,8 @@ internal/core/routing_matrix_test.go 用真 sing-box 跑 20 个场景（TUN 换 
 
 ## 自动更新相关（影响分流重启）
 SelectNode / RemoveNode / SetRouting / SetSettings / SetLogLevel 返回重启错误并在界面提示；restart() 在一把 lifecycleMu 下停 + 启，用户中途点停止不会被重新启动。
+
+## 规则库来源（2026-10-22 起）
+- 主源是深圳镜像 https://proxysplit.zygskins.cn/rules/（manifest.json + 三个 .srs，sz 每天 05:00 由 proxysplit-rules.timer 从 SagerNet 同步）。客户端 geoupdate.Sync 只走镜像、按 sha256 判断要不要下；手动「更新规则库」用 Update，镜像不行再经节点回退上游。
+- 后台同步：service.StartRuleSync（启动 30 秒后、每 6 小时），不需要代理在跑；sing-box 本地 rule_set 文件变化自动重载。
+- 镜像出问题先看 sz `journalctl -u proxysplit-rules`；sz 能直连 GitHub，jsDelivr 是兜底源。

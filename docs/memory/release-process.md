@@ -15,7 +15,7 @@
 
 ## 发布全站与私钥
 `scripts/release-all.ps1` 会同时部署服务端和官网，不要把只打包客户端误当成全站发布；它的上传/远程执行曾用直连 ssh/scp（违反「服务器只经堡垒机」），2026-09-28 起 `scripts/remote-deploy.sh` 已修好（pg_dump 改宿主机连共享 PG 并校验，OpenResty 配置不覆盖只 `openresty -t`）。
-- 全站发布步骤（经堡垒机手工）：本机 `-PreflightOnly` → build-commercial.ps1 → `git archive HEAD:server` + admin dist 打包 → transfer_link 传 sz incoming → run_command 跑 remote-deploy.sh → 本机调 /v1/admin/releases 登记。
+- 全站发布步骤（经堡垒机手工，2026-10-22 v1.9.76 实测）：build-commercial.ps1 → `server` 里 `pnpm build`、`website` 里 `pnpm build` → `git -c core.autocrlf=false archive HEAD:server` 解到临时目录，放入 apps/admin/dist 与 website/dist（去掉 .vite）到 apps/site → tar.gz → sz 建 incoming/<release-id> 并 transfer_link 传 tar、exe、manifest、remote-deploy.sh → run_command `sh remote-deploy.sh /opt/proxysplit <id> <tar> <exe> <manifest>`（约 5 分钟，它会直接替换 downloads 的 latest）→ db_query 插 releases + audit_logs → 验收。
 - 发布签名私钥在堡垒机资产 id 116：打包前写回 `server/secrets/shenzhen-release-private.pem`（LF 换行，SHA256 与 build/release-kit/profile.json 对得上），打完立刻删；该文件被 Git 忽略，禁止打印或提交。
 - minimumVersion 会进授权租约 minVersion，别随手调高，否则老客户端被拒（当前一直是 1.9.51）。
 - 换签名密钥必须先发带新公钥的客户端。
