@@ -27,7 +27,7 @@
 
 验收：工作区干净；旧文件不参与构建；正式 v1.7.2 仍可读取现有数据。
 
-## 阶段 1：正式 UI v2
+## 阶段 1：正式 UI v2（已完成：v1.9.75 用 @ankotti/admin-ui 重写，见 docs/architecture.md）
 
 ### 页面
 
@@ -41,9 +41,8 @@
 
 ### 实施方式
 
-- 将当前单文件 `App.svelte` 拆为 `lib/state`、`lib/components`、`pages`。
-- 先迁移状态和动作，不改业务语义；再替换布局和样式。
-- 每迁移一页执行 Svelte 类型检查和对应持久化/运行验证。
+- 已按 `api / state / features / app` 分层重写（React 19 + admin-ui），状态与动作先迁移、业务语义不变。
+- 门禁：`pnpm --dir frontend check`；每页浅色 / 深色 / 窄窗截图验收。
 
 验收：7 页全部使用真实数据；旧功能清单 100% 映射；无演示数据进入生产路径。
 

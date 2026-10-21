@@ -1,6 +1,9 @@
 # ProxySplit 通用发布流程
 
-这份流程是客户端、API、运营后台和官网的唯一正式发布入口。后续 Codex、Claude Code
+这份流程是客户端、API、运营后台和官网的唯一正式发布入口。
+
+> **只发客户端**（服务端不动）不跑 `release-all.ps1`，按 [docs/memory/release-process.md](memory/release-process.md)「只发客户端的标准流程」：
+> 正式构建 → 传深圳 incoming → `publish-client.py prepare` → 登记 releases → `promote` → 验收。后续 Codex、Claude Code
 或人工接手时，不要再手工复制单个文件、手改官网版本号或直接覆盖线上目录。
 
 ## 一条命令
@@ -32,7 +35,7 @@
 
 1. 要求 `main`、干净 Git 工作区，并记录精确 commit。
 2. 校验工具、正式公钥、TLS Pin、发布私钥和管理员凭据。
-3. 执行 Go test/vet、Svelte check、服务端 typecheck/test/build。
+3. 执行 Go test/vet、前端门禁（`pnpm --dir frontend check`）、服务端 typecheck/test/build。
 4. Garble 构建 Windows EXE，写入 FileVersion/ProductVersion，生成 SHA256 和 Ed25519 更新签名。
 5. 从 Git commit 组装服务端源码，并加入刚构建的后台 `dist`。
 6. 上传到唯一 release 目录；迁移前自动 `pg_dump`；构建并健康检查 API。

@@ -146,7 +146,7 @@ wails dev
 ## 项目结构
 
 ```text
-frontend/               Svelte 桌面界面
+frontend/               桌面界面（React 19 + @ankotti/admin-ui，结构见 docs/architecture.md）
 internal/core/          sing-box 配置生成与进程管理
 internal/service/       节点、线路、规则、持久化与健康检查
 internal/updater/       签名更新检查、下载验证与 Windows 原地升级
@@ -154,7 +154,7 @@ internal/license/       商业登录、设备绑定、离线租约与 DPAPI
 server/apps/api/        商业 API
 server/apps/admin/      商业运营后台
 server/apps/site/       官方网站
-scripts/build.ps1       版本化商业构建与发布签名
+scripts/                构建、正式签名构建与发布脚本（流程见 docs/RELEASE-PROCESS.md）
 ```
 
 ---
