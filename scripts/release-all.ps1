@@ -45,7 +45,9 @@ function Run([string]$file, [string[]]$arguments, [string]$workingDirectory = $r
 }
 
 Step 'Release preflight'
-foreach ($command in @('git', 'go', 'node', 'pnpm.cmd', 'tar')) {
+# Windows' own bsdtar: from Git Bash, GNU tar comes first on PATH and reads "C:\..." as a remote host.
+$tar = Join-Path $env:SystemRoot 'System32\tar.exe'
+foreach ($command in @('git', 'go', 'node', 'pnpm.cmd', $tar)) {
     if (-not (Get-Command $command -ErrorAction SilentlyContinue)) {
         throw "Required command is missing: $command"
     }
@@ -112,7 +114,7 @@ try {
     # would still rewrite shell scripts to CRLF and break Linux container
     # entrypoints (`exec ...: no such file or directory`).
     Run 'git' @('-c', 'core.autocrlf=false', '-C', $root, 'archive', '--format=tar', '-o', $sourceTar, 'HEAD:server')
-    Run 'tar' @('-xf', $sourceTar, '-C', $stage)
+    Run $tar @('-xf', $sourceTar, '-C', $stage)
     $adminDist = Join-Path $root 'server\apps\admin\dist'
     if (-not (Test-Path (Join-Path $adminDist 'index.html'))) { throw 'Admin dist was not built' }
     Copy-Item -Recurse -Force $adminDist (Join-Path $stage 'apps\admin\dist')
@@ -123,7 +125,7 @@ try {
     New-Item -ItemType Directory -Path $siteStage -Force | Out-Null
     Get-ChildItem -LiteralPath $siteDist -Force | Where-Object { $_.Name -ne '.vite' } |
         Copy-Item -Destination $siteStage -Recurse -Force
-    Run 'tar' @('-czf', (Join-Path $outDir "proxysplit-server-$releaseId.tar.gz"), '-C', $stage, '.')
+    Run $tar @('-czf', (Join-Path $outDir "proxysplit-server-$releaseId.tar.gz"), '-C', $stage, '.')
 } finally {
     Remove-Item -LiteralPath $temp -Recurse -Force -ErrorAction SilentlyContinue
 }
