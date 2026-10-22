@@ -44,3 +44,4 @@ Ed25519 离线租约绑定账号 / 设备 / 硬件 / 期限；minimumVersion 会
 - 订单新增 checkout_url（电脑收银台）/ merchant_name；网关换线时 API 打 warn 日志。
 - 退款：后台订单「退款」→ POST /v1/admin/orders/:no/refund {reason}，整组拆单一起退，只扣未用时长（权益流水 license_grants 记录每次发放的 start/end；refundedLicense 纯函数有单测）；2026-09-26 之前的订单无流水，只标退款不动会员，需手动调；钱在支付宝商户后台原路退。
 - 单笔回调到账走 grantWithinTx（以前漏了试用剩余时长合并）。
+- 拆单续付（2026-10-23）：拆单各笔共用一个过期时间，付了一部分、其余过期时，再买同一套餐会续付这一组（resumeSplitInTx）：还有效的那笔原样返回、不重复下单，过期的标 closed 并换新单号重发；「全部付齐」只数非 closed 的笔。旧二维码迟到付款照样算（closed 的笔仍对账、可到账，同序号的替补自动关掉）；后台手动确认拆单子单只确认这一笔、付齐才发（payGroupPieceInTx，与回调同一组级事件防重复发放）。真库场景脚本在 pve-pg-proxysplit-paytest 跑过 14 项全过。

@@ -42,6 +42,8 @@ export class PaymentService{
     }
     const paid=[]
     for(const order of orders){
+      // A resumed split piece that is still valid already has its gateway QR.
+      if(order.payUrl&&order.providerOrderNo){paid.push(order);continue}
       const withUrl=await this.createGatewayOrder(provider,order,username)
       paid.push(withUrl)
     }
@@ -139,7 +141,8 @@ export class PaymentService{
 
   private async syncOrderUncached(orderNo:string):Promise<SyncOrderResult>{
     const order=await this.store.getOrderForCallback(orderNo)
-    if(!order||(order.status!=='pending'&&order.status!=='failed'))return {ok:true,status:order?.status??'unknown',changed:false}
+    // 'closed' = 拆单里被换号重发的那笔：旧二维码仍可能被付款，照样查。
+    if(!order||!['pending','failed','closed'].includes(order.status))return {ok:true,status:order?.status??'unknown',changed:false}
     const provider=await this.store.getProvider(order.providerCode)
     // enabled controls creation of new orders. Historical orders must remain
     // queryable after a provider is deactivated or switched.

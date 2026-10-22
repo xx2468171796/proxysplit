@@ -192,4 +192,27 @@ describe('zhongzhuan payment adapter',()=>{
     await expect(service.syncOrder(order.orderNo)).resolves.toMatchObject({status:'expired',changed:true})
     expect(failOrder).toHaveBeenCalledWith(order.orderNo)
   })
+
+  it('resuming a split checkout reuses a still-valid piece and only creates the re-issued one',async()=>{
+    process.env.PAYMENT_TEST_APP_ID='app-test'
+    process.env.PAYMENT_TEST_APP_SECRET='test-secret'
+    const fetchMock=vi.fn(async()=>new Response(JSON.stringify({code:0,data:{qr_code:'https://qr.alipay.com/new',out_trade_no:'gw-new'}}),{status:200}))
+    vi.stubGlobal('fetch',fetchMock)
+    const kept={...order,orderNo:'PS-KEEP',groupId:'g',splitIndex:1,splitTotal:3,providerOrderNo:'gw-keep',payUrl:'https://qr.alipay.com/keep'}
+    const reissued={...order,orderNo:'PS-NEW',groupId:'g',splitIndex:3,splitTotal:3}
+    const store={createOrders:async()=>[kept,reissued],getProvider:async()=>provider,setOrderPayment:vi.fn(async()=>({orderNo:'x'})),failOrder:vi.fn()}
+    const result=await new PaymentService(store as unknown as PgStore,'https://proxysplit.invalid').createOrder('user-id','plan-id','alice')
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(result.orders.map(o=>o.payUrl)).toEqual(['https://qr.alipay.com/keep','https://qr.alipay.com/new'])
+  })
+
+  it('still queries a closed (re-issued) split piece so a late payment on its old QR is not lost',async()=>{
+    process.env.PAYMENT_TEST_APP_ID='app-test'
+    process.env.PAYMENT_TEST_APP_SECRET='test-secret'
+    vi.stubGlobal('fetch',vi.fn(async()=>new Response(JSON.stringify({code:0,data:{status:'PAID',amount:299,out_trade_no:'gw-old',sn:'sn-old'}}),{status:200})))
+    const fulfillPaidOrder=vi.fn(async()=>({ok:true,duplicate:false}))
+    const store={getOrderForCallback:async()=>({...order,status:'closed',providerOrderNo:'gw-old'}),getProvider:async()=>provider,fulfillPaidOrder,failOrder:vi.fn()}
+    await new PaymentService(store as unknown as PgStore,'https://proxysplit.invalid').syncOrder(order.orderNo)
+    expect(fulfillPaidOrder).toHaveBeenCalledOnce()
+  })
 })

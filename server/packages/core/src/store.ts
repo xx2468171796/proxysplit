@@ -783,6 +783,11 @@ export class PgStore {
       const plan=(await client.query(`SELECT id,name,tier,billing_cycle,duration_days,lifetime,price_cents,currency,purchase_limit_per_user
         FROM plans WHERE id=$1 AND active=true AND public=true AND (sale_starts_at IS NULL OR sale_starts_at<=now()) AND (sale_ends_at IS NULL OR sale_ends_at>now())`,[planId])).rows[0]
       if(!plan)throw new Error('PLAN_NOT_AVAILABLE')
+      const resumed=await this.resumeSplitInTx(client,userId,planId,expiresAt)
+      if(resumed){
+        await client.query('COMMIT')
+        return resumed
+      }
       if(plan.purchase_limit_per_user){
         // A split checkout creates several sub-orders; count order GROUPS, not rows.
         const count=await client.query(`SELECT count(DISTINCT coalesce(group_id,id))::int AS n FROM orders
@@ -807,6 +812,35 @@ export class PgStore {
       await client.query('COMMIT')
       return orders
     }catch(e){await client.query('ROLLBACK');throw e}finally{client.release()}
+  }
+  // A split checkout the customer already started paying (some piece paid,
+  // none refunded) is resumed instead of opening a new group: still-valid
+  // pending pieces are returned as they are, expired / failed ones are closed
+  // and re-issued under a new order number. Without this the paid pieces never
+  // add up to a grant once the rest expire. Returns null when nothing to resume.
+  private async resumeSplitInTx(client:TxClient,userId:string,planId:string,expiresAt:Date):Promise<OrderRecord[]|null>{
+    const open=(await client.query(`SELECT group_id FROM orders WHERE user_id=$1 AND plan_id=$2 AND group_id IS NOT NULL AND created_at>now()-interval '30 days'
+      GROUP BY group_id HAVING bool_or(status='paid') AND bool_or(status IN ('pending','failed')) AND NOT bool_or(status='refunded')
+      ORDER BY max(created_at) DESC LIMIT 1`,[userId,planId])).rows[0] as {group_id:string}|undefined
+    if(!open)return null
+    const ret=`RETURNING id,order_no AS "orderNo",user_id AS "userId",plan_id AS "planId",plan_name AS "planName",tier,billing_cycle AS "billingCycle",
+      duration_days AS "durationDays",lifetime,amount_cents AS "amountCents",currency,status,provider_code AS "providerCode",
+      provider_order_no AS "providerOrderNo",pay_url AS "payUrl",checkout_url AS "checkoutUrl",paid_at AS "paidAt",expires_at AS "expiresAt",created_at AS "createdAt",
+      group_id AS "groupId",split_index AS "splitIndex",split_total AS "splitTotal"`
+    const pieces=(await client.query(`SELECT id,status,expires_at AS "expiresAt",pay_url AS "payUrl" FROM orders
+      WHERE group_id=$1 AND status IN ('pending','failed') ORDER BY split_index FOR UPDATE`,[open.group_id])).rows as Array<{id:string;status:string;expiresAt:Date;payUrl:string|null}>
+    const out:OrderRecord[]=[]
+    for(const p of pieces){
+      if(p.status==='pending'&&p.payUrl&&new Date(p.expiresAt).getTime()>Date.now()+60_000){
+        out.push((await client.query(`UPDATE orders SET updated_at=now() WHERE id=$1 ${ret}`,[p.id])).rows[0])
+        continue
+      }
+      await client.query(`UPDATE orders SET status='closed',updated_at=now() WHERE id=$1`,[p.id])
+      out.push((await client.query(`INSERT INTO orders(order_no,user_id,plan_id,plan_name,tier,billing_cycle,duration_days,lifetime,amount_cents,currency,provider_code,expires_at,group_id,split_index,split_total)
+        SELECT $2,user_id,plan_id,plan_name,tier,billing_cycle,duration_days,lifetime,amount_cents,currency,provider_code,$3,group_id,split_index,split_total
+        FROM orders WHERE id=$1 ${ret}`,[p.id,orderNo(),expiresAt])).rows[0])
+    }
+    return out.length?out:null
   }
   async setOrderPayment(orderNoValue:string,providerOrderNo:string,payUrl:string,details:{checkoutUrl?:string|null;merchantName?:string|null}={}){
     const r=await this.pool.query(`UPDATE orders SET provider_order_no=$2,pay_url=$3,checkout_url=$4,merchant_name=$5,updated_at=now()
@@ -840,12 +874,12 @@ export class PgStore {
     const r=await this.pool.query(`SELECT order_no AS "orderNo" FROM orders
       WHERE created_at>now()-interval '7 days'
         AND ((status='pending' AND created_at<now()-interval '20 seconds')
-          OR (status='failed' AND updated_at<now()-interval '5 minutes'))
+          OR (status IN ('failed','closed') AND pay_url IS NOT NULL AND updated_at<now()-interval '5 minutes'))
       ORDER BY updated_at ASC LIMIT $1`,[safeLimit])
     return r.rows as Array<{orderNo:string}>
   }
   async touchPaymentReconciliation(orderNoValue:string){
-    await this.pool.query(`UPDATE orders SET updated_at=now() WHERE order_no=$1 AND status IN ('pending','failed')`,[orderNoValue])
+    await this.pool.query(`UPDATE orders SET updated_at=now() WHERE order_no=$1 AND status IN ('pending','failed','closed')`,[orderNoValue])
   }
   async listOrders(params:Partial<OrderListQuery>={}):Promise<ListResult<any>&{amountSum:number}>{
     const conds:string[]=[];const vals:unknown[]=[];let i=1
@@ -897,24 +931,13 @@ export class PgStore {
       // A gateway may accept payment while our create/query response is lost and
       // the local order is marked failed. A cryptographically verified PAID
       // callback/query must still grant what the customer paid for.
-      if(order.status!=='pending'&&order.status!=='failed')throw new Error('ORDER_NOT_PAYABLE')
+      // 'closed' = a split piece re-issued under a new number whose old QR was
+      // still paid: the money is real, so it counts for that piece.
+      const payable=order.status==='pending'||order.status==='failed'||(order.status==='closed'&&!!order.group_id)
+      if(!payable)throw new Error('ORDER_NOT_PAYABLE')
       if(order.provider_order_no&&order.provider_order_no!==input.providerOrderNo)throw new Error('PROVIDER_ORDER_MISMATCH')
       if(order.group_id){
-        // Split sub-order: mark THIS sub-order paid; grant the plan once, when
-        // every sub-order in the group is paid (guarded by a group-level event
-        // so concurrent last-payments cannot double-grant).
-        await client.query(`UPDATE orders SET status='paid',provider_order_no=$2,paid_at=$3,updated_at=now() WHERE id=$1`,
-          [order.id,input.providerOrderNo,input.paidAt??new Date()])
-        const siblings=(await client.query(`SELECT status FROM orders WHERE group_id=$1 FOR UPDATE`,[order.group_id])).rows as Array<{status:string}>
-        const allPaid=siblings.length>0&&siblings.every(s=>s.status==='paid')
-        if(allPaid){
-          const groupEvent=await client.query(`INSERT INTO payment_events(provider_code,event_id,order_no,payload_hash,verified,result)
-            VALUES($1,$2,$3,'group',true,'fulfilled') ON CONFLICT(provider_code,event_id) DO NOTHING RETURNING id`,
-            [input.providerCode,`group:${order.group_id}`,order.order_no])
-          if(groupEvent.rows[0]){
-            await this.grantWithinTx(client,{userId:order.user_id,planId:order.plan_id,durationDays:order.duration_days,lifetime:order.lifetime,source:'order',orderId:order.id})
-          }
-        }
+        const allPaid=await this.payGroupPieceInTx(client,order,input.providerCode,input.providerOrderNo,input.paidAt??new Date())
         await client.query(`UPDATE payment_events SET result='fulfilled' WHERE id=$1`,[event.rows[0].id])
         await client.query('COMMIT')
         return {ok:true,duplicate:false,groupAllPaid:allPaid}
@@ -928,6 +951,29 @@ export class PgStore {
       await client.query('COMMIT')
       return {ok:true,duplicate:false}
     }catch(e){await client.query('ROLLBACK');throw e}finally{client.release()}
+  }
+
+  // Split sub-order: mark THIS piece paid; grant the plan once, when every live
+  // piece of the group is paid ('closed' = replaced by a re-issued piece). A
+  // group-level event guards concurrent last payments against a double grant.
+  // Used by gateway callbacks/queries and by manual admin confirmation alike.
+  private async payGroupPieceInTx(client:TxClient,order:{id:string;group_id:string;order_no:string;user_id:string;plan_id:string;duration_days:number|null;lifetime:boolean},
+    providerCode:string,providerOrderNo:string,paidAt:Date):Promise<boolean>{
+    await client.query(`UPDATE orders SET status='paid',provider_order_no=$2,paid_at=$3,updated_at=now() WHERE id=$1`,[order.id,providerOrderNo,paidAt])
+    // This piece is covered now: an unpaid stand-in for the same slot is no longer needed.
+    await client.query(`UPDATE orders SET status='closed',updated_at=now() WHERE group_id=$1 AND split_index=(SELECT split_index FROM orders WHERE id=$2)
+      AND id<>$2 AND status IN ('pending','failed')`,[order.group_id,order.id])
+    const siblings=(await client.query(`SELECT status FROM orders WHERE group_id=$1 AND status<>'closed' FOR UPDATE`,[order.group_id])).rows as Array<{status:string}>
+    const allPaid=siblings.length>0&&siblings.every(s=>s.status==='paid')
+    if(allPaid){
+      const groupEvent=await client.query(`INSERT INTO payment_events(provider_code,event_id,order_no,payload_hash,verified,result)
+        VALUES($1,$2,$3,'group',true,'fulfilled') ON CONFLICT(provider_code,event_id) DO NOTHING RETURNING id`,
+        [providerCode,`group:${order.group_id}`,order.order_no])
+      if(groupEvent.rows[0]){
+        await this.grantWithinTx(client,{userId:order.user_id,planId:order.plan_id,durationDays:order.duration_days,lifetime:order.lifetime,source:'order',orderId:order.id})
+      }
+    }
+    return allPaid
   }
 
   // Shared license grant used by paid orders, manual admin grants and redeem
@@ -1038,6 +1084,13 @@ export class PgStore {
       await client.query(`INSERT INTO payment_events(provider_code,event_id,order_no,payload_hash,verified,result)
         VALUES($1,$2,$3,'manual',true,'manual') ON CONFLICT(provider_code,event_id) DO NOTHING`,
         [order.provider_code,`manual:${order.order_no}`,order.order_no])
+      if(order.group_id){
+        // One piece of a split checkout: confirm just this piece; the plan is
+        // granted once the whole group is paid (same path as gateway payments).
+        const allPaid=await this.payGroupPieceInTx(client,order,order.provider_code,order.provider_order_no??'MANUAL',new Date())
+        await client.query('COMMIT')
+        return {ok:true,duplicate:false,groupAllPaid:allPaid}
+      }
       const grant=await this.grantWithinTx(client,{userId:order.user_id,planId:order.plan_id,durationDays:order.duration_days,lifetime:order.lifetime,source:'order',orderId:order.id})
       await client.query(`UPDATE orders SET status='paid',provider_order_no=COALESCE(provider_order_no,'MANUAL'),paid_at=now(),updated_at=now() WHERE id=$1`,[order.id])
       await client.query('COMMIT')
