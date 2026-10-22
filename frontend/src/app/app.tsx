@@ -7,6 +7,7 @@ import { useStore } from "../shared/store";
 import { license } from "../state/account";
 import { data } from "../state/data";
 import { ForcedUpdateDialog } from "./forced-update";
+import { GateFrame } from "./gate-frame";
 import { MainShell } from "./main-shell";
 import { nav } from "./nav";
 import { asMode, BRAND_INK, useResolvedDark } from "./theme";
@@ -52,8 +53,18 @@ function Root() {
   const status = useStore(license, (s) => s.status);
   const gated = status.enabled && !status.authenticated;
   let body = <MainShell netBlocked={netBlocked} onDismissNetBlocked={dismissNetBlocked} />;
-  if (gated && status.signedIn) body = <MemberGate netBlocked={netBlocked} onDismissNetBlocked={dismissNetBlocked} />;
-  else if (gated) body = <LoginScreen />;
+  if (gated && status.signedIn)
+    body = (
+      <GateFrame>
+        <MemberGate netBlocked={netBlocked} onDismissNetBlocked={dismissNetBlocked} />
+      </GateFrame>
+    );
+  else if (gated)
+    body = (
+      <GateFrame>
+        <LoginScreen />
+      </GateFrame>
+    );
   return (
     <>
       <ForcedUpdateDialog />

@@ -459,9 +459,12 @@ export function installMockBackend(): void {
       async (...a: unknown[]) =>
         t[k] ? t[k](...a) : "",
   });
+  // 只假事件：窗口方法（最小化 / 最大化…）保留 Wails 真运行时的（无边框窗口测试包里有），浏览器里没有就没有
+  const real = (window as { runtime?: Record<string, unknown> }).runtime;
   Object.assign(window, {
     go: { main: { App } },
     runtime: {
+      ...real,
       EventsOnMultiple: (name: string, cb: Fn) => {
         const set = listeners.get(name) ?? new Set<Fn>();
         set.add(cb);

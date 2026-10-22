@@ -57,11 +57,13 @@ func main() {
 
 	// Create application with options
 	err := wails.Run(&options.App{
-		Title:       fmt.Sprintf("ProxySplit v%s — 应用分流代理", appVersion),
-		Width:       1400,
-		Height:      880,
-		MinWidth:    1180,
-		MinHeight:   720,
+		Title:     fmt.Sprintf("ProxySplit v%s — 应用分流代理", appVersion),
+		Width:     1400,
+		Height:    880,
+		MinWidth:  1180,
+		MinHeight: 720,
+		// 不用系统标题栏：窗口按钮和拖动在前端自绘（qiantai/desktop，业主 2026-10-23）
+		Frameless:   true,
 		StartHidden: app.background,
 		AssetServer: &assetserver.Options{
 			Assets: assets,

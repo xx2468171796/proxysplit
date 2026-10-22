@@ -31,7 +31,8 @@ Wails 构建会重新生成 frontend/wailsjs 绑定，需随提交带上；正�
 - 自定义线路下拉可选；改别的应用不应把它冲成「规则」。
 
 ## 桌面外壳（2026-10-22，分支 redesign-desktop）
-- 外壳换成 qiantai 的 `DesktopShell`（`qiantai#qiantai-v0.5.0`，**只从 `qiantai/desktop` import**，根入口会带进约 550 KB 示例图）：自绘标题栏（节点 / 代理策略 / 速率 / 外观 / 启停）+ 左侧导航 + 账号菜单（admin-ui `AccountMenu`）。Wails 保留系统边框，`windowControls={false}`。
+- 外壳是 qiantai 的 `DesktopShell`（`qiantai#qiantai-v0.8.0`，**只从 `qiantai/desktop` import**，根入口会带进约 550 KB 示例图）：自绘标题栏（节点 / 代理策略 / 速率 / 外观 / 启停）+ 左侧导航 + 账号菜单（admin-ui `AccountMenu`）。
+- **无边框窗口**（业主 2026-10-23：系统标题栏和按钮跟设计语言脱节，桌面客户端一律自绘）：`main.go` `Frameless: true`；窗口按钮 `app/window-controls.ts`（最小化 / 最大化·还原 / 关闭走 `Quit()` → Go `OnBeforeClose`，已登录且开了收到托盘就隐藏），双击标题栏切换最大化要我们做（Wails 拖动区双击不最大化）。登录 / 会员闸门不在外壳里，用 `app/gate-frame.tsx`（qiantai `DesktopFrame`）补标题栏，否则拖不动关不掉。假后端只假事件、保留 Wails 窗口方法。2026-10-23 用无边框测试程序实测：最小化、最大化 / 还原、关闭、双击、拖动、拉边缘都正常。
 - 设计语言 clean-modern，qiantai 与 AdminProvider 用同一主色、同一明暗（`app/theme.ts`）。毛玻璃时只改变量 `--aui-surface` 为半透明（不写 `.aui-*` 选择器，audit 禁止）；业务 Panel 加 `className="qd-pane"` 得到模糊。
 - 默认外观：柔光背景浓淡 35、毛玻璃、均衡画质、智能暂停（`seedDefaultAppearance`：本机没存过 `proxysplit:backdrop` 才写入）。
 - 首屏 JS gzip：225.2 → 237.6 KB（+12.4），CSS 64.3 → 67.9 KB；WebGL 背景是懒加载分块。

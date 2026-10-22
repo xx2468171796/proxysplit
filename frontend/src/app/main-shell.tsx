@@ -1,5 +1,5 @@
 // 主界面外壳：qiantai 桌面外壳 DesktopShell（标题栏 + 左侧导航 + 内容区 + 「外观」面板 + 背景层）。
-// 标题栏中间是活动节点 / 代理策略 / 速率，右侧启动 / 停止；导航底部是账号菜单。Wails 窗口保留系统边框，不画窗口按钮。
+// 标题栏中间是活动节点 / 代理策略 / 速率，右侧启动 / 停止 + 自绘窗口按钮（Wails 无边框，见 window-controls.ts）；导航底部是账号菜单。
 import { AccountMenu, ContentSkeleton, PanelErrorBoundary, SlowLoadingNote, useSlowLoading } from "@ankotti/admin-ui";
 import { Gauge, LayoutGrid, Logs, type LucideIcon, Plug, Rss, Server, Settings, ShieldCheck } from "lucide-react";
 import { DesktopShell } from "qiantai/desktop";
@@ -23,6 +23,7 @@ import { PowerButton, TitleBarCenter } from "./header-controls";
 import { navigate, type PageId, usePage } from "./nav";
 import { asMode, desktopLook, STORAGE_KEY, seedDefaultAppearance, useResolvedDark } from "./theme";
 import { UpdateNotesDialog } from "./update-notes-dialog";
+import { useWindowControls } from "./window-controls";
 
 const PAGES: Record<PageId, { title: string; icon: LucideIcon; render: () => ReactNode }> = {
   overview: { title: "概览", icon: Gauge, render: () => <OverviewPage /> },
@@ -47,6 +48,7 @@ export function MainShell({ netBlocked, onDismissNetBlocked }: Props) {
   const dark = useResolvedDark(asMode(useStore(data, (s) => s.settings.theme)));
   const { account, accountMenu, onSignOut, dialogs } = useAccountMenu();
   const look = desktopLook(dark);
+  const windowControls = useWindowControls();
 
   useEffect(() => {
     document.title = `${PAGES[page].title} · ProxySplit`;
@@ -70,7 +72,7 @@ export function MainShell({ netBlocked, onDismissNetBlocked }: Props) {
         <DesktopShell
           look={look}
           storageKey={STORAGE_KEY}
-          windowControls={false}
+          windowControls={windowControls}
           title={
             <span className="ps-title">
               <img src={logo} alt="" className="ps-logo" />
