@@ -10,7 +10,7 @@ import { ports, refreshPorts, removePort } from "../../state/ports";
 import { system } from "../../state/system";
 import { BatchDialog } from "./batch-dialog";
 import { usePortColumns } from "./port-columns";
-import { PortDetailDialog } from "./port-detail-dialog";
+import { PortDetailPanel } from "./port-detail";
 import { PortDialog } from "./port-dialog";
 import "./ports.css";
 
@@ -48,11 +48,13 @@ export function PortsPage() {
   const loaded = useStore(ports, (s) => s.loaded);
   const [editing, setEditing] = useState<ProxyPortStatus | "new" | null>(null);
   const [batch, setBatch] = useState(false);
-  const [detailId, setDetailId] = useState<string | null>(null);
+  const [picked, setPicked] = useState<string | null>(null);
+  // 默认看第一个端口；选中的被删了就回到第一个
+  const detailId = list.some((p) => p.id === picked) ? picked : (list[0]?.id ?? null);
   const [removing, setRemoving] = useState<ProxyPortStatus | null>(null);
 
   const handlers = useMemo(
-    () => ({ detail: (p: ProxyPortStatus) => setDetailId(p.id), edit: setEditing, remove: setRemoving }),
+    () => ({ detail: (p: ProxyPortStatus) => setPicked(p.id), edit: setEditing, remove: setRemoving }),
     [],
   );
   const columns = usePortColumns(handlers);
@@ -94,6 +96,7 @@ export function PortsPage() {
             rowKey={(p) => p.id}
             columns={columns}
             rowHeight="medium"
+            onRowClick={(p) => setPicked(p.id)}
             loading={!loaded}
             pagination={{ mode: "all" }}
             emptyLabel="还没有代理端口。点「新建端口」建一个，或「批量新建」一次建好几个。"
@@ -105,10 +108,10 @@ export function PortsPage() {
             }
           />
         </ResourcePanel>
+        {detailId && <PortDetailPanel key={detailId} id={detailId} />}
       </PageBody>
       {editing && <PortDialog port={editing === "new" ? null : editing} onClose={() => setEditing(null)} />}
       {batch && <BatchDialog onClose={() => setBatch(false)} />}
-      {detailId && <PortDetailDialog id={detailId} onClose={() => setDetailId(null)} />}
       <ConfirmDialog
         open={removing !== null}
         title={`删除端口「${removing?.name ?? ""}」？`}

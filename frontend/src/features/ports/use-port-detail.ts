@@ -1,4 +1,4 @@
-// 详情弹窗的数据：每 2 秒取一次某端口（可按来访设备过滤）的连接 / 访问日志 / 内核日志。
+// 端口详情面板的数据：每 2 秒取一次某端口（可按来访设备过滤）的连接 / 访问日志 / 内核日志。
 import { useEffect, useMemo, useState } from "react";
 import type { PortDetail } from "../../api/types";
 import { fetchPortDetail } from "../../state/ports";

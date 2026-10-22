@@ -1,5 +1,5 @@
-// 端口详情：来访设备（点一行只看该设备）+ 当前连接 / 访问日志 / 内核日志三个页签，打开期间每 2 秒刷新。
-import { Button, Dialog, StatusBadge, Tabs } from "@ankotti/admin-ui";
+// 端口详情：来访设备（点一行只看该设备）+ 当前连接 / 访问日志 / 内核日志三个页签，显示期间每 2 秒刷新。
+import { Button, Panel, StatusBadge, Tabs } from "@ankotti/admin-ui";
 import { useState } from "react";
 import type { PortClient, ProxyPortStatus } from "../../api/types";
 import { useStore } from "../../shared/store";
@@ -45,7 +45,8 @@ function ClientsBlock({ clients, selected, onSelect }: ClientsProps) {
   );
 }
 
-export function PortDetailDialog({ id, onClose }: { id: string; onClose: () => void }) {
+/** 端口代理页下半屏：选中端口的详情，默认铺满表格下面的空间（业主 2026-10-22 审阅：不用每次点开弹窗） */
+export function PortDetailPanel({ id }: { id: string }) {
   const port = useStore(ports, (s) => s.list.find((p) => p.id === id));
   const [client, setClient] = useState("");
   const [tab, setTab] = useState<Tab>("conns");
@@ -60,13 +61,11 @@ export function PortDetailDialog({ id, onClose }: { id: string; onClose: () => v
   const proto = PROTOCOL_LABEL[port.protocol] ?? port.protocol;
 
   return (
-    <Dialog
-      open
-      size="xl"
+    <Panel
+      className="qd-pane ps-port-inline"
       title={`${port.name} · 详情`}
-      description={`${listenAddress(port)} · ${proto} · ${port.nodeName || "当前节点"}`}
-      titleAdornment={<RunBadge port={port} />}
-      onClose={onClose}
+      count={<RunBadge port={port} />}
+      description={`${listenAddress(port)} · ${proto} · ${port.nodeName || "当前节点"}；点上面表格的一行换一个端口`}
     >
       <div className="ps-port-detail">
         <ClientsBlock clients={port.clients} selected={client} onSelect={setClient} />
@@ -76,6 +75,6 @@ export function PortDetailDialog({ id, onClose }: { id: string; onClose: () => v
           {tab === "logs" && <CoreLogs logs={detail?.logs ?? []} />}
         </Tabs>
       </div>
-    </Dialog>
+    </Panel>
   );
 }

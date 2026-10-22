@@ -1,4 +1,4 @@
-/* 端口代理页：错误文字、详情弹窗布局、弹窗里占满一行的块。只用 admin-ui 色卡变量。 */
+/* 端口代理页：错误文字、详情面板布局、表单里占满一行的块。只用 admin-ui 色卡变量。 */
 .ps-port-err {
   color: var(--aui-danger);
 }
@@ -30,4 +30,9 @@
   margin-left: var(--aui-space-2);
   font-size: var(--aui-fs-note);
   color: var(--aui-note);
+}
+
+/* 详情面板铺满表格下面剩下的高度 */
+.ps-port-inline {
+  flex: 1 1 auto;
 }
