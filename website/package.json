@@ -14,11 +14,16 @@
     "check": "pnpm typecheck && pnpm lint && pnpm check:size && pnpm check:bundle"
   },
   "dependencies": {
-    "@ankotti/admin-ui": "git+http://s3.alonelife.top:32109/admin/yanzheng.git#adminUI-v8.49.0&path:/packages/adminUI",
-    "dongxiao": "git+http://s3.alonelife.top:32109/admin/yanzheng.git#dongxiao-v1.6.0&path:/packages/dongxiao",
+    "@ankotti/admin-ui": "git+http://s3.alonelife.top:32109/admin/yanzheng.git#adminUI-v8.57.0&path:/packages/adminUI",
+    "@gsap/react": "^2.1.2",
+    "dongxiao": "git+http://s3.alonelife.top:32109/admin/yanzheng.git#dongxiao-v1.8.0&path:/packages/dongxiao",
+    "gsap": "^3.15.0",
+    "ogl": "^1.0.11",
+    "qiantai": "git+http://s3.alonelife.top:32109/admin/yanzheng.git#qiantai-v0.6.0&path:/packages/qiantai",
     "react": "19.3.0",
     "react-dom": "19.3.0",
-    "xingneng": "git+http://s3.alonelife.top:32109/admin/yanzheng.git#xingneng-v1.0.0&path:/packages/xingneng"
+    "xingneng": "git+http://s3.alonelife.top:32109/admin/yanzheng.git#xingneng-v1.4.1&path:/packages/xingneng",
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.15",
