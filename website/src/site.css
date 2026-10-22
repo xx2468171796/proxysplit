@@ -7,17 +7,6 @@ body {
   margin: 0;
 }
 
-/* qiantai 0.6.0：导航的「.k-nav > a」灰字规则也套到了配了地址的 CTA 按钮上（深底灰字，对比度约 2.5:1），改回按钮字色 */
-.k-nav > a.q-btn {
-  color: var(--q-on);
-}
-/* qiantai 0.6.0：logos 区块宽屏不折行、overflow:hidden，10 个协议名后两个被裁掉；这里允许折行 */
-.q-logos-row {
-  flex-wrap: wrap;
-  justify-content: flex-start;
-  gap: 10px 26px;
-}
-
 /* 区块标题折行时两行均衡，不留一个字的孤行 */
 .qt-site :is(.q-h2, .k-h1, .q-lead, .k-sub) {
   text-wrap: balance;
@@ -275,17 +264,7 @@ body {
   font-size: 16px;
 }
 
-/* qiantai 0.6.0：居中首屏里，逐字动画标题（flex 行）和信任条折行后靠左；这里跟首屏一起居中 */
-.v-center .k-h1 p,
-.v-center .k-trust {
-  justify-content: center;
-}
-
 @container (max-width: 760px) {
-  /* qiantai 0.6.0：窄屏把导航里的 a 全藏了，配了地址的「下载」按钮也跟着没了；按钮留下 */
-  .k-nav > a.q-btn {
-    display: inline-flex;
-  }
   .ps-preview {
     margin-top: 0;
   }

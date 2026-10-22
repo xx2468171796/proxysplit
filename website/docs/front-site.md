@@ -1,7 +1,7 @@
 # 官网：qiantai 站点配方
 
 官网（https://proxysplit.zygskins.cn/ ，和商业 API `/v1/*` 同域）用公司前台标准 **qiantai**（`package.json` 钉
-`qiantai-v0.6.0`）：整页 = 一份**站点配方**（行业底稿 + 主色 + 设计语言 + 动效方案 + 区块列表），
+`qiantai-v0.8.0`）：整页 = 一份**站点配方**（行业底稿 + 主色 + 设计语言 + 动效方案 + 区块列表），
 由 `<SiteView recipe actions slots>` 一次渲染。颜色只来自主题（adminUI 色卡算出的 `--q-*` 变量），动效只来自 dongxiao。
 接入手册：`node_modules/qiantai/INTEGRATION.md`；能力清单：`node_modules/qiantai/src/catalog.ts`。
 
@@ -13,7 +13,7 @@
 | `src/app.tsx` | `parseRecipe` 校验后交给 `SiteView`；`ACTIONS`（按钮 / 导航 / 页脚文字 → 去哪）；`slots`（实时内容） |
 | `src/slots/` | 插槽内容：`shot.tsx`（截图窗口框 + 首屏下大图 `preview`）、`tour.tsx`（`features`：文字 + 真截图）、`pricing.tsx` / `plan-card.tsx`（`pricing`：套餐 + 网页注册）、`download.tsx`（`download`：最新版本 + 联系方式） |
 | `src/api.ts` / `src/use-site-data.ts` | 和 `/v1` 的全部往来：访客 ID、`trackView`、`fetchLatestVersion`、`fetchPlans`、`registerWeb`，`LATEST_DOWNLOAD`（带访客统计的下载地址） |
-| `src/site.css` | 插槽样式，只读 `--q-*`；另有几处 qiantai 0.6.0 的样式补丁（文件里逐条注明） |
+| `src/site.css` | 插槽样式，只读 `--q-*`（0.6.0 时的几处样式补丁已在 qiantai 0.8.0 里从源头修掉、删除） |
 | `src/dev/mock-api.ts` | 假接口，只在开发预览和评审包里装（见下） |
 | `public/shots/` | 客户端 v1.9.80 新界面截图：`<名字>.webp`（1x）+ `@2x.webp`，名字和尺寸登记在 `src/slots/shot.tsx` 的 `SHOTS` |
 

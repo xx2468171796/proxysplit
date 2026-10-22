@@ -10,7 +10,7 @@
 ## 生产环境（深圳 sz）
 2026-09-25 起生产不再自带 PG/Redis 容器：用深圳共享 PG（库 proxysplit，堡垒机数据源 **sz-pg-proxysplit**）和共享 Redis db9（ACL 用户 proxysplit，只能碰 proxysplit:* 与 fastify-rate-limit-*）；api 经 host.docker.internal 连宿主机（docker-compose.prod.yml extra_hosts）。
 - 旧容器 proxysplit-postgres-1 / redis-1 已停，数据源 sz-proxysplit-pg 已标停用，发版登记要写新库。凭据在堡垒机资产，别往仓库写。
-- 官网：https://proxysplit.zygskins.cn（仓库 website/，2026-10-23 起用 qiantai 0.6.0 站点配方重写：配方 src/recipe.ts，接口数据走插槽，门禁 `pnpm --dir website check`，评审单文件包 `pnpm --dir website review <目录>`，详见 website/docs/front-site.md；分支 website-qiantai，尚未部署）；服务器操作一律经堡垒机（机器别名 sz）。
+- 官网：https://proxysplit.zygskins.cn（仓库 website/，2026-10-23 起用 qiantai 站点配方重写（钉 qiantai-v0.8.0）：配方 src/recipe.ts，接口数据走插槽，门禁 `pnpm --dir website check`，评审单文件包 `pnpm --dir website review <目录>`，详见 website/docs/front-site.md；分支 website-qiantai，尚未部署）；服务器操作一律经堡垒机（机器别名 sz）。
 - Nginx 站点配置 /www/conf.d/proxysplit.zygskins.cn.conf（OpenResty）；下载静态路径模板 server/deploy/proxysplit.nginx.conf。
 
 ## 产品规则
