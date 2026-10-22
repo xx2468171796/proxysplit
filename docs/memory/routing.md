@@ -28,6 +28,7 @@ internal/core/routing_matrix_test.go 用真 sing-box 跑 20 个场景（TUN 换 
 规则写错字是常见原因（用户那台把 zygskins.cn 写成 zygskisn.cn）；Claude / Codex 走国内中转 sub2api.demo.zygskins.cn，本来不需要代理。
 - 1.9.70 起有写法说明表 + 输入自动纠正（canonicalRuleInput）。
 - *.zygskins.cn 规则命中正常，但台湾节点 → 深圳站点约 1/3 TLS 失败（深圳链路 / WAF，非客户端问题），自家国内站点应设直连。
+- 2026-10-23 起内置：`service.DirectDomains` 把 `zygskins.cn`（含全部子域：sub2api.demo / codex.demo 等 AI 中转站、ai.zygskins.cn）和商业 API 主机设为强制直连，排在应用「线路」规则之前，Codex / VS Code 选了线路也直连国内中转。不进 AI 锁（ProxySplit 关了中转站也要能用）。
 
 ## 自动更新相关（影响分流重启）
 SelectNode / RemoveNode / SetRouting / SetSettings / SetLogLevel 返回重启错误并在界面提示；restart() 在一把 lifecycleMu 下停 + 启，用户中途点停止不会被重新启动。
