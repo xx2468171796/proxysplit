@@ -105,13 +105,15 @@ func (a *App) startup(ctx context.Context) {
 		runtime.LogWarning(ctx, "license session reconcile: "+err.Error())
 	}
 	reconcileCancel()
-	// Never tunnel our own API: the backend is hosted domestically, so sending
-	// login / lease / order traffic through an overseas node is slow and can fail.
+	// Never tunnel our own domestic sites (AI relay gateways, panels) or our
+	// API: sending them through an overseas node is slow and can fail.
+	apiHost := ""
 	if origin := a.lic.APIOrigin(); origin != "" {
-		if u, err := url.Parse(origin); err == nil && u.Hostname() != "" {
-			svc.SetDirectDomains([]string{u.Hostname()})
+		if u, err := url.Parse(origin); err == nil {
+			apiHost = u.Hostname()
 		}
 	}
+	svc.SetDirectDomains(service.DirectDomains(apiHost))
 	svc.SetStartGuard(a.commercialStartGuard)
 	a.initPowerVPN()
 	svc.SetLogSink(func(line string) {
