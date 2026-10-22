@@ -16,7 +16,7 @@
     "check": "pnpm typecheck && pnpm lint && pnpm test && pnpm audit:ui && pnpm check:size"
   },
   "dependencies": {
-    "@ankotti/admin-ui": "git+http://s3.alonelife.top:32109/admin/yanzheng.git#adminUI-v8.45.0&path:/packages/adminUI",
+    "@ankotti/admin-ui": "git+http://s3.alonelife.top:32109/admin/yanzheng.git#adminUI-v8.49.0&path:/packages/adminUI",
     "lucide-react": "1.52.0",
     "react": "19.3.0",
     "react-dom": "19.3.0"
