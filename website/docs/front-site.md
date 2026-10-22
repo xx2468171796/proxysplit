@@ -1,56 +1,68 @@
-# 前台站点：特效与组件（front-site 配方生成）
+# 官网：qiantai 站点配方
 
-本项目的前台页面（营销页 / 游戏站 / 落地页 / 官网）用两样公司件：
+官网（https://proxysplit.zygskins.cn/ ，和商业 API `/v1/*` 同域）用公司前台标准 **qiantai**（`package.json` 钉
+`qiantai-v0.6.0`）：整页 = 一份**站点配方**（行业底稿 + 主色 + 设计语言 + 动效方案 + 区块列表），
+由 `<SiteView recipe actions slots>` 一次渲染。颜色只来自主题（adminUI 色卡算出的 `--q-*` 变量），动效只来自 dongxiao。
+接入手册：`node_modules/qiantai/INTEGRATION.md`；能力清单：`node_modules/qiantai/src/catalog.ts`。
 
-- **dongxiao** —— 前台特效（React Bits 全量 216 个 + 动效纪律引擎），只限内部；
-- **@ankotti/admin-ui** —— 按钮、表单、弹窗、表格等基础控件（前台同样用它，不再用 shadcn）。
-
-两者都在 `./package.json` 里钉了内部 Gitea 的固定 tag。代码在 `./src/site/`：
+## 代码在哪
 
 | 文件 | 作用 |
 |---|---|
-| `tokens.css` | 设计令牌：全站颜色**唯一来源**（浅色 / 深色两套） |
-| `tokens.ts` / `theme-provider.tsx` | 令牌名清单、默认主题；`useTokens()` 把具体色值交给 dongxiao 组件当 props |
-| `site-root.tsx` | 外层：主题 → `AdminProvider`（色卡 = `--brand`）→ 动效总闸 |
-| `motion-context.tsx` | 全站动效总闸 `useMotion().paused / setPaused` |
-| `lazy-effect.tsx` / `webgl-support.ts` | 首屏以下重特效挂载器：进视口才下载；减少动态效果 / 无 WebGL 只给静态层，连 chunk 都不下 |
-| `landing-page.tsx` / `aurora-section.tsx` / `aurora-scene.tsx` / `landing.css` | 示例落地页：首屏 2D 背景 + 文字特效 + admin-ui 按钮，卡片特效，首屏以下懒加载的 WebGL 区块 |
+| `src/recipe.ts` | **配方**：`siteRecipe(version, dark)`。行业 `saas`、设计语言 `clean-modern`、主色浅色 `#1c1f24` / 深色 `#6b7584`（和客户端一致）、动效方案 `calm` + 强度 `normal`（首屏线波是 Canvas 2D，不建 WebGL）。全部文案和区块顺序都在这里 |
+| `src/app.tsx` | `parseRecipe` 校验后交给 `SiteView`；`ACTIONS`（按钮 / 导航 / 页脚文字 → 去哪）；`slots`（实时内容） |
+| `src/slots/` | 插槽内容：`shot.tsx`（截图窗口框 + 首屏下大图 `preview`）、`tour.tsx`（`features`：文字 + 真截图）、`pricing.tsx` / `plan-card.tsx`（`pricing`：套餐 + 网页注册）、`download.tsx`（`download`：最新版本 + 联系方式） |
+| `src/api.ts` / `src/use-site-data.ts` | 和 `/v1` 的全部往来：访客 ID、`trackView`、`fetchLatestVersion`、`fetchPlans`、`registerWeb`，`LATEST_DOWNLOAD`（带访客统计的下载地址） |
+| `src/site.css` | 插槽样式，只读 `--q-*`；另有几处 qiantai 0.6.0 的样式补丁（文件里逐条注明） |
+| `src/dev/mock-api.ts` | 假接口，只在开发预览和评审包里装（见下） |
+| `public/shots/` | 客户端 v1.9.80 新界面截图：`<名字>.webp`（1x）+ `@2x.webp`，名字和尺寸登记在 `src/slots/shot.tsx` 的 `SHOTS` |
 
-## 怎么挑特效
+## actions 和 slots 怎么用
 
-1. **看效果**：画廊 https://dongxiao.zygskins.cn （公司内网免登录，外网登录账号在堡垒机资产「dongxiao 特效画廊 · 登录账号」；内部资料不外传）。
-   每个特效有锚点，链接写成 `https://dongxiao.zygskins.cn/#<id>` 可以直接发给别人看。
-2. **让 AI 按场景挑**：`npx dongxiao-find <场景> [气质] [--mobile]`，例如 `npx dongxiao-find hero game --mobile`；
-   代码里 `findEffects({ scene: "hero", mobile: true })`（`import { findEffects } from "dongxiao/catalog"`）。
-3. **按场景推荐表**：`./node_modules/dongxiao/EFFECTS.md`（Hero / 背景 / 卡片 / 列表 / 按钮 / 加载 / 揭晓…，带层级、开销、手机可用）；
-   每个组件的 props 与写法在 `./node_modules/dongxiao/INTEGRATION.md`。
-4. 只用**子路径导入**：`import { DotField } from "dongxiao/backgrounds/dot-field"`，带样式的再 import 一次 `.../styles.css`；
-   不要从包根 `"dongxiao"` 一把导入。用到要 `ogl` / `three` / `gsap` 的组件，按清单 `deps` 另装（都是 optional peer）。
+- **配方只写文字**。按钮 / 导航 / 页脚点了去哪，在 `app.tsx` 的 `ACTIONS` 里按**文字**对应（文字统一放在 `recipe.ts` 的 `LABEL`）：
+  下载类 → `LATEST_DOWNLOAD`，导航 → 区块锚点（`#features` `#pricing` `#faq` `#notice` `#download`）。改按钮文字要两边一起改，没配的按钮 qiantai 会让它点了没反应。
+- **实时内容放插槽**：配方里写 `{ t: "slot", id: "pricing" }`，`app.tsx` 的 `slots.pricing` 给 React 内容；插槽自带锚点 `#<id>`。
+  价格、版本号这类接口数据一律走插槽，**不写进配方**。插槽里用 qiantai 导出的 `Section` / `Card` / `Enter` 和 `q-btn` / `q-input` / `q-card` / `q-chip` 类，颜色只写 `var(--q-…)`。
+- 任何区块可带 `id` 当锚点（如 `notice`、`faq`）。
+- 加新区块先看 `blockSchema`（`node_modules/qiantai/src/blocks/schema.ts`）；`pnpm check:recipe` 会用 `parseRecipe` 校验配方（四种组合，预算提醒也算失败）。
 
-## 必守的规矩
+## 本地预览与假接口
 
-- **一页只有一个 A 层主角**（开奖、揭晓、首屏大标题演出）；它演出时 `setPaused(true)` 把其余装饰全部按停。
-- **一屏最多一块 WebGL 背景**；列表卡片用纯 CSS / 2D 的 `SpotlightCard`、`GlareHover`，不要逐卡挂 WebGL（浏览器只有 8–16 个上下文名额）。
-- **首屏只放轻特效**（CSS / Canvas 2D）。`three`、`@react-three/*`、`ogl`、`gsap`、`matter-js`、`postprocessing`、`maath`、`troika`
-  只许在首屏以下用 `React.lazy` + `LazyEffect` 加载，写法照 `aurora-section.tsx`；`*-scene.tsx` 只许被动态 import。
-  `pnpm check:bundle` 卡首屏 ≤ 300 KB JS / ≤ 40 KB CSS（gzip），重依赖进首屏直接红 —— 超了挪进懒加载块，**别调高预算**。
-- **paused / autoPause**：离屏、切后台、减少动态效果由组件内建处理（`autoPause` 缺省开，别随手关）；`paused` 一律从 `useMotion()` 传。
-  背景类组件都给 `fallback`（纯 CSS 渐变），减少动态效果 / WebGL 丢失时不留空白。
-- **颜色只从令牌来**：CSS 写 `var(--brand)`；dongxiao 组件用 `useTokens()` 拿具体色值当 props（WebGL / Canvas 解析不了 `var(--x)`）；
-  admin-ui 的色卡已接 `--brand`。调用处不写死色值。换肤 / 赛季换皮只改 `tokens.css`。
-- 文字特效多数渲染 `<p>` / `<div>`，不能塞进 `<h1>`：标题写一份隐藏的 `<h1>` 给读屏，特效层 `aria-hidden`。
-- 不给组件传第三方 CDN 的图片 / 字体 / 模型（境外 CDN 慢或被墙就整块空白）；dongxiao 内置素材已随包打进产物，零外链。
+- `pnpm dev`（5288）：`/v1/*` 默认由假接口接住。地址参数切状态：`?plans=loading|error|empty`、`?register=fail`、`?version=none`、`?theme=dark`；
+  `?mock=0` 改走 vite 代理的线上接口。访问统计在开发环境不上报。
+- 正式构建（`pnpm build` / `check:bundle`）里假接口那一支被常量折叠掉，产物里没有假数据。
 
-## 版权红线
+## 评审包（页面审阅台 yemian）
 
-dongxiao 的组件源自 React Bits（**MIT + Commons Clause**）：**只能作为公司自己产品的一部分使用**。
-本站点可以照常上线（组件作为站点的一部分随产物发出去没问题）；但**永远不要**把 dongxiao 本身发到公共 npm、
-单独再分发，或把它的组件源码拷进任何公开仓库（包括开源版的 admin-ui）。
+审阅台用 `sandbox` iframe（没有 allow-same-origin）加载页面：分文件的 Vite 产物会因跨域整页空白，同域 fetch 也会失败。所以评审包是**单文件页**：
+
+```bash
+pnpm --dir website review D:/tmp/site-review
+```
+
+做了什么：`vite.review.config.ts`（mergeConfig 叠在正式配置上：`base: "./"`、资源全转 data URL、单 chunk、CSS 不拆、不预加载）+ `.env.review`（`VITE_MOCK=1` 装假接口）
+构建到 `node_modules/.review-build`，再由 `scripts/review-pages.mjs` 把 JS / CSS / `public` 里的截图和图标内联进 HTML。
+输出 `home-desktop.html`（浅色整页）、`home-dark.html`（深色备选）和 `items.json`。地址参数在沙箱里改不了，改由页面里的 `window.__PS_QUERY` 传（`src/query.ts`）。
+加评审画面：改 `review-pages.mjs` 的 `PAGES` 和 `items`。
+
+## 门禁
+
+`pnpm --dir website check` = typecheck → biome → 文件体量 → 配方校验 → 首屏体积（`xingneng bundle`：JS ≤ 300 KB / CSS ≤ 40 KB gzip）。
+超了把重的东西挪进懒加载块，**别调高预算**。`vite.config.ts` 的重依赖分块关了「连带依赖」（`includeDependenciesRecursively: false`），
+否则 react 会被拉进 gsap 块、首屏反过来静态 import gsap。
+
+## 换截图
+
+客户端 `frontend` 的 mock 预览（`pnpm dev`，`?donate=0&page=apps|nodes`、`?look=1`），1400×900 视口按 1x / 2x 各拍一份转 webp（质量 82），
+覆盖 `public/shots/` 同名文件；尺寸变了同步 `shot.tsx` 的 `SHOTS` 和 `index.html` 的预加载。
 
 ## 升级
 
-1. 查最新 tag：`git ls-remote --tags --refs http://s3.alonelife.top:32109/admin/yanzheng.git "dongxiao-v*" "adminUI-v*"`；
-   或重跑配方（只会提示，不改已有文件）。
-2. 在 `./package.json` 里**同时**改 `dongxiao` 和 `@ankotti/admin-ui` 两行的 `#<tag>`；monorepo 里每个用到 admin-ui 的包必须钉同一个 tag
-   （`admin-ui-audit` 的 `split-version` 规则会报出不一致的行，只升一半会装出两份 SDK、两份都进首屏）。
-3. `pnpm install` → `pnpm check:bundle` → `pnpm --filter <web 包> typecheck` → 打开页面看一遍；版本变更（package.json + lockfile）单独提交，方便回退。
+1. 查最新 tag：`git ls-remote --tags --refs http://s3.alonelife.top:32109/admin/yanzheng.git "qiantai-v*" "dongxiao-v*" "adminUI-v*"`。
+2. 改 `package.json` 的 `#<tag>`；`@ankotti/admin-ui` 必须和 `frontend/` 钉同一个 tag（admin-ui-audit `split-version`）。
+3. `pnpm install` → `pnpm check` → `pnpm dev` 看一遍；如果 qiantai 修了 `site.css` 里注明的问题，删掉对应补丁。版本变更（package.json + lockfile）单独提交。
+
+## 版权红线
+
+dongxiao（qiantai 的动效来源）源自 React Bits（MIT + Commons Clause）：只能作为公司自己产品的一部分使用。
+站点照常上线没问题；**永远不要**把 dongxiao / qiantai 发到公共 npm、单独再分发，或把源码拷进公开仓库。

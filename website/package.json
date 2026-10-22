@@ -10,8 +10,10 @@
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "lint": "biome check src",
     "check:size": "node scripts/check-size.mjs",
+    "check:recipe": "node scripts/check-recipe.mjs",
+    "review": "vite build -c vite.review.config.ts --mode review --outDir node_modules/.review-build --emptyOutDir && node scripts/review-pages.mjs node_modules/.review-build",
     "check:bundle": "vite build && xingneng bundle --dist dist --config xingneng.bundle.json",
-    "check": "pnpm typecheck && pnpm lint && pnpm check:size && pnpm check:bundle"
+    "check": "pnpm typecheck && pnpm lint && pnpm check:size && pnpm check:recipe && pnpm check:bundle"
   },
   "dependencies": {
     "@ankotti/admin-ui": "git+http://s3.alonelife.top:32109/admin/yanzheng.git#adminUI-v8.57.0&path:/packages/adminUI",

@@ -21,7 +21,11 @@ export default defineConfig({
     manifest: true,
     rolldownOptions: {
       output: {
+        // 重依赖块只装重依赖本身：默认会把它的依赖（react）一起拉进去，首屏为拿 react 反过来静态 import 了 gsap 块。
+        // 关掉连带依赖时按 rolldown 文档同时开 strictExecutionOrder，避免生成执行顺序错的块。
+        strictExecutionOrder: true,
         codeSplitting: {
+          includeDependenciesRecursively: false,
           groups: [
             {
               name: (id) => {
@@ -36,7 +40,7 @@ export default defineConfig({
     },
   },
   server: {
-    // 本地预览直接读线上接口（套餐、版本号）；访问统计在开发环境不上报。
+    // 开发时 /v1 默认由假接口接住（src/dev/mock-api.ts）；加 ?mock=0 才经这里读线上接口（套餐、版本号）。访问统计在开发环境不上报。
     proxy: { "/v1": { target: "https://proxysplit.zygskins.cn", changeOrigin: true } },
     // Vite 8：把浏览器控制台转发到终端，AI 在命令行就能看到前端报错，不用截图 / 开 DevTools
     forwardConsole: true,

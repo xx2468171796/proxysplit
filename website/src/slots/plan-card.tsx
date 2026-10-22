@@ -1,11 +1,6 @@
 // 一张套餐卡：名称、价格（有原价时划掉）、限时倒计时、权益。付款在客户端里完成，这里只引导下载。
-import { Button } from "@ankotti/admin-ui";
-import { SpotlightCard } from "dongxiao/components/spotlight-card";
-import "dongxiao/components/spotlight-card/styles.css";
+import { Card } from "qiantai";
 import { LATEST_DOWNLOAD, type Plan, yuan } from "../api";
-import { useMotion } from "../site/motion-context";
-import { useTokens } from "../site/theme-provider";
-import { withAlpha } from "../site/tokens";
 import { useCountdown } from "../use-site-data";
 
 const pad = (n: number) => String(n).padStart(2, "0");
@@ -24,24 +19,14 @@ function Countdown({ endsAt }: { endsAt: string }) {
 }
 
 export function PlanCard({ plan }: { plan: Plan }) {
-  const { paused } = useMotion();
-  const tokens = useTokens();
   const premium = plan.tier === "premium";
   const original = Number(plan.originalPriceCents ?? 0);
   const period = plan.lifetime ? "永久有效" : `${plan.durationDays ?? 0} 天`;
   return (
-    <SpotlightCard
-      className={`ps-plan${premium ? " is-premium" : ""}`}
-      spotlightColor={withAlpha(tokens.text, 0.06)}
-      intensity={0.5}
-      spotlightSize={320}
-      borderGlow={0}
-      theme="light"
-      paused={paused}
-    >
-      <p className="ps-plan-tag">
+    <Card kind="lift" className={`ps-plan${premium ? " is-premium" : ""}`}>
+      <span className="q-chip">
         {plan.badge || (premium ? "超级会员" : "普通会员")} · {plan.maxDevices} 台设备
-      </p>
+      </span>
       <h3>{plan.name}</h3>
       <p className="ps-price">
         <small>¥</small>
@@ -49,15 +34,15 @@ export function PlanCard({ plan }: { plan: Plan }) {
         {original > plan.priceCents ? <del>¥{yuan(original)}</del> : null}
       </p>
       {plan.saleEndsAt ? <Countdown endsAt={plan.saleEndsAt} /> : null}
-      {plan.description ? <p className="ps-plan-desc">{plan.description}</p> : null}
+      {plan.description ? <p className="q-muted ps-plan-desc">{plan.description}</p> : null}
       <ul>
         <li>{period}</li>
         <li>最多 {plan.maxDevices} 台电脑同时使用</li>
         {plan.purchaseLimitPerUser ? <li>每人限购 {plan.purchaseLimitPerUser} 次</li> : null}
       </ul>
-      <Button asChild variant={premium ? "default" : "outline"}>
-        <a href={LATEST_DOWNLOAD}>下载后在软件里开通</a>
-      </Button>
-    </SpotlightCard>
+      <a className={`q-btn${premium ? "" : " ghost"}`} href={LATEST_DOWNLOAD}>
+        下载后在软件里开通
+      </a>
+    </Card>
   );
 }

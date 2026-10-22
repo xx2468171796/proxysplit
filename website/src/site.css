@@ -1,659 +1,319 @@
-/* 官网版式。颜色只用 tokens.css 的变量；不用渐变、光晕和大面积阴影。 */
-
-:root {
-  --wrap: 1120px;
-  --radius: 12px;
-  font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
-  color: var(--text);
-  background: var(--bg);
-  -webkit-font-smoothing: antialiased;
-}
-
-* {
-  box-sizing: border-box;
-}
-
+/*
+ * 插槽内容的样式：只读 qiantai 主题变量（--q-*，由配方的设计语言 + 主色写在 .qt-site 上），不写死颜色，
+ * 这样插槽和配方渲染的区块是一个样子，换主色 / 深浅色跟着变。窄屏按站点容器宽度折行（和 qiantai 一致）。
+ */
+html,
 body {
   margin: 0;
-  background: var(--bg);
-  color: var(--text);
-  line-height: 1.65;
 }
 
-a {
-  color: inherit;
+/* qiantai 0.6.0：导航的「.k-nav > a」灰字规则也套到了配了地址的 CTA 按钮上（深底灰字，对比度约 2.5:1），改回按钮字色 */
+.k-nav > a.q-btn {
+  color: var(--q-on);
+}
+/* qiantai 0.6.0：logos 区块宽屏不折行、overflow:hidden，10 个协议名后两个被裁掉；这里允许折行 */
+.q-logos-row {
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  gap: 10px 26px;
 }
 
-h1,
-h2,
-h3,
-p {
-  margin: 0;
-}
-
-.ps-wrap {
-  width: min(var(--wrap), 100% - 48px);
-  margin-inline: auto;
-}
-
-/* 页头 */
-.ps-header {
-  position: sticky;
-  top: 0;
-  z-index: 20;
-  background: color-mix(in srgb, var(--bg) 88%, transparent);
-  backdrop-filter: saturate(1.4) blur(10px);
-  border-bottom: 1px solid var(--border);
-}
-
-.ps-header-row {
-  display: flex;
-  align-items: center;
-  gap: 32px;
-  height: 60px;
-}
-
-.ps-brand {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  font-weight: 650;
-  font-size: 17px;
-  text-decoration: none;
-}
-
-.ps-nav {
-  display: flex;
-  gap: 28px;
-  margin-left: auto;
-  font-size: 14px;
-}
-
-.ps-nav a {
-  color: var(--text-muted);
-  text-decoration: none;
-}
-
-.ps-nav a:hover {
-  color: var(--text);
-}
-
-/* 首屏 */
-.ps-hero {
-  position: relative;
-  padding: 88px 0 64px;
-  overflow: hidden;
-}
-
-.ps-hero-waves {
-  position: absolute;
-  inset: 0 0 35% 0;
-  pointer-events: none;
-}
-
-.ps-hero-copy {
-  position: relative;
-  max-width: 760px;
-  text-align: center;
-}
-
-.ps-eyebrow {
-  font-size: 13px;
-  color: var(--text-muted);
-  letter-spacing: 0.02em;
-}
-
-.ps-hero-title {
-  margin-top: 18px;
-  font-size: clamp(38px, 6vw, 64px);
-  line-height: 1.12;
-  font-weight: 700;
-  letter-spacing: -0.02em;
-}
-
-.ps-hero-title > * {
-  display: flex;
-  justify-content: center;
-}
-
-.ps-lead {
-  margin: 22px auto 0;
-  max-width: 34em;
+/* 区块标题折行时两行均衡，不留一个字的孤行 */
+.qt-site :is(.q-h2, .k-h1, .q-lead, .k-sub) {
   text-wrap: balance;
-  font-size: 17px;
-  color: var(--text-muted);
 }
 
-.ps-hero-actions {
-  display: flex;
-  justify-content: center;
-  gap: 12px;
-  margin-top: 32px;
-}
-
-.ps-hero-notes {
-  margin-top: 18px;
-  text-wrap: balance;
-  font-size: 13px;
-  color: var(--text-muted);
-}
-
-.ps-hero-shot {
+/* 截图窗口框 */
+.ps-preview {
+  margin-top: -24px;
+  padding-bottom: 24px;
   position: relative;
-  margin-top: 56px;
+  z-index: 1;
 }
-
-/* 截图窗口 */
 .ps-window {
   margin: 0;
   overflow: hidden;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--surface);
-  box-shadow: var(--aui-shadow-md);
+  border-radius: var(--q-r);
+  border: var(--q-bw) solid var(--q-line);
+  background: var(--q-surface);
+  box-shadow: var(--q-shadow);
 }
-
 .ps-window-bar {
   display: flex;
   align-items: center;
   gap: 8px;
   height: 34px;
   padding: 0 0 0 12px;
+  border-bottom: var(--q-bw) solid var(--q-line);
+  background: var(--q-soft);
   font-size: 12px;
-  color: var(--text-muted);
-  border-bottom: 1px solid var(--border);
+  color: var(--q-muted);
 }
-
 .ps-window-ctl {
-  display: flex;
   margin-left: auto;
+  display: flex;
   height: 100%;
 }
-
 .ps-window-ctl b {
-  width: 44px;
+  width: 42px;
   position: relative;
 }
-
-.ps-window-ctl b::before {
+/* 最小化 / 最大化 / 关闭：一条线、一个方框、一个叉 */
+.ps-window-ctl b::before,
+.ps-window-ctl b::after {
   content: "";
   position: absolute;
-  inset: 50% auto auto 50%;
+  left: 16px;
+  top: 50%;
   width: 10px;
-  translate: -50% -50%;
-  border-top: 1px solid var(--text-muted);
+  border-top: 1px solid var(--q-muted);
 }
-
 .ps-window-ctl b:nth-child(2)::before {
-  height: 10px;
-  border: 1px solid var(--text-muted);
+  height: 9px;
+  margin-top: -5px;
+  border: 1px solid var(--q-muted);
 }
-
 .ps-window-ctl b:nth-child(3)::before {
-  border-top-width: 1.2px;
-  rotate: 45deg;
-  box-shadow: none;
+  transform: rotate(45deg);
 }
-
 .ps-window-ctl b:nth-child(3)::after {
-  content: "";
-  position: absolute;
-  inset: 50% auto auto 50%;
-  width: 11px;
-  translate: -50% -50%;
-  border-top: 1.2px solid var(--text-muted);
-  rotate: -45deg;
+  transform: rotate(-45deg);
 }
-
+.ps-window-ctl b:not(:nth-child(3))::after {
+  display: none;
+}
 .ps-window > img {
   display: block;
   width: 100%;
   height: auto;
 }
 
-/* 协议条 */
-.ps-protocols {
-  border-block: 1px solid var(--border);
-  padding: 18px 0;
-}
-
-.ps-protocols-row {
-  display: flex;
-  align-items: center;
-  gap: 32px;
-}
-
-.ps-protocols-row > p {
-  flex: none;
-  font-size: 14px;
-  color: var(--text-muted);
-}
-
-.ps-protocols-loop {
-  flex: 1;
-  min-width: 0;
-}
-
-.ps-protocol {
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--text);
-  white-space: nowrap;
-}
-
-/* 通用区块 */
-.ps-section {
-  padding: 96px 0;
-}
-
-.ps-section-soft {
-  background: var(--bg-soft);
-}
-
-.ps-section-head {
-  max-width: 680px;
-  margin-bottom: 56px;
-}
-
-.ps-section-head h2,
-.ps-notice h2,
-.ps-faq h2 {
-  font-size: clamp(26px, 3.4vw, 36px);
-  line-height: 1.25;
-  letter-spacing: -0.01em;
-}
-
-.ps-section-head p {
-  margin-top: 14px;
-  color: var(--text-muted);
-  font-size: 16px;
-}
-
-/* 功能 */
+/* 功能：文字 + 截图交替 */
 .ps-feature {
   display: grid;
-  grid-template-columns: 4fr 8fr;
-  align-items: center;
+  grid-template-columns: 5fr 7fr;
   gap: 56px;
-  margin-bottom: 88px;
+  align-items: center;
+  padding: 28px 0;
 }
-
 .ps-feature.is-flipped {
-  grid-template-columns: 8fr 4fr;
+  grid-template-columns: 7fr 5fr;
 }
-
 .ps-feature.is-flipped .ps-feature-copy {
   order: 2;
 }
-
 .ps-feature-copy h3 {
-  font-size: 24px;
+  font-size: 26px;
+  margin-bottom: 12px;
 }
-
-.ps-feature-copy > p {
-  margin-top: 12px;
-  color: var(--text-muted);
-}
-
 .ps-feature-copy ul {
-  margin: 20px 0 0;
+  margin: 18px 0 0;
   padding: 0;
   list-style: none;
   display: grid;
-  gap: 12px;
-  font-size: 15px;
+  gap: 10px;
 }
-
 .ps-feature-copy li {
-  padding-left: 18px;
   position: relative;
+  padding-left: 22px;
 }
-
 .ps-feature-copy li::before {
-  content: "";
+  content: "✓";
   position: absolute;
   left: 0;
-  top: 0.72em;
-  width: 8px;
-  border-top: 1.5px solid var(--text);
+  font-weight: 700;
+  color: var(--q-ink);
 }
 
-.ps-extras {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 40px;
-  padding-top: 40px;
-  border-top: 1px solid var(--border);
-}
-
-.ps-extras h3,
-.ps-steps h3 {
-  font-size: 17px;
-}
-
-.ps-extras p,
-.ps-steps p {
-  margin-top: 8px;
-  font-size: 15px;
-  color: var(--text-muted);
-}
-
-/* 步骤 */
-.ps-steps {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 32px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  counter-reset: step;
-}
-
-.ps-steps li {
-  counter-increment: step;
-  padding-top: 20px;
-  border-top: 1px solid var(--border);
-}
-
-.ps-steps li::before {
-  content: counter(step);
-  display: block;
-  margin-bottom: 10px;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text-muted);
-  font-variant-numeric: tabular-nums;
-}
-
-/* 会员 */
-.ps-plans {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 20px;
-}
-
-.ps-plans-note {
-  padding: 32px;
-  border: 1px dashed var(--border);
-  border-radius: var(--radius);
-  color: var(--text-muted);
+/* 会员：套餐卡 */
+.ps-note {
+  padding: 28px;
+  border-radius: var(--q-r);
+  border: var(--q-bw) dashed var(--q-line);
+  color: var(--q-muted);
   text-align: center;
 }
-
+.ps-plans {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 20px;
+}
 .ps-plan {
+  padding: 26px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: 28px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--surface);
+  align-items: flex-start;
+  gap: 8px;
 }
-
 .ps-plan.is-premium {
-  border-color: var(--text);
+  outline: 2px solid var(--q-primary);
+  outline-offset: -2px;
 }
-
-.ps-plan-tag {
-  font-size: 13px;
-  color: var(--text-muted);
-}
-
 .ps-plan h3 {
-  font-size: 18px;
+  font-size: 19px;
+  margin-top: 6px;
 }
-
 .ps-price {
-  font-size: 36px;
-  font-weight: 700;
-  letter-spacing: -0.02em;
+  font-family: var(--q-display);
+  font-size: 38px;
+  font-weight: var(--q-hw);
+  letter-spacing: var(--q-track);
   font-variant-numeric: tabular-nums;
 }
-
 .ps-price small {
   font-size: 18px;
   margin-right: 2px;
 }
-
 .ps-price del {
-  margin-left: 10px;
   font-size: 15px;
   font-weight: 400;
-  color: var(--text-muted);
+  color: var(--q-muted);
+  margin-left: 10px;
 }
-
 .ps-sale {
   font-size: 13px;
-  color: var(--highlight);
+  color: var(--q-attention);
 }
-
-.ps-sale b {
-  font-variant-numeric: tabular-nums;
-}
-
 .ps-sale.is-ended {
-  color: var(--text-muted);
+  color: var(--q-muted);
 }
-
 .ps-plan-desc {
   font-size: 14px;
-  color: var(--text-muted);
 }
-
 .ps-plan ul {
-  margin: 4px 0 12px;
-  padding: 0;
-  list-style: none;
+  margin: 6px 0 14px;
+  padding: 0 0 0 18px;
   font-size: 14px;
   display: grid;
-  gap: 6px;
+  gap: 4px;
   flex: 1;
+  align-content: start;
+}
+.ps-plan .q-btn {
+  width: 100%;
+  justify-content: center;
 }
 
+/* 会员：网页注册 */
 .ps-register {
+  margin-top: 24px;
+  padding: 24px;
+}
+.ps-register form {
   display: grid;
   grid-template-columns: 1.3fr 1fr 1fr 1fr auto;
-  align-items: center;
   gap: 12px;
-  margin-top: 40px;
-  padding: 24px 28px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--surface);
+  align-items: center;
 }
-
-.ps-register-copy h3 {
-  font-size: 16px;
+.ps-register h3 {
+  font-size: 17px;
 }
-
 .ps-register-copy p {
   font-size: 13px;
-  color: var(--text-muted);
+  margin-top: 2px;
 }
-
+.ps-register .q-input {
+  height: 44px;
+}
+.ps-register .q-btn:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
 .ps-register-msg {
   grid-column: 1 / -1;
   font-size: 14px;
 }
-
 .ps-register-msg.is-ok {
-  color: var(--text);
-}
-
-.ps-register-msg.is-bad {
-  color: var(--aui-danger);
-}
-
-.ps-fineprint {
-  margin-top: 20px;
-  font-size: 13px;
-  color: var(--text-muted);
-}
-
-/* 须知 / 常见问题 */
-.ps-notice > *,
-.ps-faq > * {
-  max-width: 760px;
-}
-
-#notice {
-  border-top: 1px solid var(--border);
-}
-
-.ps-notice p {
-  margin-top: 14px;
-  color: var(--text-muted);
-}
-
-.ps-faq details {
-  border-bottom: 1px solid var(--border);
-}
-
-.ps-faq h2 {
-  margin-bottom: 24px;
-}
-
-.ps-faq summary {
-  padding: 18px 0;
-  cursor: pointer;
+  color: var(--q-ink);
   font-weight: 600;
-  list-style: none;
+}
+.ps-register-msg.is-bad {
+  color: var(--q-danger);
+}
+.ps-fineprint {
+  margin-top: 18px;
+  font-size: 13px;
+}
+
+/* 下载 + 联系方式 */
+.ps-download {
   display: flex;
   justify-content: space-between;
+  align-items: center;
+  gap: 24px;
+  margin: 32px 0;
+  padding: 40px 44px;
+  background: var(--q-soft);
 }
-
-.ps-faq summary::after {
-  content: "+";
-  color: var(--text-muted);
-  transition: rotate 0.2s;
+.ps-download h2 {
+  font-size: 30px;
 }
-
-.ps-faq details[open] summary::after {
-  rotate: 45deg;
+.ps-download h2 + p {
+  margin-top: 6px;
 }
-
-.ps-faq details p {
-  padding-bottom: 18px;
-  color: var(--text-muted);
-}
-
-/* 页脚 */
-.ps-footer {
-  border-top: 1px solid var(--border);
-  padding: 56px 0 32px;
+.ps-contact {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 18px;
   font-size: 14px;
 }
-
-.ps-footer-row {
-  display: flex;
-  justify-content: space-between;
-  gap: 40px;
-}
-
-.ps-footer-row p {
-  margin-top: 10px;
-  color: var(--text-muted);
-}
-
-.ps-footer-dl {
-  display: inline-block;
-  margin-top: 14px;
-  font-weight: 600;
-}
-
-.ps-contact {
-  display: grid;
-  gap: 8px;
-  justify-items: start;
-}
-
 .ps-copy {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  color: var(--text-muted);
+  height: 30px;
+  border: var(--q-bw) solid var(--q-line);
+  background: var(--q-surface);
+  font-weight: 500;
+}
+.ps-copy span {
+  color: var(--q-muted);
+  font-weight: 400;
+}
+.ps-download-btn {
+  height: 52px;
+  padding: 0 28px;
+  font-size: 16px;
 }
 
-.ps-copy b {
-  color: var(--text);
-  margin-left: 4px;
+/* qiantai 0.6.0：居中首屏里，逐字动画标题（flex 行）和信任条折行后靠左；这里跟首屏一起居中 */
+.v-center .k-h1 p,
+.v-center .k-trust {
+  justify-content: center;
 }
 
-.ps-footer-legal {
-  display: flex;
-  justify-content: space-between;
-  gap: 16px;
-  margin-top: 40px;
-  padding-top: 20px;
-  border-top: 1px solid var(--border);
-  font-size: 12px;
-  color: var(--text-muted);
-}
-
-@media (max-width: 900px) {
-  .ps-nav {
-    display: none;
+@container (max-width: 760px) {
+  /* qiantai 0.6.0：窄屏把导航里的 a 全藏了，配了地址的「下载」按钮也跟着没了；按钮留下 */
+  .k-nav > a.q-btn {
+    display: inline-flex;
   }
-
-  .ps-header-row {
-    justify-content: space-between;
+  .ps-preview {
+    margin-top: 0;
   }
-
   .ps-feature,
   .ps-feature.is-flipped {
     grid-template-columns: 1fr;
-    gap: 28px;
+    gap: 20px;
   }
-
   .ps-feature.is-flipped .ps-feature-copy {
     order: 0;
   }
-
-  .ps-extras,
-  .ps-steps {
-    grid-template-columns: 1fr 1fr;
-  }
-
-  .ps-register {
+  .ps-register form {
     grid-template-columns: 1fr;
   }
-
-  .ps-protocols-row,
-  .ps-footer-row,
-  .ps-footer-legal {
-    flex-direction: column;
-    align-items: flex-start;
-  }
-}
-
-@media (max-width: 560px) {
-  .ps-hero {
-    padding-top: 56px;
-  }
-
-  .ps-hero-actions {
+  .ps-download {
     flex-direction: column;
     align-items: stretch;
+    padding: 28px 22px;
   }
-
-  .ps-extras,
-  .ps-steps {
-    grid-template-columns: 1fr;
-  }
-
-  .ps-section {
-    padding: 64px 0;
+  .ps-download-btn {
+    justify-content: center;
   }
 }
-
-/* admin-ui 的根容器默认铺后台灰底；官网用站点自己的底色 */
-.adminui {
-  background: var(--bg);
-  min-height: 100vh;
-}
-
-@media (max-width: 900px) {
-  .ps-plans {
-    grid-template-columns: 1fr;
+@container (min-width: 761px) and (max-width: 1080px) {
+  .ps-register form {
+    grid-template-columns: 1fr 1fr;
+  }
+  .ps-register-copy {
+    grid-column: 1 / -1;
   }
 }
