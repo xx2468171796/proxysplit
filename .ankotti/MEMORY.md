@@ -2,7 +2,7 @@
 > 最后更新：2026-10-22。细节按下方路由表读 docs/memory/，逐版发布史在 docs/decisions.md（按标题取）。
 
 ## 当前状态
-- 线上：**v1.9.77 stable（强制，min 1.9.51）**，2026-10-22 03:20 全站发布（端口代理 + 升级后弹更新内容 + 官网），sz current = releases/20261022-031739-3059197-v1.9.77。客户端有新版一律自动升级；规则库由 sz 每天同步、客户端从 /rules/ 自动拉（见 docs/memory/routing.md）。
+- 线上：**v1.9.78 stable（强制，min 1.9.51）**，2026-10-22 16:08 全站发布（应用库自动识别安卓模拟器 + 逐应用连接监测），sz current = releases/20261022-160422-1c42cbd-v1.9.78。客户端有新版一律自动升级；规则库由 sz 每天同步、客户端从 /rules/ 自动拉（见 docs/memory/routing.md）。
 - 前端已用 @ankotti/admin-ui 重写（React 19 + Vite 8 + TS 7 + pnpm 12.9.1，替换旧单文件 Svelte），随 v1.9.75 上线（已并入 main）；门禁 `pnpm --dir frontend check`，预览 `pnpm --dir frontend dev`。
 - 技术栈：Go + Wails + React 前端，sing-box 原生 TUN + process_name；服务端 Fastify + 深圳共享 PG（堡垒机数据源 sz-pg-proxysplit）。
 

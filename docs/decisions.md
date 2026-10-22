@@ -4,6 +4,12 @@
 > 结论与坑已提炼到 `docs/memory/<主题>.md`；这里是事实存档，按标题取（`node ~/.ankotti/ai-kit/mem.mjs <关键词>`），不要整份读。
 > 约定：sz = 深圳生产机；incoming = sz `/opt/proxysplit/incoming/`；客户端回滚 = 该版本 incoming 目录 `python3 publish-client.py rollback` 并删 releases 表里该版本那行。
 
+## v1.9.78（2026-10-22 16:08，全站发布，强制）
+- **全站发布**：release id 20261022-160422-1c42cbd-v1.9.78，sz current 切到该目录，上一版 releases/20261022-031739-3059197-v1.9.77；备份 backups/postgres-20261022-160422-1c42cbd-v1.9.78.sql.gz；服务端无新迁移。
+- 客户端 v1.9.78：exe 源 commit 1c42cbd（tag v1.9.78），SHA256 8ce06c7966f64471d85f80df9c4e16f960d77b059126b936cc4237b6607d6fa9，100,679,680 字节，内核 1.14.3-relayops.1；releases 行（强制，min 1.9.51）+ audit_logs。
+- 内容：appid 识别层（应用库 + 按目录自动识别模拟器 + 逐应用连接监测），见 docs/memory/app-monitor.md；雷电 14 真机两轮实测、两轮独立审计问题全部修复。
+- 验收：飞牛取公网 latest = 1.9.78 mandatory，/health、官网、/admin/ 200，三个下载地址整包 sha 一致。
+
 ## v1.9.77（2026-10-22 03:20，全站发布，强制）
 - **全站发布**：release id 20261022-031739-3059197-v1.9.77，sz current 切到该目录，上一版 releases/20261022-021444-37136b1-v1.9.76；备份 backups/postgres-20261022-031739-3059197-v1.9.77.sql.gz；服务端代码无变化、无新迁移（官网文案更新）。
 - 客户端 v1.9.77：exe 源 commit 3059197（tag v1.9.77），SHA256 67772ae15597c30909d69ff996798c02ee794de07839e4127f6ad39119a40125，100,534,784 字节，内核 1.14.3-relayops.1；releases id e18e0754-fe79-4729-88a3-cbf402337c80（强制，min 1.9.51）+ audit_logs。客户端回滚 = downloads 的 latest / latest.manifest 换回 1.9.76 版本化文件并删 releases 表 1.9.77 那行。
