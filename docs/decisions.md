@@ -4,6 +4,13 @@
 > 结论与坑已提炼到 `docs/memory/<主题>.md`；这里是事实存档，按标题取（`node ~/.ankotti/ai-kit/mem.mjs <关键词>`），不要整份读。
 > 约定：sz = 深圳生产机；incoming = sz `/opt/proxysplit/incoming/`；客户端回滚 = 该版本 incoming 目录 `python3 publish-client.py rollback` 并删 releases 表里该版本那行。
 
+## v1.9.82（2026-10-23 01:30，全站发布，强制）
+- **全站发布**：release id 20261023-012224-55103f0-v1.9.82，上一版 releases/20261023-011333-9997134-v1.9.81；备份 backups/postgres-20261023-012224-55103f0-v1.9.82.sql.gz；无新迁移，服务端代码无变化。
+- 客户端 v1.9.82：exe 源 commit 55103f0（tag v1.9.82），SHA256 8382bf40e7341cabd8d6eb0c6adaf29b1cd653dbba7766b1d44c57203b0eb18a，100,945,408 字节，内核 1.14.3-relayops.1；releases id f156b245-d623-4e27-9ee1-dd01c2497947（强制，min 1.9.51）+ audit_logs。
+- 内容：Wails `Frameless: true`，窗口按钮用 qiantai 0.8.0 `DesktopShell windowControls`（`frontend/src/app/window-controls.ts`），登录 / 会员画面包 `DesktopFrame`（`gate-frame.tsx`）；官网改用 qiantai 站点配方 + `SiteView` 重写（`website/src/recipe.ts` + slots）。业主 2026-10-23 定：桌面客户端一律不用系统标题栏。页面审阅 rhesntp6esv 全部通过。
+- 真实窗口验收（临时 Wails 程序 + user32 驱动）：拖动、双击标题栏最大化 / 还原、最大化 / 还原按钮、最小化、拉边缘、关闭都正常。
+- 验收：公网 latest = 1.9.82 mandatory，/health、官网、/admin/ 200，三个下载 sha 一致；浏览器打开官网无控制台报错、套餐加载、页脚 v1.9.82。
+
 ## v1.9.81（2026-10-23 01:20，全站发布，强制）
 - **全站发布**：release id 20261023-011333-9997134-v1.9.81，上一版 releases/20261023-001358-463943b-v1.9.80；备份 backups/postgres-20261023-011333-9997134-v1.9.81.sql.gz；无新迁移。
 - 客户端 v1.9.81：exe 源 commit 9997134（tag v1.9.81），SHA256 59a7a229a8f5c9b236e6b23038ea9b605c06de0bcb75c77be1d83c5105da9393，100,942,336 字节；releases 行（强制，min 1.9.51）+ audit_logs。
