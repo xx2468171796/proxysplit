@@ -4,6 +4,12 @@
 > 结论与坑已提炼到 `docs/memory/<主题>.md`；这里是事实存档，按标题取（`node ~/.ankotti/ai-kit/mem.mjs <关键词>`），不要整份读。
 > 约定：sz = 深圳生产机；incoming = sz `/opt/proxysplit/incoming/`；客户端回滚 = 该版本 incoming 目录 `python3 publish-client.py rollback` 并删 releases 表里该版本那行。
 
+## v1.9.80（2026-10-23 00:20，全站发布，强制）
+- **全站发布**：release id 20261023-001358-463943b-v1.9.80，上一版 releases/20261022-162423-310cf62-v1.9.79；备份 backups/postgres-20261023-001358-463943b-v1.9.80.sql.gz；服务端无变化。
+- 客户端 v1.9.80：exe 源 commit 463943b（tag v1.9.80），SHA256 075787e25273bab0eb1161a534c581ed3cb5a94c05bf4ee3ea3e9c80ca23af88，100,941,824 字节，内核 1.14.3-relayops.1；releases id a80fd265-e73a-4b64-bcb9-987bad2becfc（强制，min 1.9.51）+ audit_logs。
+- 内容：界面换成 qiantai 0.5.0 桌面外壳（DesktopShell +「外观」面板 + 背景性能调度），概览改为用户向连接面板，端口代理详情铺在表格下面；页面审阅台 rbbk46jcpup 两轮全部通过。
+- 验收：前端 / Go / 服务端 / 官网门禁全过；飞牛取公网 latest = 1.9.80 mandatory，/health、官网、/admin/ 200，三个下载地址整包 sha 一致。
+
 ## v1.9.79（2026-10-22 16:40，全站发布，强制）
 - **全站发布**：release id 20261022-162423-310cf62-v1.9.79，上一版 releases/20261022-160422-1c42cbd-v1.9.78；备份 backups/postgres-20261022-162423-310cf62-v1.9.79.sql.gz；服务端无变化。
 - 客户端 v1.9.79：exe 源 commit 310cf62（tag v1.9.79），SHA256 3ac3c3f09cd033cb9faac9eeb97687c8d0bdfbdf1b4a05a932611aedfd41e0de，100,683,264 字节；releases 行（强制，min 1.9.51）+ audit_logs。
