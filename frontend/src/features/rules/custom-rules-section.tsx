@@ -41,7 +41,7 @@ export function CustomRulesSection() {
   return (
     <Panel
       title="自定义规则"
-      description="你自己填的规则，盖过规则库的国内外分流，「代理策略」为「规则」时生效。应用单独设的「直连 / 拦截」优先于它；「只代理列出的」时，「走代理」只作用于列出的应用。"
+      description="你自己填的规则，盖过规则库的国内外分流，顶栏选「按规则」时生效。应用单独设的「不走代理 / 禁止联网」优先于它；「只代理列出的」时，「走代理」只作用于列出的应用。"
     >
       <div className="ps-stack">
         <CustomRulesGuide />

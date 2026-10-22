@@ -18,7 +18,6 @@ function captureBadge(health: { running: boolean; warning: string; capturing: bo
 export function RouteFlow() {
   const health = useStore(runtime, (s) => s.health);
   const status = useStore(runtime, (s) => s.status);
-  const coreVersion = useStore(runtime, (s) => s.coreVersion);
   const ruleCount = useStore(data, (s) => s.rules.length);
   const ruleMode = useStore(data, (s) => s.ruleMode);
   const nodes = useStore(data, (s) => s.nodes);
@@ -26,8 +25,8 @@ export function RouteFlow() {
   const active = nodes.find((n) => n.id === status?.selectedId);
   const labels = [
     `应用程序 · ${ruleCount} 条`,
-    ruleMode === "whitelist" ? "规则 · 只代理列出的" : "规则 · 默认全代理",
-    `sing-box ${coreVersion || "—"}`,
+    ruleMode === "whitelist" ? "只代理列出的应用" : "默认全部代理",
+    "代理核心",
     active?.name ?? "未选择节点",
   ];
   const step = W / labels.length;

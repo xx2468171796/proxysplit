@@ -30,17 +30,17 @@ export function AppsAlerts() {
     return (
       <InlineAlert
         tone="warning"
-        title={`代理策略是「${clashMode === "global" ? "全局" : "直连"}」，下面的规则暂不生效`}
+        title={`顶栏选了「${clashMode === "global" ? "全部代理" : "全部直连"}」，下面的规则暂不生效`}
         action={
           <Button size="sm" variant="outline" onClick={() => void setClashMode("rule").then(say)}>
-            切回规则
+            切回按规则
           </Button>
         }
       >
         {clashMode === "global"
-          ? "除设为直连 / 拦截的应用外，所有程序都走代理。"
-          : "除设为拦截的应用外，所有程序都直连。"}
-        切回「规则」即可按应用分流。
+          ? "除设为「不走代理」「禁止联网」的应用外，所有程序都走代理。"
+          : "除设为「禁止联网」的应用外，所有程序都直连。"}
+        切回「按规则」即可按应用分流。
       </InlineAlert>
     );
   }
@@ -61,7 +61,7 @@ export function AppsAlerts() {
         </Button>
       }
     >
-      没列出的程序按上方选的线路走（默认「规则」：大陆直连、境外走代理）；列出的应用按各自的方式和节点走。
+      没列出的程序按上方选的线路走（默认「智能分流」：国内直连、国外走代理）；列出的应用按各自的方式和节点走。
     </InlineAlert>
   );
 }

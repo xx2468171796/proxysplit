@@ -30,7 +30,7 @@ type Handlers = {
 
 function useColumns({ onScope, onRemove, onMonitor }: Handlers): Column<Row>[] {
   return [
-    { key: "app", title: "应用程序", minWidth: 200, width: 220, render: ({ rule }) => <AppCell rule={rule} /> },
+    { key: "app", title: "应用程序", minWidth: 220, width: 240, render: ({ rule }) => <AppCell rule={rule} /> },
     { key: "line", title: "分流方式", width: 120, render: ({ rule }) => <LineCell rule={rule} /> },
     { key: "node", title: "节点", width: 170, render: ({ rule }) => <NodeCell rule={rule} /> },
     {
@@ -46,7 +46,7 @@ function useColumns({ onScope, onRemove, onMonitor }: Handlers): Column<Row>[] {
       width: 120,
       render: ({ rule }) => <MonitorCell rule={rule} onOpen={onMonitor} />,
     },
-    { key: "test", title: "测试", width: 90, render: ({ rule }) => <TestCell rule={rule} /> },
+    { key: "test", title: "延迟", width: 90, render: ({ rule }) => <TestCell rule={rule} /> },
     {
       key: "actions",
       title: "操作",
@@ -58,7 +58,7 @@ function useColumns({ onScope, onRemove, onMonitor }: Handlers): Column<Row>[] {
           actions={[
             {
               key: "scope",
-              label: hasScope(row.rule) ? "已限定" : "目标条件",
+              label: hasScope(row.rule) ? "已指定网站" : "指定网站",
               icon: <Crosshair />,
               onSelect: () => onScope(row.rule.match),
             },

@@ -11,7 +11,7 @@ import { RouteRuleEditor } from "./route-rule-editor";
 
 const MODES: SelectItem[] = [
   { value: "global", label: "全局", hint: "全部走出口" },
-  { value: "bypass_cn", label: "绕过大陆", hint: "大陆直连，其余走出口" },
+  { value: "bypass_cn", label: "国内直连、国外代理", hint: "国内网站直连，其余走出口节点" },
   { value: "custom", label: "自定义", hint: "按下面的规则" },
 ];
 

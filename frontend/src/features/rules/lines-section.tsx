@@ -7,7 +7,7 @@ import { useFeedback } from "../../app/use-feedback";
 import { useStore } from "../../shared/store";
 import { data } from "../../state/data";
 import { lineNodeLabel } from "../../state/nodes";
-import { deleteLine, modeLabel } from "../../state/routing";
+import { deleteLine, lineName, modeLabel } from "../../state/routing";
 import { LineDialog } from "./line-dialog";
 
 /** 编辑中的线路：null = 新建，undefined = 没开弹框。 */
@@ -24,7 +24,7 @@ export function LinesSection() {
   const usedBy = removing ? rules.filter((r) => r.line === removing.id).length : 0;
 
   const columns: Column<Line>[] = [
-    { key: "name", title: "线路", minWidth: 180, render: (l) => <b>{l.name}</b> },
+    { key: "name", title: "线路", minWidth: 180, render: (l) => <b>{lineName(l)}</b> },
     {
       key: "exit",
       title: "出口",
@@ -62,7 +62,7 @@ export function LinesSection() {
       title="线路"
       count={custom.length}
       unit="条"
-      description="每条线路 = 一个出口节点 + 一套分流策略，在「应用分流」里为每个应用挑选走哪条线路。「绕过大陆」等智能分流依赖规则库。"
+      description="每条线路 = 一个出口节点 + 一套分流策略，在「应用分流」里为每个应用挑选走哪条线路。「国内直连、国外代理」靠规则库判断网站在不在国内。"
       actions={
         <Button size="sm" onClick={() => setEditing(null)}>
           <Plus />
@@ -76,7 +76,7 @@ export function LinesSection() {
         rowKey={(l) => l.id}
         columns={columns}
         pagination={{ mode: "all" }}
-        emptyLabel="还没有自定义线路。内置线路：直连 / 全局 / 规则（绕过大陆）/ 拦截。点「新建线路」添加。"
+        emptyLabel="还没有自定义线路。内置线路：智能分流 / 全部代理 / 不走代理 / 禁止联网。点「新建线路」添加。"
       />
       {editing !== undefined ? <LineDialog line={editing} onClose={() => setEditing(undefined)} /> : null}
       <ConfirmDialog
@@ -84,8 +84,8 @@ export function LinesSection() {
         title={`删除线路「${removing?.name ?? ""}」？`}
         impact={
           usedBy > 0
-            ? `${usedBy} 个应用正在用它，删除后改回「规则」`
-            : "用到它的应用和「未列出的应用」默认线路会改回「规则」"
+            ? `${usedBy} 个应用正在用它，删除后改回「智能分流」`
+            : "用到它的应用和「未列出的应用」默认线路会改回「智能分流」"
         }
         destructive
         confirmLabel="删除"

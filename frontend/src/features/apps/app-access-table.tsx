@@ -3,6 +3,7 @@ import { CellText, type Column, DataTable, StatusBadge, Tooltip } from "@ankotti
 import { useMemo } from "react";
 import type { AppAccess } from "../../api/types";
 import { fmtBytes } from "../../shared/format";
+import { ruleText } from "../../shared/rule-text";
 import { usePaged, withKeys } from "../ports/use-port-detail";
 import { duration, plainReason } from "./monitor-view";
 
@@ -63,7 +64,7 @@ const COLUMNS: Column<Row>[] = [
     numeric: true,
     render: (a) => `${fmtBytes(a.upload)} / ${fmtBytes(a.download)}`,
   },
-  { key: "rule", title: "命中规则", maxWidth: 200, truncate: (a) => a.rule, render: (a) => dash(a.rule) },
+  { key: "rule", title: "命中规则", maxWidth: 200, truncate: (a) => a.rule, render: (a) => dash(ruleText(a.rule)) },
 ];
 
 export function AppAccessTable({ access, resetKey = "" }: { access: AppAccess[]; resetKey?: string }) {

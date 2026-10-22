@@ -10,9 +10,9 @@ import { isRunning, runtime, toggleRun } from "../state/runtime";
 import { useFeedback } from "./use-feedback";
 
 const CLASH_OPTIONS: { value: ClashMode; label: string }[] = [
-  { value: "rule", label: "规则" },
-  { value: "global", label: "全局" },
-  { value: "direct", label: "直连" },
+  { value: "rule", label: "按规则" },
+  { value: "global", label: "全部代理" },
+  { value: "direct", label: "全部直连" },
 ];
 
 function NodeSwitcher() {

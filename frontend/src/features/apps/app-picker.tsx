@@ -14,6 +14,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { Proc } from "../../api/types";
 import { useFeedback } from "../../app/use-feedback";
 import { AppIcon } from "../../components/app-icon";
+import { appDisplayName } from "../../shared/app-names";
 import { useStore } from "../../shared/store";
 import { addRule, apps, pickFiles, procHasRule, refreshProcesses } from "../../state/app-rules";
 import { data } from "../../state/data";
@@ -28,15 +29,16 @@ function ProcList({ query }: { query: string }) {
   const items = useMemo(() => {
     const q = query.trim().toLowerCase();
     return procs
-      .filter((p) => !q || `${p.name} ${p.desc ?? ""} ${p.path}`.toLowerCase().includes(q))
-      .map((p) => {
-        const done = procHasRule(p, rules);
+      .map((p) => ({ p, name: appDisplayName(p.path || p.name, procs), done: procHasRule(p, rules) }))
+      .filter(({ p, name }) => !q || `${name} ${p.name} ${p.desc ?? ""} ${p.path}`.toLowerCase().includes(q))
+      .sort((a, b) => Number(a.done) - Number(b.done)) // 还没加的排前面
+      .map(({ p, name, done }) => {
         return {
           key: `${p.path}|${p.name}`,
           icon: <AppIcon path={p.path} />,
-          title: p.desc || p.name,
+          title: name,
           detail: p.path || p.name,
-          meta: `${p.count} 进程`,
+          meta: `运行中 ${p.count} 个`,
           badge: done ? <StatusBadge tone="success">已添加</StatusBadge> : undefined,
           actions: done
             ? []
@@ -79,7 +81,7 @@ function ManualAdd() {
         aria-label="手动输入 exe 名或完整路径"
         boxClassName="ps-grow"
         value={value}
-        placeholder="或手动输入 exe 名 / 完整路径"
+        placeholder="找不到？手动输入程序名（如 chrome.exe）或完整路径"
         onChange={(e) => setValue(e.target.value)}
         onKeyDown={(e) => {
           if (!isComposingEvent(e) && e.key === "Enter") submit();
@@ -112,7 +114,7 @@ export function AppPicker({ open, onClose }: { open: boolean; onClose: () => voi
       open={open}
       size="lg"
       title="添加应用"
-      description="选择要分流的程序，添加后默认按「规则」走活动节点。"
+      description="选择要分流的程序，添加后默认「智能分流」：国内直连、国外走当前节点，之后可在列表里改。"
       onClose={onClose}
       footer={
         <DialogFooter hint="「从文件夹选择」可以添加没在运行的程序，浏览到它的 .exe 即可。">
@@ -125,7 +127,7 @@ export function AppPicker({ open, onClose }: { open: boolean; onClose: () => voi
       }
     >
       <div className="ps-picker">
-        <SearchBox value={query} onChange={setQuery} placeholder="搜索运行中的进程或路径…" label="搜索进程" />
+        <SearchBox value={query} onChange={setQuery} placeholder="搜软件名，如 微信、Chrome…" label="搜索进程" />
         <ProcList query={query} />
         <ManualAdd />
       </div>

@@ -89,7 +89,7 @@ export function RuleSetsSection() {
         title="规则库"
         count={ruleSets.length}
         unit="个"
-        description="决定「哪些网站 / IP 走代理、哪些直连」的地区规则（geosite / geoip）。「代理策略」选「规则」时，靠这套库判断大陆直连、境外走代理；线路的「绕过大陆」也依赖它。"
+        description="决定「哪些网站 / IP 走代理、哪些直连」的地区规则（geosite / geoip）。选「智能分流」时，靠这套库判断国内直连、国外走代理；线路的「国内直连、国外代理」也依赖它。"
         actions={
           <Button size="sm" loading={updating} loadingText="更新中…" onClick={() => void update()}>
             <RefreshCw />

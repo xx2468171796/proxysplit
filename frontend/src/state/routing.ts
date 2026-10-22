@@ -8,21 +8,35 @@ export type RoutingState = { ruleSets: RuleSet[]; customRules: RouteRule[] };
 
 export const routing = createStore<RoutingState>({ ruleSets: [], customRules: [] });
 
-export const BUILTIN_LINES: Record<string, string> = { rule: "规则", global: "全局", direct: "直连", block: "拦截" };
+/** 内置线路给用户看的名字（Go 里叫 规则 / 全局 / 直连 / 拦截） */
+export const BUILTIN_LINES = {
+  rule: { label: "智能分流", hint: "国内直连，国外走代理" },
+  global: { label: "全部代理", hint: "所有连接都走代理" },
+  direct: { label: "不走代理", hint: "直接连接，不经过节点" },
+  block: { label: "禁止联网", hint: "这个程序断网" },
+} as const;
+
+type BuiltinLine = keyof typeof BUILTIN_LINES;
+const builtin = (id: string) => BUILTIN_LINES[id as BuiltinLine] as (typeof BUILTIN_LINES)[BuiltinLine] | undefined;
+
+export const builtinLineOptions = (ids: BuiltinLine[]) => ids.map((id) => ({ value: id, ...BUILTIN_LINES[id] }));
 
 export function lineLabel(id: string, lines: Line[]): string {
-  return BUILTIN_LINES[id] || lines.find((l) => l.id === id)?.name || "规则";
+  return builtin(id)?.label || lines.find((l) => l.id === id)?.name || BUILTIN_LINES.rule.label;
 }
+
+/** 线路显示名：内置的换成白话，自定义的用用户起的名字 */
+export const lineName = (l: { id: string; name: string }): string => builtin(l.id)?.label ?? l.name;
 
 /** 自定义线路（非内置）；内置 id 返回 undefined。 */
 export function customLineOf(id: string, lines: Line[]): Line | undefined {
-  return BUILTIN_LINES[id] ? undefined : lines.find((l) => l.id === id && !l.builtin);
+  return builtin(id) ? undefined : lines.find((l) => l.id === id && !l.builtin);
 }
 
 export function modeLabel(mode: string): string {
-  if (mode === "bypass_cn") return "绕过大陆";
+  if (mode === "bypass_cn") return "国内直连、国外代理";
   if (mode === "custom") return "自定义";
-  return "全局";
+  return "全部代理";
 }
 
 export async function refreshRuleSets(): Promise<void> {

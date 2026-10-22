@@ -4,6 +4,7 @@ import { type LogLine, LogStream } from "@ankotti/admin-ui/motion";
 import { useMemo } from "react";
 import type { Conn, PortAccess, PortClient } from "../../api/types";
 import { fmtBytes, parseLog, stripAnsi } from "../../shared/format";
+import { ruleText } from "../../shared/rule-text";
 import { OutBadge } from "../logs/conns-section";
 import { usePaged, withKeys } from "./use-port-detail";
 
@@ -54,7 +55,7 @@ const CONN_COLUMNS: Column<ConnRow>[] = [
     render: (c) => <CellText primary={c.host || c.dest || "—"} secondary={c.network} />,
   },
   { key: "source", title: "来源设备", width: 120, render: (c) => dash(c.source) },
-  { key: "rule", title: "命中规则", maxWidth: 220, truncate: (c) => c.rule, render: (c) => dash(c.rule) },
+  { key: "rule", title: "命中规则", maxWidth: 220, truncate: (c) => c.rule, render: (c) => dash(ruleText(c.rule)) },
   { key: "out", title: "出口", width: 150, render: (c) => <OutBadge c={c} />, mobile: "status" },
   { key: "up", title: "↑ 上传", width: 80, numeric: true, render: (c) => fmtBytes(c.upload) },
   { key: "down", title: "↓ 下载", width: 80, numeric: true, render: (c) => fmtBytes(c.download) },
@@ -101,7 +102,7 @@ const ACCESS_COLUMNS: Column<AccessRow>[] = [
       </StatusBadge>
     ),
   },
-  { key: "rule", title: "命中规则", maxWidth: 220, truncate: (a) => a.rule, render: (a) => dash(a.rule) },
+  { key: "rule", title: "命中规则", maxWidth: 220, truncate: (a) => a.rule, render: (a) => dash(ruleText(a.rule)) },
 ];
 
 export function AccessTable({ access }: { access: PortAccess[] }) {

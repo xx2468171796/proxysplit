@@ -1,6 +1,7 @@
 // 应用分流规则：增删改后整表推给 Go 保存（运行中实时生效）。另含运行中进程、程序图标、逐应用测连通。
 import { api } from "../api/backend";
 import type { AppRule, Proc } from "../api/types";
+import { appDisplayName, dirDisplayName } from "../shared/app-names";
 import { baseName } from "../shared/format";
 import { createStore } from "../shared/store";
 import { data, NOT_LOADED, refreshLines, refreshRules } from "./data";
@@ -29,6 +30,10 @@ export function ruleName(r: AppRule): string {
   if (isDirRule(r)) return `${baseName(m.replace(/[\\/]+$/, ""))}（整个目录）`;
   return /[\\/]/.test(m) ? baseName(m) : m;
 }
+
+/** 给用户看的名字（雷电模拟器、Chrome 浏览器…）；提示、监测等仍用 ruleName */
+export const ruleDisplayName = (r: AppRule, procs: Proc[]): string =>
+  isDirRule(r) ? dirDisplayName(r.match) : appDisplayName(r.path || r.match, procs);
 
 /** 查监测用的键：目录规则用完整目录，其余用程序名 */
 export const monitorKey = (r: AppRule): string => (isDirRule(r) ? r.match : ruleName(r));

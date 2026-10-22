@@ -5,7 +5,7 @@ import { useMemo } from "react";
 import type { RuleMode } from "../../api/types";
 import { useStore } from "../../shared/store";
 import { data, setDefaultLine, setRuleMode } from "../../state/data";
-import { modeLabel } from "../../state/routing";
+import { BUILTIN_LINES, builtinLineOptions, modeLabel } from "../../state/routing";
 import { runtime } from "../../state/runtime";
 import { useSaveNotice } from "./use-save-notice";
 
@@ -14,11 +14,7 @@ const MODES: { value: RuleMode; label: string }[] = [
   { value: "blacklist", label: "默认全代理" },
 ];
 
-const DEFAULT_LINES: SelectItem[] = [
-  { value: "rule", label: "规则", hint: "大陆直连、境外走活动节点" },
-  { value: "global", label: "全局", hint: "全部走活动节点" },
-  { value: "direct", label: "直连" },
-];
+const DEFAULT_LINES: SelectItem[] = builtinLineOptions(["rule", "global", "direct"]);
 
 /** 未列出的应用：值 + 补充说明。 */
 function useUnlisted(): { value: string; note: string } {
@@ -27,12 +23,16 @@ function useUnlisted(): { value: string; note: string } {
   const lines = useStore(data, (s) => s.lines);
   const nodes = useStore(data, (s) => s.nodes);
   const selectedId = useStore(runtime, (s) => s.status?.selectedId);
-  if (ruleMode === "whitelist" || defaultLine === "direct") return { value: "直连", note: "不走代理" };
+  if (ruleMode === "whitelist" || defaultLine === "direct")
+    return { value: BUILTIN_LINES.direct.label, note: "直接连接" };
   const active = nodes.find((n) => n.id === selectedId)?.name || "活动节点";
-  if (defaultLine === "rule") return { value: "规则", note: active };
-  if (defaultLine === "global") return { value: "全局", note: active };
+  if (defaultLine === "rule") return { value: BUILTIN_LINES.rule.label, note: active };
+  if (defaultLine === "global") return { value: BUILTIN_LINES.global.label, note: active };
   const line = lines.find((l) => l.id === defaultLine);
-  return { value: line?.name || "规则", note: line ? `自定义线路 · ${modeLabel(line.routing.mode)}` : active };
+  return {
+    value: line?.name || BUILTIN_LINES.rule.label,
+    note: line ? `自定义线路 · ${modeLabel(line.routing.mode)}` : active,
+  };
 }
 
 function SummaryControls() {

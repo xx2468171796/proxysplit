@@ -1,47 +1,44 @@
 // 应用规则表的可编辑单元格：分流方式、节点、启用、测试。每格自己订阅需要的数据。
 import { Button, CellText, Choice, Note, type SelectItem, Switch, Tag, Tooltip } from "@ankotti/admin-ui";
+import { FolderOpen } from "lucide-react";
 import { useEffect, useMemo, useRef } from "react";
 import type { AppRule } from "../../api/types";
 import { RuleIcon } from "../../components/app-icon";
 import { appLatencyText, latencyText } from "../../shared/format";
 import { useStore } from "../../shared/store";
-import { apps, hasScope, isRuleRunning, ruleName, testApp, updateRule } from "../../state/app-rules";
+import { apps, isDirRule, isRuleRunning, ruleDisplayName, ruleName, testApp, updateRule } from "../../state/app-rules";
 import { data } from "../../state/data";
 import { lineNodeLabel } from "../../state/nodes";
-import { customLineOf, modeLabel } from "../../state/routing";
+import { builtinLineOptions, customLineOf, modeLabel } from "../../state/routing";
 import { runtime } from "../../state/runtime";
 import { useSaveNotice } from "./use-save-notice";
 
-const BUILTIN: SelectItem[] = [
-  { value: "rule", label: "规则", hint: "大陆直连、境外走节点" },
-  { value: "global", label: "全局", hint: "全部走节点" },
-  { value: "direct", label: "直连", hint: "不走代理" },
-  { value: "block", label: "拦截", hint: "断网" },
-];
+const BUILTIN: SelectItem[] = builtinLineOptions(["rule", "global", "direct", "block"]);
 
 export function AppCell({ rule }: { rule: AppRule }) {
   const running = useStore(apps, (s) => s.running);
+  const procs = useStore(apps, (s) => s.procs);
   const on = isRuleRunning(rule, running);
+  const dir = isDirRule(rule);
+  const name = ruleDisplayName(rule, procs);
+  const file = dir ? "整个目录" : ruleName(rule);
   return (
     <span className="ps-app-cell ps-rule-app">
-      <RuleIcon rule={rule} />
+      {dir ? <FolderOpen className="ps-app-icon" aria-hidden="true" /> : <RuleIcon rule={rule} />}
       <CellText
         primary={
           <span className="ps-row">
-            <span className="ps-ellipsis">{ruleName(rule)}</span>
-            <Tooltip content={on ? "正在运行" : "未运行"}>
-              <span className="ps-run-dot" data-on={on || undefined} />
-            </Tooltip>
-            {hasScope(rule) ? (
-              <Tag size="sm" title="仅对指定目标生效">
-                限定
+            <span className="ps-ellipsis">{name}</span>
+            {on ? (
+              <Tag size="sm" variant="soft" title="这个程序正在运行">
+                运行中
               </Tag>
             ) : null}
           </span>
         }
-        primaryTitle={ruleName(rule)}
-        secondary={rule.path}
-        secondaryTitle={rule.path}
+        primaryTitle={name}
+        secondary={name === file ? rule.path : `${file} · ${rule.path || rule.match}`}
+        secondaryTitle={rule.path || rule.match}
       />
     </span>
   );
@@ -135,7 +132,7 @@ export function TestCell({ rule }: { rule: AppRule }) {
     <Button
       size="xs"
       variant="ghost"
-      tooltip="测试此应用的连通与延迟"
+      tooltip="点一下，测这个应用能不能连上、速度多快"
       loading={ms === -99}
       onClick={() => void testApp(rule.match)}
     >

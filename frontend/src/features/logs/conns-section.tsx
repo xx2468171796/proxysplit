@@ -3,6 +3,7 @@ import { type Column, DataTable, QueryBar, ResourcePanel, StatusBadge } from "@a
 import { useEffect, useMemo, useState } from "react";
 import type { Conn } from "../../api/types";
 import { fmtBytes } from "../../shared/format";
+import { ruleText } from "../../shared/rule-text";
 import { useStore } from "../../shared/store";
 import { isRunning, refreshConns, runtime } from "../../state/runtime";
 import { useFillHeight } from "./use-fill-height";
@@ -39,7 +40,7 @@ const COLUMNS: Column<Row>[] = [
       </span>
     ),
   },
-  { key: "rule", title: "命中规则", maxWidth: 260, truncate: (c) => c.rule, render: (c) => c.rule || "—" },
+  { key: "rule", title: "命中规则", maxWidth: 260, truncate: (c) => c.rule, render: (c) => ruleText(c.rule) || "—" },
   { key: "out", title: "出口", width: 170, render: (c) => <OutBadge c={c} />, mobile: "status" },
   { key: "up", title: "↑ 上传", width: 84, numeric: true, render: (c) => fmtBytes(c.upload) },
   { key: "down", title: "↓ 下载", width: 84, numeric: true, render: (c) => fmtBytes(c.download) },

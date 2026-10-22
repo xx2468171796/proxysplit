@@ -7,7 +7,7 @@ import { useFeedback } from "../../app/use-feedback";
 import { RuleIcon } from "../../components/app-icon";
 import { latencyGrade, latencyText } from "../../shared/format";
 import { useStore } from "../../shared/store";
-import { ruleName } from "../../state/app-rules";
+import { apps, isDirRule, ruleDisplayName, ruleName } from "../../state/app-rules";
 import { data, selectNode } from "../../state/data";
 import { lineNodeLabel, nodeName } from "../../state/nodes";
 import { customLineOf, lineLabel } from "../../state/routing";
@@ -17,6 +17,7 @@ export function AppTraffic() {
   const rules = useStore(data, (s) => s.rules);
   const lines = useStore(data, (s) => s.lines);
   const nodes = useStore(data, (s) => s.nodes);
+  const procs = useStore(apps, (s) => s.procs);
   const routeNode = (r: AppRule): string => {
     const custom = customLineOf(r.line, lines);
     if (custom) return lineNodeLabel(custom.node, nodes);
@@ -30,11 +31,11 @@ export function AppTraffic() {
       render: (r) => (
         <span className="ps-app-cell">
           <RuleIcon rule={r} />
-          <CellText primary={ruleName(r)} secondary={r.path} />
+          <CellText primary={ruleDisplayName(r, procs)} secondary={isDirRule(r) ? r.match : ruleName(r)} />
         </span>
       ),
     },
-    { key: "line", title: "策略", width: 110, render: (r) => <Tag>{lineLabel(r.line, lines)}</Tag> },
+    { key: "line", title: "分流方式", width: 110, render: (r) => <Tag>{lineLabel(r.line, lines)}</Tag> },
     {
       key: "node",
       title: "节点",
