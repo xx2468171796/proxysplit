@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"proxysplit/internal/appid"
 	"proxysplit/internal/core"
 	"proxysplit/internal/nodes"
 )
@@ -178,6 +179,13 @@ func (s *Service) normalizeAppRulesLocked(rules []AppRule) ([]AppRule, error) {
 			return nil, fmt.Errorf("应用规则重复: %s", rule.Match)
 		}
 		seen[key] = true
+		if IsDirRule(rule.Match) { // whole folder: never the system, a shared root or ProxySplit itself
+			dir, err := appid.CheckDir(rule.Match)
+			if err != nil {
+				return nil, err
+			}
+			rule.Match, rule.Path = dir, dir
+		}
 		if rule.Path == "" {
 			rule.Path = rule.Match
 		}

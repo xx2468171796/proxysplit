@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -645,5 +646,21 @@ func TestRealityHybridAcceptedByBundledCore(t *testing.T) {
 	os.WriteFile(p, cfg, 0o600)
 	if out, err := exec.Command(bin, "check", "-c", p).CombinedOutput(); err != nil {
 		t.Fatalf("bundled core rejected relayops_hybrid: %s", out)
+	}
+}
+
+func TestProcessSetDirEntries(t *testing.T) {
+	var got struct {
+		Rules []map[string][]string `json:"rules"`
+	}
+	if err := json.Unmarshal(processSet([]string{"chrome.exe", `dir:C:\Program Files\ldplayer9box\`}), &got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Rules) != 2 || got.Rules[0]["process_name"][0] != "chrome.exe" {
+		t.Fatalf("rules = %+v", got.Rules)
+	}
+	re := regexp.MustCompile(got.Rules[1]["process_path_regex"][0])
+	if !re.MatchString(`C:\PROGRAM FILES\ldplayer9box\VBoxNetNAT.exe`) || re.MatchString(`C:\Program Files\ldplayer9boxX\a.exe`) {
+		t.Fatalf("regex %s", re)
 	}
 }

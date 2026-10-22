@@ -15,6 +15,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"proxysplit/internal/appid"
 	"proxysplit/internal/core"
 	"proxysplit/internal/coreupdate"
 	"proxysplit/internal/engine"
@@ -96,6 +97,7 @@ type Config struct {
 	CustomRules  []core.RouteRule `json:"customRules,omitempty"`  // global user rules (域名/IP → 代理/直连/拦截), highest priority
 	RuleSets     map[string]bool  `json:"ruleSets,omitempty"`     // bundled rule-set file -> enabled
 	ProxyPorts   []ProxyPort      `json:"proxyPorts,omitempty"`   // 端口代理（指纹浏览器 / 局域网客户端），每个端口独立内核进程
+	CustomApps   []appid.App      `json:"customApps,omitempty"`   // 用户自定义应用（一个应用对应多个进程），内置应用库见 internal/appid
 
 	Apps []string `json:"apps,omitempty"` // legacy; migrated to Rules on load
 }
@@ -166,6 +168,8 @@ type Service struct {
 	ruleSyncStart sync.Once // rule-set mirror sync (rulesets.go)
 
 	ports portSet // 端口代理运行状态（proxyports.go）
+
+	appMon appid.Monitor // 逐应用连接监测（appmonitor.go）
 }
 
 // New loads (or initializes) config from dataDir.
@@ -177,12 +181,16 @@ func New(binDir, dataDir string) (*Service, error) {
 	s.load()
 	s.clashMode = s.cfg.ClashMode // restore last runtime mode (rule|global|direct)
 	s.core = core.NewManager(filepath.Join(binDir, "sing-box.exe"), dataDir, func(line string) { s.log(line) })
+	if exe, err := os.Executable(); err == nil {
+		appid.SetProtected(filepath.Dir(exe), binDir) // whole-folder rules may never cover ProxySplit itself
+	}
 	s.core.SetOnExit(s.onCoreExit)                             // clear a dangling system proxy if the core crashes
 	s.core.CleanStrays()                                       // kill orphaned sing-box from a prior crash (else it keeps proxying)
 	core.KillPortStrays(filepath.Join(binDir, "sing-box.exe")) // 端口代理 orphans, before any port can start
 	s.healStaleSystemProxy()                                   // recover from a prior crash that left one dangling
 	s.startScheduler()
 	go s.healthLoop() // live line/node reachability for the status panel
+	go s.appMonitorLoop()
 	return s, nil
 }
 
@@ -237,6 +245,7 @@ func (s *Service) SetLogSink(fn func(string)) {
 
 func (s *Service) log(line string) {
 	s.logs.add(line)
+	s.appMon.OnLog(line, time.Now())
 	s.mu.Lock()
 	fn := s.onLog
 	s.mu.Unlock()
@@ -1628,6 +1637,9 @@ func (s *Service) splitOptionsLocked(opts *core.Options, node *nodes.Node) split
 			continue
 		}
 		name := filepath.Base(r.Match)
+		if IsDirRule(r.Match) { // whole install folder (appid): every program under it
+			name = core.DirPrefix + r.Match
+		}
 		if name == "" || name == "." {
 			name = filepath.Base(r.Path)
 		}

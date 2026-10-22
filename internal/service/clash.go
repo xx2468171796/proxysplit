@@ -11,6 +11,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"proxysplit/internal/core"
 )
 
 // clashModes are the runtime routing modes exposed via sing-box's clash_api.
@@ -176,7 +178,7 @@ func closeProcessConnections(port int, secret string, names map[string]bool) int
 		if proc == "" {
 			proc = baseName(c.Metadata.ProcessPath)
 		}
-		if c.ID == "" || !names[strings.ToLower(proc)] {
+		if c.ID == "" || !matchesProc(names, proc, c.Metadata.ProcessPath) {
 			continue
 		}
 		if r, err := do(http.MethodDelete, "/connections/"+c.ID); err == nil {
@@ -205,9 +207,10 @@ type ConnInfo struct {
 	Outbound string `json:"outbound"`       // friendly exit label (直连/拦截/<节点名>)
 	Upload   int64  `json:"upload"`
 	Download int64  `json:"download"`
-	ID       string `json:"id,omitempty"`     // clash connection id
-	Source   string `json:"source,omitempty"` // client ip (proxy-port inbounds)
-	Start    string `json:"start,omitempty"`  // RFC3339 start time
+	ID       string `json:"id,omitempty"`      // clash connection id
+	Source   string `json:"source,omitempty"`  // client ip (proxy-port inbounds)
+	SrcPort  string `json:"srcPort,omitempty"` // client port (joins the core log, appid)
+	Start    string `json:"start,omitempty"`   // RFC3339 start time
 }
 
 func baseName(p string) string {
@@ -251,6 +254,7 @@ func clashConnections(port int, secret string) ([]ConnInfo, error) {
 				Process         string `json:"process"`
 				ProcessPath     string `json:"processPath"`
 				SourceIP        string `json:"sourceIP"`
+				SourcePort      string `json:"sourcePort"`
 			} `json:"metadata"`
 			Upload      int64    `json:"upload"`
 			Download    int64    `json:"download"`
@@ -290,7 +294,7 @@ func clashConnections(port int, secret string) ([]ConnInfo, error) {
 		out = append(out, ConnInfo{
 			Process: proc, Path: c.Metadata.ProcessPath, Host: host, Dest: dest, Network: c.Metadata.Network,
 			Rule: rule, OutTag: tag, Upload: c.Upload, Download: c.Download,
-			ID: c.ID, Source: c.Metadata.SourceIP, Start: c.Start,
+			ID: c.ID, Source: c.Metadata.SourceIP, SrcPort: c.Metadata.SourcePort, Start: c.Start,
 		})
 	}
 	return out, nil
@@ -349,4 +353,20 @@ func labelOutbound(tag string, labels map[string]string) string {
 		return "节点"
 	}
 	return tag
+}
+
+// matchesProc reports whether a connection's program is in names (lower-case
+// exe names, or "dir:<folder>" entries for whole-folder app rules).
+func matchesProc(names map[string]bool, proc, path string) bool {
+	if names[strings.ToLower(proc)] {
+		return true
+	}
+	lp := strings.ToLower(strings.ReplaceAll(path, "/", `\`))
+	for n := range names {
+		if d, ok := strings.CutPrefix(n, core.DirPrefix); ok && lp != "" &&
+			strings.HasPrefix(lp, strings.TrimRight(strings.ToLower(d), `\/`)+`\`) {
+			return true
+		}
+	}
+	return false
 }

@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"log"
 	"net"
 	"net/url"
 	"os"
@@ -61,8 +62,27 @@ var curlErrors = map[int]string{
 	52: "服务器没有返回数据", 56: "连接被断开", 60: "证书校验失败",
 }
 
-// RouteTest requests rawURL as program `process` and reports where it went.
+// DirProbe is the probe's program name when testing a whole-folder app rule.
+const DirProbe = "proxysplit-probe.exe"
+
+// RouteTest requests rawURL as program `process` and reports where it went. A
+// folder (whole-folder app rule) runs the probe from a temporary sub-folder of
+// it, so the core's path rule treats it like the app's own programs.
 func (s *Service) RouteTest(process, rawURL string) RouteTestResult {
+	if IsDirRule(process) {
+		// Only a folder the user already has as an app rule: the probe writes a
+		// temporary program into it.
+		dir, ok := s.folderRule(process)
+		if !ok {
+			return RouteTestResult{Process: process, URL: rawURL, Route: "unknown", Hops: []RouteHop{},
+				Error: "只能检测应用规则里已有的程序目录"}
+		}
+		return s.routeTest(DirProbe, rawURL, dir)
+	}
+	return s.routeTest(process, rawURL, "")
+}
+
+func (s *Service) routeTest(process, rawURL, parent string) RouteTestResult {
 	process = strings.TrimSpace(process)
 	if process == "" {
 		process = UnlistedProbe
@@ -85,12 +105,20 @@ func (s *Service) RouteTest(process, rawURL string) RouteTestResult {
 		res.Error = "找不到系统 curl.exe：" + err.Error()
 		return res
 	}
-	dir, err := os.MkdirTemp("", "ps-route-")
+	if parent != "" {
+		res.Process = parent
+	}
+	var dir string
+	if parent != "" {
+		dir, err = os.MkdirTemp(parent, ".proxysplit-probe-")
+	} else {
+		dir, err = os.MkdirTemp("", "ps-route-")
+	}
 	if err != nil {
-		res.Error = err.Error()
+		res.Error = "建不了检测用的临时程序：" + err.Error()
 		return res
 	}
-	defer os.RemoveAll(dir)
+	defer removeProbeDir(dir)
 	exe := filepath.Join(dir, process)
 	if err := os.WriteFile(exe, src, 0o755); err != nil {
 		res.Error = err.Error()
@@ -491,4 +519,18 @@ func customHits(rules []core.RouteRule, host string) bool {
 		}
 	}
 	return false
+}
+
+// removeProbeDir deletes the probe's temporary folder, retrying while curl or a
+// virus scanner still holds the copied exe (it may sit in an app's own folder).
+func removeProbeDir(dir string) {
+	for i := 0; i < 10; i++ {
+		if err := os.RemoveAll(dir); err == nil {
+			return
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	if err := os.RemoveAll(dir); err != nil {
+		log.Printf("[route-test] 临时检测目录删不掉，下次再试：%s: %v", dir, err)
+	}
 }

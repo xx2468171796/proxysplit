@@ -23,8 +23,10 @@ import (
 	"strings"
 	"time"
 
+	"proxysplit/internal/appid"
 	"proxysplit/internal/core"
 	"proxysplit/internal/nodes"
+	"proxysplit/internal/proc"
 	"proxysplit/internal/service"
 )
 
@@ -45,7 +47,22 @@ func main() {
 	flag.Var(&apps, "app", "app rule name=line (line: rule|global|direct|block), repeatable")
 	flag.Var(&customs, "custom", "custom rule type:value:action, repeatable")
 	flag.Var(&tests, "test", "extra route test process=url, repeatable")
+	hold := flag.Duration("hold", 0, "keep the core running this long after the tests (drive real app traffic meanwhile), then report appMonitor for every -app")
+	discover := flag.Bool("discover", false, "only print which built-in apps (emulators) are installed here and their folders, then exit")
 	flag.Parse()
+	if *discover {
+		var running []string
+		if procs, err := proc.ListProcesses(); err == nil {
+			for _, p := range procs {
+				if p.Path != "" {
+					running = append(running, p.Path)
+				}
+			}
+		}
+		b, _ := json.MarshalIndent(appid.Discover(appid.Builtin(), appid.DiscoverEnv(running)), "", " ")
+		fmt.Println(string(b))
+		return
+	}
 	if *link == "-" { // read from stdin so the secret stays out of the command line
 		b, _ := io.ReadAll(io.LimitReader(os.Stdin, 64<<10))
 		*link = strings.TrimSpace(string(b))
@@ -124,6 +141,19 @@ func main() {
 		extra = append(extra, svc.RouteTest(proc, url))
 	}
 	out["tests"] = extra
+	if len(tests) > 0 || *hold > 0 {
+		// Let the 1 s app-monitor loop see the closed connections (and, with
+		// -hold, real traffic driven meanwhile), then report what the
+		// identification layer recorded per tested / ruled process.
+		fmt.Fprintf(os.Stderr, "[holding %s]\n", *hold)
+		time.Sleep(5*time.Second + *hold)
+		mon := map[string]service.AppDetail{}
+		for _, t := range append(append(multi{}, tests...), apps...) {
+			proc, _, _ := strings.Cut(t, "=")
+			mon[proc] = svc.AppMonitorDetail(proc)
+		}
+		out["appMonitor"] = mon
+	}
 	b, _ := json.MarshalIndent(out, "", " ")
 	fmt.Println(string(b))
 }

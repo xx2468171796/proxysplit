@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -233,12 +234,42 @@ func SplitRuleSets(opts Options) map[string][]byte {
 // to look up processes at all (from whether any rule-set has a process rule;
 // SagerNet/sing-box#4341), so every list must carry a process rule from the start.
 func processSet(names []string) []byte {
-	list := cleanList(names)
-	if len(list) == 0 {
-		list = []string{noProcess}
+	exes, dirs := splitProcessNames(cleanList(names))
+	if len(exes) == 0 && len(dirs) == 0 {
+		exes = []string{noProcess}
 	}
-	b, _ := json.Marshal(M{"version": 3, "rules": []M{{"process_name": list}}})
+	var rules []M
+	if len(exes) > 0 {
+		rules = append(rules, M{"process_name": exes})
+	}
+	if len(dirs) > 0 { // separate rule: fields inside one rule are AND'ed
+		rules = append(rules, M{"process_path_regex": dirs})
+	}
+	b, _ := json.Marshal(M{"version": 3, "rules": rules})
 	return b
+}
+
+// DirPrefix marks a process-list entry that means "every program under this
+// folder" (an application identified by its install directory, internal/appid)
+// instead of one exe name.
+const DirPrefix = "dir:"
+
+// DirRegex matches every process whose path lies under dir, case-insensitively.
+func DirRegex(dir string) string {
+	dir = strings.TrimRight(strings.ReplaceAll(strings.TrimSpace(dir), "/", `\`), `\`)
+	return `(?i)^` + regexp.QuoteMeta(dir) + `\\`
+}
+
+// splitProcessNames separates exe names from "dir:" entries (as path regexes).
+func splitProcessNames(names []string) (exes, dirs []string) {
+	for _, n := range names {
+		if d, ok := strings.CutPrefix(n, DirPrefix); ok {
+			dirs = append(dirs, DirRegex(d))
+		} else {
+			exes = append(exes, n)
+		}
+	}
+	return exes, dirs
 }
 
 func ruleSetPath(dir, tag string) string {
@@ -987,7 +1018,11 @@ func scopedRuleEntries(sc ScopedRule, clashDirect bool) []M {
 	ports, ranges := splitPorts(sc.Ports)
 	var bases []M
 	addBase := func(cond M) {
-		cond["process_name"] = []string{name}
+		if d, ok := strings.CutPrefix(name, DirPrefix); ok {
+			cond["process_path_regex"] = []string{DirRegex(d)}
+		} else {
+			cond["process_name"] = []string{name}
+		}
 		if len(ports) > 0 {
 			cond["port"] = ports
 		}
