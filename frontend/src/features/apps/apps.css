@@ -48,7 +48,7 @@
 
 /* 自动表格布局下长路径会把列撑宽：给应用格子一个上限，路径省略显示。 */
 .ps-rule-app {
-  max-width: 210px;
+  max-width: 180px;
 }
 
 /* 连接监测：状态格里的当前连接数、详情里的统计格与检测区 */
@@ -148,4 +148,10 @@
 .ps-mon-grid > div[data-bad] dd,
 [data-bad] {
   color: var(--aui-danger);
+}
+
+/* 窗口最小宽（1180）时整张规则表要放得下，「操作」列才会自动收成 一个按钮 + ⋯，不出横向滚动 */
+.ps-rule-node {
+  display: block;
+  max-width: 160px;
 }

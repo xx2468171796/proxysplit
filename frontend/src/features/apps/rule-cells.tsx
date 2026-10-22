@@ -83,21 +83,23 @@ export function NodeCell({ rule }: { rule: AppRule }) {
   if (custom) {
     return (
       <Tooltip content="自定义线路自带出口，到「分流规则 → 线路」修改">
-        <Note as="span" className="ps-ellipsis">
+        <Note as="span" className="ps-ellipsis ps-rule-node">
           {lineNodeLabel(custom.node || "active", nodes)}（线路自带）
         </Note>
       </Tooltip>
     );
   }
   return (
-    <Choice
-      size="sm"
-      label={`${ruleName(rule)}走哪个节点`}
-      value={rule.node || ""}
-      options={options}
-      disabled={rule.line === "direct" || rule.line === "block"}
-      onChange={(node) => save(updateRule(rule.match, { node }))}
-    />
+    <span className="ps-rule-node">
+      <Choice
+        size="sm"
+        label={`${ruleName(rule)}走哪个节点`}
+        value={rule.node || ""}
+        options={options}
+        disabled={rule.line === "direct" || rule.line === "block"}
+        onChange={(node) => save(updateRule(rule.match, { node }))}
+      />
+    </span>
   );
 }
 

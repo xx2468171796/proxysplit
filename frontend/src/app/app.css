@@ -139,6 +139,11 @@ body,
   --aui-surface: color-mix(in srgb, var(--q-surface) 72%, transparent);
 }
 
+/* 表格里固定的列 / 表头靠面板色遮住滚到底下的格子：半透明会让文字叠在一起，表格内恢复不透明 */
+.qd-glass .qd-main table {
+  --aui-surface: var(--q-surface);
+}
+
 .ps-title {
   display: inline-flex;
   align-items: center;

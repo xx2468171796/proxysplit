@@ -30,9 +30,9 @@ type Handlers = {
 
 function useColumns({ onScope, onRemove, onMonitor }: Handlers): Column<Row>[] {
   return [
-    { key: "app", title: "应用程序", minWidth: 220, width: 240, render: ({ rule }) => <AppCell rule={rule} /> },
+    { key: "app", title: "应用程序", minWidth: 180, width: 200, render: ({ rule }) => <AppCell rule={rule} /> },
     { key: "line", title: "分流方式", width: 120, render: ({ rule }) => <LineCell rule={rule} /> },
-    { key: "node", title: "节点", width: 170, render: ({ rule }) => <NodeCell rule={rule} /> },
+    { key: "node", title: "节点", width: 150, render: ({ rule }) => <NodeCell rule={rule} /> },
     {
       key: "enabled",
       title: "启用",
