@@ -20,10 +20,10 @@ frontend/src/
               app-rules.ts  应用规则增删改、进程列表、程序图标、逐应用测连通、规则导入导出
               routing.ts    规则库、自定义规则、自定义线路
               nodes.ts subs.ts system.ts update.ts  节点测速 / 订阅 / 系统项与 Claude 加速 / 软件更新
-  app/        app.tsx（Provider + 闸门：强制升级 → 登录 / 会员 → 主界面）、外壳、生命周期（首屏快照、事件、定时器）
+  app/        app.tsx（Provider + 闸门：强制升级 → 登录 / 会员 → 主界面）、外壳 main-shell.tsx（qiantai/desktop 的 DesktopShell）、theme.ts（主色 / 明暗 / 外观默认）、生命周期（首屏快照、事件、定时器）
   features/   一个页面一个目录：overview nodes apps rules subs logs settings account；页面只读 store、调动作
   shared/     纯函数（format.ts，有单测）、store
-  dev/        仅 `vite dev` 浏览器预览用的假后端（生产包不含）
+  dev/        浏览器预览用的假后端 + 预览参数（`vite dev` 或 `VITE_MOCK=1` 评审包才装，正式包不含）
 ```
 
 依赖方向：`features → state → api → wailsjs`；`shared` 被所有层用、不依赖别人。页面之间不互相 import。
@@ -42,7 +42,7 @@ frontend/src/
 
 | 页面 | 模板 | 说明 |
 |---|---|---|
-| 概览 | T01 工作台首页 | 指标带 + 分流链路 + 应用流量 + 快速操作 + 节点健康 + AI 环境检测 |
+| 概览 | 用户向首页（2026-10-22 改） | 连接面板（大开关 / 节点 / 速率 / 分流方式白话）+ AI 环境检测 + 常用操作 + 节点健康 + 应用分流摘要 + 最新日志 |
 | 节点 | T02 资源列表 | 导入（链接 / 手动）弹框，表格行内测 TCP / Google / 速度、设为活动、二维码、删除 |
 | 应用分流 | T03 指标 + 列表 | 分流模式、未列出应用的去向、规则表（方式 / 节点 / 启用 / 测试 / 目标条件 / 删除） |
 | 分流规则 | T05 分区合并 | 规则库 / 自定义规则 / 线路 三个分区 |
