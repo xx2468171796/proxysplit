@@ -21,7 +21,7 @@
     "dongxiao": "git+http://s3.alonelife.top:32109/admin/yanzheng.git#dongxiao-v1.8.0&path:/packages/dongxiao",
     "gsap": "^3.15.0",
     "ogl": "^1.0.11",
-    "qiantai": "git+http://s3.alonelife.top:32109/admin/yanzheng.git#qiantai-v0.6.0&path:/packages/qiantai",
+    "qiantai": "git+http://s3.alonelife.top:32109/admin/yanzheng.git#qiantai-v0.8.0&path:/packages/qiantai",
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "xingneng": "git+http://s3.alonelife.top:32109/admin/yanzheng.git#xingneng-v1.4.1&path:/packages/xingneng",
