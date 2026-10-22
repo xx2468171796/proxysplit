@@ -309,3 +309,103 @@ export type BootstrapState = {
 export type RuleMode = "whitelist" | "blacklist";
 /** 代理策略（clash mode，切换不重启） */
 export type ClashMode = "rule" | "global" | "direct";
+
+/** 应用库条目：一个应用 = 多个进程（内置模拟器等 + 用户自定义） */
+export type CatalogApp = {
+  id: string;
+  name: string;
+  category: string;
+  processes: string[];
+  note?: string;
+  builtin: boolean;
+  /** 本机检测到的安装目录（目录下所有程序都算这个应用）；自定义应用里用户填的目录 */
+  dirs?: string[];
+};
+
+/** idle 还没流量 · ok 连接正常 · warn 部分失败 · fail 全部失败 */
+export type AppHealth = "idle" | "ok" | "warn" | "fail";
+
+export type AppStat = {
+  process: string;
+  health: AppHealth;
+  live: number;
+  total: number;
+  ok: number;
+  /** 很快结束、没来得及看到流量，也没报错 */
+  done: number;
+  failed: number;
+  upload: number;
+  download: number;
+  lastSeen?: string;
+  lastOk?: string;
+  lastFail?: string;
+  lastHost?: string;
+  lastExit?: string;
+};
+
+export type AppAccess = {
+  time: string;
+  host: string;
+  network: string;
+  outbound: string;
+  rule: string;
+  /** 进行中 / 成功 / 完成 / 失败 / 拦截 */
+  status: string;
+  /** 失败原因（内核报错或无响应）或拦截说明 */
+  reason?: string;
+  /** 发起这条连接的程序 */
+  process: string;
+  path?: string;
+  /** 持续了多久（秒） */
+  seconds: number;
+  upload: number;
+  download: number;
+};
+
+/** 应用里真正联网的程序（整目录应用会有多个） */
+export type ProcStat = {
+  process: string;
+  path?: string;
+  total: number;
+  failed: number;
+  download: number;
+  lastSeen?: string;
+};
+
+/** 按访问目标汇总，失败的排前面 */
+export type HostStat = {
+  host: string;
+  conns: number;
+  live: number;
+  ok: number;
+  done: number;
+  failed: number;
+  blocked: number;
+  upload: number;
+  download: number;
+  exit: string;
+  network: string;
+  lastSeen: string;
+  lastError: string;
+  seconds: number;
+};
+
+export type AppDetail = {
+  stat: AppStat;
+  processes: ProcStat[];
+  hosts: HostStat[];
+  access: AppAccess[];
+  logs: string[];
+};
+
+export type RouteTestResult = {
+  process: string;
+  url: string;
+  ok: boolean;
+  httpCode: number;
+  seconds: number;
+  error?: string;
+  route: string;
+  hops: { host: string; dest?: string; rule?: string; outTag: string; outbound?: string }[];
+  note?: string;
+};

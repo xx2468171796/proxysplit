@@ -82,6 +82,167 @@ export namespace accel {
 
 }
 
+export namespace appid {
+	
+	export class Access {
+	    time: string;
+	    host: string;
+	    network: string;
+	    outbound: string;
+	    rule: string;
+	    status: string;
+	    reason?: string;
+	    process: string;
+	    path?: string;
+	    seconds: number;
+	    upload: number;
+	    download: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new Access(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.time = source["time"];
+	        this.host = source["host"];
+	        this.network = source["network"];
+	        this.outbound = source["outbound"];
+	        this.rule = source["rule"];
+	        this.status = source["status"];
+	        this.reason = source["reason"];
+	        this.process = source["process"];
+	        this.path = source["path"];
+	        this.seconds = source["seconds"];
+	        this.upload = source["upload"];
+	        this.download = source["download"];
+	    }
+	}
+	export class App {
+	    id: string;
+	    name: string;
+	    category: string;
+	    processes: string[];
+	    note?: string;
+	    builtin: boolean;
+	    dirs?: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new App(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.category = source["category"];
+	        this.processes = source["processes"];
+	        this.note = source["note"];
+	        this.builtin = source["builtin"];
+	        this.dirs = source["dirs"];
+	    }
+	}
+	export class HostStat {
+	    host: string;
+	    conns: number;
+	    live: number;
+	    ok: number;
+	    done: number;
+	    failed: number;
+	    blocked: number;
+	    upload: number;
+	    download: number;
+	    exit: string;
+	    network: string;
+	    lastSeen: string;
+	    lastError: string;
+	    seconds: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new HostStat(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.host = source["host"];
+	        this.conns = source["conns"];
+	        this.live = source["live"];
+	        this.ok = source["ok"];
+	        this.done = source["done"];
+	        this.failed = source["failed"];
+	        this.blocked = source["blocked"];
+	        this.upload = source["upload"];
+	        this.download = source["download"];
+	        this.exit = source["exit"];
+	        this.network = source["network"];
+	        this.lastSeen = source["lastSeen"];
+	        this.lastError = source["lastError"];
+	        this.seconds = source["seconds"];
+	    }
+	}
+	export class ProcStat {
+	    process: string;
+	    path?: string;
+	    total: number;
+	    failed: number;
+	    download: number;
+	    lastSeen?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ProcStat(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.process = source["process"];
+	        this.path = source["path"];
+	        this.total = source["total"];
+	        this.failed = source["failed"];
+	        this.download = source["download"];
+	        this.lastSeen = source["lastSeen"];
+	    }
+	}
+	export class Stat {
+	    process: string;
+	    health: string;
+	    live: number;
+	    total: number;
+	    ok: number;
+	    done: number;
+	    failed: number;
+	    upload: number;
+	    download: number;
+	    lastSeen?: string;
+	    lastOk?: string;
+	    lastFail?: string;
+	    lastHost?: string;
+	    lastExit?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new Stat(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.process = source["process"];
+	        this.health = source["health"];
+	        this.live = source["live"];
+	        this.total = source["total"];
+	        this.ok = source["ok"];
+	        this.done = source["done"];
+	        this.failed = source["failed"];
+	        this.upload = source["upload"];
+	        this.download = source["download"];
+	        this.lastSeen = source["lastSeen"];
+	        this.lastOk = source["lastOk"];
+	        this.lastFail = source["lastFail"];
+	        this.lastHost = source["lastHost"];
+	        this.lastExit = source["lastExit"];
+	    }
+	}
+
+}
+
 export namespace core {
 	
 	export class RouteRule {
@@ -844,6 +1005,44 @@ export namespace service {
 		    return a;
 		}
 	}
+	export class AppDetail {
+	    stat: appid.Stat;
+	    processes: appid.ProcStat[];
+	    hosts: appid.HostStat[];
+	    access: appid.Access[];
+	    logs: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new AppDetail(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.stat = this.convertValues(source["stat"], appid.Stat);
+	        this.processes = this.convertValues(source["processes"], appid.ProcStat);
+	        this.hosts = this.convertValues(source["hosts"], appid.HostStat);
+	        this.access = this.convertValues(source["access"], appid.Access);
+	        this.logs = source["logs"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class AppRule {
 	    match: string;
 	    path: string;
@@ -887,6 +1086,7 @@ export namespace service {
 	    download: number;
 	    id?: string;
 	    source?: string;
+	    srcPort?: string;
 	    start?: string;
 	
 	    static createFrom(source: any = {}) {
@@ -907,6 +1107,7 @@ export namespace service {
 	        this.download = source["download"];
 	        this.id = source["id"];
 	        this.source = source["source"];
+	        this.srcPort = source["srcPort"];
 	        this.start = source["start"];
 	    }
 	}
@@ -1193,6 +1394,74 @@ export namespace service {
 	        this.upload = source["upload"];
 	        this.download = source["download"];
 	        this.clients = this.convertValues(source["clients"], PortClient);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class RouteHop {
+	    host: string;
+	    dest?: string;
+	    rule?: string;
+	    outTag: string;
+	    outbound?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new RouteHop(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.host = source["host"];
+	        this.dest = source["dest"];
+	        this.rule = source["rule"];
+	        this.outTag = source["outTag"];
+	        this.outbound = source["outbound"];
+	    }
+	}
+	export class RouteTestResult {
+	    process: string;
+	    url: string;
+	    ok: boolean;
+	    httpCode: number;
+	    seconds: number;
+	    error?: string;
+	    route: string;
+	    hops: RouteHop[];
+	    logTrace?: string[];
+	    note?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new RouteTestResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.process = source["process"];
+	        this.url = source["url"];
+	        this.ok = source["ok"];
+	        this.httpCode = source["httpCode"];
+	        this.seconds = source["seconds"];
+	        this.error = source["error"];
+	        this.route = source["route"];
+	        this.hops = this.convertValues(source["hops"], RouteHop);
+	        this.logTrace = source["logTrace"];
+	        this.note = source["note"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

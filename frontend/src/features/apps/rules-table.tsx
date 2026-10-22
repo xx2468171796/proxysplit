@@ -9,17 +9,26 @@ import {
   useUndoToast,
 } from "@ankotti/admin-ui";
 import { Crosshair, Plus, Trash2 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { AppRule } from "../../api/types";
 import { useStore } from "../../shared/store";
+import { refreshAppStats } from "../../state/app-monitor";
 import { clearRules, hasScope, insertRule, removeRule, ruleName } from "../../state/app-rules";
 import { data } from "../../state/data";
+import { AppMonitorDialog } from "./app-monitor-dialog";
+import { MonitorCell } from "./monitor-badge";
 import { AppCell, EnabledCell, LineCell, NodeCell, TestCell } from "./rule-cells";
 import { ScopeDialog } from "./scope-dialog";
 
 type Row = { rule: AppRule; index: number };
 
-function useColumns(onScope: (match: string) => void, onRemove: (row: Row) => void): Column<Row>[] {
+type Handlers = {
+  onScope: (match: string) => void;
+  onRemove: (row: Row) => void;
+  onMonitor: (process: string) => void;
+};
+
+function useColumns({ onScope, onRemove, onMonitor }: Handlers): Column<Row>[] {
   return [
     { key: "app", title: "应用程序", minWidth: 200, width: 220, render: ({ rule }) => <AppCell rule={rule} /> },
     { key: "line", title: "分流方式", width: 120, render: ({ rule }) => <LineCell rule={rule} /> },
@@ -30,6 +39,12 @@ function useColumns(onScope: (match: string) => void, onRemove: (row: Row) => vo
       width: 64,
       mobile: "status",
       render: ({ rule }) => <EnabledCell rule={rule} />,
+    },
+    {
+      key: "monitor",
+      title: "连接状态",
+      width: 120,
+      render: ({ rule }) => <MonitorCell rule={rule} onOpen={onMonitor} />,
     },
     { key: "test", title: "测试", width: 90, render: ({ rule }) => <TestCell rule={rule} /> },
     {
@@ -67,6 +82,12 @@ export function RulesTable({ onAdd }: { onAdd: () => void }) {
   const undoToast = useUndoToast();
   const [scopeMatch, setScopeMatch] = useState<string | null>(null);
   const [clearing, setClearing] = useState(false);
+  const [monitoring, setMonitoring] = useState<string | null>(null);
+  useEffect(() => {
+    void refreshAppStats();
+    const timer = setInterval(() => void refreshAppStats(), 2000);
+    return () => clearInterval(timer);
+  }, []);
   const rows = rules.map((rule, index) => ({ rule, index }));
   const scopeRule =
     scopeMatch === null ? undefined : rules.find((r) => r.match.toLowerCase() === scopeMatch.toLowerCase());
@@ -84,7 +105,7 @@ export function RulesTable({ onAdd }: { onAdd: () => void }) {
         if (err) throw new Error(err);
       },
     });
-  const columns = useColumns(setScopeMatch, remove);
+  const columns = useColumns({ onScope: setScopeMatch, onRemove: remove, onMonitor: setMonitoring });
 
   return (
     <ResourcePanel
@@ -114,6 +135,7 @@ export function RulesTable({ onAdd }: { onAdd: () => void }) {
           </Button>
         }
       />
+      {monitoring ? <AppMonitorDialog process={monitoring} onClose={() => setMonitoring(null)} /> : null}
       {scopeRule ? <ScopeDialog rule={scopeRule} onClose={() => setScopeMatch(null)} /> : null}
       <ConfirmDialog
         open={clearing}

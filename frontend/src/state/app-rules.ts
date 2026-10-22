@@ -21,10 +21,17 @@ export const apps = createStore<AppsState>({ procs: [], running: new Set(), icon
 
 const sameMatch = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
 
+/** 整个目录的规则（match 以 \ 结尾）：目录下所有程序都算这个应用 */
+export const isDirRule = (r: AppRule): boolean => (r.match || "").trim().length > 3 && /[\\/]$/.test(r.match || "");
+
 export function ruleName(r: AppRule): string {
   const m = r.match || r.path || "?";
+  if (isDirRule(r)) return `${baseName(m.replace(/[\\/]+$/, ""))}（整个目录）`;
   return /[\\/]/.test(m) ? baseName(m) : m;
 }
+
+/** 查监测用的键：目录规则用完整目录，其余用程序名 */
+export const monitorKey = (r: AppRule): string => (isDirRule(r) ? r.match : ruleName(r));
 
 /** 规则可能只存了 exe 名：优先用运行中进程的真实路径去取原始图标。 */
 export function ruleIconPath(r: AppRule, procs: Proc[]): string {
@@ -64,6 +71,16 @@ export async function addRule(match: string, path = ""): Promise<string> {
   const rules = data.get().rules;
   if (!value || rules.some((r) => sameMatch(r.match || "", value))) return "";
   return push([...rules, { match: value, path: path || value, line: "rule", node: "", enabled: true }]);
+}
+
+/** 批量加规则（应用库一次加一个应用的多个进程），已有的跳过。保存失败时按 Go 端实际状态重读。返回新增条数与错误。 */
+export async function addRules(list: AppRule[]): Promise<{ added: number; err: string }> {
+  const rules = data.get().rules;
+  const fresh = list.filter((r) => !rules.some((x) => sameMatch(x.match || "", r.match)));
+  if (!fresh.length) return { added: 0, err: "" };
+  const err = await push([...rules, ...fresh]);
+  if (err && err !== NOT_LOADED) await refreshRules();
+  return { added: fresh.length, err };
 }
 
 export function isRuleAdded(match: string): boolean {

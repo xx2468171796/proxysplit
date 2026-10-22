@@ -3,6 +3,7 @@
 import {main} from '../models';
 import {service} from '../models';
 import {updater} from '../models';
+import {appid} from '../models';
 import {accel} from '../models';
 import {core} from '../models';
 import {license} from '../models';
@@ -16,6 +17,8 @@ export function AddManualNode(arg1:string,arg2:string,arg3:string,arg4:number,ar
 export function AddNodes(arg1:string):Promise<main.AddResult>;
 
 export function AddSub(arg1:string,arg2:string,arg3:boolean):Promise<string>;
+
+export function AppRouteTest(arg1:string,arg2:string):Promise<service.RouteTestResult>;
 
 export function AutoLoginPending():Promise<boolean>;
 
@@ -45,9 +48,15 @@ export function GetAIHijack():Promise<main.AIHijackState>;
 
 export function GetAnnouncements():Promise<main.AnnouncementsResult>;
 
+export function GetAppCatalog():Promise<Array<appid.App>>;
+
 export function GetAppIcon(arg1:string):Promise<string>;
 
+export function GetAppMonitorDetail(arg1:string):Promise<service.AppDetail>;
+
 export function GetAppRules():Promise<Array<service.AppRule>>;
+
+export function GetAppStats(arg1:Array<string>):Promise<Array<appid.Stat>>;
 
 export function GetAppVersion():Promise<string>;
 
@@ -157,6 +166,8 @@ export function RemoveNode(arg1:string):Promise<string>;
 
 export function RemoveSub(arg1:string):Promise<void>;
 
+export function ResetAppMonitor(arg1:string):Promise<void>;
+
 export function ResetConfig():Promise<void>;
 
 export function Restart():Promise<string>;
@@ -176,6 +187,8 @@ export function SetAutostart(arg1:boolean):Promise<string>;
 export function SetClashMode(arg1:string):Promise<string>;
 
 export function SetClaudeAccelMode(arg1:string):Promise<string>;
+
+export function SetCustomApps(arg1:Array<appid.App>):Promise<string>;
 
 export function SetCustomRules(arg1:Array<core.RouteRule>):Promise<string>;
 

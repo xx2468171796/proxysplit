@@ -18,6 +18,10 @@ export function AddSub(arg1, arg2, arg3) {
   return window['go']['main']['App']['AddSub'](arg1, arg2, arg3);
 }
 
+export function AppRouteTest(arg1, arg2) {
+  return window['go']['main']['App']['AppRouteTest'](arg1, arg2);
+}
+
 export function AutoLoginPending() {
   return window['go']['main']['App']['AutoLoginPending']();
 }
@@ -74,12 +78,24 @@ export function GetAnnouncements() {
   return window['go']['main']['App']['GetAnnouncements']();
 }
 
+export function GetAppCatalog() {
+  return window['go']['main']['App']['GetAppCatalog']();
+}
+
 export function GetAppIcon(arg1) {
   return window['go']['main']['App']['GetAppIcon'](arg1);
 }
 
+export function GetAppMonitorDetail(arg1) {
+  return window['go']['main']['App']['GetAppMonitorDetail'](arg1);
+}
+
 export function GetAppRules() {
   return window['go']['main']['App']['GetAppRules']();
+}
+
+export function GetAppStats(arg1) {
+  return window['go']['main']['App']['GetAppStats'](arg1);
 }
 
 export function GetAppVersion() {
@@ -298,6 +314,10 @@ export function RemoveSub(arg1) {
   return window['go']['main']['App']['RemoveSub'](arg1);
 }
 
+export function ResetAppMonitor(arg1) {
+  return window['go']['main']['App']['ResetAppMonitor'](arg1);
+}
+
 export function ResetConfig() {
   return window['go']['main']['App']['ResetConfig']();
 }
@@ -336,6 +356,10 @@ export function SetClashMode(arg1) {
 
 export function SetClaudeAccelMode(arg1) {
   return window['go']['main']['App']['SetClaudeAccelMode'](arg1);
+}
+
+export function SetCustomApps(arg1) {
+  return window['go']['main']['App']['SetCustomApps'](arg1);
 }
 
 export function SetCustomRules(arg1) {

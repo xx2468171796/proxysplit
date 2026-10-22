@@ -10,9 +10,12 @@ import type {
   AIEnvReport,
   AIHijack,
   Announcement,
+  AppDetail,
   AppRule,
+  AppStat,
   AppUpdateStatus,
   BootstrapState,
+  CatalogApp,
   Conn,
   Health,
   LicenseStatus,
@@ -26,6 +29,7 @@ import type {
   ProxyPort,
   ProxyPortStatus,
   RouteRule,
+  RouteTestResult,
   RuleImportPreview,
   RuleSet,
   Settings,
@@ -92,6 +96,20 @@ export const api = {
   exportAppRules: () => W.ExportAppRules(),
   previewAppRulesImport: (json: string) => W.PreviewAppRulesImport(json) as Promise<RuleImportPreview>,
   importAppRules: (json: string) => W.ImportAppRules(json),
+
+  // 应用库（模拟器预设 + 自定义）与逐应用监测
+  appCatalog: async () => arr((await W.GetAppCatalog()) as CatalogApp[]),
+  setCustomApps: (apps: CatalogApp[]) => W.SetCustomApps(asArg(apps)),
+  appStats: async (names: string[]) => arr((await W.GetAppStats(names)) as AppStat[]),
+  appMonitorDetail: async (process: string): Promise<AppDetail> => {
+    const d = (await W.GetAppMonitorDetail(process)) as AppDetail;
+    return { stat: d.stat, processes: arr(d.processes), hosts: arr(d.hosts), access: arr(d.access), logs: arr(d.logs) };
+  },
+  resetAppMonitor: (process: string) => W.ResetAppMonitor(process),
+  appRouteTest: async (process: string, url: string): Promise<RouteTestResult> => {
+    const r = (await W.AppRouteTest(process, url)) as RouteTestResult;
+    return { ...r, hops: arr(r.hops) };
+  },
 
   // 线路与规则
   lines: async () => arr((await W.GetLines()) as Line[]),

@@ -28,8 +28,14 @@ export function usePortDetail(id: string, client: string): PortDetail | null {
 }
 
 /** 前端分页：数据一次全取，按页切片显示（轮询刷新时停留在当前页）。 */
-export function usePaged<T>(rows: readonly T[], size = 50) {
+/** resetKey 变了（换了筛选 / 搜索）就回到第一页；轮询刷新不会变它，停留在当前页。 */
+export function usePaged<T>(rows: readonly T[], size = 50, resetKey = "") {
   const [page, setPage] = useState(1);
+  const [lastKey, setLastKey] = useState(resetKey);
+  if (lastKey !== resetKey) {
+    setLastKey(resetKey);
+    setPage(1);
+  }
   const pages = Math.max(1, Math.ceil(rows.length / size));
   const current = Math.min(page, pages);
   const slice = useMemo(() => rows.slice((current - 1) * size, current * size), [rows, current, size]);

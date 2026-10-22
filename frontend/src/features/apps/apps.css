@@ -50,3 +50,102 @@
 .ps-rule-app {
   max-width: 210px;
 }
+
+/* 连接监测：状态格里的当前连接数、详情里的统计格与检测区 */
+.ps-mon-live {
+  margin-left: 4px;
+  color: var(--aui-note);
+  font-variant-numeric: tabular-nums;
+}
+
+.ps-mon-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+
+.ps-mon-grid > div {
+  padding: 8px 10px;
+  border: 1px solid var(--aui-line);
+  border-radius: var(--aui-radius-sm);
+}
+
+.ps-mon-grid dt {
+  color: var(--aui-note);
+  font-size: var(--aui-fs-note);
+}
+
+.ps-mon-grid dd {
+  margin: 2px 0 0;
+  font-weight: var(--aui-fw-strong);
+  font-variant-numeric: tabular-nums;
+}
+
+.ps-mon-probe {
+  display: grid;
+  gap: 8px;
+}
+
+.ps-catalog-list {
+  display: grid;
+  gap: 8px;
+}
+
+.ps-catalog-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--aui-line);
+  border-radius: var(--aui-radius-sm);
+}
+
+.ps-catalog-item > div {
+  flex: 1;
+  min-width: 0;
+}
+
+.ps-catalog-item small {
+  display: block;
+  color: var(--aui-note);
+}
+
+.ps-mon-probe .ps-row > :first-child {
+  flex: 0 0 200px;
+}
+
+/* 监测详情：概况区（结论 / 出口 / 联网程序）、失败原因、失败数标红 */
+.ps-mon-summary {
+  display: grid;
+  gap: 8px;
+}
+
+.ps-mon-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.ps-mon-label {
+  min-width: 56px;
+  color: var(--aui-note);
+  font-size: var(--aui-fs-note);
+}
+
+.ps-mon-reason {
+  color: var(--aui-danger);
+  font-size: var(--aui-fs-note);
+}
+
+.ps-mon-result {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ps-mon-grid > div[data-bad] dd,
+[data-bad] {
+  color: var(--aui-danger);
+}
