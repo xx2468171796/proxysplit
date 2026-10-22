@@ -19,7 +19,7 @@ export function BackupSection() {
   };
 
   return (
-    <Panel title="备份与重置" description="换电脑时先导出，到新电脑上导入即可。">
+    <Panel className="qd-pane" title="备份与重置" description="换电脑时先导出，到新电脑上导入即可。">
       <FormSection>
         <FormField label="配置备份" htmlFor="cfg-export" hint="节点 / 规则 / 线路 / 设置全部存到文件，换机可导回">
           <div className="ps-set-actions">

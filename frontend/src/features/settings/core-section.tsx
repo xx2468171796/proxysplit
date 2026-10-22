@@ -39,6 +39,7 @@ export function CoreSection() {
 
   return (
     <Panel
+      className="qd-pane"
       title="内核与更新"
       description="每次打开都会检查新版本，有新版自动下载安装并重启（代理自动恢复）；签名与 SHA256 校验通过才安装。内核来自 POWER云，同样校验后才装。"
       actions={

@@ -1,79 +1,41 @@
-// 概览里的三个小列表：应用流量（前 4 条规则）、节点健康（前 4 个节点）、最新日志。
-import { ActionList, Button, CellText, type Column, DataTable, Panel, StatusBadge, Tag } from "@ankotti/admin-ui";
+// 概览里的小块：应用分流摘要（N 条应用、M 条走代理）、节点健康（前 4 个节点）、最新日志。
+import { ActionList, Button, Panel, StatusBadge } from "@ankotti/admin-ui";
 import { CircleAlert, CircleCheck, Info } from "lucide-react";
-import type { AppRule, Node } from "../../api/types";
+import type { Node } from "../../api/types";
 import { navigate } from "../../app/nav";
 import { useFeedback } from "../../app/use-feedback";
 import { RuleIcon } from "../../components/app-icon";
 import { latencyGrade, latencyText } from "../../shared/format";
 import { useStore } from "../../shared/store";
-import { apps, isDirRule, ruleDisplayName, ruleName } from "../../state/app-rules";
+import { apps, ruleDisplayName } from "../../state/app-rules";
 import { data, selectNode } from "../../state/data";
-import { lineNodeLabel, nodeName } from "../../state/nodes";
-import { customLineOf, lineLabel } from "../../state/routing";
+import { lineLabel } from "../../state/routing";
 import { runtime } from "../../state/runtime";
 
-export function AppTraffic() {
+export function AppSplitSummary() {
   const rules = useStore(data, (s) => s.rules);
   const lines = useStore(data, (s) => s.lines);
-  const nodes = useStore(data, (s) => s.nodes);
   const procs = useStore(apps, (s) => s.procs);
-  const routeNode = (r: AppRule): string => {
-    const custom = customLineOf(r.line, lines);
-    if (custom) return lineNodeLabel(custom.node, nodes);
-    if (r.line === "direct" || r.line === "block") return "—";
-    return r.node ? nodeName(r.node, nodes) : "活动节点";
-  };
-  const columns: Column<AppRule>[] = [
-    {
-      key: "app",
-      title: "应用",
-      render: (r) => (
-        <span className="ps-app-cell">
-          <RuleIcon rule={r} />
-          <CellText primary={ruleDisplayName(r, procs)} secondary={isDirRule(r) ? r.match : ruleName(r)} />
-        </span>
-      ),
-    },
-    { key: "line", title: "分流方式", width: 110, render: (r) => <Tag>{lineLabel(r.line, lines)}</Tag> },
-    {
-      key: "node",
-      title: "节点",
-      width: 180,
-      truncate: (r) => routeNode(r),
-      render: (r) => routeNode(r),
-    },
-    {
-      key: "state",
-      title: "状态",
-      width: 96,
-      mobile: "status",
-      render: (r) => (
-        <StatusBadge variant="dot" tone={r.enabled ? "success" : "neutral"}>
-          {r.enabled ? "已启用" : "已停用"}
-        </StatusBadge>
-      ),
-    },
-  ];
+  const proxied = rules.filter((r) => r.enabled && r.line !== "direct" && r.line !== "block").length;
+  const items = rules.slice(0, 4).map((r) => ({
+    key: r.match,
+    icon: <RuleIcon rule={r} />,
+    title: ruleDisplayName(r, procs),
+    detail: r.enabled ? lineLabel(r.line, lines) : "已停用",
+  }));
   return (
     <Panel
-      title="应用流量"
-      description="最近添加的应用规则与分流状态。"
+      className="qd-pane"
+      title="应用分流"
+      count={`${rules.length} 条应用 · ${proxied} 条走代理`}
       actions={
-        <Button size="sm" variant="outline" onClick={() => navigate("apps")}>
+        <Button size="sm" variant="ghost" onClick={() => navigate("apps")}>
           管理应用
         </Button>
       }
       flush
     >
-      <DataTable
-        caption="应用流量"
-        rows={rules.slice(0, 4)}
-        rowKey={(r) => r.match}
-        columns={columns}
-        pagination={{ mode: "all" }}
-        emptyLabel="暂无应用规则"
-      />
+      <ActionList label="应用分流" dense items={items} emptyLabel="还没有添加应用" />
     </Panel>
   );
 }
@@ -101,6 +63,7 @@ export function NodeHealth() {
   });
   return (
     <Panel
+      className="qd-pane"
       title="节点健康"
       actions={
         <Button size="sm" variant="ghost" onClick={() => navigate("nodes")}>
@@ -128,6 +91,7 @@ export function RecentLogs() {
   }));
   return (
     <Panel
+      className="qd-pane"
       title="最新日志"
       actions={
         <Button size="sm" variant="ghost" onClick={() => navigate("logs")}>

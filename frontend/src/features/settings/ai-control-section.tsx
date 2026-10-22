@@ -15,6 +15,7 @@ export function AIControlSection() {
 
   return (
     <Panel
+      className="qd-pane"
       title="AI 控制（MCP / API）"
       description="让 AI（Claude Code / Codex 等）直接控制本机代理：把某程序设为走代理 / 直连 / 全局、启停。"
       actions={

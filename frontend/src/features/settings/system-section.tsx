@@ -52,7 +52,11 @@ export function SystemSection() {
   const autostart = useStore(system, (s) => s.autostart);
 
   return (
-    <Panel title="系统集成" description="和 Windows 的配合方式：接管范围、局域网共享、开机自启、托盘和外观。">
+    <Panel
+      className="qd-pane"
+      title="系统集成"
+      description="和 Windows 的配合方式：接管范围、局域网共享、开机自启、托盘和外观。"
+    >
       <FormSection>
         <ScopeField />
         <SwitchField

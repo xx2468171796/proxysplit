@@ -51,6 +51,7 @@ export function AccelSection() {
 
   return (
     <Panel
+      className="qd-pane"
       title="Claude Code 加速"
       description="检测到当前线路落地是我们的节点时，自动把 Claude Code 请求压缩成「只发变化的部分」，上行流量省约 97%；官方订阅登录也能用。"
       actions={

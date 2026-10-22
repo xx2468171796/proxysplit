@@ -22,7 +22,7 @@ export function EngineSection() {
   const settings = useStore(data, (s) => s.settings);
   const save = useSaveSettings();
   return (
-    <Panel title="分流引擎" description="这几项都建议保持开启；改了立即生效。">
+    <Panel className="qd-pane" title="分流引擎" description="这几项都建议保持开启；改了立即生效。">
       <FormSection>
         {ITEMS.map((it) => (
           <SwitchField

@@ -1,4 +1,4 @@
-// 顶栏右侧：活动节点、代理策略、实时速率与连接、启动 / 停止（主题在设置页，只认 settings.theme）。
+// 标题栏：中间放活动节点、代理策略、实时速率与连接；右侧是启动 / 停止（主题在设置页，只认 settings.theme）。
 import { Button, Choice, SegmentedControl, Tooltip } from "@ankotti/admin-ui";
 import { ArrowDown, ArrowUp, Power, Square } from "lucide-react";
 import { useMemo } from "react";
@@ -33,7 +33,7 @@ function NodeSwitcher() {
     <Choice
       label="活动节点"
       size="sm"
-      width={240}
+      width={200}
       placeholder={nodes.length ? "选择活动节点" : "还没有节点"}
       disabled={!nodes.length}
       options={options}
@@ -68,7 +68,7 @@ function Traffic() {
   );
 }
 
-function PowerButton() {
+export function PowerButton() {
   const { say } = useFeedback();
   const running = useStore(runtime, (s) => isRunning(s.status));
   const busy = useStore(runtime, (s) => s.busy);
@@ -85,7 +85,7 @@ function PowerButton() {
   );
 }
 
-export function HeaderControls() {
+export function TitleBarCenter() {
   const { say } = useFeedback();
   const clash = useStore(data, (s) => s.clashMode);
   return (
@@ -99,7 +99,6 @@ export function HeaderControls() {
         onValueChange={(m) => void setClashMode(m).then((err) => say(err && `切换失败：${err}`))}
       />
       <Traffic />
-      <PowerButton />
     </span>
   );
 }

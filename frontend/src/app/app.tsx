@@ -1,6 +1,6 @@
 // 根组件：主题 Provider + 闸门顺序：强制升级（盖住一切）→ 登录 / 会员闸门 → 主界面。
 import { AdminProvider, NotificationProvider, PanelErrorBoundary } from "@ankotti/admin-ui";
-import { useCallback, useState, useSyncExternalStore } from "react";
+import { useCallback, useState } from "react";
 import { LoginScreen } from "../features/account/login-screen";
 import { MemberGate } from "../features/account/member-gate";
 import { useStore } from "../shared/store";
@@ -9,32 +9,13 @@ import { data } from "../state/data";
 import { ForcedUpdateDialog } from "./forced-update";
 import { MainShell } from "./main-shell";
 import { nav } from "./nav";
+import { asMode, BRAND_INK, useResolvedDark } from "./theme";
 import { useAppLifecycle } from "./use-app-lifecycle";
 import { useFeedback } from "./use-feedback";
 import "./app.css";
 
-/**
- * 品牌主色：近黑的墨色（业主 2026-10-22）。组件库在深色模式下会把主色再压暗做按钮底色，
- * 近黑会和深色面板糊在一起，所以深色模式换一档偏亮的石墨色。
- */
-const BRAND_INK = { light: "#1c1f24", dark: "#6b7584" } as const;
-type Mode = "light" | "dark" | "system";
-const asMode = (t: string): Mode => (t === "dark" || t === "system" ? t : "light");
 // 每秒定时器里判断「是否在日志页」（日志页才拉实时连接）。
 const isLogsPage = () => nav.get().page === "logs";
-
-const DARK_QUERY = "(prefers-color-scheme: dark)";
-const subscribeScheme = (fn: () => void) => {
-  const mq = matchMedia(DARK_QUERY);
-  mq.addEventListener("change", fn);
-  return () => mq.removeEventListener("change", fn);
-};
-
-/** 主题只认设置页的「主题」（settings.theme），「跟随」时跟着系统变。 */
-function useResolvedDark(mode: Mode): boolean {
-  const systemDark = useSyncExternalStore(subscribeScheme, () => matchMedia(DARK_QUERY).matches);
-  return mode === "dark" || (mode === "system" && systemDark);
-}
 
 export function App() {
   const mode = asMode(useStore(data, (s) => s.settings.theme));

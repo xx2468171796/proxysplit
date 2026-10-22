@@ -1,15 +1,9 @@
-// 主界面外壳：侧栏菜单 + 顶栏（活动节点 / 代理策略 / 速率 / 启停 / 外观）+ 当前页。
-// 桌面客户端一次只看一页：工作标签只有当前这一个（AdminShell 单页用法）。
-import {
-  AdminShell,
-  ContentSkeleton,
-  type NavItem,
-  PanelErrorBoundary,
-  SlowLoadingNote,
-  useSlowLoading,
-} from "@ankotti/admin-ui";
-import { Gauge, LayoutGrid, Logs, Plug, Rss, Server, Settings, ShieldCheck } from "lucide-react";
-import type { ReactNode } from "react";
+// 主界面外壳：qiantai 桌面外壳 DesktopShell（标题栏 + 左侧导航 + 内容区 + 「外观」面板 + 背景层）。
+// 标题栏中间是活动节点 / 代理策略 / 速率，右侧启动 / 停止；导航底部是账号菜单。Wails 窗口保留系统边框，不画窗口按钮。
+import { AccountMenu, ContentSkeleton, PanelErrorBoundary, SlowLoadingNote, useSlowLoading } from "@ankotti/admin-ui";
+import { Gauge, LayoutGrid, Logs, type LucideIcon, Plug, Rss, Server, Settings, ShieldCheck } from "lucide-react";
+import { DesktopShell } from "qiantai/desktop";
+import { type ReactNode, useEffect } from "react";
 import logo from "../assets/proxysplit-logo.svg";
 import { AccountDialogs } from "../features/account/account-dialogs";
 import { AppsPage } from "../features/apps/apps-page";
@@ -25,11 +19,12 @@ import { data } from "../state/data";
 import { useAccountMenu } from "./account-menu";
 import { Banners } from "./banners";
 import { DonateDialog } from "./donate-dialog";
-import { HeaderControls } from "./header-controls";
+import { PowerButton, TitleBarCenter } from "./header-controls";
 import { navigate, type PageId, usePage } from "./nav";
+import { asMode, desktopLook, STORAGE_KEY, seedDefaultAppearance, useResolvedDark } from "./theme";
 import { UpdateNotesDialog } from "./update-notes-dialog";
 
-const PAGES: Record<PageId, { title: string; icon: NavItem["icon"]; render: () => ReactNode }> = {
+const PAGES: Record<PageId, { title: string; icon: LucideIcon; render: () => ReactNode }> = {
   overview: { title: "概览", icon: Gauge, render: () => <OverviewPage /> },
   nodes: { title: "节点", icon: Server, render: () => <NodesPage /> },
   apps: { title: "应用分流", icon: LayoutGrid, render: () => <AppsPage /> },
@@ -41,53 +36,67 @@ const PAGES: Record<PageId, { title: string; icon: NavItem["icon"]; render: () =
 };
 const ORDER: PageId[] = ["overview", "nodes", "apps", "ports", "rules", "subs", "logs", "settings"];
 
+seedDefaultAppearance();
+
 type Props = { netBlocked: string; onDismissNetBlocked: () => void };
 
 export function MainShell({ netBlocked, onDismissNetBlocked }: Props) {
   const page = usePage();
   const nodeCount = useStore(data, (s) => s.nodes.length);
   const ruleCount = useStore(data, (s) => s.rules.length);
+  const dark = useResolvedDark(asMode(useStore(data, (s) => s.settings.theme)));
   const { account, accountMenu, onSignOut, dialogs } = useAccountMenu();
+  const look = desktopLook(dark);
+
+  useEffect(() => {
+    document.title = `${PAGES[page].title} · ProxySplit`;
+  }, [page]);
 
   const badges: Partial<Record<PageId, number>> = { nodes: nodeCount, apps: ruleCount };
-  const navigation: NavItem[] = ORDER.map((id) => ({
-    id,
-    title: PAGES[id].title,
-    icon: PAGES[id].icon,
-    badge: badges[id] || undefined,
-  }));
-  const current = PAGES[page];
+  const nav = ORDER.map((id) => {
+    const Icon = PAGES[id].icon;
+    return { id, label: PAGES[id].title, icon: <Icon size={16} aria-hidden="true" />, badge: badges[id] || undefined };
+  });
+  const content = (
+    <div className="ps-content">
+      <Banners netBlocked={netBlocked} onDismissNetBlocked={onDismissNetBlocked} />
+      <PageBody page={page} />
+    </div>
+  );
 
   return (
     <>
-      <AdminShell
-        brand="ProxySplit"
-        logo={<img src={logo} alt="" className="ps-logo" />}
-        navigation={navigation}
-        activeId={page}
-        onNavigate={(id) => navigate(id as PageId)}
-        onCloseTab={() => undefined}
-        documentTitle={(t) => `${t} · ProxySplit`}
-        account={account}
-        accountMenu={accountMenu}
-        onSignOut={onSignOut}
-        accountAppearance={false}
-        headerActions={<HeaderControls />}
-        tabs={[
-          {
-            id: page,
-            title: current.title,
-            icon: current.icon,
-            closable: false,
-            content: (
-              <>
-                <Banners netBlocked={netBlocked} onDismissNetBlocked={onDismissNetBlocked} />
-                <PageBody page={page} />
-              </>
-            ),
-          },
-        ]}
-      />
+      {look ? (
+        <DesktopShell
+          look={look}
+          storageKey={STORAGE_KEY}
+          windowControls={false}
+          title={
+            <span className="ps-title">
+              <img src={logo} alt="" className="ps-logo" />
+              ProxySplit
+            </span>
+          }
+          nav={nav}
+          current={page}
+          onNavigate={(id) => navigate(id as PageId)}
+          center={<TitleBarCenter />}
+          actions={
+            <span className="ps-title-actions">
+              <PowerButton />
+            </span>
+          }
+          navFooter={
+            <div className="ps-account">
+              <AccountMenu account={account} items={accountMenu} onSignOut={onSignOut} appearance={false} />
+            </div>
+          }
+        >
+          {content}
+        </DesktopShell>
+      ) : (
+        content
+      )}
       {dialogs}
       <AccountDialogs />
       <DonateDialog />
@@ -96,7 +105,7 @@ export function MainShell({ netBlocked, onDismissNetBlocked }: Props) {
   );
 }
 
-/** 首屏数据到之前只给骨架（不让人在默认值上改配置）；页面渲染出错只坏这一块，菜单和顶栏照常。 */
+/** 首屏数据到之前只给骨架（不让人在默认值上改配置）；页面渲染出错只坏这一块，菜单和标题栏照常。 */
 function PageBody({ page }: { page: PageId }) {
   const loaded = useStore(data, (s) => s.loaded);
   const slow = useSlowLoading(!loaded);

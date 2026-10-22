@@ -37,6 +37,7 @@ export function LogSection() {
 
   return (
     <Panel
+      className="qd-pane"
       title="运行日志"
       count={filter ? `${shown.length} / ${lines.length} 行` : `${lines.length} 行`}
       description="核心 + 分流引擎 + 每条连接，保留最近 800 行；在底部时新日志自动跟上，往上翻时停住。"

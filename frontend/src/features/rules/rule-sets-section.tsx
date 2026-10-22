@@ -64,7 +64,7 @@ const COLUMNS: Column<RuleSet>[] = [
 
 function AutoUpdatePanel() {
   return (
-    <Panel title="更新方式">
+    <Panel className="qd-pane" title="更新方式">
       <InlineAlert density="compact" title="自动更新，不用管">
         规则库来自 sing-box 官方（SagerNet），我们的国内服务器每天同步一次。软件打开后会自动检查，之后每 6
         小时再查一次，有新版就下载、校验后直接生效，不用开代理，也不用重启。想马上更新就点「手动更新规则库」。

@@ -94,6 +94,7 @@ export function AIEnvPanel() {
   const exit = report?.exitIp ? ` · 出口 ${report.exitIp}（${report.exitLoc}）` : "";
   return (
     <Panel
+      className="qd-pane"
       title="AI 环境检测"
       description="按 AI 防风控要求检查这台电脑：AI 只走我们的台湾线路，关掉 ProxySplit 时 AI 打不开，绝不会用本机 IP 访问。"
       count={report ? `${problems > 0 ? `${problems} 项需要处理` : "全部正常"}${exit}` : undefined}
