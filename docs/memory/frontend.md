@@ -35,5 +35,5 @@ Wails 构建会重新生成 frontend/wailsjs 绑定，需随提交带上；正�
 - 设计语言 clean-modern，qiantai 与 AdminProvider 用同一主色、同一明暗（`app/theme.ts`）。毛玻璃时只改变量 `--aui-surface` 为半透明（不写 `.aui-*` 选择器，audit 禁止）；业务 Panel 加 `className="qd-pane"` 得到模糊。
 - 默认外观：柔光背景浓淡 35、毛玻璃、均衡画质、智能暂停（`seedDefaultAppearance`：本机没存过 `proxysplit:backdrop` 才写入）。
 - 首屏 JS gzip：225.2 → 237.6 KB（+12.4），CSS 64.3 → 67.9 KB；WebGL 背景是懒加载分块。
-- 预览参数（dev/preview-params.ts）：`?page=<页面 id>`、`?look=1` 打开外观面板、`?donate=0` 赞赏码倒计时结束自动关。`VITE_MOCK=1 vite build --outDir <目录>` 出带假后端的静态评审包（正式构建不设）。
+- 预览参数（dev/preview-params.ts）：`?page=<页面 id>`、`?look=1` 打开外观面板、`?donate=0` 赞赏码倒计时结束自动关。评审包：`VITE_MOCK=1 vite build -c vite.review.config.ts --outDir <构建目录>` 再 `node scripts/review-pages.mjs <构建目录> <输出目录>`，每个画面一个单文件页（页面审阅台用无 allow-same-origin 的沙箱 iframe，分开的 JS 模块会跨域失败、整页空白；地址参数改由页面写进 `__PS_QUERY`，见 dev/search.ts）。正式构建不设 VITE_MOCK。
 - 假后端没有「停止」：概览的停止态在预览里看不到。

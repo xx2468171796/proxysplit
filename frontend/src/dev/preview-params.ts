@@ -1,6 +1,8 @@
 // 预览 / 评审包专用的地址参数（只在装假后端时调用）：
 // ?page=<页面 id> 打开指定页；?look=1 打开「外观」面板；?donate=0 赞赏码倒计时一结束就替人点关闭（截图不被挡）。
+
 import { navigate, type PageId } from "../app/nav";
+import { previewSearch } from "./search";
 
 const PAGE_IDS: readonly PageId[] = ["overview", "nodes", "apps", "ports", "rules", "subs", "logs", "settings"];
 
@@ -24,7 +26,7 @@ const donateClose = () =>
   );
 
 export function applyPreviewParams(): void {
-  const params = new URLSearchParams(location.search);
+  const params = new URLSearchParams(previewSearch());
   const page = PAGE_IDS.find((p) => p === params.get("page"));
   if (page) navigate(page);
   const openLook = () => clickWhenReady(() => document.querySelector<HTMLButtonElement>(".qd-look"), 5000);

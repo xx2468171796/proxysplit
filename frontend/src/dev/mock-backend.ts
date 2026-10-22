@@ -1,11 +1,13 @@
 // 只在 `vite dev` 且不在 Wails 里时装上：给浏览器预览和截图验收一份逼真的假后端。生产包不含本文件。
 // 地址参数：?showcase=1 官网截图（普通用户、不显示 AI 劫持），?theme=dark|system 主题，?gate=login 未登录页，?gate=member 无权益会员页（&full=1 设备名额已满），?split=1 拆单付款，?update=1 有新版本，?update=force 强制升级，?page=<页面 id> 打开指定页，?look=1 打开外观面板（见 preview-params.ts）。
+
 import { createAppMonMock } from "./mock-appmon";
 import { createPortsMock } from "./mock-ports";
+import { previewSearch } from "./search";
 
 type Fn = (...args: unknown[]) => unknown;
 
-const params = new URLSearchParams(location.search);
+const params = new URLSearchParams(previewSearch());
 const gate = params.get("gate");
 const update = params.get("update");
 const showcase = params.get("showcase") === "1";
@@ -306,7 +308,7 @@ const impl: Record<string, Fn> = {
   GetLanIP: () => "192.168.1.23",
   // ?notes=1 预览升级后的「本次更新内容」弹窗
   GetUpdateNotes: () =>
-    new URLSearchParams(location.search).has("notes")
+    new URLSearchParams(previewSearch()).has("notes")
       ? [{ version: "1.9.77", items: ["新增「端口代理」，专门给指纹浏览器用。", "每次升级完成后先弹出本次更新内容。"] }]
       : [],
   MarkUpdateNotesSeen: () => undefined,
