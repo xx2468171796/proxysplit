@@ -3,7 +3,7 @@
 版本号以发布构建为准（`scripts/build-commercial.ps1 -Version <x.y.z>`，注入 `main.appVersion`），
 每个发布产物的 SHA256 见 `output/proxysplit-v<版本>.manifest.json`。
 
-## 未发布
+## v1.9.79
 
 - 界面说人话：应用列表显示「VS Code」「Chrome 浏览器」「微信」「雷电模拟器」这样的名字，程序文件名放在下面一行；整个目录的规则用文件夹图标；正在运行的程序标「运行中」。
 - 分流方式改叫「智能分流 / 全部代理 / 不走代理 / 禁止联网」，顶栏改叫「按规则 / 全部代理 / 全部直连」，各页面说明同步改。
