@@ -4,6 +4,13 @@
 > 结论与坑已提炼到 `docs/memory/<主题>.md`；这里是事实存档，按标题取（`node ~/.ankotti/ai-kit/mem.mjs <关键词>`），不要整份读。
 > 约定：sz = 深圳生产机；incoming = sz `/opt/proxysplit/incoming/`；客户端回滚 = 该版本 incoming 目录 `python3 publish-client.py rollback` 并删 releases 表里该版本那行。
 
+## v1.9.81（2026-10-23 01:20，全站发布，强制）
+- **全站发布**：release id 20261023-011333-9997134-v1.9.81，上一版 releases/20261023-001358-463943b-v1.9.80；备份 backups/postgres-20261023-011333-9997134-v1.9.81.sql.gz；无新迁移。
+- 客户端 v1.9.81：exe 源 commit 9997134（tag v1.9.81），SHA256 59a7a229a8f5c9b236e6b23038ea9b605c06de0bcb75c77be1d83c5105da9393，100,942,336 字节；releases 行（强制，min 1.9.51）+ audit_logs。
+- 内容：支付审计后修拆单——付一半可续付（resumeSplitInTx）、手动确认拆单子单不多发（payGroupPieceInTx），见 docs/memory/account-membership.md；真库场景 14 项过（pve-pg-proxysplit-paytest）。
+- 过程：修复先误落在另一会话切出的 frameless 分支（共享目录被切分支），改在 worktree 里 cherry-pick 到 main 发布；frameless 上那份原样留着，合并时 CHANGELOG 取 main 的 v1.9.81。
+- 验收：公网 latest = 1.9.81 mandatory，/health、官网、/admin/ 200，三个下载 sha 一致，支付回调地址可达（空请求 400）。
+
 ## v1.9.80（2026-10-23 00:20，全站发布，强制）
 - **全站发布**：release id 20261023-001358-463943b-v1.9.80，上一版 releases/20261022-162423-310cf62-v1.9.79；备份 backups/postgres-20261023-001358-463943b-v1.9.80.sql.gz；服务端无变化。
 - 客户端 v1.9.80：exe 源 commit 463943b（tag v1.9.80），SHA256 075787e25273bab0eb1161a534c581ed3cb5a94c05bf4ee3ea3e9c80ca23af88，100,941,824 字节，内核 1.14.3-relayops.1；releases id a80fd265-e73a-4b64-bcb9-987bad2becfc（强制，min 1.9.51）+ audit_logs。
