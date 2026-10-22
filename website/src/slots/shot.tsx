@@ -1,4 +1,5 @@
-// 真实界面截图（v1.9.80 新界面，客户端 mock 预览里拍的），套一个 Windows 风格的窗口框（不画 macOS 三个圆点）。
+// 真实界面截图（无边框新界面，客户端 mock 预览里拍的）。截图自带客户端的标题栏和窗口按钮，外面只套圆角卡片，
+// 不画系统窗口框（业主 2026-10-23：桌面端不显示系统标题栏 / Windows 窗口按钮）。
 // 图片在 public/shots/：<name>.webp（1x）与 <name>@2x.webp；地址写全，评审包按字面量把它们换成 data URL。
 const SHOTS = {
   overview: { src: "/shots/overview.webp", src2x: "/shots/overview@2x.webp", w: 1400, h: 900 },
@@ -13,16 +14,7 @@ type Props = { name: ShotName; alt: string; eager?: boolean };
 export function Shot({ name, alt, eager = false }: Props) {
   const s = SHOTS[name];
   return (
-    <figure className="ps-window">
-      <div className="ps-window-bar" aria-hidden="true">
-        <img src="/favicon.svg" alt="" width={14} height={14} />
-        <span>ProxySplit</span>
-        <i className="ps-window-ctl">
-          <b />
-          <b />
-          <b />
-        </i>
-      </div>
+    <figure className="ps-shot">
       <img
         src={s.src}
         srcSet={`${s.src} ${s.w}w, ${s.src2x} ${s.w * 2}w`}

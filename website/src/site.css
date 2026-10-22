@@ -12,14 +12,14 @@ body {
   text-wrap: balance;
 }
 
-/* 截图窗口框 */
+/* 截图卡片：截图里已经有客户端自己的标题栏和窗口按钮，外面只套一张圆角卡片，不再画 Windows 窗口框 */
 .ps-preview {
   margin-top: -24px;
   padding-bottom: 24px;
   position: relative;
   z-index: 1;
 }
-.ps-window {
+.ps-shot {
   margin: 0;
   overflow: hidden;
   border-radius: var(--q-r);
@@ -27,51 +27,7 @@ body {
   background: var(--q-surface);
   box-shadow: var(--q-shadow);
 }
-.ps-window-bar {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  height: 34px;
-  padding: 0 0 0 12px;
-  border-bottom: var(--q-bw) solid var(--q-line);
-  background: var(--q-soft);
-  font-size: 12px;
-  color: var(--q-muted);
-}
-.ps-window-ctl {
-  margin-left: auto;
-  display: flex;
-  height: 100%;
-}
-.ps-window-ctl b {
-  width: 42px;
-  position: relative;
-}
-/* 最小化 / 最大化 / 关闭：一条线、一个方框、一个叉 */
-.ps-window-ctl b::before,
-.ps-window-ctl b::after {
-  content: "";
-  position: absolute;
-  left: 16px;
-  top: 50%;
-  width: 10px;
-  border-top: 1px solid var(--q-muted);
-}
-.ps-window-ctl b:nth-child(2)::before {
-  height: 9px;
-  margin-top: -5px;
-  border: 1px solid var(--q-muted);
-}
-.ps-window-ctl b:nth-child(3)::before {
-  transform: rotate(45deg);
-}
-.ps-window-ctl b:nth-child(3)::after {
-  transform: rotate(-45deg);
-}
-.ps-window-ctl b:not(:nth-child(3))::after {
-  display: none;
-}
-.ps-window > img {
+.ps-shot > img {
   display: block;
   width: 100%;
   height: auto;
