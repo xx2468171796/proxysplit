@@ -4,6 +4,11 @@
 > 结论与坑已提炼到 `docs/memory/<主题>.md`；这里是事实存档，按标题取（`node ~/.ankotti/ai-kit/mem.mjs <关键词>`），不要整份读。
 > 约定：sz = 深圳生产机；incoming = sz `/opt/proxysplit/incoming/`；客户端回滚 = 该版本 incoming 目录 `python3 publish-client.py rollback` 并删 releases 表里该版本那行。
 
+## v1.9.86（2026-10-23，只发客户端，强制）
+- exe 源 commit 2ed320d，SHA256 4d48da2199b8c6cbca62e4097f5e06be1d1aaa9177c357a6346dcf4d480c77b1，100,986,368 字节，内核 1.14.3-relayops.1；incoming/client-v1.9.86-2ed320d；releases 行（强制，min 1.9.51）+ audit_logs。
+- 内容：AI 环境检测细化（出口 IP / 类型 / 一致 / 延迟 / 语言），出口线路认 POWER云 名单；sz 新增 /opt/proxysplit/rules/egress-ours.json（不随发版，改出口机时更新）。
+- 验收：公网 latest = 1.9.86 mandatory；飞牛下载版本化 / latest sha 一致，egress-ours.json 公网可读；本机真实网络临时测试：出口 122.116.1.113 认成住宅 + 官方线路，HiNet 动态 IP 经 DDNS 认出。
+
 ## v1.9.85（2026-10-23，只发客户端，强制）
 - exe 源 commit 25b52a7，SHA256 c284022cab2549d822253014cbd434c86fa553731b2b7166c5f0108579ffc20a，100,952,576 字节，内核 1.14.3-relayops.1；incoming/client-v1.9.85-25b52a7；releases 行（强制，min 1.9.51）+ audit_logs。
 - 内容：子进程一律 CREATE_NO_WINDOW（设备识别 PowerShell、sing-box check、路线测试 curl、更新脚本），新增 hidewindow_test.go 防再漏。
