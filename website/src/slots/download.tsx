@@ -1,4 +1,5 @@
 // 下载插槽（锚点 #download）：最新版本号（接口实时读取）+ 下载按钮 + 联系方式（点一下复制）。
+// admin-ui-audit-ignore-file raw-control: 官网是 qiantai 前台页，不加载 admin-ui 样式，控件用 qiantai 的 q-btn / q-input / q-chip 类
 import { useState } from "react";
 import { LATEST_DOWNLOAD } from "../api";
 

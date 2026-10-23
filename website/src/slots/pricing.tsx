@@ -1,4 +1,5 @@
 // 会员插槽（锚点 #pricing）：套餐（服务端实时读取）+ 网页注册。试用在客户端首次登录时按硬件发放，网页只建账号。
+// admin-ui-audit-ignore-file raw-control: 官网是 qiantai 前台页，不加载 admin-ui 样式，控件用 qiantai 的 q-btn / q-input / q-chip 类
 import { Card, Section } from "qiantai";
 import { type FormEvent, useState } from "react";
 import { registerWeb, validateRegister } from "../api";
