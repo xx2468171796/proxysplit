@@ -159,6 +159,11 @@ type Service struct {
 	aiGuard          bool              // AI 强制走线路（aiguard.go；App 按中转站客户开关）
 	aiGuardOut       string            // 运行中的内核 AI 走的出站（"" = 没开）
 	aiDNSListen      string            // 运行中的内核给 AI 锁应答 DNS 的本机地址（"" = 没有）
+	aiProxyPort      int               // 给其他程序用的 AI 线路代理端口（本次运行固定；0 = 还没分配）
+	aiProxyUser      string
+	aiProxyPass      string
+	aiProxyFile      string // 约定文件（App 设置），见 aiproxy.go
+	aiProxyState     AIProxyInfo
 
 	followOnce    sync.Once // core follow (corefollow.go)
 	followStart   sync.Once
@@ -1541,7 +1546,7 @@ func (s *Service) startLocked() error {
 		}
 		s.mu.Lock()
 		s.accelOut = tunOpts.AccelOutbound
-		s.noteAIGuardStartedLocked(tunOpts.AIGuard)
+		s.noteAIGuardStartedLocked(&tunOpts)
 		s.mu.Unlock()
 		s.mu.Lock()
 		s.startedAt = time.Now()
@@ -1577,7 +1582,7 @@ func (s *Service) startLocked() error {
 	s.activeFP = nil
 	s.run = &runState{node: node, level: level, route: tunRoute, base: base, targets: sum.targets}
 	s.accelOut = opts.AccelOutbound
-	s.noteAIGuardStartedLocked(opts.AIGuard)
+	s.noteAIGuardStartedLocked(&opts)
 	s.mu.Unlock()
 
 	s.applySystemProxyOnStart()

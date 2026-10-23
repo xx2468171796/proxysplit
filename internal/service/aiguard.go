@@ -119,22 +119,25 @@ func (s *Service) aiNodeLocked(activeID string) *nodes.Node {
 // at the same line. Caller holds s.mu.
 func (s *Service) applyAIGuardLocked(opts *core.Options, activeID string, extra map[string]*nodes.Node) {
 	opts.AIGuard = nil
-	if !s.aiGuard {
-		return
-	}
 	// No POWER云 line (any user may turn the guard on in 设置, owner 2026-10-23):
 	// AI goes through the active node — still never direct. Only a config
 	// without any node leaves AI blocked.
-	out := "reject"
+	out, official := "reject", false
 	if n := s.aiNodeLocked(activeID); n != nil {
-		out = "proxy"
+		out, official = "proxy", true
 		if n.ID != activeID {
 			out = "node-" + n.ID
 			extra[out] = n
 		}
-		opts.AccelOutbound = out
 	} else if s.activeNodeLocked(activeID) != nil {
 		out = "proxy"
+	}
+	opts.AIProxy = s.aiProxyLocked(out)
+	if !s.aiGuard {
+		return
+	}
+	if official {
+		opts.AccelOutbound = out
 	}
 	// The running core keeps its listener (a hot apply must build the same
 	// config); a fresh start checks the loopback port is free first, so a
@@ -158,7 +161,9 @@ func (s *Service) applyAIGuardLocked(opts *core.Options, activeID string, extra 
 
 // noteAIGuardStartedLocked records what the started core uses for AI and
 // drops DNS failures Windows cached while the core was down.
-func (s *Service) noteAIGuardStartedLocked(g *core.AIGuard) {
+func (s *Service) noteAIGuardStartedLocked(opts *core.Options) {
+	s.noteAIProxyLocked(opts.AIProxy)
+	g := opts.AIGuard
 	s.aiGuardOut, s.aiDNSListen = "", ""
 	if g == nil {
 		return
@@ -173,6 +178,7 @@ func (s *Service) noteAIGuardStartedLocked(g *core.AIGuard) {
 func (s *Service) flushAIDNSOnStop() {
 	s.mu.Lock()
 	guarded := s.aiGuard || s.aiGuardOut != ""
+	s.noteAIProxyLocked(nil) // the AI proxy is gone with the core
 	s.mu.Unlock()
 	if guarded {
 		aiguard.FlushCache()

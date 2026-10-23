@@ -137,3 +137,37 @@ func aiGuardDNS(opts Options) (rules []M, server M) {
 	route["rewrite_ttl"] = aiDNSTTL
 	return []M{noV6, route}, server
 }
+
+// AIProxy is a loopback-only proxy (with credentials) whose every connection
+// leaves through the AI line: other programs on this PC (the aigw switcher's
+// fingerprint browser) point at it to reach AI from our exit and never direct.
+// Independent of the guard: present whenever the core runs with a line.
+type AIProxy struct {
+	Port       int
+	User, Pass string
+	Outbound   string // "proxy", "node-<id>" or "reject"
+}
+
+const aiProxyInbound = "ai-proxy-in"
+
+func aiProxyInboundFor(opts Options) M {
+	p := opts.AIProxy
+	if p == nil || p.Port <= 0 || p.Outbound == "" {
+		return nil
+	}
+	in := M{"type": "mixed", "tag": aiProxyInbound, "listen": "127.0.0.1", "listen_port": p.Port}
+	if p.User != "" {
+		in["users"] = []M{{"username": p.User, "password": p.Pass}}
+	}
+	return in
+}
+
+// aiProxyRules: everything entering the AI proxy takes the AI line (or is
+// rejected) — kept in the AI block so no app list / 代理策略 / egress rewrite
+// can send it direct.
+func aiProxyRules(opts Options) []M {
+	if aiProxyInboundFor(opts) == nil {
+		return nil
+	}
+	return []M{emit(M{"inbound": []string{aiProxyInbound}}, opts.AIProxy.Outbound)}
+}

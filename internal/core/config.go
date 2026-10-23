@@ -143,6 +143,8 @@ type Options struct {
 	// AIGuard pins AI services to our own line for AI-site customers (see
 	// aiguard.go); nil = off.
 	AIGuard *AIGuard
+	// AIProxy is the loopback AI-line proxy for other programs (nil = none).
+	AIProxy *AIProxy
 }
 
 const accelInbound = "accel-in"
@@ -711,7 +713,7 @@ func BuildTUNConfig(node *nodes.Node, logLevel string, opts Options) ([]byte, er
 	// api.anthropic.com), ourselves (the AI environment check probes through
 	// it) and every app list / 代理策略; kept out of restrictEgress below.
 	aiAt := len(rules)
-	aiRules := aiGuardRules(opts)
+	aiRules := append(aiProxyRules(opts), aiGuardRules(opts)...)
 	rules = append(rules, aiRules...)
 	if guarded {
 		rules = append(rules, accelRules(opts, clashExp != nil)...)
@@ -894,6 +896,9 @@ func BuildTUNConfig(node *nodes.Node, logLevel string, opts Options) ([]byte, er
 	}
 	if opts.AccelPort > 0 {
 		tunInbounds = append(tunInbounds, M{"type": "mixed", "tag": accelInbound, "listen": "127.0.0.1", "listen_port": opts.AccelPort})
+	}
+	if in := aiProxyInboundFor(opts); in != nil {
+		tunInbounds = append(tunInbounds, in)
 	}
 	if in := aiGuardInbound(opts); in != nil {
 		tunInbounds = append(tunInbounds, in)

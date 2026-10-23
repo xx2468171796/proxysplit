@@ -95,6 +95,8 @@ func (a *App) startup(ctx context.Context) {
 		return
 	}
 	a.svc = svc
+	// 给 aigw 等本机程序的 AI 线路代理约定文件（internal/service/aiproxy.go）
+	svc.SetAIProxyFile(filepath.Join(dataDir(), "ai-proxy.json"))
 	a.lic = license.New(dataDir(), appVersion)
 	// Validate persisted online credentials before exposing the first UI
 	// snapshot. A short timeout avoids delaying offline startup; network

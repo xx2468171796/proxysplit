@@ -79,7 +79,7 @@ func TestAIGuardConfig(t *testing.T) {
 	guard.STUNProcesses = []string{"chrome.exe", "msedge.exe"}
 	opts := Options{Split: true, SplitWhitelist: true, RemoteDNS: true, RuleDir: t.TempDir(), GeoDir: filepath.Join("..", "..", "bin"),
 		DirectDomains: []string{"zygskins.cn"},
-		ExtraNodes: []ExtraNode{{Tag: "node-x", Node: extra}}, AIGuard: guard,
+		ExtraNodes:    []ExtraNode{{Tag: "node-x", Node: extra}}, AIGuard: guard,
 		ClashController: "127.0.0.1:1", AccelPort: 18765, AccelOutbound: "direct"}
 	raw, err := BuildTUNConfig(node, "warn", opts)
 	if err != nil {
@@ -193,5 +193,63 @@ func TestAIGuardOff(t *testing.T) {
 	b, _ := BuildTUNConfig(node, "warn", opts)
 	if string(a) != string(b) {
 		t.Fatal("an inactive guard changed the config")
+	}
+}
+
+// TestAIProxyConfig: the loopback AI proxy exists without the guard, needs
+// credentials, sends everything to the AI line ahead of every app list, and is
+// refused (never direct) without a line; the real core accepts the config.
+func TestAIProxyConfig(t *testing.T) {
+	node, _ := nodes.ParseLink(sampleLinks["vless-reality"])
+	for _, out := range []string{"proxy", "reject"} {
+		opts := Options{Split: true, SplitWhitelist: true, RemoteDNS: true, RuleDir: t.TempDir(), GeoDir: filepath.Join("..", "..", "bin"),
+			DirectDomains: []string{"zygskins.cn"}, ClashController: "127.0.0.1:1",
+			AIProxy: &AIProxy{Port: 18089, User: "ai", Pass: "secret", Outbound: out}}
+		raw, err := BuildTUNConfig(node, "warn", opts)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var cfg struct {
+			Inbounds []M `json:"inbounds"`
+			Route    struct {
+				Rules []M `json:"rules"`
+			} `json:"route"`
+		}
+		json.Unmarshal(raw, &cfg)
+		var in M
+		for _, i := range cfg.Inbounds {
+			if i["tag"] == aiProxyInbound {
+				in = i
+			}
+		}
+		if in == nil || in["listen"] != "127.0.0.1" || in["users"] == nil {
+			t.Fatalf("AI proxy inbound missing / open / without credentials: %v", in)
+		}
+		ruleAt, firstApp := -1, -1
+		for i, r := range cfg.Route.Rules {
+			if ib, _ := r["inbound"].([]any); len(ib) == 1 && ib[0] == aiProxyInbound && ruleAt < 0 {
+				ruleAt = i
+				if out == "reject" && r["action"] != "reject" || out == "proxy" && r["outbound"] != "proxy" {
+					t.Fatalf("AI proxy rule %v, want %s", r, out)
+				}
+			}
+			if r["rule_set"] != nil && firstApp < 0 && r["action"] != "reject" {
+				firstApp = i
+			}
+		}
+		if ruleAt < 0 || (firstApp >= 0 && ruleAt > firstApp) {
+			t.Fatalf("AI proxy rule at %d, first app list at %d", ruleAt, firstApp)
+		}
+		if _, err := os.Stat(singboxPath(t)); err != nil {
+			continue
+		}
+		p := filepath.Join(t.TempDir(), "aiproxy.json")
+		os.WriteFile(p, raw, 0o600)
+		for tag, data := range SplitRuleSets(opts) {
+			os.WriteFile(filepath.Join(opts.RuleDir, tag+".json"), data, 0o600)
+		}
+		if o, err := exec.Command(singboxPath(t), "check", "-c", p).CombinedOutput(); err != nil {
+			t.Fatalf("sing-box check: %v\n%s", err, o)
+		}
 	}
 }

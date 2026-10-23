@@ -3,6 +3,10 @@
 版本号以发布构建为准（`scripts/build-commercial.ps1 -Version <x.y.z>`，注入 `main.appVersion`），
 每个发布产物的 SHA256 见 `output/proxysplit-v<版本>.manifest.json`。
 
+## v1.9.89
+
+- 新增「AI 线路代理」：代理运行时在本机开一个带密码的专用端口，经它出去的连接一律走 AI 线路、绝不直连。AI 网关切换器启动的指纹浏览器会自动用它（地址写在数据目录的 ai-proxy.json）。
+
 ## v1.9.88
 
 - 新增「设置 → 环境配置」：一键把这台电脑的系统时区、区域格式、所在地区、浏览器语言、Claude Code 遥测、系统时间配成和台湾出口一致；配置前会记下原来的设置，随时一键恢复原样。
