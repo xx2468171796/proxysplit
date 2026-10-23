@@ -1,0 +1,6 @@
+{
+  "_comment": "ProxySplit AI 环境检测「是不是我们的出口」名单。发布到 sz /opt/proxysplit/rules/egress-ours.json（公网 https://proxysplit.zygskins.cn/rules/egress-ours.json）；客户端内置一份（internal/aiguard/ours.go），两边同改。IPv6 按 /64 认，动态 IP 写 DDNS 域名。",
+  "ips": ["211.76.176.116", "122.116.1.113", "104.194.70.4", "104.194.65.46", "95.169.1.61", "103.133.154.98"],
+  "cidrs": ["2405:cdc0:0:902::/64", "2001:b011:6c11:b260::/64", "2607:8700:5500:4ddb::/64", "2602:f83b:a886::/64", "2001:b030:a81d:a00::/64"],
+  "hosts": ["hinet.alonelife.top", "hinet6.alonelife.top"]
+}

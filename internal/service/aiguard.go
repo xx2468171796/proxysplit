@@ -57,6 +57,13 @@ func (s *Service) AIGuardLine() (running bool, node string) {
 	return true, ""
 }
 
+// AIGuardOfficial: the running core sends AI through a POWER云 node.
+func (s *Service) AIGuardOfficial() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.aiGuardOut != "" && s.aiGuardOut != "reject" && s.core.Running() && s.aiNodeLocked("") != nil
+}
+
 // activeNodeLocked is the selected node (any source); nil = none.
 func (s *Service) activeNodeLocked(activeID string) *nodes.Node {
 	if activeID == "" {

@@ -973,6 +973,9 @@ export namespace service {
 	    items: AIEnvItem[];
 	    exitIp?: string;
 	    exitLoc?: string;
+	    exitKind?: string;
+	    exitAsn?: string;
+	    exitOurs: boolean;
 	    checkedAt: string;
 	
 	    static createFrom(source: any = {}) {
@@ -984,6 +987,9 @@ export namespace service {
 	        this.items = this.convertValues(source["items"], AIEnvItem);
 	        this.exitIp = source["exitIp"];
 	        this.exitLoc = source["exitLoc"];
+	        this.exitKind = source["exitKind"];
+	        this.exitAsn = source["exitAsn"];
+	        this.exitOurs = source["exitOurs"];
 	        this.checkedAt = source["checkedAt"];
 	    }
 	

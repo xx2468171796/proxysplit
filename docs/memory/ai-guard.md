@@ -19,3 +19,9 @@ NRPT 把 AI 域名解析锁到回环地址 127.0.0.53（内核监听），软件
 
 ## 待验证
 alonehome2 一上线就用正式版做端到端实测（开着 AI 走台湾、关掉 AI 打不开、恢复后正常）；1.9.71 发布时只在业主办公电脑用测试域名验证过锁机制，alonehome2 与 tw-win11 当时都离线。
+
+## 环境检测（v1.9.86 细化，业主 2026-10-23）
+- 用别的 VPN / 自建节点、劫持关着都只提示（warn），不拦不算错；劫持开着也允许别的 VPN。
+- 「出口线路」：出口 IP 在 POWER云 名单里或 AI 走的是官方节点 = 官方线路。名单 server/deploy/egress-ours.json → sz /opt/proxysplit/rules/egress-ours.json（公网 /rules/egress-ours.json），客户端内置一份（internal/aiguard/ours.go），两边同改；AI 看到的多半是落地机 IPv6，按 /64 认；HiNet 动态 IP 写 DDNS 域名现解析。加 / 换出口机先改这份名单。
+- 劫持没生效时不碰 AI 域名，只用 iplocate.io 查当前出口；IP 类型（住宅 / 机房 / 滥用）也来自 iplocate.io（免 key，约 50 次限额）。
+- 调研结论：官方只公开支持地区（台湾支持，香港 / 大陆不支持）；社区证据里 IP 类型、出口一致与稳定、IPv6 泄漏、时区最重要；语言只提示；延迟只关系可用性，阈值 800 ms / 2 s。

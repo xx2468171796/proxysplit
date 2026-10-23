@@ -288,7 +288,15 @@ export type AIEnvItem = {
   detail: string;
   fix?: string;
 };
-export type AIEnvReport = { items: AIEnvItem[]; exitIp?: string; exitLoc?: string; checkedAt: string };
+export type AIEnvReport = {
+  items: AIEnvItem[];
+  exitIp?: string;
+  exitLoc?: string;
+  exitKind?: string;
+  exitAsn?: string;
+  exitOurs: boolean;
+  checkedAt: string;
+};
 export type AIHijack = { on: boolean; locked: boolean; visible: boolean };
 
 export type BootstrapState = {

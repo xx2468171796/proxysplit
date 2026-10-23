@@ -22,7 +22,7 @@ const STATUS_TEXT = {
   ok: "正常",
   warning: "建议处理",
   error: "有风险",
-  unknown: "—",
+  unknown: "提示",
   pending: "检测中",
   off: "未开启",
 };
@@ -84,6 +84,13 @@ function useAIEnv(always: boolean) {
   return { report, hijack, checking, fixing, check, run };
 }
 
+/** 标题栏的出口说明：IP（地区 · 类型）· 是否 POWER云 官方线路。 */
+function exitLabel(report: AIEnvReport | null): string {
+  if (!report?.exitIp) return "";
+  const where = [report.exitLoc, report.exitKind].filter(Boolean).join(" · ");
+  return ` · 出口 ${report.exitIp}（${where}）· ${report.exitOurs ? "POWER云 官方线路" : "非官方线路"}`;
+}
+
 export function AIEnvPanel({ always = false }: { always?: boolean }) {
   const { report, hijack, checking, fixing, check, run } = useAIEnv(always);
   const [confirmRestore, setConfirmRestore] = useState(false);
@@ -91,7 +98,7 @@ export function AIEnvPanel({ always = false }: { always?: boolean }) {
 
   const problems = report?.items.filter((i) => i.status === "fail" || i.status === "warn").length ?? 0;
   const fixable = report?.items.some((i) => i.fix) ?? false;
-  const exit = report?.exitIp ? ` · 出口 ${report.exitIp}（${report.exitLoc}）` : "";
+  const exit = exitLabel(report);
   return (
     <Panel
       className="qd-pane"

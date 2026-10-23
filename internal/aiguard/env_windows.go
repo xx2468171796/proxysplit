@@ -34,6 +34,17 @@ func TimezoneID() string {
 	return strings.TrimRight(v, "\x00 ")
 }
 
+// UserLocale returns the user's Windows display locale ("zh-CN", "" if unreadable).
+func UserLocale() string {
+	k, err := registry.OpenKey(registry.CURRENT_USER, `Control Panel\International`, registry.QUERY_VALUE)
+	if err != nil {
+		return ""
+	}
+	defer k.Close()
+	v, _, _ := k.GetStringValue("LocaleName")
+	return strings.TrimSpace(v)
+}
+
 // SetTimezone switches the system time zone (tzutil, ships with Windows).
 func SetTimezone(id string) error {
 	return run(30*time.Second, "tzutil.exe", "/s", id)
