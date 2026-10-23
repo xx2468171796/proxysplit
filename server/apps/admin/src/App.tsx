@@ -15,6 +15,7 @@ import ReleasesPage from '@/pages/releases'
 import DownloadsPage from '@/pages/downloads'
 import AuditPage from '@/pages/audit'
 import SettingsPage from '@/pages/settings'
+import FenxiaoPage from '@/pages/fenxiao'
 
 export function App() {
   const [signed, setSigned] = React.useState(hasToken())
@@ -30,6 +31,7 @@ export function App() {
         <Route path="plans" element={<PlansPage />} />
         <Route path="orders" element={<OrdersPage />} />
         <Route path="redeem" element={<RedeemPage />} />
+        <Route path="fenxiao" element={<FenxiaoPage />} />
         <Route path="payments" element={<PaymentsPage />} />
         <Route path="announcements" element={<AnnouncementsPage />} />
         <Route path="releases" element={<ReleasesPage />} />
