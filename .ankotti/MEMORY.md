@@ -2,7 +2,7 @@
 > 最后更新：2026-10-22。细节按下方路由表读 docs/memory/，逐版发布史在 docs/decisions.md（按标题取）。
 
 ## 当前状态
-- 线上：**v1.9.84 stable（强制，min 1.9.51）**，2026-10-23 只发客户端（设置新增「AI 劫持」对所有人开放），incoming/client-v1.9.84-4d5e778；服务端 current 仍是 releases/20261023-012224-55103f0-v1.9.82。客户端有新版一律自动升级；规则库由 sz 每天同步、客户端从 /rules/ 自动拉（见 docs/memory/routing.md）。
+- 线上：**v1.9.85 stable（强制，min 1.9.51）**，2026-10-23 只发客户端（打开软件不再闪命令行窗口；1.9.84 设置新增「AI 劫持」对所有人开放），incoming/client-v1.9.85-25b52a7；服务端 current 仍是 releases/20261023-012224-55103f0-v1.9.82。客户端有新版一律自动升级；规则库由 sz 每天同步、客户端从 /rules/ 自动拉（见 docs/memory/routing.md）。
 - 前端已用 @ankotti/admin-ui 重写（React 19 + Vite 8 + TS 7 + pnpm 12.9.1，替换旧单文件 Svelte），随 v1.9.75 上线（已并入 main）；门禁 `pnpm --dir frontend check`，预览 `pnpm --dir frontend dev`。
 - 技术栈：Go + Wails + React 前端，sing-box 原生 TUN + process_name；服务端 Fastify + 深圳共享 PG（堡垒机数据源 sz-pg-proxysplit）。
 

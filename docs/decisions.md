@@ -4,6 +4,11 @@
 > 结论与坑已提炼到 `docs/memory/<主题>.md`；这里是事实存档，按标题取（`node ~/.ankotti/ai-kit/mem.mjs <关键词>`），不要整份读。
 > 约定：sz = 深圳生产机；incoming = sz `/opt/proxysplit/incoming/`；客户端回滚 = 该版本 incoming 目录 `python3 publish-client.py rollback` 并删 releases 表里该版本那行。
 
+## v1.9.85（2026-10-23，只发客户端，强制）
+- exe 源 commit 25b52a7，SHA256 c284022cab2549d822253014cbd434c86fa553731b2b7166c5f0108579ffc20a，100,952,576 字节，内核 1.14.3-relayops.1；incoming/client-v1.9.85-25b52a7；releases 行（强制，min 1.9.51）+ audit_logs。
+- 内容：子进程一律 CREATE_NO_WINDOW（设备识别 PowerShell、sing-box check、路线测试 curl、更新脚本），新增 hidewindow_test.go 防再漏。
+- 验收：公网 latest = 1.9.85 mandatory；飞牛下载版本化 / latest sha 一致。
+
 ## v1.9.84（2026-10-23，只发客户端，强制）
 - exe 源 commit 4d5e778，SHA256 d14601451272db0c20593098ff3ffb2d652ab205e364b8ec046938e6aaba6491，100,948,480 字节，内核 1.14.3-relayops.1；incoming/client-v1.9.84-4d5e778；releases 行（强制，min 1.9.51）+ audit_logs。
 - 内容：设置新增「AI 劫持」分区对所有用户开放（复用 AIEnvPanel always）；无 POWER云 线路时 AI 走当前选中节点，不再 reject。
