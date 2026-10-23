@@ -133,6 +133,7 @@ func (a *App) SetAIHijack(on bool) string {
 		if aiguard.Present() {
 			return "解除系统 DNS 锁失败，详情看「日志」页"
 		}
+		a.undoPrivacyFixes()
 		a.svc.LogLine("[AI] 已在软件里恢复：劫持模式关闭，AI 不再强制走线路（关掉软件时 AI 会走本机网络）")
 		return ""
 	}
@@ -278,6 +279,33 @@ func (a *App) fixAIEnvItem(id string) error {
 		return aiguard.ResyncClock()
 	case "autostart":
 		return a.svc.SetAutostart(true)
+	case "browserlang":
+		if err := aiguard.ForceBrowserLanguage(); err != nil {
+			return fmt.Errorf("设置浏览器语言失败：%w", err)
+		}
+		a.svc.LogLine("[AI] 已把 Chrome / Edge 语言固定为繁体中文 + 英文（重开浏览器生效）")
+		return nil
+	case "claudecode":
+		if err := aiguard.SetClaudeCodeQuiet(aiguard.ClaudeSettingsPath(), claudeQuietMarker()); err != nil {
+			return fmt.Errorf("改 Claude Code 配置失败：%w", err)
+		}
+		a.svc.LogLine("[AI] 已关闭 Claude Code 遥测 / 错误上报（重开 Claude Code 生效）")
+		return nil
 	}
 	return fmt.Errorf("未知的修复项：%s", id)
+}
+
+// claudeQuietMarker records that we (not the user) turned Claude Code's
+// telemetry off, so 恢复 only undoes our own change.
+func claudeQuietMarker() string { return filepath.Join(dataDir(), "claude-quiet-ours") }
+
+// undoPrivacyFixes reverts the browser-language policy and the Claude Code
+// switch on 恢复 (each only when it is still ours).
+func (a *App) undoPrivacyFixes() {
+	if err := aiguard.UnforceBrowserLanguage(); err != nil {
+		a.svc.LogLine("[AI] 撤销浏览器语言设置失败：" + err.Error())
+	}
+	if err := aiguard.UnsetClaudeCodeQuiet(aiguard.ClaudeSettingsPath(), claudeQuietMarker()); err != nil {
+		a.svc.LogLine("[AI] 撤销 Claude Code 设置失败：" + err.Error())
+	}
 }

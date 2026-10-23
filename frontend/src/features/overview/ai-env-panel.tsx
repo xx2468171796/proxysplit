@@ -11,6 +11,8 @@ const FIX_LABEL: Record<string, string> = {
   timezone: "改成台北时间",
   clock: "立即对时",
   autostart: "开启",
+  browserlang: "改成繁体中文",
+  claudecode: "关闭遥测",
 };
 const STATUS: Record<AIEnvItem["status"], "ok" | "warning" | "error" | "unknown"> = {
   ok: "ok",

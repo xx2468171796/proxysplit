@@ -3,6 +3,13 @@
 版本号以发布构建为准（`scripts/build-commercial.ps1 -Version <x.y.z>`，注入 `main.appVersion`），
 每个发布产物的 SHA256 见 `output/proxysplit-v<版本>.manifest.json`。
 
+## v1.9.87
+
+- 堵住 WebRTC 泄露：开着劫持时，浏览器和 Claude / ChatGPT 客户端的 WebRTC 也走 AI 线路，网页查到的是台湾出口 IP，不会再暴露本机国内 IP。
+- AI 环境检测新增「浏览器语言」：一键把 Chrome / Edge 固定成繁体中文 + 英文（网页读不到简体中文了，界面不受影响）。
+- 新增「Claude Code 遥测」：一键用官方开关关掉 Claude Code 的使用数据、错误上报和反馈上传。
+- 新增「中文字体 / Emoji」说明；以上设置在点「恢复」时会一并撤销。
+
 ## v1.9.86
 
 - AI 环境检测做细了：显示出口 IP、地区、IP 类型（住宅宽带 / 机房）、是否被标记滥用，以及 Claude 和 ChatGPT 各自的延迟、两边出口是否一致，还新增了系统语言提示。

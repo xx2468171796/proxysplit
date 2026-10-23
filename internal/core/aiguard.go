@@ -24,6 +24,10 @@ type AIGuard struct {
 	IPCIDRs        []string
 	Outbound       string // "proxy", "node-<id>" or "reject"
 	DNSListen      string // e.g. "127.0.0.53" (port 53); "" = no listener
+	// STUNProcesses send their WebRTC STUN through Outbound too, so a page's
+	// ICE candidates show the AI exit instead of the customer's mainland IP
+	// (browsers and the AI desktop apps; other programs' calls are untouched).
+	STUNProcesses []string
 }
 
 const (
@@ -99,7 +103,11 @@ func aiGuardRules(opts Options) []M {
 	quic["network"] = []string{"udp"}
 	quic["port"] = []int{443}
 	quic["action"] = "reject"
-	return []M{quic, emit(g.match(true), g.Outbound)}
+	rules := []M{quic, emit(g.match(true), g.Outbound)}
+	if procs := cleanList(g.STUNProcesses); len(procs) > 0 {
+		rules = append(rules, emit(M{"protocol": []string{"stun"}, "process_name": procs}, g.Outbound))
+	}
+	return rules
 }
 
 // aiGuardDNS returns the DNS rules for AI names (IPv6-bearing answers blanked,

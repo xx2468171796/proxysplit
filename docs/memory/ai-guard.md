@@ -26,3 +26,4 @@ alonehome2 一上线就用正式版做端到端实测（开着 AI 走台湾、�
 - 「出口线路」：出口 IP 在 POWER云 名单里或 AI 走的是官方节点 = 官方线路。名单 server/deploy/egress-ours.json → sz /opt/proxysplit/rules/egress-ours.json（公网 /rules/egress-ours.json），客户端内置一份（internal/aiguard/ours.go），两边同改；AI 看到的多半是落地机 IPv6，按 /64 认；HiNet 动态 IP 写 DDNS 域名现解析。加 / 换出口机先改这份名单。
 - 劫持没生效时不碰 AI 域名，只用 iplocate.io 查当前出口；IP 类型（住宅 / 机房 / 滥用）也来自 iplocate.io（免 key，约 50 次限额）。
 - 调研结论：官方只公开支持地区（台湾支持，香港 / 大陆不支持）；社区证据里 IP 类型、出口一致与稳定、IPv6 泄漏、时区最重要；语言只提示；延迟只关系可用性，阈值 800 ms / 2 s。
+- 官方订阅（v1.9.87）：劫持开着时浏览器 / Claude / ChatGPT 客户端的 STUN 也走 AI 线路（core AIGuard.STUNProcesses，名单 aiguard.webRTCProcesses），挡住 WebRTC 暴露国内真实 IP；一键修复「浏览器语言」= HKCU Chrome / Edge ForcedLanguages 策略 zh-TW,zh,en-US,en（浏览器显示「由贵单位管理」）；「Claude Code 遥测」= ~/.claude/settings.json env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1（数据目录 claude-quiet-ours 标记）；两者在「恢复」时撤销，只撤我们写的。中文字体 / emoji 只提示不改。Claude Code 隐写（时区 + 主机名藏进日期行）只在 ANTHROPIC_BASE_URL 非官方时触发，官方订阅直连不涉及。

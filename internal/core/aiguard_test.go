@@ -76,7 +76,9 @@ func TestAIGuardConfig(t *testing.T) {
 	extra, _ := nodes.ParseLink(sampleLinks["trojan"])
 	guard := guardFor("node-x")
 	guard.DNSListen = "127.0.0.53"
+	guard.STUNProcesses = []string{"chrome.exe", "msedge.exe"}
 	opts := Options{Split: true, SplitWhitelist: true, RemoteDNS: true, RuleDir: t.TempDir(), GeoDir: filepath.Join("..", "..", "bin"),
+		DirectDomains: []string{"zygskins.cn"},
 		ExtraNodes: []ExtraNode{{Tag: "node-x", Node: extra}}, AIGuard: guard,
 		ClashController: "127.0.0.1:1", AccelPort: 18765, AccelOutbound: "direct"}
 	raw, err := BuildTUNConfig(node, "warn", opts)
@@ -153,6 +155,20 @@ func TestAIGuardConfig(t *testing.T) {
 	}
 	if quicAt < 0 || routeAt != quicAt+1 {
 		t.Fatalf("AI QUIC reject at %d, AI route at %d", quicAt, routeAt)
+	}
+	// WebRTC: browsers' STUN goes through the AI line, right after the AI
+	// route and ahead of our always-direct domains and every app list.
+	stunAt, directAt := -1, -1
+	for i, r := range cfg.Route.Rules {
+		if p, _ := r["protocol"].([]any); len(p) == 1 && p[0] == "stun" && r["outbound"] == "node-x" && r["process_name"] != nil {
+			stunAt = i
+		}
+		if r["outbound"] == "direct" && r["domain_suffix"] != nil && directAt < 0 {
+			directAt = i
+		}
+	}
+	if stunAt != routeAt+1 || directAt < stunAt {
+		t.Fatalf("STUN rule at %d (AI route %d, always-direct %d)", stunAt, routeAt, directAt)
 	}
 
 	if _, err := os.Stat(singboxPath(t)); err != nil {

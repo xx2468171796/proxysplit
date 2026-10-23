@@ -152,7 +152,7 @@ func (s *Service) applyAIGuardLocked(opts *core.Options, activeID string, extra 
 			s.log("[AI] 本机 DNS 端口被占用（多半是别的代理软件），AI 网站会打不开：" + err.Error())
 		}
 	}
-	opts.AIGuard = &core.AIGuard{DomainSuffixes: aiguard.DomainSuffixes(), Domains: aiguard.Domains(), IPCIDRs: aiguard.IPCIDRs(),
+	opts.AIGuard = &core.AIGuard{DomainSuffixes: aiguard.DomainSuffixes(), Domains: aiguard.Domains(), IPCIDRs: aiguard.IPCIDRs(), STUNProcesses: aiguard.WebRTCProcesses(),
 		Outbound: out, DNSListen: listen}
 }
 

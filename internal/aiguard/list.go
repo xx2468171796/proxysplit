@@ -70,3 +70,18 @@ func matches(host string, suffixes []string) bool {
 	}
 	return false
 }
+
+// webRTCProcesses are the programs whose WebRTC STUN goes through the AI line
+// while the guard is on: browsers (claude.ai / chatgpt.com run there) and the
+// AI desktop apps. A STUN reply carries the public address the page then sees
+// — sent direct it is the customer's mainland IP (third-party checkers flag
+// it as 「CN 真实 IP 暴露」). Other programs' calls (meeting apps) stay as
+// they are.
+var webRTCProcesses = []string{
+	"chrome.exe", "msedge.exe", "firefox.exe", "brave.exe", "opera.exe", "vivaldi.exe",
+	"arc.exe", "thorium.exe", "chromium.exe", "360chrome.exe", "360se.exe", "qqbrowser.exe", "sogouexplorer.exe",
+	"claude.exe", "chatgpt.exe",
+}
+
+// WebRTCProcesses lists them.
+func WebRTCProcesses() []string { return append([]string(nil), webRTCProcesses...) }

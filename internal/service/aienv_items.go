@@ -149,3 +149,50 @@ func autostartItem(on bool) AIEnvItem {
 	}
 	return it
 }
+
+// webRTCItem: browsers' STUN follows the AI line only while the guard runs.
+func webRTCItem(protected bool) AIEnvItem {
+	it := AIEnvItem{ID: "webrtc", Name: "WebRTC 泄漏"}
+	if protected {
+		it.Status, it.Detail = "ok", "浏览器和 Claude / ChatGPT 客户端的 WebRTC（STUN）也走 AI 线路，网页查到的是出口 IP，不是本机 IP"
+	} else {
+		it.Status, it.Detail = "warn", "劫持没生效时，网页能经 WebRTC 查到本机（国内）真实 IP。开启劫持并启动代理后自动挡住"
+	}
+	return it
+}
+
+// browserLangItem: navigator.languages / Accept-Language (zh-CN first is a
+// mainland signal third-party checkers weigh heavily).
+func browserLangItem() AIEnvItem {
+	it := AIEnvItem{ID: "browserlang", Name: "浏览器语言"}
+	langs := aiguard.BrowserLanguages()
+	switch {
+	case aiguard.BrowserLanguageForced():
+		it.Status, it.Detail = "ok", "Chrome / Edge 已固定为繁体中文 + 英文（重开浏览器生效；浏览器显示「由贵单位管理」是这个设置带来的，正常）"
+	case strings.HasPrefix(strings.ToLower(langs), "zh-cn"):
+		it.Status, it.Detail, it.Fix = "warn", "Chrome 首选语言是简体中文（"+langs+"），网页能读到。一键改成繁体中文 + 英文，界面文字不受影响", "browserlang"
+	case langs == "":
+		it.Status, it.Detail, it.Fix = "info", "没读到 Chrome 语言设置；可以一键把 Chrome / Edge 固定成繁体中文 + 英文", "browserlang"
+	default:
+		it.Status, it.Detail = "ok", langs
+	}
+	return it
+}
+
+// claudeCodeItem: Claude Code's official switch for telemetry / error
+// reports / feedback upload.
+func claudeCodeItem() AIEnvItem {
+	it := AIEnvItem{ID: "claudecode", Name: "Claude Code 遥测"}
+	if aiguard.ClaudeCodeQuiet(aiguard.ClaudeSettingsPath()) {
+		it.Status, it.Detail = "ok", "已关闭遥测、错误上报和反馈上传（官方开关 CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC）"
+	} else {
+		it.Status, it.Detail, it.Fix = "info", "Claude Code 默认会上报使用数据和错误信息。可以一键用官方开关关掉，不影响正常使用", "claudecode"
+	}
+	return it
+}
+
+// fontItem: Chinese fonts / emoji style cannot (and must not) be changed.
+func fontItem() AIEnvItem {
+	return AIEnvItem{ID: "fonts", Name: "中文字体 / Emoji", Status: "info",
+		Detail: "网页能探测到本机装了中文字体、用的是 Windows 表情。这没法也不该改（删字体会乱码）；繁体中文环境同样有中文字体，官方也没公开会看这一项"}
+}

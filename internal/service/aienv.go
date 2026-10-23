@@ -127,9 +127,13 @@ func (s *Service) AIEnvCheck(ctx context.Context) AIEnvReport {
 	add(ipTypeItem(info, infoErr))
 	add(dnsItem(addrs, dnsErr))
 	add(ipv6Item(s.AIGuardOn()))
+	add(webRTCItem(protected))
 	add(timezoneItem(rep.ExitLoc))
 	add(clockItem(clock))
 	add(localeItem())
+	add(browserLangItem())
+	add(fontItem())
+	add(claudeCodeItem())
 	add(s.conflictItem())
 	add(autostartItem(s.GetAutostart()))
 	return rep
