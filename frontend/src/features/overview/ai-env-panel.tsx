@@ -1,4 +1,4 @@
-// AI 环境检测（AI 编程官网客户才显示）：劫持模式开关 + 逐项检测（AI 只走我们的线路、出口、DNS、IPv6、时区、时间、
+// AI 环境检测（概览页只给 AI 编程官网客户显示；设置「AI 劫持」分区 always 对所有人显示）：劫持模式开关 + 逐项检测（AI 只走我们的线路、出口、DNS、IPv6、时区、时间、
 // 其他代理 / VPN、开机自启）与一键修复。后端 App.CheckAIEnv / FixAIEnv（aiguard_app.go）。
 import { Button, ConfirmDialog, InlineAlert, Panel, StatusChecklist } from "@ankotti/admin-ui";
 import { useCallback, useEffect, useState } from "react";
@@ -27,7 +27,7 @@ const STATUS_TEXT = {
   off: "未开启",
 };
 
-function useAIEnv() {
+function useAIEnv(always: boolean) {
   const { say } = useFeedback();
   const [report, setReport] = useState<AIEnvReport | null>(null);
   const [hijack, setHijack] = useState<AIHijack>({ on: false, locked: false, visible: false });
@@ -56,8 +56,8 @@ function useAIEnv() {
     let visible = false;
     const poll = async () => {
       const h = await loadHijack();
-      if (h?.visible && !visible) void check();
-      visible = !!h?.visible;
+      if ((always || h?.visible) && !visible) void check();
+      visible = always || !!h?.visible;
     };
     void poll();
     const timer = setInterval(() => void poll(), 5000);
@@ -66,7 +66,7 @@ function useAIEnv() {
       clearInterval(timer);
       off();
     };
-  }, [check, loadHijack, say]);
+  }, [always, check, loadHijack, say]);
 
   const run = async (key: string, action: () => Promise<string>, ok: string) => {
     setFixing(key);
@@ -84,10 +84,10 @@ function useAIEnv() {
   return { report, hijack, checking, fixing, check, run };
 }
 
-export function AIEnvPanel() {
-  const { report, hijack, checking, fixing, check, run } = useAIEnv();
+export function AIEnvPanel({ always = false }: { always?: boolean }) {
+  const { report, hijack, checking, fixing, check, run } = useAIEnv(always);
   const [confirmRestore, setConfirmRestore] = useState(false);
-  if (!hijack.visible) return null;
+  if (!always && !hijack.visible) return null;
 
   const problems = report?.items.filter((i) => i.status === "fail" || i.status === "warn").length ?? 0;
   const fixable = report?.items.some((i) => i.fix) ?? false;

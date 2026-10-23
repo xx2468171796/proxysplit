@@ -36,7 +36,7 @@ func testNode(t *testing.T, id string, official bool) *nodes.Node {
 }
 
 // AI uses the active node when it is ours, else our first node (as an extra
-// outbound), else nothing (reject) — never a third-party node or direct.
+// outbound), else the active node — never direct.
 func TestAIGuardPicksOurLine(t *testing.T) {
 	for _, c := range []struct {
 		name string
@@ -45,7 +45,7 @@ func TestAIGuardPicksOurLine(t *testing.T) {
 	}{
 		{"active is ours", []*nodes.Node{testNode(t, "pv1", true), testNode(t, "pv2", true)}, "proxy"},
 		{"active is third-party", []*nodes.Node{testNode(t, "x", false), testNode(t, "pv1", true)}, "node-pv1"},
-		{"none of ours", []*nodes.Node{testNode(t, "x", false)}, "reject"},
+		{"none of ours", []*nodes.Node{testNode(t, "x", false)}, "proxy"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			s := guardService(t, c.list...)
@@ -66,7 +66,7 @@ func TestAIGuardPicksOurLine(t *testing.T) {
 						t.Fatalf("AI line %s not registered as an extra node", c.want)
 					}
 				}
-				if c.want != "reject" && opts.AccelOutbound != c.want {
+				if c.name != "none of ours" && opts.AccelOutbound != c.want {
 					t.Fatalf("Claude Code accelerator on %s, want the AI line %s", opts.AccelOutbound, c.want)
 				}
 			}

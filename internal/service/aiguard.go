@@ -45,10 +45,29 @@ func (s *Service) AIGuardLine() (running bool, node string) {
 	if s.aiGuardOut == "" || !s.core.Running() {
 		return false, ""
 	}
-	if n := s.aiNodeLocked(""); n != nil && s.aiGuardOut != "reject" {
+	if s.aiGuardOut == "reject" {
+		return true, ""
+	}
+	if n := s.aiNodeLocked(""); n != nil {
+		return true, n.Name
+	}
+	if n := s.activeNodeLocked(""); n != nil {
 		return true, n.Name
 	}
 	return true, ""
+}
+
+// activeNodeLocked is the selected node (any source); nil = none.
+func (s *Service) activeNodeLocked(activeID string) *nodes.Node {
+	if activeID == "" {
+		activeID = s.cfg.SelectedID
+	}
+	for _, n := range s.cfg.Nodes {
+		if n.ID == activeID {
+			return n
+		}
+	}
+	return nil
 }
 
 // StartIfStopped starts the core unless it is already running (checked under
@@ -96,6 +115,9 @@ func (s *Service) applyAIGuardLocked(opts *core.Options, activeID string, extra 
 	if !s.aiGuard {
 		return
 	}
+	// No POWER云 line (any user may turn the guard on in 设置, owner 2026-10-23):
+	// AI goes through the active node — still never direct. Only a config
+	// without any node leaves AI blocked.
 	out := "reject"
 	if n := s.aiNodeLocked(activeID); n != nil {
 		out = "proxy"
@@ -104,6 +126,8 @@ func (s *Service) applyAIGuardLocked(opts *core.Options, activeID string, extra 
 			extra[out] = n
 		}
 		opts.AccelOutbound = out
+	} else if s.activeNodeLocked(activeID) != nil {
+		out = "proxy"
 	}
 	// The running core keeps its listener (a hot apply must build the same
 	// config); a fresh start checks the loopback port is free first, so a

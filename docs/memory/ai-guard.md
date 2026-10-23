@@ -3,6 +3,7 @@
 > 设计 docs/AI强制走线路.md；名单 internal/aiguard/list.go。版本事实见 docs/decisions.md（v1.9.71 / v1.9.72）。
 
 ## 范围与原则
+设置页「AI 劫持」分区对所有用户开放（2026-10-23），概览卡片仍只给 aigw 客户；没有 POWER云 线路时 AI 走当前选中节点，仍不直连，只有没节点才拦。
 劫持只管 Claude（Claude Code CLI / 客户端 / 网页）和 OpenAI（ChatGPT / Codex），名单写在 internal/aiguard/list.go，不再整份照搬规则包（业主 2026-10-21 定）。
 - 对象是中转站客户：AI 一律走 POWER云 线路，没线路就拦。
 - 概览页有 AI 环境检测，分别测 Claude 与 OpenAI 两家出口，并提供一键修复。

@@ -261,7 +261,7 @@ func (a *App) fixAIEnvItem(id string) error {
 			return errors.New("系统 DNS 锁没加上，详情看「日志」页")
 		}
 		if !a.svc.HasNodes() {
-			return errors.New("还没有线路，请在 POWER云 开通后再试")
+			return errors.New("还没有线路，请先添加节点或在 POWER云 开通")
 		}
 		if _, err := a.svc.StartIfStopped(); err != nil {
 			return err
