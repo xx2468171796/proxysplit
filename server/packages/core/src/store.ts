@@ -1043,14 +1043,16 @@ export class PgStore {
     }
   }
 
-  // 付款发货那一刻给上级链分佣（与发货同事务）。来源 = 拆单组 id（整组一次）或订单 id；基数 = 实付分。
+  // 付款发货那一刻给上级链分佣（与发货同事务）。来源 = 拆单组 id（整组一次）或订单 id；基数 = 经网关实付的分。
+  // 后台手动确认的单（payment_events 有 manual:<单号>）不算：没经网关到账的钱不发佣金（业主 2026-10-24）。
   // 放在保存点里：分佣出任何错都只记日志、不让客户的付款发货失败。
   private async settleCommissionInTx(client:TxClient,orderId:string){
     const o=(await client.query(`SELECT o.user_id,coalesce(o.group_id::text,o.id::text) AS ref,
-        CASE WHEN o.group_id IS NULL THEN o.amount_cents
-          ELSE (SELECT coalesce(sum(g.amount_cents),0) FROM orders g WHERE g.group_id=o.group_id AND (g.status='paid' OR g.id=o.id)) END AS base
+        (SELECT coalesce(sum(g.amount_cents),0) FROM orders g
+          WHERE (g.id=o.id OR (o.group_id IS NOT NULL AND g.group_id=o.group_id AND g.status='paid'))
+            AND NOT EXISTS (SELECT 1 FROM payment_events e WHERE e.event_id='manual:'||g.order_no)) AS base
       FROM orders o WHERE o.id=$1`,[orderId])).rows[0]
-    if(!o)return
+    if(!o||Number(o.base)<=0)return
     await client.query('SAVEPOINT fenxiao_settle')
     try{
       await this.fx.settle({buyerUserId:String(o.user_id),sourceRef:o.ref,baseAmount:BigInt(o.base),tx:client})

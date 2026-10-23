@@ -1,8 +1,8 @@
 // 多级分销真库场景（跑在一个空的测试库上，会建表写数据；绝不对生产库跑）：
 //   DATABASE_URL=postgres://…/空测试库 pnpm --filter @proxysplit/db migrate
 //   DATABASE_URL=… pnpm --filter @proxysplit/api exec tsx scripts/fenxiao-scenario.mts
-// 覆盖：带码注册绑上级 → 付款回调分佣（两级）→ 回调重放不重发 → 拆单付齐才按整组分一次 → 手动确认分佣
-// → 退款冲回 → 坏规则不挡付款 → 冻结 0 天直接可提现 → 提现 / 驳回 / 打款。
+// 覆盖：带码注册绑上级 → 付款回调分佣（两级）→ 回调重放不重发 → 拆单付齐才按整组分一次 
+// 手动确认不分佣 → 退款冲回 → 坏规则不挡付款 → 冻结 0 天直接可提现 → 提现 / 驳回 / 打款。
 import assert from 'node:assert/strict'
 import { randomUUID } from 'node:crypto'
 import { defaultFenxiaoPolicy, FenxiaoService, PgStore } from '@proxysplit/core'
@@ -67,10 +67,10 @@ await step('拆单：付一笔不分佣，付齐按整组 3000 分一次',async(
   await pay(b,1000)
   assert.deepEqual(await amounts(g),['mid:600:frozen','top:150:frozen'])
 })
-await step('后台手动确认也分佣',async()=>{
+await step('后台手动确认不分佣（没经网关到账）',async()=>{
   const no=await order(buyer.id,1000)
   await store.confirmOrderManually(no)
-  assert.deepEqual(await amounts(await refOf(no)),['mid:200:frozen','top:50:frozen'])
+  assert.deepEqual(await amounts(await refOf(no)),[])
 })
 await step('退款同事务冲回，余额扣回',async()=>{
   const before=await store.fx.account(mid.id)
