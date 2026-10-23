@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"sort"
 	"strings"
+	"syscall"
 	"time"
 
 	"golang.org/x/sys/windows/registry"
@@ -36,7 +37,9 @@ func machineID() string {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	script := `$b=Get-CimInstance Win32_BaseBoard|Select-Object -First 1 SerialNumber;$s=Get-CimInstance Win32_ComputerSystemProduct|Select-Object -First 1 UUID;$x=@{baseboard=$b.SerialNumber;uuid=$s.UUID};$x|ConvertTo-Json -Compress`
-	if raw, err := exec.CommandContext(ctx, "powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script).Output(); err == nil {
+	cmd := exec.CommandContext(ctx, "powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script)
+	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: 0x08000000} // no console flash on every start
+	if raw, err := cmd.Output(); err == nil {
 		var out struct {
 			Baseboard string `json:"baseboard"`
 			UUID      string `json:"uuid"`

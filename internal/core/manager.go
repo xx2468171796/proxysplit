@@ -108,7 +108,9 @@ func (m *Manager) Check(node *nodes.Node, opts Options) error {
 	if err := os.WriteFile(path, cfg, 0o600); err != nil {
 		return err
 	}
-	out, err := exec.Command(m.binPath, "check", "-c", path).CombinedOutput()
+	check := exec.Command(m.binPath, "check", "-c", path)
+	hideWindow(check)
+	out, err := check.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("sing-box check failed: %s", string(out))
 	}

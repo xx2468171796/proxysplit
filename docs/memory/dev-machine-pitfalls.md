@@ -20,3 +20,6 @@
 ## 自动更新实现要点
 更新安装助手只重试换文件；换完启动新版观察 8 秒，起不来就换回旧版重开；旧版据 resume 标记识别安装失败，写 update-failed.json，24 小时内不再自动装同一版本（手动按钮仍可用）；InstallAppUpdate 用 atomic 防自动 / 手动并发。
 - 静默更新（1.9.54 起，autoupdate.go）：启动 20 秒后 + 每 6 小时查，AutoUpdateApp 开或版本 mandatory 就自动装；更新前代理在跑会写 %APPDATA%/proxysplit/resume-after-update.json，新版启动后自动恢复，10 分钟过期。1.9.53 及以前只会弹不可关闭的强制升级框。
+
+## 子进程必须藏窗口
+Windows 上 exec.Command 起的子进程（powershell、sing-box check、curl）不加 CREATE_NO_WINDOW 会闪黑窗口；v1.9.85 前每次打开软件都闪（设备识别的 PowerShell、内核配置校验）。`-WindowStyle Hidden` 不够。根目录 hidewindow_test.go 会扫出没藏窗口的调用。

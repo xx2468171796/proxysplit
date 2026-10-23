@@ -165,8 +165,10 @@ func (s *Service) routeTest(process, rawURL, parent string) RouteTestResult {
 	}
 
 	rctx, rcancel := context.WithTimeout(context.Background(), 20*time.Second)
-	out, runErr := exec.CommandContext(rctx, exe, "-s", "-o", "NUL", "-A", "Mozilla/5.0 ProxySplit-RouteTest",
-		"-w", "%{http_code} %{time_total}", "--max-time", "15", rawURL).Output()
+	probe := exec.CommandContext(rctx, exe, "-s", "-o", "NUL", "-A", "Mozilla/5.0 ProxySplit-RouteTest",
+		"-w", "%{http_code} %{time_total}", "--max-time", "15", rawURL)
+	hideWindow(probe)
+	out, runErr := probe.Output()
 	rcancel()
 	time.Sleep(400 * time.Millisecond) // let the core log the connection's outbound
 	cancel()

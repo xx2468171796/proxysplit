@@ -3,6 +3,10 @@
 版本号以发布构建为准（`scripts/build-commercial.ps1 -Version <x.y.z>`，注入 `main.appVersion`），
 每个发布产物的 SHA256 见 `output/proxysplit-v<版本>.manifest.json`。
 
+## v1.9.85
+
+- 打开软件、启动代理时不再闪出黑色命令行小窗口（读设备信息、校验内核配置、测路线、自动更新这几处都改成后台静默运行）。
+
 ## v1.9.84
 
 - 新增「设置 → AI 劫持」，所有用户都能用：开启后 Claude 和 OpenAI（ChatGPT / Codex）一律走代理线路，就算关掉分应用代理也照样走线路；关掉软件时 AI 网站直接打不开，绝不会用本机（国内）网络访问，防止账号被风控。想解除就在同一页点「恢复」。

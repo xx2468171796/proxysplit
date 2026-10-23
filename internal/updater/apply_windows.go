@@ -128,7 +128,8 @@ exit 1
 	// A new process group survives the Wails parent shutdown. DETACHED_PROCESS
 	// is intentionally avoided here because Windows PowerShell may terminate
 	// before executing a -File script when launched without standard handles.
-	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: syscall.CREATE_NEW_PROCESS_GROUP}
+	// CREATE_NO_WINDOW: -WindowStyle Hidden alone still flashes a console first.
+	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: syscall.CREATE_NEW_PROCESS_GROUP | 0x08000000}
 	if err := cmd.Start(); err != nil {
 		_ = os.Remove(script)
 		return fmt.Errorf("启动升级助手失败：%w", err)
