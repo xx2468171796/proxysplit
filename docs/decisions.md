@@ -4,6 +4,11 @@
 > 结论与坑已提炼到 `docs/memory/<主题>.md`；这里是事实存档，按标题取（`node ~/.ankotti/ai-kit/mem.mjs <关键词>`），不要整份读。
 > 约定：sz = 深圳生产机；incoming = sz `/opt/proxysplit/incoming/`；客户端回滚 = 该版本 incoming 目录 `python3 publish-client.py rollback` 并删 releases 表里该版本那行。
 
+## v1.9.88（2026-10-23，只发客户端，强制）
+- exe 源 commit 46d36e7，SHA256 9c5fe9208149e145f4b03421e4a5d083de5b1044a94e701f246a2bf60f28a92a，101,035,520 字节，内核 1.14.3-relayops.1；incoming/client-v1.9.88-46d36e7；releases 行（强制，min 1.9.51）+ audit_logs。
+- 内容：新包 pkg/aienv + 设置「环境配置」一键配置 / 恢复，与劫持分开。
+- 验收：公网 latest = 1.9.88 mandatory；飞牛下载 sha 一致；本机真机 culture / homeloc 配置再恢复原样（zh-CN / 45）。
+
 ## v1.9.87（2026-10-23，只发客户端，强制）
 - exe 源 commit 78ffeea，SHA256 414a185091eca034a401f4beda6f5743c00d9ef62d100fb4f79bf7c7ea3b8f98，101,004,288 字节，内核 1.14.3-relayops.1；incoming/client-v1.9.87-78ffeea；releases 行（强制，min 1.9.51）+ audit_logs。
 - 内容：劫持开着时浏览器 / AI 客户端 STUN 走 AI 线路（防 WebRTC 泄露）；一键修复浏览器语言（ForcedLanguages）、Claude Code 遥测（CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC），「恢复」时撤销。
