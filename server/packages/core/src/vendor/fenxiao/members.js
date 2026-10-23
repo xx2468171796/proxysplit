@@ -20,11 +20,11 @@ async function memberOf(q, d, userId, lock = false) {
 export async function getMember(d, userId) {
     return memberOf(d.db, d, userId);
 }
-export async function findByCode(d, code, q = d.db) {
+export async function findByCode(d, code, q = d.db, lock = false) {
     const c = normalizeCode(code);
     if (!CODE_RE.test(c))
         return null;
-    const r = await rows(q, `SELECT ${MEMBER_COLS} FROM ${d.t.members} WHERE code = $1`, [c]);
+    const r = await rows(q, `SELECT ${MEMBER_COLS} FROM ${d.t.members} WHERE code = $1${lock ? " FOR SHARE" : ""}`, [c]);
     return r[0] ? toMember(r[0]) : null;
 }
 async function ensureRow(q, d, userId) {
@@ -47,7 +47,8 @@ export async function bind(d, input) {
     if (!CODE_RE.test(normalizeCode(input.code)))
         return { bound: false, reason: "CODE_NOT_FOUND" };
     return inTx(d.db, input.tx, async (q) => {
-        const inviter = await findByCode(d, input.code, q);
+        // FOR SHARE：并发改挂邀请人时，等它改完再读上级链，新人不会拿到过时的链
+        const inviter = await findByCode(d, input.code, q, true);
         if (!inviter)
             return { bound: false, reason: "CODE_NOT_FOUND" };
         if (!inviter.enabled)
@@ -63,17 +64,32 @@ export async function bind(d, input) {
         return { bound: true, member };
     });
 }
+/** 写码;被别人占了(先查到或同一时刻撞唯一约束)返回 false */
+async function tryWriteCode(q, d, userId, code) {
+    const taken = await rows(q, `SELECT user_id FROM ${d.t.members} WHERE code = $1`, [code]);
+    if (taken[0] && String(taken[0].user_id) !== userId)
+        return false;
+    await q.query("SAVEPOINT fx_code");
+    try {
+        await q.query(`UPDATE ${d.t.members} SET code = $2, updated_at = now() WHERE user_id = $1`, [userId, code]);
+        await q.query("RELEASE SAVEPOINT fx_code");
+        return true;
+    }
+    catch (e) {
+        await q.query("ROLLBACK TO SAVEPOINT fx_code");
+        if (e.code !== "23505")
+            throw e;
+        return false;
+    }
+}
 async function assignCode(q, d, userId, wanted) {
     for (let i = 0; i < 8; i += 1) {
         const code = wanted ?? randomCode(8);
-        const taken = await rows(q, `SELECT user_id FROM ${d.t.members} WHERE code = $1`, [code]);
-        if (taken[0] && String(taken[0].user_id) !== userId) {
-            if (wanted)
-                throw new FenxiaoError(FxErrorCodes.CODE_TAKEN, "这个邀请码已被别人用了");
-            continue;
-        }
-        await q.query(`UPDATE ${d.t.members} SET code = $2, updated_at = now() WHERE user_id = $1`, [userId, code]);
-        return code;
+        if (await tryWriteCode(q, d, userId, code))
+            return code;
+        // 自定义码被占直接报;随机码换一个再试
+        if (wanted)
+            throw new FenxiaoError(FxErrorCodes.CODE_TAKEN, "这个邀请码已被别人用了");
     }
     throw new FenxiaoError(FxErrorCodes.CODE_TAKEN, "邀请码生成冲突,请重试");
 }
@@ -134,6 +150,14 @@ export async function setMember(d, input) {
         return (await memberOf(q, d, input.userId)) ?? me;
     });
 }
+/** userId 是否在 of 的上级链上(沿 parent_user_id 走,不受 ancestors 只存 ${MAX_CHAIN} 级的限制) */
+async function isAncestor(q, d, userId, of) {
+    const r = await rows(q, `WITH RECURSIVE up(id, n) AS (
+       SELECT parent_user_id, 1 FROM ${d.t.members} WHERE user_id = $2
+       UNION ALL SELECT m.parent_user_id, up.n + 1 FROM ${d.t.members} m JOIN up ON m.user_id = up.id WHERE up.n < 10000)
+     SELECT 1 FROM up WHERE id = $1 LIMIT 1`, [userId, of]);
+    return r.length > 0;
+}
 /** 后台改挂上级(parentUserId=null 摘成顶层)。挂到自己的下级下面会成环,拒绝(CYCLE) */
 export async function moveMember(d, input) {
     return inTx(d.db, input.tx, async (q) => {
@@ -142,7 +166,7 @@ export async function moveMember(d, input) {
         if (input.parentUserId) {
             await ensureRow(q, d, input.parentUserId);
             parent = await memberOf(q, d, input.parentUserId, true);
-            if (!parent || parent.userId === input.userId || parent.ancestors.includes(input.userId)) {
+            if (!parent || parent.userId === input.userId || parent.ancestors.includes(input.userId) || (await isAncestor(q, d, input.userId, parent.userId))) {
                 throw new FenxiaoError(FxErrorCodes.CYCLE, "不能挂到自己或自己的下级下面");
             }
         }

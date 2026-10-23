@@ -6,7 +6,7 @@ import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-const UPSTREAM_TAG = 'tuiguang-v1.8.1'
+const UPSTREAM_TAG = 'tuiguang-v1.8.2'
 const SRC_DIR = 'packages/tuiguang/dist/src/fenxiao'
 const repo = process.argv[2]
 if (!repo) { console.error('用法: node scripts/vendor-fenxiao.mjs <yanzheng 仓路径>'); process.exit(1) }

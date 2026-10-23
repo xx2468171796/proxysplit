@@ -34,7 +34,8 @@ async function writeShares(q, d, policy, input, shares) {
     const frozen = policy.freezeDays > 0;
     const snapshot = JSON.stringify({ mode: policy.mode, maxLevels: policy.maxLevels, totalCapBps: policy.totalCapBps, freezeDays: policy.freezeDays });
     const created = [];
-    for (const s of shares) {
+    // 账户行一律按 user id 升序加锁（与 releaseDue / reverse 同序），并发结算 / 冻结到期 / 冲回不会互相死锁
+    for (const s of [...shares].sort((a, b) => a.userId.localeCompare(b.userId))) {
         const r = await rows(q, `INSERT INTO ${d.t.commissions} (source_kind, source_ref, buyer_user_id, beneficiary_user_id, level, base_amount, rate_bps, amount, status, available_at, policy_snapshot, created_at)
        VALUES ($1, $2, $3, $4, $5, $6::bigint, $7, $8::bigint, $9, $10, $11::jsonb, $12)
        ON CONFLICT (source_kind, source_ref, beneficiary_user_id) DO NOTHING RETURNING ${COMMISSION_COLS}`, [input.sourceKind, input.sourceRef, input.buyerUserId, s.userId, s.level, String(input.baseAmount), s.rateBps, String(s.amount), frozen ? "frozen" : "available", availableAt, snapshot, now]);
@@ -67,6 +68,7 @@ export async function settle(d, input) {
         const created = await writeShares(q, d, policy, { ...input, sourceKind }, shares);
         if (created.length === 0)
             return { settled: false, reason: "DUPLICATE" };
+        created.sort((a, b) => a.level - b.level);
         d.emit({ type: "commission.created", commissions: created }, input.afterCommit);
         return { settled: true, commissions: created };
     });
@@ -82,6 +84,7 @@ export async function reverse(d, input) {
        FROM old WHERE c.id = old.id
        RETURNING c.beneficiary_user_id, c.amount, old.status AS prev`, [sourceKind, input.sourceRef, d.now(), input.reason.slice(0, 200)]);
         let amount = 0n;
+        changed.sort((a, b) => String(a.beneficiary_user_id).localeCompare(String(b.beneficiary_user_id)));
         for (const r of changed) {
             const amt = BigInt(String(r.amount));
             amount += amt;

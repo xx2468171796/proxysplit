@@ -1030,10 +1030,17 @@ export class PgStore {
     return grant
   }
 
-  // 注册带邀请码：在建号事务里绑上级。坏码 / 停用的码不挡注册，只是不绑。
+  // 注册带邀请码：在建号事务里绑上级。坏码 / 停用的码 / 绑定出错都不挡注册（保存点隔离，只记日志）。
   private async bindReferrerInTx(client:TxClient,userId:string,ref:string|undefined){
     if(!ref?.trim())return
-    await this.fx.bind({userId:String(userId),code:ref,tx:client})
+    await client.query('SAVEPOINT fenxiao_bind')
+    try{
+      await this.fx.bind({userId:String(userId),code:ref,tx:client})
+      await client.query('RELEASE SAVEPOINT fenxiao_bind')
+    }catch(e){
+      await client.query('ROLLBACK TO SAVEPOINT fenxiao_bind')
+      console.error('[fenxiao] bind failed',{userId,error:(e as Error).message})
+    }
   }
 
   // 付款发货那一刻给上级链分佣（与发货同事务）。来源 = 拆单组 id（整组一次）或订单 id；基数 = 实付分。

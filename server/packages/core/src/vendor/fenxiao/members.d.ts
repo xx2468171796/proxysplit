@@ -3,7 +3,7 @@ import type { LedgerDeps } from "./ledger.ts";
 import { type FxBindResult, type FxMember } from "./types.ts";
 export declare const normalizeCode: (code: string) => string;
 export declare function getMember(d: LedgerDeps, userId: string): Promise<FxMember | null>;
-export declare function findByCode(d: LedgerDeps, code: string, q?: FxQueryable): Promise<FxMember | null>;
+export declare function findByCode(d: LedgerDeps, code: string, q?: FxQueryable, lock?: boolean): Promise<FxMember | null>;
 /**
  * 注册那一刻:带码绑上级(在宿主建号事务里调并传 tx)。不抛错:坏码只是不绑定。
  * 已经有上级的人返回 ALREADY_BOUND(一生一次;要改走后台 moveMember)。
