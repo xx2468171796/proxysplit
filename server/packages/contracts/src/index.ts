@@ -14,12 +14,16 @@ export const registerSchema = z.object({
   email: z.string().trim().email().max(254),
   password: z.string().min(8).max(256),
   device: deviceSchema,
+  // 邀请码（可选）：带了就在建号事务里绑上级（多级分销，坏码不挡注册）。
+  ref: z.string().trim().max(16).optional(),
 })
 // 官网注册：没有设备指纹，按 IP 限制注册数；试用在首次用客户端登录时按硬件发放。
 export const webRegisterSchema = z.object({
   username: z.string().trim().min(3).max(32).refine(value=>!/[\s@]/u.test(value),'用户名不能包含空格或 @'),
   email: z.string().trim().email().max(254),
   password: z.string().min(8).max(256),
+  // 邀请码（可选）：带了就在建号事务里绑上级（多级分销，坏码不挡注册）。
+  ref: z.string().trim().max(16).optional(),
 })
 // 用户自助修改密码：需验证原密码。
 export const selfPasswordSchema = z.object({
@@ -262,3 +266,4 @@ export type AnalyticsQuery = z.infer<typeof analyticsQuerySchema>
 export type RedeemCodeStatusInput = z.infer<typeof redeemCodeStatusSchema>
 export type TrackViewInput = z.infer<typeof trackViewSchema>
 export type DownloadStatsQuery = z.infer<typeof downloadStatsQuery>
+export * from './fenxiao.js'

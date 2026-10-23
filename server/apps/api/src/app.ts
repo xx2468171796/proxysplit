@@ -4,10 +4,11 @@ import rateLimit from '@fastify/rate-limit'
 import { Redis } from 'ioredis'
 import { AppError, normalizeUsername } from '@proxysplit/shared'
 import { activateDeviceSchema, powervpnLoginSchema, powervpnSyncSchema, adminGrantSchema, adminPowervpnProvisionSchema, selfPasswordSchema, webRegisterSchema, analyticsQuerySchema, announcementListQuery, announcementUpsertSchema, auditListQuery, deviceListQuery, downloadStatsQuery, leaseSchema, licenseExtendSchema, loginSchema, orderCreateSchema, orderListQuery, orderRefundSchema, planListQuery, planPatchSchema, planUpsertSchema, providerUpsertSchema, redeemCodeCreateSchema, redeemListQuery, redeemSchema, refreshSchema, registerSchema, releaseCreateSchema, releaseListQuery, settingPatchSchema, trackViewSchema, userCreateSchema, userListQuery, userPasswordSchema, userStatusSchema } from '@proxysplit/contracts'
-import { AccelTokens, createCommercialCore, hashPassword, PaymentService, type AuthService, type PgStore } from '@proxysplit/core'
+import { AccelTokens, createCommercialCore, FenxiaoService, hashPassword, PaymentService, type AuthService, type PgStore } from '@proxysplit/core'
 import type { ApiConfig } from './config.js'
+import { registerFenxiaoRoutes } from './fenxiao-routes.js'
 
-type Core={auth:AuthService;store:PgStore;close:()=>Promise<void>}
+type Core={auth:AuthService;store:PgStore;fenxiao?:FenxiaoService;close:()=>Promise<void>}
 const bearer=(value?:string)=>value?.startsWith('Bearer ')?value.slice(7):''
 export async function buildApp(config:ApiConfig,provided?:Core){
   const core=provided??await createCommercialCore({databaseUrl:config.DATABASE_URL,auth:{accessSecret:config.ACCESS_TOKEN_SECRET,refreshDays:config.REFRESH_TOKEN_TTL_DAYS,...(config.LICENSE_PRIVATE_KEY_PEM?{licensePrivateKeyPem:config.LICENSE_PRIVATE_KEY_PEM}:{}),...(config.LICENSE_PUBLIC_KEY_PEM?{licensePublicKeyPem:config.LICENSE_PUBLIC_KEY_PEM}:{}),powervpn:{baseUrl:config.POWERVPN_BASE_URL??'https://lxc.5fskins.com'}},...(config.BOOTSTRAP_ADMIN_USERNAME&&config.BOOTSTRAP_ADMIN_PASSWORD?{bootstrapAdmin:{username:config.BOOTSTRAP_ADMIN_USERNAME,password:config.BOOTSTRAP_ADMIN_PASSWORD}}:{})})
@@ -45,6 +46,10 @@ export async function buildApp(config:ApiConfig,provided?:Core){
   const admin=async(req:FastifyRequest)=>{const principal=await auth(req);if(principal.role!=='admin')throw new AppError('ADMIN_REQUIRED','Administrator permission required',403);return principal}
 
   app.get('/health',async()=>({ok:true,service:'proxysplit-commercial-api'}))
+  registerFenxiaoRoutes(app,{service:core.fenxiao??new FenxiaoService(core.store),store:core.store,publicBaseUrl:config.PUBLIC_BASE_URL,auth:req=>auth(req),admin})
+  // 分佣冻结期到了转可提现：每 5 分钟扫一次（查余额时也会给本人补跑）。
+  const fenxiaoReleaseTimer=config.NODE_ENV==='test'?undefined:setInterval(()=>{core.store.fx.releaseDue().catch(e=>app.log.warn({err:e},'fenxiao releaseDue failed'))},5*60_000)
+  fenxiaoReleaseTimer?.unref()
   app.get('/v1/auth/public-key',async()=>({algorithm:'Ed25519',kid:'proxysplit-license-v1',publicKeyPem:core.auth.publicKeyPem}))
   app.post('/v1/auth/register',{config:{rateLimit:{max:3,timeWindow:'1 hour'}}},async(req)=>core.auth.register(registerSchema.parse(req.body),req.ip))
   app.post('/v1/auth/register/web',{config:{rateLimit:{max:5,timeWindow:'1 hour'}}},async(req)=>core.auth.registerWeb(webRegisterSchema.parse(req.body),req.ip))
@@ -230,6 +235,6 @@ export async function buildApp(config:ApiConfig,provided?:Core){
   app.post('/v1/admin/releases',async(req)=>{const p=await admin(req);const input=releaseCreateSchema.parse(req.body);const row=await core.store.createRelease(input);await core.store.audit(p.userId,'admin.release.create','release',row.id,req.ip,'success',{version:input.version});return row})
   app.delete('/v1/admin/releases/:id',async(req)=>{const p=await admin(req);const id=(req.params as {id:string}).id;const row=await core.store.deleteRelease(id);if(!row)throw new AppError('NOT_FOUND','版本不存在',404);await core.store.audit(p.userId,'admin.release.delete','release',id,req.ip,'success');return {ok:true}})
   app.get('/v1/admin/audit',async(req)=>{await admin(req);return core.store.listAudit(auditListQuery.parse(req.query))})
-  app.addHook('onClose',async()=>{if(paymentReconcileTimer)clearInterval(paymentReconcileTimer);if(redis)redis.disconnect();if(!provided)await core.close()})
+  app.addHook('onClose',async()=>{if(paymentReconcileTimer)clearInterval(paymentReconcileTimer);if(fenxiaoReleaseTimer)clearInterval(fenxiaoReleaseTimer);if(redis)redis.disconnect();if(!provided)await core.close()})
   return app
 }

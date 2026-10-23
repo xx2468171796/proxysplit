@@ -3,6 +3,7 @@ import { createDatabase } from '@proxysplit/db'
 import type { AnnouncementListQuery, AnnouncementUpsertInput, AuditListQuery, DeviceListQuery, OrderListQuery, PlanListQuery, PlanPatchInput, PlanUpsertInput, ProviderUpsertInput, RedeemListQuery, ReleaseListQuery, UserListQuery } from '@proxysplit/contracts'
 import { AppError } from '@proxysplit/shared'
 import { planSplit } from './split.js'
+import { createProxysplitFenxiao, type ProxysplitFenxiao } from './fenxiao.js'
 
 export type UserRecord = {
   id:string; username:string; passwordHash:string|null; role:'user'|'admin';
@@ -163,7 +164,9 @@ const orderClause=(sort:string|undefined,order:string|undefined,map:Record<strin
 
 export class PgStore {
   readonly pool: ReturnType<typeof createDatabase>['pool']
-  constructor(url:string) { this.pool=createDatabase(url).pool }
+  /** 多级分销（tuiguang/fenxiao）：注册绑上级、付款分佣、退款冲回都在本类的事务里调 */
+  readonly fx: ProxysplitFenxiao
+  constructor(url:string) { this.pool=createDatabase(url).pool; this.fx=createProxysplitFenxiao(this.pool) }
   async close(){ await this.pool.end() }
 
   async findUser(username:string):Promise<UserRecord|null>{
@@ -207,7 +210,7 @@ export class PgStore {
     return this.getCommerceSettings()
   }
 
-  async registerTrialUser(input:{username:string;email:string;passwordHash:string;hardwareHash:string;ip:string}){
+  async registerTrialUser(input:{username:string;email:string;passwordHash:string;hardwareHash:string;ip:string;ref?:string}){
     const client=await this.pool.connect()
     try{
       await client.query('BEGIN')
@@ -241,6 +244,7 @@ export class PgStore {
         await client.query(`INSERT INTO trial_claims(hardware_hash,user_id,expires_at,ip_hash)
           VALUES($1,$2,$3,$4)`,[input.hardwareHash,user.rows[0].id,trialEnds,sha256('proxysplit-ip-v1:'+input.ip)])
       }
+      await this.bindReferrerInTx(client,user.rows[0].id,input.ref)
       await client.query('COMMIT')
       return {...user.rows[0],trialDays:grantTrial?trialDays:0,trialEndsAt:grantTrial?trialEnds:null,trialGranted:grantTrial}
     }catch(e){await client.query('ROLLBACK');throw e}finally{client.release()}
@@ -248,7 +252,7 @@ export class PgStore {
 
   // 官网注册：没有设备指纹，因此按注册来源 IP 限制账号数；不发放试用，
   // 试用留到首次用客户端登录时按硬件发放（见 claimTrialOnLogin）。
-  async registerWebUser(input:{username:string;email:string;passwordHash:string;ip:string}){
+  async registerWebUser(input:{username:string;email:string;passwordHash:string;ip:string;ref?:string}){
     const ipHash=sha256('proxysplit-ip-v1:'+input.ip)
     const client=await this.pool.connect()
     try{
@@ -265,6 +269,7 @@ export class PgStore {
       const user=await client.query(`INSERT INTO users(username,email,password_hash,role,status,registration_ip_hash,registration_hardware_hash)
         VALUES($1,$2,$3,'user','active',$4,'') RETURNING id,username,email,role,status`,
         [input.username,input.email,input.passwordHash,ipHash])
+      await this.bindReferrerInTx(client,user.rows[0].id,input.ref)
       await client.query('COMMIT')
       return user.rows[0]
     }catch(e){await client.query('ROLLBACK');throw e}finally{client.release()}
@@ -1021,7 +1026,32 @@ export class PgStore {
     await client.query(`INSERT INTO license_grants(user_id,license_id,tier,source,order_id,group_id,start_at,end_at,before_expires_at,before_lifetime)
       VALUES($1,$2,$3,$4,$5::uuid,(SELECT group_id FROM orders WHERE id=$5::uuid),$6,$7,$8,$9)`,
       [opts.userId,licenseId,plan.tier,opts.source,opts.orderId??null,start,end,before,!!existing?.lifetime])
+    if(opts.source==='order'&&opts.orderId)await this.settleCommissionInTx(client,opts.orderId)
     return grant
+  }
+
+  // 注册带邀请码：在建号事务里绑上级。坏码 / 停用的码不挡注册，只是不绑。
+  private async bindReferrerInTx(client:TxClient,userId:string,ref:string|undefined){
+    if(!ref?.trim())return
+    await this.fx.bind({userId:String(userId),code:ref,tx:client})
+  }
+
+  // 付款发货那一刻给上级链分佣（与发货同事务）。来源 = 拆单组 id（整组一次）或订单 id；基数 = 实付分。
+  // 放在保存点里：分佣出任何错都只记日志、不让客户的付款发货失败。
+  private async settleCommissionInTx(client:TxClient,orderId:string){
+    const o=(await client.query(`SELECT o.user_id,coalesce(o.group_id::text,o.id::text) AS ref,
+        CASE WHEN o.group_id IS NULL THEN o.amount_cents
+          ELSE (SELECT coalesce(sum(g.amount_cents),0) FROM orders g WHERE g.group_id=o.group_id AND (g.status='paid' OR g.id=o.id)) END AS base
+      FROM orders o WHERE o.id=$1`,[orderId])).rows[0]
+    if(!o)return
+    await client.query('SAVEPOINT fenxiao_settle')
+    try{
+      await this.fx.settle({buyerUserId:String(o.user_id),sourceRef:o.ref,baseAmount:BigInt(o.base),tx:client})
+      await client.query('RELEASE SAVEPOINT fenxiao_settle')
+    }catch(e){
+      await client.query('ROLLBACK TO SAVEPOINT fenxiao_settle')
+      console.error('[fenxiao] settle failed',{orderId,error:(e as Error).message})
+    }
   }
 
   // Refund a paid order (the whole group for a split checkout): mark it
@@ -1039,6 +1069,8 @@ export class PgStore {
         ?(await client.query('SELECT id FROM orders WHERE group_id=$1 FOR UPDATE',[order.group_id])).rows.map((r:{id:string})=>r.id)
         :[order.id]
       await client.query(`UPDATE orders SET status='refunded',refunded_at=now(),refund_reason=$2,updated_at=now() WHERE id=ANY($1::uuid[]) AND status='paid'`,[ids,reason])
+      // 退款同事务冲回上级佣金（已提现的会变欠款，后台分销页可见）。
+      await this.fx.reverse({sourceRef:String(order.group_id??order.id),reason:`订单退款：${reason}`,tx:client})
       const ledger=(await client.query(`SELECT id,license_id AS "licenseId",start_at AS "startAt",end_at AS "endAt",before_expires_at AS "beforeExpiresAt",before_lifetime AS "beforeLifetime"
         FROM license_grants WHERE order_id=ANY($1::uuid[]) AND revoked_at IS NULL ORDER BY created_at DESC LIMIT 1 FOR UPDATE`,[ids])).rows[0]
       if(!ledger?.licenseId){

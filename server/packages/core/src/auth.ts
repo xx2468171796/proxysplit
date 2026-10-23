@@ -58,7 +58,7 @@ export class AuthService{
     try{
       await this.store.registerTrialUser({
         username:normalizeUsername(input.username),email:input.email.trim().toLowerCase(),passwordHash,
-        hardwareHash:hashFingerprint(input.device.hardwareHash??input.device.fingerprint),ip,
+        hardwareHash:hashFingerprint(input.device.hardwareHash??input.device.fingerprint),ip,...(input.ref?{ref:input.ref}:{}),
       })
     }catch(error){
       const code=(error as {code?:string}).code
@@ -76,7 +76,7 @@ export class AuthService{
     const passwordHash=await hashPassword(input.password)
     try{
       const user=await this.store.registerWebUser({
-        username:normalizeUsername(input.username),email:input.email.trim().toLowerCase(),passwordHash,ip,
+        username:normalizeUsername(input.username),email:input.email.trim().toLowerCase(),passwordHash,ip,...(input.ref?{ref:input.ref}:{}),
       })
       await this.store.audit(user.id,'auth.register.web','user',user.id,ip,'success')
       return {ok:true,username:user.username}
