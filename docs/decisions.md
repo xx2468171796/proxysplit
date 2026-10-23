@@ -4,6 +4,11 @@
 > 结论与坑已提炼到 `docs/memory/<主题>.md`；这里是事实存档，按标题取（`node ~/.ankotti/ai-kit/mem.mjs <关键词>`），不要整份读。
 > 约定：sz = 深圳生产机；incoming = sz `/opt/proxysplit/incoming/`；客户端回滚 = 该版本 incoming 目录 `python3 publish-client.py rollback` 并删 releases 表里该版本那行。
 
+## v1.9.84（2026-10-23，只发客户端，强制）
+- exe 源 commit 4d5e778，SHA256 d14601451272db0c20593098ff3ffb2d652ab205e364b8ec046938e6aaba6491，100,948,480 字节，内核 1.14.3-relayops.1；incoming/client-v1.9.84-4d5e778；releases 行（强制，min 1.9.51）+ audit_logs。
+- 内容：设置新增「AI 劫持」分区对所有用户开放（复用 AIEnvPanel always）；无 POWER云 线路时 AI 走当前选中节点，不再 reject。
+- 验收：公网 latest = 1.9.84 mandatory；飞牛下载版本化 / latest 两个地址 sha 一致。真机劫持 / 恢复端到端仍待测。
+
 ## v1.9.82（2026-10-23 01:30，全站发布，强制）
 - **全站发布**：release id 20261023-012224-55103f0-v1.9.82，上一版 releases/20261023-011333-9997134-v1.9.81；备份 backups/postgres-20261023-012224-55103f0-v1.9.82.sql.gz；无新迁移，服务端代码无变化。
 - 客户端 v1.9.82：exe 源 commit 55103f0（tag v1.9.82），SHA256 8382bf40e7341cabd8d6eb0c6adaf29b1cd653dbba7766b1d44c57203b0eb18a，100,945,408 字节，内核 1.14.3-relayops.1；releases id f156b245-d623-4e27-9ee1-dd01c2497947（强制，min 1.9.51）+ audit_logs。
