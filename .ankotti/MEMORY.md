@@ -1,8 +1,8 @@
 # ProxySplit 项目记忆（L1，一屏）
-> 最后更新：2026-10-22。细节按下方路由表读 docs/memory/，逐版发布史在 docs/decisions.md（按标题取）。
+> 最后更新：2026-10-24。细节按下方路由表读 docs/memory/，逐版发布史在 docs/decisions.md（按标题取）。
 
 ## 当前状态
-- 线上：**v1.9.91 stable（强制，min 1.9.51）**，2026-10-23 只发客户端（审计修复；1.9.90 节点分享链接，POWER云 线路禁分享；1.9.89 本机 AI 线路代理 + ai-proxy.json 约定给 aigw；1.9.88 环境配置一键配置 / 恢复，pkg/aienv；1.9.87 WebRTC 走线路 + 浏览器语言 / Claude Code 遥测一键修复；1.9.86 检测细化 + 认 POWER云 官方线路；1.9.85 不闪命令行窗口；1.9.84 设置「AI 劫持」对所有人开放），incoming/client-v1.9.91-bfbcbf3；服务端 current 仍是 releases/20261023-012224-55103f0-v1.9.82。客户端有新版一律自动升级；规则库由 sz 每天同步、客户端从 /rules/ 自动拉（见 docs/memory/routing.md）。
+- 线上：**v1.9.92 stable（强制，min 1.9.51）**，2026-10-24 全站发布（多级分销「推广赚钱」上线，佣金默认关，后台「分销」打开；见 docs/memory/fenxiao.md）；服务端 current = releases/20261024-040747-7f041c1-v1.9.92（迁移 0014_fenxiao），上一版 releases/20261023-012224-55103f0-v1.9.82。客户端有新版一律自动升级；规则库由 sz 每天同步、客户端从 /rules/ 自动拉（见 docs/memory/routing.md）。
 - 前端已用 @ankotti/admin-ui 重写（React 19 + Vite 8 + TS 7 + pnpm 12.9.1，替换旧单文件 Svelte），随 v1.9.75 上线（已并入 main）；门禁 `pnpm --dir frontend check`，预览 `pnpm --dir frontend dev`。
 - 技术栈：Go + Wails + React 前端，sing-box 原生 TUN + process_name；服务端 Fastify + 深圳共享 PG（堡垒机数据源 sz-pg-proxysplit）。
 

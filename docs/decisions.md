@@ -4,6 +4,13 @@
 > 结论与坑已提炼到 `docs/memory/<主题>.md`；这里是事实存档，按标题取（`node ~/.ankotti/ai-kit/mem.mjs <关键词>`），不要整份读。
 > 约定：sz = 深圳生产机；incoming = sz `/opt/proxysplit/incoming/`；客户端回滚 = 该版本 incoming 目录 `python3 publish-client.py rollback` 并删 releases 表里该版本那行。
 
+
+## v1.9.92（2026-10-24 04:12，全站发布，强制）
+- **全站发布**：release id 20261024-040747-7f041c1-v1.9.92，上一版 releases/20261023-012224-55103f0-v1.9.82；备份 backups/postgres-20261024-040747-7f041c1-v1.9.92.sql.gz；新迁移 0014_fenxiao（四张 fx_ 表，纯新增）。
+- 客户端 v1.9.92：exe 源 commit 7f041c1（tag v1.9.92），SHA256 c58ebb228fd0e7886feb4af511db3b0c769bc83293bb2391b44326bb88e3f744，101,069,824 字节，内核 1.14.3-relayops.1；releases id 73a74200-a442-4139-ab82-c9c36de3d59b（强制，min 1.9.51）+ audit_logs。
+- 内容：多级分销（公司 SDK tuiguang/fenxiao 1.8.2，vendor 进 server/packages/core/src/vendor/fenxiao）——注册带邀请码绑上级、付款同事务分佣（手动确认的单不分，业主定）、退款冲回、提现审核；后台「分销」页；官网 ?ref=；客户端注册邀请码 + 「推广赚钱」。佣金规则默认关。
+- 验收：飞牛查公网 latest = 1.9.92 mandatory；/health、官网、/admin/ 200；/v1/fenxiao/me 未登录 401；三个下载 sha 一致；生产后台「分销」页实开正常（未开启状态）。真库场景 9 项（PGlite）+ 包测试 65 项 + 独立复审修复后发布。
+
 ## v1.9.90（2026-10-23，只发客户端，强制）
 - exe 源 commit 38053ad，SHA256 3608b9f9687837e4c69f2131db90927bc7d469471f251fcc5d7785386fa7eea2，101,052,416 字节，内核 1.14.3-relayops.1；incoming/client-v1.9.90-38053ad；releases 行（强制，min 1.9.51）+ audit_logs。
 - 内容：节点分享改为链接 + 复制、二维码按需；POWER云 官方线路禁止分享（之前二维码入口可分享，已堵）。
