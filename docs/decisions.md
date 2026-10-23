@@ -4,6 +4,11 @@
 > 结论与坑已提炼到 `docs/memory/<主题>.md`；这里是事实存档，按标题取（`node ~/.ankotti/ai-kit/mem.mjs <关键词>`），不要整份读。
 > 约定：sz = 深圳生产机；incoming = sz `/opt/proxysplit/incoming/`；客户端回滚 = 该版本 incoming 目录 `python3 publish-client.py rollback` 并删 releases 表里该版本那行。
 
+## v1.9.89（2026-10-23，只发客户端，强制）
+- exe 源 commit 43c96ca，SHA256 db0e86ffd0f97a34eeff802912eb15980b8877a5b9307c62d3788ebbc6975569，101,049,344 字节，内核 1.14.3-relayops.1；incoming/client-v1.9.89-43c96ca；releases 行（强制，min 1.9.51）+ audit_logs。
+- 内容：本机 AI 线路代理（127.0.0.1 优先 18089，带密码，全部走 AI 线路，没线路 reject）+ %APPDATA%\proxysplit\ai-proxy.json 约定，应 aigw（sub2api-05 会话）指纹浏览器 --ai-proxy 需求。
+- 验收：公网 latest = 1.9.89 mandatory；飞牛下载 sha 一致；AI 代理配置过真实 sing-box check。真机端到端（经代理 trace 出口）待测。
+
 ## v1.9.88（2026-10-23，只发客户端，强制）
 - exe 源 commit 46d36e7，SHA256 9c5fe9208149e145f4b03421e4a5d083de5b1044a94e701f246a2bf60f28a92a，101,035,520 字节，内核 1.14.3-relayops.1；incoming/client-v1.9.88-46d36e7；releases 行（强制，min 1.9.51）+ audit_logs。
 - 内容：新包 pkg/aienv + 设置「环境配置」一键配置 / 恢复，与劫持分开。
