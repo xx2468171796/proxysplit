@@ -1,0 +1,90 @@
+// AI 劫持 / 环境配置 / AI 环境检测的假后端（浏览器预览用）。showcase = 官网截图模式（不显示 AI 劫持）。
+type Fn = (...args: unknown[]) => unknown;
+
+export function createAIMock(showcase: boolean): Record<string, Fn> {
+  return {
+    GetAIHijack: () => ({ on: true, locked: false, visible: !showcase }),
+    GetEnvConfig: () => [
+      {
+        id: "timezone",
+        name: "系统时区",
+        current: "China Standard Time",
+        target: "Taipei Standard Time",
+        done: false,
+        configured: false,
+        restorable: true,
+        note: "台北与北京同为 UTC+8，钟点不变",
+      },
+      {
+        id: "culture",
+        name: "区域格式",
+        current: "zh-TW",
+        target: "zh-TW",
+        done: true,
+        configured: true,
+        restorable: true,
+        note: "只影响日期、数字的显示格式",
+      },
+      {
+        id: "browserlang",
+        name: "浏览器语言",
+        current: "zh-CN,zh,en",
+        target: "zh-TW,zh,en-US,en",
+        done: false,
+        configured: false,
+        restorable: true,
+        note: "重开浏览器生效",
+      },
+      {
+        id: "clock",
+        name: "系统时间",
+        current: "2026-10-23 15:04:05",
+        target: "与标准时间同步",
+        done: false,
+        configured: false,
+        restorable: false,
+        note: "只是对时",
+      },
+      {
+        id: "fonts",
+        name: "中文字体 / Emoji",
+        current: "",
+        target: "",
+        done: false,
+        configured: false,
+        restorable: false,
+        note: "不改：删字体会乱码",
+      },
+    ],
+    ApplyEnvConfig: () => "",
+    RestoreEnvConfig: () => "",
+    CheckAIEnv: () => ({
+      exitIp: "203.0.113.8",
+      exitLoc: "TW Taipei",
+      exitKind: "住宅宽带 IP",
+      exitAsn: "AS3462 HiNet",
+      exitOurs: true,
+      checkedAt: new Date().toISOString(),
+      items: [
+        { id: "guard", name: "AI 劫持", status: "ok", detail: "AI 一律走「台湾线路」，不管分应用代理怎么设" },
+        { id: "line", name: "出口线路", status: "ok", detail: "AI出口 203.0.113.8 是 POWER云 官方线路" },
+        {
+          id: "latency",
+          name: "AI 延迟",
+          status: "ok",
+          detail: "Claude 236 ms · ChatGPT 251 ms（首字节时间，3 次取中位数）",
+        },
+        { id: "iptype", name: "IP 类型与信誉", status: "ok", detail: "住宅宽带 IP（AS3462 HiNet），没有滥用记录" },
+        { id: "locale", name: "系统语言", status: "info", detail: "简体中文（zh-CN）：影响不大，只作提示" },
+        {
+          id: "timezone",
+          name: "系统时区",
+          status: "warn",
+          detail: "当前是北京时间，和出口地区不一致",
+          fix: "timezone",
+        },
+        { id: "ipv6", name: "IPv6", status: "ok", detail: "已关闭" },
+      ],
+    }),
+  };
+}
