@@ -389,7 +389,11 @@ const impl: Record<string, Fn> = {
       },
     ],
   }),
-  GetNodeQR: () => ({ data: QR, err: "" }),
+  GetNodeShare: () => ({
+    link: "vless://11111111-2222-3333-4444-555555555555@203.0.113.10:443?security=reality&type=tcp#%E7%A4%BA%E4%BE%8B%E8%8A%82%E7%82%B9",
+    qr: QR,
+    err: "",
+  }),
   GetPaymentQR: () => ({ data: QR, err: "" }),
   CreateMembershipOrder: () =>
     params.get("split") === "1"

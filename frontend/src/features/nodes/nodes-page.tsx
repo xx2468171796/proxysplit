@@ -7,10 +7,10 @@ import { navigate, useIntent } from "../../app/nav";
 import { useFeedback } from "../../app/use-feedback";
 import { useStore } from "../../shared/store";
 import { data } from "../../state/data";
-import { nodeQR, nodeTests, removeNode, testActiveSpeed, testAllLatency } from "../../state/nodes";
+import { nodeShare, nodeTests, removeNode, testActiveSpeed, testAllLatency } from "../../state/nodes";
 import { useNodeColumns } from "./node-columns";
 import { NodeImportDialog } from "./node-import-dialog";
-import { type NodeQR, NodeQRDialog } from "./node-qr-dialog";
+import { type NodeShare, NodeShareDialog } from "./node-share-dialog";
 import "./nodes.css";
 
 const HELP =
@@ -61,7 +61,7 @@ export function NodesPage() {
   const nodes = useStore(data, (s) => s.nodes);
   const [query, setQuery] = useState("");
   const [adding, setAdding] = useState(false);
-  const [qr, setQr] = useState<NodeQR | null>(null);
+  const [share, setShare] = useState<NodeShare | null>(null);
   const [removing, setRemoving] = useState<Node | null>(null);
 
   const openAdd = useCallback(() => setAdding(true), []);
@@ -69,9 +69,11 @@ export function NodesPage() {
 
   const handlers = useMemo(
     () => ({
-      qr: (n: Node) =>
-        void nodeQR(n.id).then((r) =>
-          r.err || !r.data ? say(r.err || "生成二维码失败") : setQr({ name: n.name, data: r.data }),
+      share: (n: Node) =>
+        void nodeShare(n.id).then((r) =>
+          r.err || !r.link
+            ? say(r.err || "生成分享链接失败")
+            : setShare({ name: n.name, link: r.link, qr: r.qr ?? "" }),
         ),
       remove: (n: Node) => setRemoving(n),
     }),
@@ -130,7 +132,7 @@ export function NodesPage() {
         </ResourcePanel>
       </PageBody>
       {adding && <NodeImportDialog onClose={() => setAdding(false)} />}
-      {qr && <NodeQRDialog qr={qr} onClose={() => setQr(null)} />}
+      {share && <NodeShareDialog share={share} onClose={() => setShare(null)} />}
       <ConfirmDialog
         open={removing !== null}
         title={`删除节点「${removing?.name ?? ""}」？`}

@@ -628,6 +628,22 @@ export namespace main {
 		    return a;
 		}
 	}
+	export class NodeShareResult {
+	    link: string;
+	    qr: string;
+	    err: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new NodeShareResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.link = source["link"];
+	        this.qr = source["qr"];
+	        this.err = source["err"];
+	    }
+	}
 	export class OrderResult {
 	    split: boolean;
 	    groupNo?: string;

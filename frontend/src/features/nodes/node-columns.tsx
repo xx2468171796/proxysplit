@@ -8,7 +8,7 @@ import {
   Tag,
   useMediaQuery,
 } from "@ankotti/admin-ui";
-import { CirclePlay, Gauge, Globe, Network, QrCode, Trash2 } from "lucide-react";
+import { CirclePlay, Gauge, Globe, Network, Share2, Trash2 } from "lucide-react";
 import { type ReactNode, useMemo } from "react";
 import type { Node } from "../../api/types";
 import { useFeedback } from "../../app/use-feedback";
@@ -38,7 +38,7 @@ function LatencyBadge({ ms, text }: { ms?: number; text: string }) {
   );
 }
 
-export type NodeRowHandlers = { qr: (n: Node) => void; remove: (n: Node) => void };
+export type NodeRowHandlers = { share: (n: Node) => void; remove: (n: Node) => void };
 
 type TestKind = "tcpId" | "googleId" | "speedId";
 
@@ -98,10 +98,11 @@ function nodeActions(
       onSelect: () => void selectNode(n.id).then((err) => say(err || `已切换到「${n.name}」`)),
     });
   }
-  actions.push(
-    { key: "qr", label: "分享二维码", icon: <QrCode />, onSelect: () => on.qr(n) },
-    { key: "delete", label: "删除", icon: <Trash2 />, destructive: true, onSelect: () => on.remove(n) },
-  );
+  // POWER云 官方线路是会员专属，不给分享入口（后端也会拒绝）。
+  if (!n.official) {
+    actions.push({ key: "share", label: "分享节点", icon: <Share2 />, onSelect: () => on.share(n) });
+  }
+  actions.push({ key: "delete", label: "删除", icon: <Trash2 />, destructive: true, onSelect: () => on.remove(n) });
   return actions;
 }
 

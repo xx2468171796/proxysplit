@@ -99,7 +99,7 @@ export function GetMyDevices():Promise<main.DevicesResult>;
 
 export function GetMyOrders():Promise<main.OrdersResult>;
 
-export function GetNodeQR(arg1:string):Promise<main.QRResult>;
+export function GetNodeShare(arg1:string):Promise<main.NodeShareResult>;
 
 export function GetNodes():Promise<Array<nodes.Node>>;
 

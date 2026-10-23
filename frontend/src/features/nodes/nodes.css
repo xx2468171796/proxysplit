@@ -11,3 +11,10 @@
   display: inline-flex;
   border-radius: var(--aui-radius-sm);
 }
+
+/* 分享节点弹窗：链接下面的两个按钮 */
+.ps-share-actions {
+  display: flex;
+  gap: var(--aui-space-2);
+  margin: var(--aui-space-2) 0;
+}

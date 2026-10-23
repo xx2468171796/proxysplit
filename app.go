@@ -619,16 +619,23 @@ func (a *App) SpeedTestNode(id string) SpeedResult {
 	return SpeedResult{Mbps: mbps, Err: errStr(err)}
 }
 
-// QRResult carries a node's share-link QR (PNG data URI) to the UI.
+// QRResult carries a QR code (PNG data URI) to the UI (payment checkout).
 type QRResult struct {
 	Data string `json:"data"`
 	Err  string `json:"err"`
 }
 
-// GetNodeQR returns a PNG data URI encoding the node's share link.
-func (a *App) GetNodeQR(id string) QRResult {
-	data, err := a.svc.GetNodeQR(id)
-	return QRResult{Data: data, Err: errStr(err)}
+// NodeShareResult is a node's share link plus its QR code.
+type NodeShareResult struct {
+	Link string `json:"link"`
+	QR   string `json:"qr"`
+	Err  string `json:"err"`
+}
+
+// GetNodeShare returns the node's share link and QR (POWER云 lines refused).
+func (a *App) GetNodeShare(id string) NodeShareResult {
+	link, qr, err := a.svc.NodeShare(id)
+	return NodeShareResult{Link: link, QR: qr, Err: errStr(err)}
 }
 
 func errStr(err error) string {

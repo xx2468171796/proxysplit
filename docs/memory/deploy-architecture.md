@@ -21,3 +21,6 @@
 
 ## 代码仓库
 两个 remote：`gitea` = http://192.168.110.246:3001/admin/proxysplit（本机凭据），`origin` = GitHub xx2468171796/daili（HTTPS，令牌只临时放请求头，见 dev-machine-pitfalls.md）；发版后两边都推、打 tag。
+
+## 节点分享（v1.9.90）
+节点「⋯ → 分享节点」：先给分享链接（nodes.ToLink，原始导入链接原样返回）+ 复制，二维码按需展开（service.NodeShare / App.GetNodeShare，前端 node-share-dialog.tsx）。POWER云 官方线路（Node.Official）后端拒绝、前端不给入口——付费线路凭据不外流（1.9.89 前二维码入口未挡，已修）。

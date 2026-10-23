@@ -13,6 +13,8 @@ export type Node = {
   /** TCP 延迟：直连到节点边缘 */
   tcpLatency?: number;
   speed?: number;
+  /** POWER云 官方线路（会员专属，不能分享） */
+  official?: boolean;
 };
 
 export type Proc = { name: string; desc?: string; path: string; count: number };

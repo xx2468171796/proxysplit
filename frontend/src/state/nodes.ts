@@ -132,7 +132,8 @@ export async function testActiveSpeed(): Promise<string> {
   }
 }
 
-export async function nodeQR(id: string): Promise<{ data?: string; err?: string }> {
-  const r = await api.nodeQR(id);
-  return r?.err ? { err: r.err } : { data: r?.data || "" };
+/** 节点分享：分享链接 + 二维码；POWER云 官方线路后端会拒绝。 */
+export async function nodeShare(id: string): Promise<{ link?: string; qr?: string; err?: string }> {
+  const r = await api.nodeShare(id);
+  return r?.err ? { err: r.err } : { link: r?.link || "", qr: r?.qr || "" };
 }

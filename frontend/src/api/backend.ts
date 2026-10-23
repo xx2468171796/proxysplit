@@ -49,6 +49,7 @@ const asArg = <T>(v: unknown): T => v as T;
 
 export type OrderCreated = { order?: MemberOrder; orders: MemberOrder[]; split: boolean; err?: string };
 export type QrResult = { data: string; err: string };
+export type NodeShareResult = { link: string; qr: string; err: string };
 export type SpeedResult = { mbps: number; err: string };
 export type ReleaseNote = { version: string; items: string[] };
 
@@ -83,7 +84,7 @@ export const api = {
   testTCP: (id: string) => W.TestTCP(id),
   speedTest: () => W.SpeedTest() as Promise<SpeedResult>,
   speedTestNode: (id: string) => W.SpeedTestNode(id) as Promise<SpeedResult>,
-  nodeQR: (id: string) => W.GetNodeQR(id) as Promise<QrResult>,
+  nodeShare: (id: string) => W.GetNodeShare(id) as Promise<NodeShareResult>,
 
   // 应用分流
   appRules: async () => arr((await W.GetAppRules()) as AppRule[]),

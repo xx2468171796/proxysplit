@@ -2,6 +2,7 @@ package service
 
 import (
 	"encoding/base64"
+	"errors"
 	"fmt"
 
 	qrcode "github.com/skip2/go-qrcode"
@@ -9,30 +10,33 @@ import (
 	"proxysplit/internal/nodes"
 )
 
-// GetNodeQR returns a PNG data URI containing a QR code that encodes the node's
-// share link, so the node can be scanned into another client. It errors when the
-// node is unknown or has no shareable link.
-func (s *Service) GetNodeQR(id string) (string, error) {
+// errOfficialShare: POWER云 lines are paid credentials of the signed-in
+// account — never handed out as links or QR codes.
+var errOfficialShare = errors.New("POWER云 官方线路是会员专属，不能分享")
+
+// NodeShare returns the node's share link (vless:// ss:// …) and a QR code of
+// it (PNG data URI), so it can be pasted or scanned into another client.
+func (s *Service) NodeShare(id string) (link, qr string, err error) {
 	s.mu.Lock()
 	n := s.nodeByID(id)
-	var link string
-	if n != nil {
+	if n != nil && !n.Official {
 		link = nodes.ToLink(n)
 	}
 	s.mu.Unlock()
-
-	if n == nil {
-		return "", fmt.Errorf("节点不存在")
+	switch {
+	case n == nil:
+		return "", "", fmt.Errorf("节点不存在")
+	case n.Official:
+		return "", "", errOfficialShare
+	case link == "":
+		return "", "", fmt.Errorf("该节点无法生成分享链接")
 	}
-	if link == "" {
-		return "", fmt.Errorf("该节点无法生成分享链接")
-	}
-
-	return EncodeQRDataURI(link, 320)
+	qr, err = EncodeQRDataURI(link, 320)
+	return link, qr, err
 }
 
 // EncodeQRDataURI creates a local PNG QR code without sending its payload to
-// any third-party QR service. It is shared by node export and Alipay checkout.
+// any third-party QR service. It is shared by node sharing and Alipay checkout.
 func EncodeQRDataURI(value string, size int) (string, error) {
 	if value == "" {
 		return "", fmt.Errorf("二维码内容为空")

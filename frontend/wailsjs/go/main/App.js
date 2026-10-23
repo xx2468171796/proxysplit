@@ -178,8 +178,8 @@ export function GetMyOrders() {
   return window['go']['main']['App']['GetMyOrders']();
 }
 
-export function GetNodeQR(arg1) {
-  return window['go']['main']['App']['GetNodeQR'](arg1);
+export function GetNodeShare(arg1) {
+  return window['go']['main']['App']['GetNodeShare'](arg1);
 }
 
 export function GetNodes() {
