@@ -6,7 +6,7 @@ import { login, register } from "../../state/account";
 
 export type AuthMode = "login" | "register";
 
-type Draft = { username: string; email: string; password: string };
+type Draft = { username: string; email: string; password: string; ref: string };
 
 /** 提交前校验，返回错误文字（'' = 通过）。 */
 function validate(mode: AuthMode, d: Draft): string {
@@ -20,7 +20,7 @@ function validate(mode: AuthMode, d: Draft): string {
 type Props = { mode: AuthMode; error: string; onError: (e: string) => void; disabled?: boolean };
 
 export function AuthForm({ mode, error, onError, disabled }: Props) {
-  const [draft, setDraft] = useState<Draft>({ username: "", email: "", password: "" });
+  const [draft, setDraft] = useState<Draft>({ username: "", email: "", password: "", ref: "" });
   const [busy, setBusy] = useState(false);
   const set = (patch: Partial<Draft>) => setDraft((d) => ({ ...d, ...patch }));
   const reg = mode === "register";
@@ -34,7 +34,7 @@ export function AuthForm({ mode, error, onError, disabled }: Props) {
     let err: string;
     try {
       err = reg
-        ? await register(draft.username, draft.email, draft.password)
+        ? await register(draft.username, draft.email, draft.password, draft.ref)
         : await login(draft.username, draft.password);
     } catch (x) {
       err = `${reg ? "注册" : "登录"}失败：${String(x)}`;
@@ -88,6 +88,19 @@ export function AuthForm({ mode, error, onError, disabled }: Props) {
           disabled={busy}
         />
       </FormField>
+      {reg ? (
+        <FormField label="邀请码（选填）" htmlFor="ps-auth-ref" hint="朋友给你的推广链接或邀请码，没有就留空">
+          <Input
+            id="ps-auth-ref"
+            value={draft.ref}
+            onChange={(e) => set({ ref: e.target.value.replace(/[^A-Za-z0-9]/g, "").toUpperCase() })}
+            placeholder="例如 Q78TVDW4"
+            maxLength={16}
+            disabled={busy}
+            mono
+          />
+        </FormField>
+      ) : null}
       <div className="ps-auth-form-actions">
         <ShineButton type="submit" disabled={busy || disabled} aria-busy={busy} hoverOnly={busy}>
           {busy ? "正在验证…" : reg ? "注册并登录" : "登录并绑定本机"}

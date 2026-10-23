@@ -136,8 +136,8 @@ export async function login(username: string, password: string): Promise<string>
 }
 
 /** 注册后直接展示试用说明和实时套餐，用户不必再去找续费入口。 */
-export async function register(username: string, email: string, password: string): Promise<string> {
-  const err = await api.register(username.trim(), email.trim(), password);
+export async function register(username: string, email: string, password: string, ref = ""): Promise<string> {
+  const err = await api.register(username.trim(), email.trim(), password, ref.trim());
   if (!err) await afterSignIn(true);
   return err;
 }

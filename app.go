@@ -694,11 +694,11 @@ func (a *App) Login(username, password string) string {
 	return ""
 }
 
-func (a *App) Register(username, email, password string) string {
+func (a *App) Register(username, email, password, ref string) string {
 	if a.lic == nil {
 		return "授权模块尚未初始化"
 	}
-	return errStr(a.lic.Register(username, email, password))
+	return errStr(a.lic.Register(username, email, password, ref))
 }
 
 type PlansResult struct {

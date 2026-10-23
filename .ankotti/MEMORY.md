@@ -35,6 +35,7 @@
 | 前端（admin-ui） | docs/memory/frontend.md | 配色、门禁、mock 预览参数 |
 | 应用识别/模拟器/逐应用监测 | docs/memory/app-monitor.md | internal/appid 应用库、模拟器预设、连接成功失败判定 |
 | 端口代理/更新说明弹窗 | docs/memory/proxy-ports.md | 指纹浏览器多端口独立进程、设备与日志、防火墙、升级后弹更新内容 |
+| 多级分销/推广赚钱 | docs/memory/fenxiao.md | tuiguang/fenxiao 接线、分佣 / 冻结 / 冲回 / 提现、规则存哪、坑 |
 | 已知限制/待办 | docs/memory/known-issues.md | 无代码签名、Defender 误报、权益风险、待办 |
 | 逐版发布史 | docs/decisions.md | commit、SHA256、releases id、incoming 目录 |
 

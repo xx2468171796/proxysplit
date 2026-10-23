@@ -182,7 +182,12 @@ export const api = {
   // 账号与会员
   license: () => W.GetLicenseStatus() as Promise<LicenseStatus>,
   login: (user: string, pass: string) => W.Login(user, pass),
-  register: (user: string, email: string, pass: string) => W.Register(user, email, pass),
+  register: (user: string, email: string, pass: string, ref: string) => W.Register(user, email, pass, ref),
+  // 推广赚钱（多级分销）：Go 端按白名单拼路径，这里只传种类
+  fenxiao: (kind: "me" | "team" | "commissions" | "withdrawals", level = 0, offset = 0) =>
+    W.GetFenxiao(kind, level, offset),
+  fenxiaoWithdraw: (amountCents: number, method: string, account: string, name: string) =>
+    W.RequestFenxiaoWithdrawal(amountCents, method, account, name),
   logout: () => W.Logout(),
   loginPowerVPN: () => W.LoginPowerVPN(),
   logoutPowerVPN: () => W.LogoutPowerVPN(),

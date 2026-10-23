@@ -165,7 +165,7 @@ export function RefreshEntitlement():Promise<string>;
 
 export function RefreshPowerVPN():Promise<string>;
 
-export function Register(arg1:string,arg2:string,arg3:string):Promise<string>;
+export function Register(arg1:string,arg2:string,arg3:string,arg4:string):Promise<string>;
 
 export function RemoveNode(arg1:string):Promise<string>;
 
@@ -246,3 +246,7 @@ export function UpdateRuleSets():Promise<string>;
 export function UpdateSub(arg1:string):Promise<string>;
 
 export function WaitAutoLogin():Promise<string>;
+
+export function GetFenxiao(arg1:string,arg2:number,arg3:number):Promise<main.FenxiaoResult>;
+
+export function RequestFenxiaoWithdrawal(arg1:number,arg2:string,arg3:string,arg4:string):Promise<main.FenxiaoResult>;

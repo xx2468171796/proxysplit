@@ -464,6 +464,21 @@ export namespace license {
 
 export namespace main {
 	
+	export class FenxiaoResult {
+	    data?: any;
+	    err?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new FenxiaoResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.data = source["data"];
+	        this.err = source["err"];
+	    }
+	}
+	
 	export class AIControlInfo {
 	    url: string;
 	    token: string;

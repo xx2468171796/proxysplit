@@ -490,8 +490,13 @@ func (c *Client) Login(username, password string) error {
 	return c.authenticate("/v1/auth/login", username, "", password)
 }
 
-func (c *Client) Register(username, email, password string) error {
-	return c.authenticate("/v1/auth/register", username, email, password)
+func (c *Client) Register(username, email, password, ref string) error {
+	payload := map[string]any{"username": username, "email": email, "password": password, "device": c.devicePayload()}
+	// 邀请码（可选）：服务端在建号事务里绑上级（多级分销）；坏码不挡注册。
+	if ref = strings.TrimSpace(ref); ref != "" {
+		payload["ref"] = ref
+	}
+	return c.authenticatePayload("/v1/auth/register", username, payload)
 }
 
 func (c *Client) Plans() ([]Plan, error) {

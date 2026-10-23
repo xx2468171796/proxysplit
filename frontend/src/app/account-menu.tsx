@@ -1,12 +1,13 @@
-// 侧栏左下账号菜单：会员中心、兑换码、设置；联系方式与官网（中转站渠道不显示）；退出账号（先确认）。
+// 侧栏左下账号菜单：会员中心、兑换码、推广赚钱、设置；联系方式与官网（中转站渠道不显示）；退出账号（先确认）。
 import { ConfirmDialog } from "@ankotti/admin-ui";
-import { Crown, GitFork, Globe, MessageCircle, Settings, Ticket, Users } from "lucide-react";
+import { Crown, GitFork, Globe, HandCoins, MessageCircle, Settings, Ticket, Users } from "lucide-react";
 import { useState } from "react";
 import { api } from "../api/backend";
 import { remainingLabel } from "../shared/format";
 import { useStore } from "../shared/store";
 import { isAigwChannel, license, openMembership, openRedeem } from "../state/account";
 import { logoutAccount } from "../state/account-sso";
+import { openFenxiao } from "../state/fenxiao";
 import { copyText } from "../state/system";
 import { navigate } from "./nav";
 import { useFeedback } from "./use-feedback";
@@ -55,6 +56,7 @@ export function useAccountMenu() {
     ? [
         { id: "member", label: "会员中心", icon: Crown, onSelect: openMembership },
         { id: "redeem", label: "兑换码开通会员", icon: Ticket, onSelect: openRedeem },
+        ...(status.signedIn ? [{ id: "fenxiao", label: "推广赚钱", icon: HandCoins, onSelect: openFenxiao }] : []),
       ]
     : [];
   const identity = status.plan || (status.signedIn ? "未开通会员" : "未登录");

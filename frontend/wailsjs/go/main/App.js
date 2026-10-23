@@ -310,8 +310,8 @@ export function RefreshPowerVPN() {
   return window['go']['main']['App']['RefreshPowerVPN']();
 }
 
-export function Register(arg1, arg2, arg3) {
-  return window['go']['main']['App']['Register'](arg1, arg2, arg3);
+export function Register(arg1, arg2, arg3, arg4) {
+  return window['go']['main']['App']['Register'](arg1, arg2, arg3, arg4);
 }
 
 export function RemoveNode(arg1) {
@@ -472,4 +472,12 @@ export function UpdateSub(arg1) {
 
 export function WaitAutoLogin() {
   return window['go']['main']['App']['WaitAutoLogin']();
+}
+
+export function GetFenxiao(arg1, arg2, arg3) {
+  return window['go']['main']['App']['GetFenxiao'](arg1, arg2, arg3);
+}
+
+export function RequestFenxiaoWithdrawal(arg1, arg2, arg3, arg4) {
+  return window['go']['main']['App']['RequestFenxiaoWithdrawal'](arg1, arg2, arg3, arg4);
 }
