@@ -146,6 +146,10 @@ export function GetEnvConfig() {
   return window['go']['main']['App']['GetEnvConfig']();
 }
 
+export function GetFenxiao(arg1, arg2, arg3) {
+  return window['go']['main']['App']['GetFenxiao'](arg1, arg2, arg3);
+}
+
 export function GetHealth() {
   return window['go']['main']['App']['GetHealth']();
 }
@@ -322,6 +326,10 @@ export function RemoveSub(arg1) {
   return window['go']['main']['App']['RemoveSub'](arg1);
 }
 
+export function RequestFenxiaoWithdrawal(arg1, arg2, arg3, arg4) {
+  return window['go']['main']['App']['RequestFenxiaoWithdrawal'](arg1, arg2, arg3, arg4);
+}
+
 export function ResetAppMonitor(arg1) {
   return window['go']['main']['App']['ResetAppMonitor'](arg1);
 }
@@ -472,12 +480,4 @@ export function UpdateSub(arg1) {
 
 export function WaitAutoLogin() {
   return window['go']['main']['App']['WaitAutoLogin']();
-}
-
-export function GetFenxiao(arg1, arg2, arg3) {
-  return window['go']['main']['App']['GetFenxiao'](arg1, arg2, arg3);
-}
-
-export function RequestFenxiaoWithdrawal(arg1, arg2, arg3, arg4) {
-  return window['go']['main']['App']['RequestFenxiaoWithdrawal'](arg1, arg2, arg3, arg4);
 }
