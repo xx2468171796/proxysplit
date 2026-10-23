@@ -6,6 +6,7 @@ import {updater} from '../models';
 import {appid} from '../models';
 import {accel} from '../models';
 import {core} from '../models';
+import {aienv} from '../models';
 import {license} from '../models';
 import {nodes} from '../models';
 import {proc} from '../models';
@@ -19,6 +20,8 @@ export function AddNodes(arg1:string):Promise<main.AddResult>;
 export function AddSub(arg1:string,arg2:string,arg3:boolean):Promise<string>;
 
 export function AppRouteTest(arg1:string,arg2:string):Promise<service.RouteTestResult>;
+
+export function ApplyEnvConfig(arg1:Array<string>):Promise<string>;
 
 export function AutoLoginPending():Promise<boolean>;
 
@@ -77,6 +80,8 @@ export function GetCoreVersion():Promise<string>;
 export function GetCustomRules():Promise<Array<core.RouteRule>>;
 
 export function GetDefaultLine():Promise<string>;
+
+export function GetEnvConfig():Promise<Array<aienv.Status>>;
 
 export function GetHealth():Promise<service.Health>;
 
@@ -171,6 +176,8 @@ export function ResetAppMonitor(arg1:string):Promise<void>;
 export function ResetConfig():Promise<void>;
 
 export function Restart():Promise<string>;
+
+export function RestoreEnvConfig():Promise<string>;
 
 export function SaveProxyPort(arg1:service.ProxyPort):Promise<string>;
 

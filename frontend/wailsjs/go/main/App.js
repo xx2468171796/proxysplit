@@ -22,6 +22,10 @@ export function AppRouteTest(arg1, arg2) {
   return window['go']['main']['App']['AppRouteTest'](arg1, arg2);
 }
 
+export function ApplyEnvConfig(arg1) {
+  return window['go']['main']['App']['ApplyEnvConfig'](arg1);
+}
+
 export function AutoLoginPending() {
   return window['go']['main']['App']['AutoLoginPending']();
 }
@@ -136,6 +140,10 @@ export function GetCustomRules() {
 
 export function GetDefaultLine() {
   return window['go']['main']['App']['GetDefaultLine']();
+}
+
+export function GetEnvConfig() {
+  return window['go']['main']['App']['GetEnvConfig']();
 }
 
 export function GetHealth() {
@@ -324,6 +332,10 @@ export function ResetConfig() {
 
 export function Restart() {
   return window['go']['main']['App']['Restart']();
+}
+
+export function RestoreEnvConfig() {
+  return window['go']['main']['App']['RestoreEnvConfig']();
 }
 
 export function SaveProxyPort(arg1) {

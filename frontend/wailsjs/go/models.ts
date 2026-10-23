@@ -82,6 +82,37 @@ export namespace accel {
 
 }
 
+export namespace aienv {
+	
+	export class Status {
+	    id: string;
+	    name: string;
+	    current: string;
+	    target: string;
+	    done: boolean;
+	    configured: boolean;
+	    restorable: boolean;
+	    note: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new Status(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.current = source["current"];
+	        this.target = source["target"];
+	        this.done = source["done"];
+	        this.configured = source["configured"];
+	        this.restorable = source["restorable"];
+	        this.note = source["note"];
+	    }
+	}
+
+}
+
 export namespace appid {
 	
 	export class Access {

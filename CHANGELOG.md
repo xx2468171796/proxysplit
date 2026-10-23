@@ -3,6 +3,12 @@
 版本号以发布构建为准（`scripts/build-commercial.ps1 -Version <x.y.z>`，注入 `main.appVersion`），
 每个发布产物的 SHA256 见 `output/proxysplit-v<版本>.manifest.json`。
 
+## v1.9.88
+
+- 新增「设置 → 环境配置」：一键把这台电脑的系统时区、区域格式、所在地区、浏览器语言、Claude Code 遥测、系统时间配成和台湾出口一致；配置前会记下原来的设置，随时一键恢复原样。
+- 「AI 劫持」和「环境配置」分开：劫持只管网络（AI 走线路），环境配置只管 Windows 设置，各自开关、各自恢复。
+- AI 环境检测里的修复按钮也改成走环境配置，点过的都能在「环境配置」里一键恢复；1.9.87 里点过的浏览器语言、Claude Code 设置同样能恢复。
+
 ## v1.9.87
 
 - 堵住 WebRTC 泄露：开着劫持时，浏览器和 Claude / ChatGPT 客户端的 WebRTC 也走 AI 线路，网页查到的是台湾出口 IP，不会再暴露本机国内 IP。

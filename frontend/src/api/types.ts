@@ -417,3 +417,15 @@ export type RouteTestResult = {
   hops: { host: string; dest?: string; rule?: string; outTag: string; outbound?: string }[];
   note?: string;
 };
+
+/** 环境配置的一项（pkg/aienv.Status）。target 为空 = 只作说明。 */
+export type EnvItem = {
+  id: string;
+  name: string;
+  current: string;
+  target: string;
+  done: boolean;
+  configured: boolean;
+  restorable: boolean;
+  note: string;
+};

@@ -10,6 +10,7 @@ import (
 	"proxysplit/internal/aiguard"
 	"proxysplit/internal/proc"
 	"proxysplit/internal/sysproxy"
+	"proxysplit/pkg/aienv"
 )
 
 // Machine checks of the AI environment check (aienv.go): one read each.
@@ -51,10 +52,10 @@ func ipv6Item(guard bool) AIEnvItem {
 // zone against a Taiwan exit is the cheapest signal to remove.
 func timezoneItem(exitLoc string) AIEnvItem {
 	it := AIEnvItem{ID: "timezone", Name: "系统时区"}
-	tz := aiguard.TimezoneID()
+	tz := aienv.TimezoneID()
 	twExit := exitLoc == "" || strings.HasPrefix(exitLoc, "TW")
 	switch {
-	case tz == aiguard.TaipeiTimezone:
+	case tz == aienv.TaipeiTimezone:
 		it.Status, it.Detail = "ok", "台北时间（UTC+8）"
 	case !twExit && tz != "China Standard Time":
 		it.Status, it.Detail = "info", "「"+tz+"」；出口不在台湾，按出口所在地设置时区即可"
@@ -87,13 +88,13 @@ func clockItem(tr traceResult) AIEnvItem {
 
 // localeItem: only a hint — weight is low and changing it disturbs the user.
 func localeItem() AIEnvItem {
-	it := AIEnvItem{ID: "locale", Name: "系统语言"}
-	loc := aiguard.UserLocale()
+	it := AIEnvItem{ID: "locale", Name: "区域格式"}
+	loc := aienv.UserLocale()
 	switch {
 	case loc == "":
 		it.Status, it.Detail = "info", "读不到"
 	case strings.EqualFold(loc, "zh-CN"):
-		it.Status, it.Detail = "info", "简体中文（zh-CN）：影响不大，只作提示；在意的话可把浏览器语言设成繁体中文或英文"
+		it.Status, it.Detail, it.Fix = "info", "区域格式是简体中文（zh-CN）：程序读到的默认语言区域是大陆。影响不大，可一键改成繁体（台湾），界面语言不变", "culture"
 	default:
 		it.Status, it.Detail = "ok", loc
 	}
@@ -165,9 +166,9 @@ func webRTCItem(protected bool) AIEnvItem {
 // mainland signal third-party checkers weigh heavily).
 func browserLangItem() AIEnvItem {
 	it := AIEnvItem{ID: "browserlang", Name: "浏览器语言"}
-	langs := aiguard.BrowserLanguages()
+	langs := aienv.BrowserLanguages()
 	switch {
-	case aiguard.BrowserLanguageForced():
+	case aienv.BrowserLanguageForced():
 		it.Status, it.Detail = "ok", "Chrome / Edge 已固定为繁体中文 + 英文（重开浏览器生效；浏览器显示「由贵单位管理」是这个设置带来的，正常）"
 	case strings.HasPrefix(strings.ToLower(langs), "zh-cn"):
 		it.Status, it.Detail, it.Fix = "warn", "Chrome 首选语言是简体中文（"+langs+"），网页能读到。一键改成繁体中文 + 英文，界面文字不受影响", "browserlang"
@@ -183,7 +184,7 @@ func browserLangItem() AIEnvItem {
 // reports / feedback upload.
 func claudeCodeItem() AIEnvItem {
 	it := AIEnvItem{ID: "claudecode", Name: "Claude Code 遥测"}
-	if aiguard.ClaudeCodeQuiet(aiguard.ClaudeSettingsPath()) {
+	if aienv.ClaudeCodeQuiet(aienv.ClaudeSettingsPath()) {
 		it.Status, it.Detail = "ok", "已关闭遥测、错误上报和反馈上传（官方开关 CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC）"
 	} else {
 		it.Status, it.Detail, it.Fix = "info", "Claude Code 默认会上报使用数据和错误信息。可以一键用官方开关关掉，不影响正常使用", "claudecode"

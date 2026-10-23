@@ -17,6 +17,7 @@ import type {
   BootstrapState,
   CatalogApp,
   Conn,
+  EnvItem,
   Health,
   LicenseStatus,
   Line,
@@ -165,6 +166,10 @@ export const api = {
   fixAIEnv: (id: string) => W.FixAIEnv(id),
   aiHijack: () => W.GetAIHijack() as Promise<AIHijack>,
   setAIHijack: (on: boolean) => W.SetAIHijack(on),
+  // Go 返回 nil 切片时是 null。
+  envConfig: async (): Promise<EnvItem[]> => ((await W.GetEnvConfig()) as EnvItem[] | null) ?? [],
+  applyEnvConfig: (ids: string[]) => W.ApplyEnvConfig(ids),
+  restoreEnvConfig: () => W.RestoreEnvConfig(),
   copyToClipboard: (text: string) => W.CopyToClipboard(text),
   openWebsite: () => W.OpenWebsite(),
   openGitHub: () => W.OpenGitHub(),
