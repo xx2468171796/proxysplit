@@ -4,6 +4,11 @@
 > 结论与坑已提炼到 `docs/memory/<主题>.md`；这里是事实存档，按标题取（`node ~/.ankotti/ai-kit/mem.mjs <关键词>`），不要整份读。
 > 约定：sz = 深圳生产机；incoming = sz `/opt/proxysplit/incoming/`；客户端回滚 = 该版本 incoming 目录 `python3 publish-client.py rollback` 并删 releases 表里该版本那行。
 
+## v1.9.87（2026-10-23，只发客户端，强制）
+- exe 源 commit 78ffeea，SHA256 414a185091eca034a401f4beda6f5743c00d9ef62d100fb4f79bf7c7ea3b8f98，101,004,288 字节，内核 1.14.3-relayops.1；incoming/client-v1.9.87-78ffeea；releases 行（强制，min 1.9.51）+ audit_logs。
+- 内容：劫持开着时浏览器 / AI 客户端 STUN 走 AI 线路（防 WebRTC 泄露）；一键修复浏览器语言（ForcedLanguages）、Claude Code 遥测（CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC），「恢复」时撤销。
+- 验收：公网 latest = 1.9.87 mandatory；飞牛下载 sha 一致；STUN 规则过真实 sing-box check。真机 WebRTC 检测站验证待测。
+
 ## v1.9.86（2026-10-23，只发客户端，强制）
 - exe 源 commit 2ed320d，SHA256 4d48da2199b8c6cbca62e4097f5e06be1d1aaa9177c357a6346dcf4d480c77b1，100,986,368 字节，内核 1.14.3-relayops.1；incoming/client-v1.9.86-2ed320d；releases 行（强制，min 1.9.51）+ audit_logs。
 - 内容：AI 环境检测细化（出口 IP / 类型 / 一致 / 延迟 / 语言），出口线路认 POWER云 名单；sz 新增 /opt/proxysplit/rules/egress-ours.json（不随发版，改出口机时更新）。
