@@ -49,21 +49,25 @@ var (
 	oursMu      sync.Mutex
 	oursCache   OursList
 	oursFetched time.Time
+	oursTTL     time.Duration
 )
 
-// ours returns the published list (cached 30 min), falling back to the
-// built-in one.
-func ours(ctx context.Context) OursList {
+// ours returns the published list (cached 30 min; a failed fetch falls back to
+// the built-in list and retries after 2 min). It uses its own timeout, not the
+// caller's nearly spent check deadline.
+func ours() OursList {
 	oursMu.Lock()
 	defer oursMu.Unlock()
-	if time.Since(oursFetched) < 30*time.Minute {
+	if time.Since(oursFetched) < oursTTL {
 		return oursCache
 	}
-	l := builtinOurs
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	l, ttl := builtinOurs, 2*time.Minute
 	if got, err := fetchOurs(ctx); err == nil && len(got.IPs)+len(got.CIDRs)+len(got.Hosts) > 0 {
-		l = got
+		l, ttl = got, 30*time.Minute
 	}
-	oursCache, oursFetched = l, time.Now()
+	oursCache, oursFetched, oursTTL = l, time.Now(), ttl
 	return l
 }
 
@@ -88,13 +92,13 @@ func fetchOurs(ctx context.Context) (OursList, error) {
 }
 
 // IsOurExit reports whether ip is one of our POWER云 exits.
-func IsOurExit(ctx context.Context, ip string) bool {
+func IsOurExit(ip string) bool {
 	addr, err := netip.ParseAddr(ip)
 	if err != nil {
 		return false
 	}
-	return oursMatch(ours(ctx), addr.Unmap(), func(h string) []netip.Addr {
-		c, cancel := context.WithTimeout(ctx, 3*time.Second)
+	return oursMatch(ours(), addr.Unmap(), func(h string) []netip.Addr {
+		c, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		defer cancel()
 		got, _ := net.DefaultResolver.LookupNetIP(c, "ip", h)
 		return got

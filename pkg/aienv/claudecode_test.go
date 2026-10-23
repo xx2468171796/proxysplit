@@ -82,3 +82,18 @@ func TestItemsRestorable(t *testing.T) {
 		}
 	}
 }
+
+// Changed again by the user after we configured it: Restore leaves it alone
+// and forgets our record.
+func TestRestoreLeavesUsersLaterChange(t *testing.T) {
+	m, path := testManager(t)
+	os.WriteFile(path, []byte(`{}`), 0o644)
+	m.Apply("claudecode")
+	os.WriteFile(path, []byte(`{"env":{"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC":"0"}}`), 0o644)
+	if err := m.Restore(); err != nil {
+		t.Fatal(err)
+	}
+	if claudeSnapshot(path) != "0" || m.Configured() {
+		t.Fatalf("user's later value overwritten (%q) or record kept", claudeSnapshot(path))
+	}
+}

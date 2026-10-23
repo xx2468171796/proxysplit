@@ -22,12 +22,15 @@ export function NodeShareDialog({ share, onClose }: { share: NodeShare; onClose:
           <Copy />
           复制链接
         </Button>
-        <Button size="sm" variant="outline" onClick={() => setShowQR((v) => !v)}>
-          <QrCode />
-          {showQR ? "收起二维码" : "显示二维码"}
-        </Button>
+        {/* 链接太长生成不了二维码时后端给空 qr：只分享链接 */}
+        {share.qr ? (
+          <Button size="sm" variant="outline" onClick={() => setShowQR((v) => !v)}>
+            <QrCode />
+            {showQR ? "收起二维码" : "显示二维码"}
+          </Button>
+        ) : null}
       </div>
-      {showQR ? (
+      {showQR && share.qr ? (
         <div className="ps-qr-tile">
           <img src={share.qr} alt={`${share.name} 的二维码`} width={220} height={220} />
         </div>

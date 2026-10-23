@@ -220,7 +220,7 @@ func (a *App) CheckAIEnv() service.AIEnvReport {
 	if a.svc == nil {
 		return service.AIEnvReport{}
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	return a.svc.AIEnvCheck(ctx)
 }
@@ -237,7 +237,8 @@ func (a *App) FixAIEnv(id string) string {
 	}
 	var errs []string
 	for _, it := range a.CheckAIEnv().Items {
-		if it.Fix == "" {
+		// 只修有问题的项；「提示」级（区域格式、浏览器语言、Claude Code）只在用户单独点时才改。
+		if it.Fix == "" || (it.Status != "warn" && it.Status != "fail") {
 			continue
 		}
 		if err := a.fixAIEnvItem(it.Fix); err != nil {

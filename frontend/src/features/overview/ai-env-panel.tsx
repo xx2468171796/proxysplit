@@ -58,7 +58,8 @@ function useAIEnv(always: boolean) {
     let visible = false;
     const poll = async () => {
       const h = await loadHijack();
-      if ((always || h?.visible) && !visible) void check();
+      // 设置页（always）不自动检测：要连外网测好几秒，用户点「开始检测」才测
+      if (!always && h?.visible && !visible) void check();
       visible = always || !!h?.visible;
     };
     void poll();
@@ -99,7 +100,8 @@ export function AIEnvPanel({ always = false }: { always?: boolean }) {
   if (!always && !hijack.visible) return null;
 
   const problems = report?.items.filter((i) => i.status === "fail" || i.status === "warn").length ?? 0;
-  const fixable = report?.items.some((i) => i.fix) ?? false;
+  // 一键修复只管有问题的项（与后端 FixAIEnv("all") 一致）；「提示」项只能单独点。
+  const fixable = report?.items.some((i) => i.fix && (i.status === "warn" || i.status === "fail")) ?? false;
   const exit = exitLabel(report);
   return (
     <Panel
@@ -127,7 +129,7 @@ export function AIEnvPanel({ always = false }: { always?: boolean }) {
             disabled={!!fixing}
             onClick={() => void check()}
           >
-            重新检测
+            {report ? "重新检测" : "开始检测"}
           </Button>
         </>
       }

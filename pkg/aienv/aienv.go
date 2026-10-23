@@ -160,6 +160,12 @@ func (m *Manager) Restore(ids ...string) error {
 		if !ok || it.restore == nil {
 			continue
 		}
+		// Changed again by the user (or IT) since we configured it: theirs now —
+		// forget our record instead of overwriting their choice.
+		if it.done != nil && it.current != nil && !it.done(m, it.current(m)) {
+			delete(st, it.id)
+			continue
+		}
 		if err := it.restore(m, orig); err != nil {
 			errs = append(errs, it.name+"："+err.Error())
 			continue

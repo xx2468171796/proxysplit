@@ -23,7 +23,7 @@ type traceResult struct {
 }
 
 func probeClient() *http.Client {
-	return &http.Client{Timeout: 10 * time.Second, Transport: &http.Transport{Proxy: nil, DisableKeepAlives: true}}
+	return &http.Client{Timeout: 6 * time.Second, Transport: &http.Transport{Proxy: nil, DisableKeepAlives: true}}
 }
 
 // fetchTrace asks url (a /cdn-cgi/trace) three times: the exit from the first

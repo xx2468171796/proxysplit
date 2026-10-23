@@ -54,21 +54,31 @@ func (s *Service) AIProxy() AIProxyInfo {
 	return s.aiProxyState
 }
 
-// aiProxyLocked returns the AI proxy options for a core start / hot apply. The
-// port and credentials are picked once per run of ProxySplit, so a restart of
-// the core never moves them. Caller holds s.mu.
+// aiProxyLocked returns the AI proxy options for a core start / hot apply.
+// Credentials are picked once per run of ProxySplit. The running core keeps
+// its port (a hot apply must build the same config); a fresh start checks the
+// port is still free and moves it otherwise — a taken port must never stop the
+// whole proxy from starting. Caller holds s.mu.
 func (s *Service) aiProxyLocked(out string) *core.AIProxy {
-	if s.aiProxyPort == 0 {
-		s.aiProxyPort = aiProxyPreferredPort
-		if !loopbackTCPFree(s.aiProxyPort) {
-			if p, err := core.FreePort(); err == nil {
-				s.aiProxyPort = p
-			}
-		}
+	if s.aiProxyUser == "" {
 		s.aiProxyUser, s.aiProxyPass = "ai", randomHex(12)
+	}
+	if s.aiProxyPort == 0 || (!s.coreRunning() && !loopbackTCPFree(s.aiProxyPort)) {
+		s.aiProxyPort = 0
+		if loopbackTCPFree(aiProxyPreferredPort) {
+			s.aiProxyPort = aiProxyPreferredPort
+		} else if p, err := core.FreePort(); err == nil {
+			s.aiProxyPort = p
+		}
+	}
+	if s.aiProxyPort == 0 {
+		return nil // no free port: no AI proxy, the core still starts
 	}
 	return &core.AIProxy{Port: s.aiProxyPort, User: s.aiProxyUser, Pass: s.aiProxyPass, Outbound: out}
 }
+
+// coreRunning tolerates a Service without a core (unit tests).
+func (s *Service) coreRunning() bool { return s.core != nil && s.core.Running() }
 
 // noteAIProxyLocked records the started (p != nil) or stopped (nil) AI proxy
 // and rewrites the contract file. Caller holds s.mu.

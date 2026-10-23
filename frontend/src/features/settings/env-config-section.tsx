@@ -6,14 +6,24 @@ import { api } from "../../api/backend";
 import type { EnvItem } from "../../api/types";
 import { useFeedback } from "../../app/use-feedback";
 
+/** 可配置、可恢复的项（对时这类一次性操作和只作说明的项不算）。 */
+function configurable(i: EnvItem): boolean {
+  return !!i.target && i.restorable;
+}
+
 function itemStatus(i: EnvItem): "ok" | "warning" | "unknown" {
-  if (!i.target) return "unknown";
+  if (!configurable(i)) return "unknown";
   return i.done ? "ok" : "warning";
+}
+
+function statusText(i: EnvItem): string {
+  if (configurable(i)) return i.done ? "已配置" : "未配置";
+  return i.target ? "操作" : "说明";
 }
 
 function itemReason(i: EnvItem): string {
   const now = i.current ? `现在：${i.current}` : "";
-  const goal = i.target && !i.done ? ` → 配置成：${i.target}` : "";
+  const goal = configurable(i) && !i.done ? ` → 配置成：${i.target}` : "";
   const ours = i.configured ? "（已由本软件配置，可恢复）" : "";
   return [`${now}${goal}${ours}`, i.note].filter(Boolean).join("。");
 }
@@ -40,7 +50,7 @@ export function EnvConfigSection() {
       await load();
     }
   };
-  const pending = items.filter((i) => i.target && !i.done).length;
+  const pending = items.filter((i) => configurable(i) && !i.done).length;
   const configured = items.some((i) => i.configured);
 
   return (
@@ -73,11 +83,11 @@ export function EnvConfigSection() {
         label={(i) => i.name}
         reason={itemReason}
         status={itemStatus}
-        statusLabel={(i) => ({ ok: "已配置", warning: "未配置", unknown: "说明" })[itemStatus(i)]}
+        statusLabel={statusText}
         action={(i) =>
           i.target && !i.done
             ? {
-                label: busy === i.id ? "配置中…" : "配置",
+                label: busy === i.id ? "处理中…" : configurable(i) ? "配置" : "立即对时",
                 disabled: !!busy,
                 onSelect: () => void run(i.id, () => api.applyEnvConfig([i.id]), `已配置：${i.name}`),
               }

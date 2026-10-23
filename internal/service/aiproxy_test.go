@@ -2,6 +2,8 @@ package service
 
 import (
 	"encoding/json"
+	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"testing"
@@ -39,5 +41,20 @@ func TestAIProxyContract(t *testing.T) {
 	json.Unmarshal(raw, &got)
 	if got.Running || got.URL != "" {
 		t.Fatalf("stopped contract still usable: %+v", got)
+	}
+}
+
+// A port taken while the core was down must move, never block the start.
+func TestAIProxyPortMovesWhenTaken(t *testing.T) {
+	s := &Service{}
+	a := s.aiProxyLocked("proxy")
+	l, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", a.Port))
+	if err != nil {
+		t.Skip("could not occupy the port: ", err)
+	}
+	defer l.Close()
+	b := s.aiProxyLocked("proxy")
+	if b == nil || b.Port == a.Port || b.Pass != a.Pass {
+		t.Fatalf("taken port %d not moved: %+v", a.Port, b)
 	}
 }

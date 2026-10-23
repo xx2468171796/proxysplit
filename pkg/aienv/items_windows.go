@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -141,10 +142,10 @@ func geoName(id string) string {
 	return "GeoID " + id
 }
 
-// BrowserLanguageForced reports whether our ForcedLanguages policy is in place for Chrome.
+// BrowserLanguageForced reports whether Chrome carries exactly our
+// ForcedLanguages list (someone else's zh-TW policy is not ours).
 func BrowserLanguageForced() bool {
-	v := readPolicy(browserPolicyKeys["chrome"])
-	return len(v) > 0 && v[0] == forcedLanguages[0]
+	return slices.Equal(readPolicy(browserPolicyKeys["chrome"]), forcedLanguages)
 }
 
 // BrowserLanguages is Chrome's accept-languages of the default profile ("" = none).

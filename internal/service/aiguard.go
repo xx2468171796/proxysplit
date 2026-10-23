@@ -1,6 +1,7 @@
 package service
 
 import (
+	"cmp"
 	"net"
 
 	"proxysplit/internal/aiguard"
@@ -66,15 +67,7 @@ func (s *Service) AIGuardOfficial() bool {
 
 // activeNodeLocked is the selected node (any source); nil = none.
 func (s *Service) activeNodeLocked(activeID string) *nodes.Node {
-	if activeID == "" {
-		activeID = s.cfg.SelectedID
-	}
-	for _, n := range s.cfg.Nodes {
-		if n.ID == activeID {
-			return n
-		}
-	}
-	return nil
+	return s.nodeByID(cmp.Or(activeID, s.cfg.SelectedID))
 }
 
 // StartIfStopped starts the core unless it is already running (checked under

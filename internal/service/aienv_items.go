@@ -57,10 +57,11 @@ func timezoneItem(exitLoc string) AIEnvItem {
 	switch {
 	case tz == aienv.TaipeiTimezone:
 		it.Status, it.Detail = "ok", "台北时间（UTC+8）"
-	case !twExit && tz != "China Standard Time":
-		it.Status, it.Detail = "info", "「"+tz+"」；出口不在台湾，按出口所在地设置时区即可"
+	case !twExit:
+		// Taipei only matches a Taiwan exit; for any other exit it is no better.
+		it.Status, it.Detail = "info", "「"+tz+"」；出口在 "+exitLoc+"，不在台湾：时区按出口所在地设置即可（用台湾线路时再改成台北时间）"
 	case tz == "China Standard Time":
-		it.Status, it.Detail, it.Fix = "warn", "北京时间：程序和浏览器会报「Asia/Shanghai」，和境外出口对不上。改成台北时间（同为 UTC+8，钟点不变）", "timezone"
+		it.Status, it.Detail, it.Fix = "warn", "北京时间：程序和浏览器会报「Asia/Shanghai」，和台湾出口对不上。改成台北时间（同为 UTC+8，钟点不变）", "timezone"
 	default:
 		it.Status, it.Detail, it.Fix = "warn", "当前「"+tz+"」与出口（台湾）不一致，建议改成台北时间", "timezone"
 	}

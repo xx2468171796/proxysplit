@@ -31,8 +31,12 @@ func (s *Service) NodeShare(id string) (link, qr string, err error) {
 	case link == "":
 		return "", "", fmt.Errorf("该节点无法生成分享链接")
 	}
-	qr, err = EncodeQRDataURI(link, 320)
-	return link, qr, err
+	// The link is what matters; a link too long for a QR code still shares
+	// (the dialog then just has no 显示二维码).
+	if qr, err = EncodeQRDataURI(link, 320); err != nil {
+		qr = ""
+	}
+	return link, qr, nil
 }
 
 // EncodeQRDataURI creates a local PNG QR code without sending its payload to

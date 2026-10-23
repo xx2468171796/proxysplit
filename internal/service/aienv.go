@@ -56,7 +56,7 @@ func lookupAI(ctx context.Context) ([]net.IPAddr, error) {
 	return net.DefaultResolver.LookupIPAddr(c, aiProbeHost)
 }
 
-// AIEnvCheck runs every check (≈ up to 15 s). AI hosts are contacted only
+// AIEnvCheck runs every check (usually 2–5 s; at most ~30 s on a bad line). AI hosts are contacted only
 // while AI is pinned to a line; otherwise only a neutral IP service is asked,
 // so the check itself never reaches AI from the customer's own IP.
 func (s *Service) AIEnvCheck(ctx context.Context) AIEnvReport {
@@ -107,7 +107,7 @@ func (s *Service) AIEnvCheck(ctx context.Context) AIEnvReport {
 		}
 	}
 	if rep.ExitIP != "" {
-		rep.ExitOurs = aiguard.IsOurExit(ctx, rep.ExitIP) || (protected && s.AIGuardOfficial())
+		rep.ExitOurs = aiguard.IsOurExit(rep.ExitIP) || (protected && s.AIGuardOfficial())
 	}
 
 	add := func(it AIEnvItem) { rep.Items = append(rep.Items, it) }
