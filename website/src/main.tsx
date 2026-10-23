@@ -1,5 +1,6 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
+import { captureReferralCode } from "./api";
 import { App } from "./app";
 // 插槽样式放在 qiantai 样式之后（同权重时后者胜）
 import "./site.css";
@@ -9,6 +10,8 @@ if (import.meta.env.DEV || import.meta.env.VITE_MOCK === "1") {
   const { installMockApi } = await import("./dev/mock-api");
   installMockApi();
 }
+
+captureReferralCode();
 
 const rootElement = document.getElementById("root");
 if (!rootElement) throw new Error("缺少 #root 挂载点");

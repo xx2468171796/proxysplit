@@ -69,7 +69,30 @@ export async function fetchPlans(): Promise<Plan[]> {
   return Array.isArray(body.items) ? body.items : [];
 }
 
-export type RegisterInput = { username: string; email: string; password: string };
+export type RegisterInput = { username: string; email: string; password: string; ref?: string };
+
+// 推广链接 ?ref=CODE：落地时记 30 天（新码覆盖旧码），注册时带上，服务端在建号事务里绑上级（多级分销）。
+const REF_KEY = "proxysplit:ref";
+const REF_TTL_MS = 30 * 86_400_000;
+const REF_RE = /^[A-Za-z0-9]{4,16}$/;
+
+export function captureReferralCode(): void {
+  try {
+    const code = new URLSearchParams(location.search).get("ref")?.trim() ?? "";
+    if (REF_RE.test(code)) localStorage.setItem(REF_KEY, JSON.stringify({ code: code.toUpperCase(), at: Date.now() }));
+  } catch {
+    /* 隐私模式没有 localStorage：只是不记 */
+  }
+}
+
+export function readReferralCode(): string {
+  try {
+    const v = JSON.parse(localStorage.getItem(REF_KEY) ?? "null") as { code?: string; at?: number } | null;
+    return v?.code && v.at && Date.now() - v.at < REF_TTL_MS ? v.code : "";
+  } catch {
+    return "";
+  }
+}
 
 /** 网页注册只建账号；试用在第一次用客户端登录时按硬件发放。返回空串 = 成功。 */
 export async function registerWeb(input: RegisterInput): Promise<string> {

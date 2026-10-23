@@ -2,7 +2,7 @@
 // admin-ui-audit-ignore-file raw-control: 官网是 qiantai 前台页，不加载 admin-ui 样式，控件用 qiantai 的 q-btn / q-input / q-chip 类
 import { Card, Section } from "qiantai";
 import { type FormEvent, useState } from "react";
-import { registerWeb, validateRegister } from "../api";
+import { readReferralCode, registerWeb, validateRegister } from "../api";
 import { usePlans } from "../use-site-data";
 import { PlanCard } from "./plan-card";
 
@@ -33,6 +33,7 @@ function RegisterForm() {
       username: String(data.get("username") ?? "").trim(),
       email: String(data.get("email") ?? "").trim(),
       password: String(data.get("password") ?? ""),
+      ref: String(data.get("ref") ?? "").trim(),
     };
     const invalid = validateRegister(input);
     if (invalid) return setMsg({ ok: false, text: invalid });
@@ -71,6 +72,14 @@ function RegisterForm() {
           placeholder="密码（至少 8 位）"
           autoComplete="new-password"
           aria-label="密码"
+        />
+        <input
+          className="q-input"
+          name="ref"
+          defaultValue={readReferralCode()}
+          placeholder="邀请码（选填）"
+          maxLength={16}
+          aria-label="邀请码"
         />
         <button className="q-btn" type="submit" disabled={busy} aria-busy={busy}>
           {busy ? "注册中…" : "注册"}
