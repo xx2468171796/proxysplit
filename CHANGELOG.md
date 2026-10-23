@@ -3,6 +3,11 @@
 版本号以发布构建为准（`scripts/build-commercial.ps1 -Version <x.y.z>`，注入 `main.appVersion`），
 每个发布产物的 SHA256 见 `output/proxysplit-v<版本>.manifest.json`。
 
+## v1.9.84
+
+- 新增「设置 → AI 劫持」，所有用户都能用：开启后 Claude 和 OpenAI（ChatGPT / Codex）一律走代理线路，就算关掉分应用代理也照样走线路；关掉软件时 AI 网站直接打不开，绝不会用本机（国内）网络访问，防止账号被风控。想解除就在同一页点「恢复」。
+- 没有 POWER云 线路时，AI 走当前选中的节点（以前会直接打不开）。
+
 ## v1.9.83
 
 - 自家国内站点（*.zygskins.cn，包括各个 AI 中转站和客户版 Power中转站）始终直连：开着「全部代理」也不绕到境外节点，中转站后台和接口访问更快、更稳。
