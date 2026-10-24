@@ -4,6 +4,7 @@ import {
   BadgeCheck,
   KeyRound,
   MoreHorizontal,
+  Network,
   Pause,
   Play,
   RefreshCw,
@@ -44,6 +45,8 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { toast } from 'sonner'
+import { useNavigate } from 'react-router-dom'
+import { FenxiaoCell, FenxiaoUserSection, fenxiaoLink, useTierNames } from './fenxiao/user-bits'
 
 type Row = Record<string, any>
 
@@ -101,6 +104,8 @@ function Req() {
 }
 
 export default function UsersPage() {
+  const navigate = useNavigate()
+  const tierNames = useTierNames()
   const [refresh, setRefresh] = React.useState(0)
   const bump = () => setRefresh((r) => r + 1)
 
@@ -195,6 +200,11 @@ export default function UsersPage() {
         },
       },
       {
+        id: 'fenxiao',
+        header: '推荐 / 分销',
+        cell: ({ row }) => <FenxiaoCell row={row.original as never} tierNames={tierNames} />,
+      },
+      {
         id: 'devices',
         header: '设备',
         cell: ({ row }) => row.original.devices ?? 0,
@@ -244,6 +254,10 @@ export default function UsersPage() {
                     <RefreshCw className="h-4 w-4" />
                     续费 30 天
                   </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => navigate(fenxiaoLink(r.username))}>
+                    <Network className="h-4 w-4" />
+                    {r.fxTier ? '分销设置' : '设为分销商'}
+                  </DropdownMenuItem>
                   <DropdownMenuItem onClick={() => setPwdRow(r)}>
                     <KeyRound className="h-4 w-4" />
                     修改密码
@@ -278,7 +292,7 @@ export default function UsersPage() {
     ],
     // 处理器均为闭包内稳定引用，plans 变化不影响列
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [],
+    [tierNames],
   )
 
   return (
@@ -325,6 +339,14 @@ export default function UsersPage() {
               { label: '试用', value: 'trial' },
               { label: '普通会员', value: 'standard' },
               { label: '超级会员', value: 'premium' },
+            ],
+          },
+          {
+            key: 'fenxiao',
+            label: '分销',
+            options: [
+              { label: '分销商 / 经销商', value: 'agent' },
+              { label: '被推荐来的', value: 'referred' },
             ],
           },
           {
@@ -845,6 +867,8 @@ function UserDetailDialog({ id, onOpenChange }: { id: string | null; onOpenChang
             </div>
 
             <Separator />
+
+            <FenxiaoUserSection username={u.username} data={data.fenxiao} />
 
             <Section title={`会员授权（${(data.licenses ?? []).length}）`}>
               {(data.licenses ?? []).map((x: Row) => (

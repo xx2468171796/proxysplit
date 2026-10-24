@@ -181,6 +181,8 @@ export const userListQuery = paginationSchema.extend({
   role: z.enum(['user','admin']).optional(),
   tier: z.enum(['trial','standard','premium']).optional(),
   membership: z.enum(['active','expired','expiring']).optional(),
+  // 分销筛选：agent = 分销商 / 经销商；referred = 有上级（被推荐来的）
+  fenxiao: z.enum(['agent','referred']).optional(),
   createdFrom: z.string().datetime().optional(),
   createdTo: z.string().datetime().optional(),
 })

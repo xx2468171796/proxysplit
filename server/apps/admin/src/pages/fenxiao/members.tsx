@@ -1,6 +1,7 @@
 import * as React from 'react'
 import { type ColumnDef } from '@tanstack/react-table'
 import { GitBranch, Pencil, UserPlus } from 'lucide-react'
+import { useSearchParams } from 'react-router-dom'
 import { toast } from 'sonner'
 import { listApi, patch, post } from '@/lib/api'
 import { cn, dateOnly, money } from '@/lib/utils'
@@ -17,8 +18,12 @@ const NONE = '__none__'
 
 export function MembersTab({ policy, refresh, onChanged }: { policy: Policy; refresh: number; onChanged: () => void }) {
   const [edit, setEdit] = React.useState<Member | 'new' | null>(null)
+  const openedPreset = React.useRef(false)
   const [move, setMove] = React.useState<Member | null>(null)
   const [parentFilter, setParentFilter] = React.useState<Member | null>(null)
+  // 从「用户与会员」跳过来时带 ?q=用户名：直接搜这个人；还不在分销体系里就打开「设为分销商」并填好用户名
+  const [params] = useSearchParams()
+  const preset = params.get('q') ?? ''
 
   const columns = React.useMemo<ColumnDef<Member, unknown>[]>(() => [
     {
@@ -82,6 +87,8 @@ export function MembersTab({ policy, refresh, onChanged }: { policy: Policy; ref
         getRowId={(m) => m.userId}
         searchable
         searchPlaceholder="搜用户名或邀请码"
+        initialQuery={preset}
+        onLoaded={(r) => { if (preset && r.total === 0 && edit === null && !openedPreset.current) { openedPreset.current = true; setEdit('new') } }}
         filters={[{ key: 'agentsOnly', label: '身份', options: [{ label: '只看分销商 / 经销商', value: '1' }] }]}
         extraParams={{ parentUserId: parentFilter?.userId ?? '' }}
         refreshSignal={refresh}
@@ -89,13 +96,13 @@ export function MembersTab({ policy, refresh, onChanged }: { policy: Policy; ref
         fetcher={(q) => listApi<Member>('/v1/admin/fenxiao/members', { q: q.q, limit: q.limit, offset: q.offset, ...q.filters })}
         toolbar={<Button onClick={() => setEdit('new')}><UserPlus className="h-4 w-4" />设为分销商</Button>}
       />
-      <EditDialog policy={policy} target={edit} onClose={() => setEdit(null)} onDone={onChanged} />
+      <EditDialog policy={policy} target={edit} presetUsername={preset} onClose={() => setEdit(null)} onDone={onChanged} />
       <MoveDialog target={move} onClose={() => setMove(null)} onDone={onChanged} />
     </>
   )
 }
 
-function EditDialog({ policy, target, onClose, onDone }: { policy: Policy; target: Member | 'new' | null; onClose: () => void; onDone: () => void }) {
+function EditDialog({ policy, target, presetUsername = '', onClose, onDone }: { policy: Policy; target: Member | 'new' | null; presetUsername?: string; onClose: () => void; onDone: () => void }) {
   const m = target === 'new' ? null : target
   const [username, setUsername] = React.useState('')
   const [tier, setTier] = React.useState(NONE)
@@ -105,7 +112,7 @@ function EditDialog({ policy, target, onClose, onDone }: { policy: Policy; targe
   const [enabled, setEnabled] = React.useState(true)
   const [busy, setBusy] = React.useState(false)
   React.useEffect(() => {
-    setUsername(''); setTier(m?.tierCode ?? policy.tiers[0]?.code ?? NONE); setRates(ratesInput(m?.rateOverride))
+    setUsername(presetUsername); setTier(m?.tierCode ?? policy.tiers[0]?.code ?? NONE); setRates(ratesInput(m?.rateOverride))
     setCode(m?.code ?? ''); setNote(m?.note ?? ''); setEnabled(m?.enabled ?? true)
   }, [target]) // eslint-disable-line react-hooks/exhaustive-deps
 

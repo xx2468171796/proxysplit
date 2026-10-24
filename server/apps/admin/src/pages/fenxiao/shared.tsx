@@ -67,7 +67,7 @@ export type Withdrawal = {
 }
 
 /** 万分比 → 「20%」「2.5%」 */
-export const pct = (bps: number) => `${(bps / 100).toFixed(bps % 100 === 0 ? 0 : 2).replace(/\.?0+$/, '')}%`
+export const pct = (bps: number) => `${Number((bps / 100).toFixed(2))}%`
 /** 逐级比例 → 「一级 20% · 二级 5%」 */
 export const ratesText = (rates: number[] | null | undefined, mode: Policy['mode'] = 'level') => {
   if (!rates?.length) return '—'

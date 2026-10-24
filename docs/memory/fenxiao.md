@@ -12,8 +12,10 @@
 - 存 system_settings.fenxiao_policy（zod fenxiaoPolicySchema；读坏 / 缺省 = 关）。后台「分销 → 分佣规则」改。
 - 身份（tiers）：分销商 / 经销商…每档逐级比例；算法 level（逐级）或 differential（级差）；totalCapBps 一笔合计上限；openToAll 人人可推广。
 - 后台「分销商与团队」按用户名设身份 / 单独比例 / 自定义码 / 停用 / 改上级。
+- 其他后台页也接了分销（v1.9.93）：概览有一行分销摘要；「用户与会员」有「推荐 / 分销」列、「分销」筛选（agent / referred）、菜单「分销设置」跳到分销页并带 ?q=用户名（不在体系里自动打开「设为分销商」）、档案里有分销一栏；「订单」金额下显示佣金（拆单显示整单佣金），退款弹窗提示会扣回。
 
 ## 坑
 - 事务里不要另借连接：fenxiao 的 getPolicy(db) 收到的是当前 tx（1.8.0 用池子读，PGlite 场景测出互等，1.8.1 修）。
 - 推广人看到的下级 / 买家用户名服务端打码（maskName）。
 - 真库场景：`apps/api/scripts/fenxiao-scenario.mts`（9 项，只对空测试库跑；本机可用 PGlite socket 起临时库）。
+- 手动确认订单网关单号原来写死 'MANUAL'，撞 orders_provider_order_uq，同一通道只能手动确认一单；v1.9.93 改成 'MANUAL-<单号>'。

@@ -550,7 +550,9 @@ export class PgStore {
     if(params.q){vals.push(`%${params.q}%`);conds.push(`(u.username ILIKE $${i} OR u.email ILIKE $${i} OR u.note ILIKE $${i})`);i++}
     if(params.status){vals.push(params.status);conds.push(`u.status::text=$${i}`);i++}
     if(params.role){vals.push(params.role);conds.push(`u.role::text=$${i}`);i++}
-    if(params.tier){vals.push(params.tier);conds.push(`p.tier=$${i}`);i++}
+    if(params.tier){vals.push(params.tier);conds.push(`p.tier=${i}`);i++}
+    if(params.fenxiao==='agent')conds.push(`fm.tier_code IS NOT NULL`)
+    else if(params.fenxiao==='referred')conds.push(`fm.parent_user_id IS NOT NULL`)
     if(params.membership==='active')conds.push(`l.id IS NOT NULL`)
     else if(params.membership==='expired')conds.push(`l.id IS NULL`)
     else if(params.membership==='expiring')conds.push(`l.id IS NOT NULL AND l.lifetime=false AND l.expires_at<=now()+interval '7 days'`)
@@ -565,10 +567,13 @@ export class PgStore {
       (SELECT count(*)::int FROM devices d WHERE d.user_id=u.id AND d.revoked=false) AS devices,
       (u.password_hash IS NOT NULL) AS "hasPassword",
       coalesce((SELECT array_agg(i.provider ORDER BY i.provider) FROM user_identities i WHERE i.user_id=u.id),'{}') AS identities,u.channel,
+      fm.tier_code AS "fxTier",fm.enabled AS "fxEnabled",pu.username AS inviter,
+      (SELECT count(*)::int FROM fx_members x WHERE x.parent_user_id=u.id::text) AS "fxDirect",
       (count(*) OVER())::int AS "totalCount"
       FROM users u LEFT JOIN LATERAL (
         SELECT * FROM licenses WHERE user_id=u.id AND status='active' AND expires_at>now() ORDER BY lifetime DESC,expires_at DESC LIMIT 1
       ) l ON true LEFT JOIN plans p ON p.id=l.plan_id
+      LEFT JOIN fx_members fm ON fm.user_id=u.id::text LEFT JOIN users pu ON pu.id::text=fm.parent_user_id
       ${where} ORDER BY ${orderBy} LIMIT $${i} OFFSET $${i+1}`,vals)
     const total=r.rows[0]?Number(r.rows[0].totalCount):0
     const items=r.rows.map(({totalCount,...rest}:{totalCount:number})=>rest)
@@ -596,7 +601,20 @@ export class PgStore {
         (SELECT coalesce(sum(amount_cents),0)::int FROM orders WHERE user_id=$1 AND status='paid') AS "paidAmountCents"`,[userId]),
     ])
     if(!user.rows[0])return null
-    return {user:user.rows[0],licenses:licenses.rows,devices:devices.rows,orders:orders.rows,activity:activity.rows,stats:stats.rows[0]}
+    return {user:user.rows[0],licenses:licenses.rows,devices:devices.rows,orders:orders.rows,activity:activity.rows,stats:stats.rows[0],fenxiao:await this.fenxiaoSummary(userId)}
+  }
+  // 用户档案里的分销一栏：上级、身份、邀请码、团队、佣金余额（金额是分）。没进过分销体系的返回 null。
+  private async fenxiaoSummary(userId:string){
+    const m=await this.fx.getMember(userId)
+    if(!m)return null
+    const [account,team,parent]=await Promise.all([
+      this.fx.account(userId),this.fx.teamStats(userId),
+      m.parentUserId?this.pool.query('SELECT username FROM users WHERE id::text=$1',[m.parentUserId]):Promise.resolve({rows:[]}),
+    ])
+    return {tierCode:m.tierCode,enabled:m.enabled,code:m.code,rateOverride:m.rateOverride,note:m.note,boundAt:m.boundAt,
+      inviter:(parent.rows[0] as {username?:string}|undefined)?.username??(m.parentUserId?'(已删除)':null),
+      direct:team.direct,team:team.team,paidOrders:team.paidOrders,
+      earnedCents:Number(account.earned-account.reversed),availableCents:Number(account.available),frozenCents:Number(account.frozen),withdrawnCents:Number(account.withdrawn)}
   }
   async createUserWithLicense(input:{username:string;passwordHash:string;role:string;planId?:string;days:number}){
     const c=await this.pool.connect()
@@ -905,7 +923,8 @@ export class PgStore {
     // and amountSum reflect every matched order, not just the current page.
     const r=await this.pool.query(`SELECT o.id,o.order_no AS "orderNo",u.username,o.plan_name AS "planName",o.tier,o.billing_cycle AS "billingCycle",
       o.amount_cents AS "amountCents",o.currency,o.status,o.provider_code AS "providerCode",o.provider_order_no AS "providerOrderNo",
-      o.paid_at AS "paidAt",o.created_at AS "createdAt",
+      o.paid_at AS "paidAt",o.created_at AS "createdAt",o.group_id AS "groupId",
+      (SELECT coalesce(sum(c.amount),0)::int FROM fx_commissions c WHERE c.source_kind='order' AND c.source_ref=coalesce(o.group_id::text,o.id::text) AND c.status<>'reversed') AS "commissionCents",
       (count(*) OVER())::int AS "totalCount",
       (coalesce(sum(o.amount_cents) FILTER (WHERE o.status='paid') OVER(),0))::bigint AS "amountSumAll"
       FROM orders o JOIN users u ON u.id=o.user_id
@@ -1128,12 +1147,12 @@ export class PgStore {
       if(order.group_id){
         // One piece of a split checkout: confirm just this piece; the plan is
         // granted once the whole group is paid (same path as gateway payments).
-        const allPaid=await this.payGroupPieceInTx(client,order,order.provider_code,order.provider_order_no??'MANUAL',new Date())
+        const allPaid=await this.payGroupPieceInTx(client,order,order.provider_code,order.provider_order_no??`MANUAL-${order.order_no}`,new Date())
         await client.query('COMMIT')
         return {ok:true,duplicate:false,groupAllPaid:allPaid}
       }
       const grant=await this.grantWithinTx(client,{userId:order.user_id,planId:order.plan_id,durationDays:order.duration_days,lifetime:order.lifetime,source:'order',orderId:order.id})
-      await client.query(`UPDATE orders SET status='paid',provider_order_no=COALESCE(provider_order_no,'MANUAL'),paid_at=now(),updated_at=now() WHERE id=$1`,[order.id])
+      await client.query(`UPDATE orders SET status='paid',provider_order_no=COALESCE(provider_order_no,'MANUAL-'||order_no),paid_at=now(),updated_at=now() WHERE id=$1`,[order.id])
       await client.query('COMMIT')
       return {ok:true,duplicate:false,...grant}
     }catch(e){await client.query('ROLLBACK');throw e}finally{client.release()}

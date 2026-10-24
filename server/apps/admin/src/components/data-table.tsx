@@ -94,6 +94,8 @@ export interface DataTableProps<T> {
    * 会并入传给 fetcher 的 filters；空值自动忽略；变化时回到第一页并重新拉取。
    */
   extraParams?: Record<string, string | number | boolean | null | undefined>
+  /** 初始搜索词（例如从别的页面带 ?q= 跳过来）。 */
+  initialQuery?: string
   /** 初始排序。 */
   initialSort?: { sort: string; order: 'asc' | 'desc' }
   /** 每页条数默认值与可选项。 */
@@ -120,6 +122,7 @@ export function DataTable<T>({
   searchPlaceholder = '搜索…',
   filters = [],
   extraParams,
+  initialQuery = '',
   initialSort,
   pageSize = 20,
   pageSizeOptions = [10, 20, 50, 100],
@@ -129,8 +132,8 @@ export function DataTable<T>({
   emptyText = '暂无数据',
   getRowId,
 }: DataTableProps<T>) {
-  const [q, setQ] = React.useState('')
-  const [debouncedQ, setDebouncedQ] = React.useState('')
+  const [q, setQ] = React.useState(initialQuery)
+  const [debouncedQ, setDebouncedQ] = React.useState(initialQuery)
   const [limit, setLimit] = React.useState(pageSize)
   const [offset, setOffset] = React.useState(0)
   const [sort, setSort] = React.useState<string | undefined>(initialSort?.sort)

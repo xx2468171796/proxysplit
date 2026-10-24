@@ -51,12 +51,12 @@ await step('带码注册绑上级（码不分大小写），上级链 = [mid, to
 let first=''
 await step('付款回调分两级佣金（20% / 5%），冻结中',async()=>{
   first=await order(buyer.id,3000)
-  await pay(first,3000,'evt-1')
+  await pay(first,3000,`evt-1-${tag}`)
   assert.deepEqual(await amounts(await refOf(first)),['mid:600:frozen','top:150:frozen'])
 })
 await step('同一回调重放 / 另一条回调同单：不重发',async()=>{
-  assert.equal((await pay(first,3000,'evt-1')).duplicate,true)
-  assert.equal((await pay(first,3000,'evt-1b')).duplicate,true)
+  assert.equal((await pay(first,3000,`evt-1-${tag}`)).duplicate,true)
+  assert.equal((await pay(first,3000,`evt-1b-${tag}`)).duplicate,true)
   assert.equal((await q(`SELECT count(*)::int AS n FROM fx_commissions WHERE source_ref=$1`,[await refOf(first)])).rows[0].n,2)
 })
 await step('拆单：付一笔不分佣，付齐按整组 3000 分一次',async()=>{

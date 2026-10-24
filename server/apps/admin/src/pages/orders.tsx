@@ -41,6 +41,9 @@ type Order = {
   providerOrderNo: string | null
   paidAt: string | null
   createdAt: string
+  /** 这笔（拆单 = 整组）给上级分的佣金，已冲回的不算（分） */
+  commissionCents?: number
+  groupId?: string | null
 }
 
 type Provider = { code: string; displayName: string; enabled: boolean }
@@ -157,6 +160,9 @@ export default function OrdersPage() {
             {row.original.currency && row.original.currency !== 'CNY' && (
               <span className="ml-1 text-xs text-muted-foreground">{row.original.currency}</span>
             )}
+            {row.original.commissionCents ? (
+              <div className="text-xs font-normal text-muted-foreground" title="给推荐人（上级）分的佣金">{row.original.groupId ? '整单佣金' : '佣金'} {money(row.original.commissionCents)}</div>
+            ) : null}
           </div>
         ),
       },
@@ -433,6 +439,11 @@ function RefundDialog({
                 <span className="text-muted-foreground">金额</span>
                 <span className="font-medium">{money(order.amountCents)}</span>
               </div>
+              {order.commissionCents ? (
+                <div className="mt-1 text-xs text-muted-foreground">
+                  这笔给上级分过 {money(order.commissionCents)} 佣金，退款后会自动扣回（已提现的记成欠款）。
+                </div>
+              ) : null}
             </div>
             <label className="grid gap-1.5">
               <span className="text-muted-foreground">退款原因（会写进审计日志）</span>

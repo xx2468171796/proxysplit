@@ -1,4 +1,5 @@
 import * as React from 'react'
+import { FenxiaoDashboardStrip } from './fenxiao/dashboard-strip'
 import {
   Activity,
   CreditCard,
@@ -297,6 +298,8 @@ export default function DashboardPage() {
           </Card>
         ))}
       </div>
+
+      <FenxiaoDashboardStrip />
 
       {/* 图表区标题 + 时间范围切换 */}
       <div className="flex flex-wrap items-center justify-between gap-3">
