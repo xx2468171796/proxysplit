@@ -4,6 +4,12 @@
 > 结论与坑已提炼到 `docs/memory/<主题>.md`；这里是事实存档，按标题取（`node ~/.ankotti/ai-kit/mem.mjs <关键词>`），不要整份读。
 > 约定：sz = 深圳生产机；incoming = sz `/opt/proxysplit/incoming/`；客户端回滚 = 该版本 incoming 目录 `python3 publish-client.py rollback` 并删 releases 表里该版本那行。
 
+## v1.9.95（2026-10-24 23:50，全站发布，强制）
+- release id 20261024-234641-50d4859-v1.9.95，上一版 releases/20261024-190306-f4a5cd9-v1.9.94；无新迁移。
+- 内容：已付费会员（登录 + 非试用套餐，isPaidMember）不弹赞赏码，弹窗开着时变成付费也自动关；试用 / 未登录照常弹（业主 2026-10-24 定）。
+- 客户端 commit 50d4859，SHA256 da965e7bb1f87e63ff8c79e5882ab08dbb6f01d3c8edb293089323bdd897595d，101,070,848 字节；releases（强制，min 1.9.51）+ audit_logs。
+- 验收：飞牛 latest = 1.9.95 mandatory；/health、官网、/admin/ 200；三个下载 sha 一致。
+
 ## v1.9.94（2026-10-24 19:07，全站发布，强制）
 - **全站发布**：release id 20261024-190306-f4a5cd9-v1.9.94，上一版 releases/20261024-140848-cb0d214-v1.9.93；备份 backups/postgres-20261024-190306-f4a5cd9-v1.9.94.sql.gz；迁移 0015_fenxiao_v2.sql（加法，发布前生产 fx 表为空）。
 - 内容：分销换用公司 fenxiao 包 0.1.0（vendor）；后台新增按套餐规则、复购限制、大额待复核（放行 / 作废）、调账、提现手续费；最多 3 级。
