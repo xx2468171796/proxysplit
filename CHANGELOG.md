@@ -3,6 +3,10 @@
 版本号以发布构建为准（`scripts/build-commercial.ps1 -Version <x.y.z>`，注入 `main.appVersion`），
 每个发布产物的 SHA256 见 `output/proxysplit-v<版本>.manifest.json`。
 
+## v1.9.95
+
+- 已开通付费会员的用户，打开软件不再弹出赞赏码；未付费用户照常显示。
+
 ## v1.9.94
 
 - 推广赚钱换用公司统一的分销模块，记账更稳：退款和付款同时发生时佣金一定能正确扣回，同一笔订单不会重复发佣金。

@@ -1,10 +1,10 @@
 // 赞赏码：每次启动弹出，先停留 3 秒（期间不能关），之后只能手动点关闭，不会自动消失。
-// 中转站渠道的客户不弹；需要登录的版本只在启动时已通过授权才弹。
+// 中转站渠道的客户、已付费会员不弹；需要登录的版本只在启动时已通过授权才弹。
 import { Button, Dialog, DialogFooter, Note } from "@ankotti/admin-ui";
 import { useEffect, useState } from "react";
 import donateQR from "../assets/images/donate.png";
 import { useStore } from "../shared/store";
-import { isAigwChannel, license } from "../state/account";
+import { isAigwChannel, isPaidMember, license } from "../state/account";
 import { data } from "../state/data";
 import { updateNotes } from "./update-notes-dialog";
 
@@ -15,14 +15,14 @@ export function DonateDialog() {
   const notesSettled = useStore(updateNotes, (s) => s.settled);
   const loaded = dataLoaded && notesSettled;
   const status = useStore(license, (s) => s.status);
-  const eligible = !isAigwChannel(status) && (!status.enabled || status.authenticated);
+  const eligible = !isAigwChannel(status) && !isPaidMember(status) && (!status.enabled || status.authenticated);
   const [shown, setShown] = useState<"pending" | "open" | "closed">("pending");
   const [left, setLeft] = useState(WAIT_SECONDS);
 
   // 只在首屏数据到达时判断一次（同旧版）：启动时没过授权的，之后登录 / 付款成功也不再打断。
   useEffect(() => {
     if (shown === "pending" && loaded) setShown(eligible ? "open" : "closed");
-    if (shown === "open" && isAigwChannel(status)) setShown("closed");
+    if (shown === "open" && (isAigwChannel(status) || isPaidMember(status))) setShown("closed");
   }, [loaded, eligible, shown, status]);
 
   useEffect(() => {

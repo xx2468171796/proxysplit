@@ -57,6 +57,9 @@ export const license = createStore<AccountState>({
 
 /** 中转站（AI 编程官网）来的客户由推广员服务：不显示作者联系方式、赞赏码、官网 / GitHub。 */
 export const isAigwChannel = (s: LicenseStatus): boolean => s.channel === "aigw";
+/** 已付费会员（登录且有非试用套餐）：不弹赞赏码。 */
+export const isPaidMember = (s: LicenseStatus): boolean =>
+  s.enabled && s.signedIn && s.authenticated && s.planCode !== "" && s.planCode !== "trial";
 /** 试用或无权益时，登录后直接给出套餐选择。 */
 const needsPlan = (s: LicenseStatus): boolean => !s.authenticated || s.planCode === "trial";
 
