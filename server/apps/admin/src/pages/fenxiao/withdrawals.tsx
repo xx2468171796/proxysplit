@@ -15,7 +15,15 @@ export function WithdrawalsTab({ refresh, onChanged }: { refresh: number; onChan
   const [review, setReview] = React.useState<Review | null>(null)
   const columns = React.useMemo<ColumnDef<Withdrawal, unknown>[]>(() => [
     { id: 'user', header: '申请人', cell: ({ row: { original: w } }) => <span className="font-medium">{w.username}</span> },
-    { id: 'amount', header: '金额', cell: ({ row: { original: w } }) => <span className="font-semibold tabular-nums">{money(w.amountCents)}</span> },
+    {
+      id: 'amount', header: '金额',
+      cell: ({ row: { original: w } }) => (
+        <div className="tabular-nums">
+          <div className="font-semibold">{money(w.amountCents)}</div>
+          {w.feeCents > 0 && <div className="text-xs text-muted-foreground">实转 {money(w.netCents)}（手续费 {money(w.feeCents)}）</div>}
+        </div>
+      ),
+    },
     {
       id: 'payee', header: '收款信息',
       cell: ({ row: { original: w } }) => (
@@ -84,7 +92,8 @@ function ReviewDialog({ review, onClose, onDone }: { review: Review | null; onCl
         {review && (
           <div className="space-y-3 text-sm">
             <div className="rounded-md border p-3">
-              <div className="text-2xl font-semibold">{money(review.row.amountCents)}</div>
+              <div className="text-2xl font-semibold">{money(review.row.netCents)}</div>
+              {review.row.feeCents > 0 && <div className="text-xs text-muted-foreground">申请 {money(review.row.amountCents)}，扣手续费 {money(review.row.feeCents)}，实际转这么多</div>}
               <div className="mt-1">{METHOD[review.row.payee.method] ?? review.row.payee.method} · {review.row.payee.name} · <span className="font-mono">{review.row.payee.account}</span></div>
             </div>
             <Input value={note} maxLength={200} onChange={(e) => setNote(e.target.value)} placeholder={paid ? '备注（可填转账流水号）' : '驳回原因（他能看到）'} />

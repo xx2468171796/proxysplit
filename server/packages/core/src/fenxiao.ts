@@ -1,6 +1,6 @@
-// 多级分销接线：公司 SDK tuiguang/fenxiao（vendor 在 ./vendor/fenxiao，tag 见其 VERSION）。
+// 多级分销接线：公司分销包 fenxiao（vendor 在 ./vendor/fenxiao，tag 见其 VERSION）。
 // 规则存 system_settings.fenxiao_policy（金额是人民币分），缺省 = 关：发版零行为变化，后台打开才分佣。
-// 三个接入点在 store.ts：注册建号事务里 bind、grantWithinTx(source='order') 里 settle、refundOrder 里 reverse。
+// 三个接入点在 store.ts：注册建号事务里 bind、grantWithinTx(source='order') 里 settle（productKey = 套餐 id）、refundOrder 里 reverse。
 import type { PgStore } from './store.js'
 import { fenxiaoPolicySchema, type FenxiaoPolicyInput } from '@proxysplit/contracts'
 import { createFenxiao, type FxPolicy, type FxQueryable } from './vendor/fenxiao/index.js'
@@ -21,13 +21,25 @@ export const defaultFenxiaoPolicy: FenxiaoPolicyInput = {
   freezeDays: 7,
   minBaseCents: 0,
   minWithdrawalCents: 1000,
+  holdAboveCents: 0,
+  planRules: [],
+  recurringMaxOrders: 0,
+  recurringWithinDays: 0,
+  withdrawalFeeBps: 0,
+  withdrawalFeeFixedCents: 0,
 }
 
 export function toFxPolicy(p: FenxiaoPolicyInput): FxPolicy {
   return {
-    enabled: p.enabled, mode: p.mode, maxLevels: p.maxLevels, openToAll: p.openToAll,
+    enabled: p.enabled, mode: p.mode, maxLevels: p.maxLevels, allowDeepLevels: false, openToAll: p.openToAll,
     defaultRates: p.defaultRates, tiers: p.tiers, totalCapBps: p.totalCapBps, freezeDays: p.freezeDays,
-    minBaseAmount: BigInt(p.minBaseCents), minWithdrawal: BigInt(p.minWithdrawalCents),
+    minBaseAmount: BigInt(p.minBaseCents), holdAbove: BigInt(p.holdAboveCents),
+    products: p.planRules.map(r => ({ key: r.planId, excluded: r.excluded, multiplierBps: r.multiplierBps })),
+    recurring: { maxOrders: p.recurringMaxOrders, withinDays: p.recurringWithinDays },
+    // 客户端还没有「申请当推广员」入口：只由后台指定
+    application: 'off', applicationTierCode: null,
+    minWithdrawal: BigInt(p.minWithdrawalCents),
+    withdrawalFeeBps: p.withdrawalFeeBps, withdrawalFeeFixed: BigInt(p.withdrawalFeeFixedCents),
   }
 }
 
@@ -44,7 +56,10 @@ export function createProxysplitFenxiao(pool: PgStore['pool']) {
     db: pool,
     // 在付款 / 注册事务里调时 db 就是那个事务：读规则走它，不另借连接
     getPolicy: async (db) => toFxPolicy(await readFenxiaoPolicy(db)),
-    onWarn: (message, err) => console.warn(`[fenxiao] ${message}`, err),
+    logger: {
+      warn: (msg, meta) => console.warn(`[fenxiao] ${msg}`, meta ?? ''),
+      error: (msg, meta) => console.error(`[fenxiao] ${msg}`, meta ?? ''),
+    },
   })
 }
 

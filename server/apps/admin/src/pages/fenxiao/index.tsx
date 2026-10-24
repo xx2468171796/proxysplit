@@ -14,6 +14,8 @@ type Overview = {
   boundMembers: number
   agents: number
   pendingWithdrawals: number
+  heldCommissions: number
+  heldCents: number
   periodCount: number
   frozenCents: number
   availableCents: number
@@ -61,7 +63,7 @@ export default function FenxiaoPage() {
       </div>
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-6">
         <Stat label="近 30 天佣金" value={money(ov?.periodCommissionCents)} hint={`${ov?.periodCount ?? 0} 笔`} />
-        <Stat label="冻结中" value={money(ov?.frozenCents)} hint="退款观察期内" />
+        <Stat label="冻结中" value={money(ov?.frozenCents)} hint={ov?.heldCommissions ? `另有 ${money(ov.heldCents)} 待复核（${ov.heldCommissions} 笔）` : '退款观察期内'} />
         <Stat label="可提现" value={money(ov?.availableCents)} hint="负数 = 退款冲回后的欠款" />
         <Stat label="待打款" value={money(ov?.withdrawingCents)} hint={`${ov?.pendingWithdrawals ?? 0} 笔待审核`} />
         <Stat label="已打款" value={money(ov?.withdrawnCents)} />
@@ -70,14 +72,16 @@ export default function FenxiaoPage() {
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList>
           <TabsTrigger value="members">分销商与团队</TabsTrigger>
-          <TabsTrigger value="commissions">佣金流水</TabsTrigger>
+          <TabsTrigger value="commissions">
+            佣金流水{ov?.heldCommissions ? <Badge variant="destructive" className="ml-1.5" title="待复核">{ov.heldCommissions}</Badge> : null}
+          </TabsTrigger>
           <TabsTrigger value="withdrawals">
             提现审核{ov?.pendingWithdrawals ? <Badge variant="warning" className="ml-1.5">{ov.pendingWithdrawals}</Badge> : null}
           </TabsTrigger>
           <TabsTrigger value="policy">分佣规则</TabsTrigger>
         </TabsList>
         <TabsContent value="members">{policy && <MembersTab policy={policy} refresh={refresh} onChanged={bump} />}</TabsContent>
-        <TabsContent value="commissions"><CommissionsTab refresh={refresh} /></TabsContent>
+        <TabsContent value="commissions"><CommissionsTab refresh={refresh} onChanged={bump} /></TabsContent>
         <TabsContent value="withdrawals"><WithdrawalsTab refresh={refresh} onChanged={bump} /></TabsContent>
         <TabsContent value="policy">{policy && <PolicyTab policy={policy} onSaved={(p) => { setPolicy(p); bump() }} />}</TabsContent>
       </Tabs>

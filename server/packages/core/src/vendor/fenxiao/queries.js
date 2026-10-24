@@ -1,8 +1,4 @@
-/**
- * 只读查询:成员 / 下级 / 佣金 / 提现列表(全部分页,limit ≤100)与总览统计。
- * WHERE 只由固定片段拼接,值全部走参数。
- */
-import { COMMISSION_COLS, MEMBER_COLS, WITHDRAWAL_COLS, page, rows, toAccount, toCommission, toMember, toWithdrawal } from "./sql.js";
+import { APPLICATION_COLS, COMMISSION_COLS, MEMBER_COLS, page, rows, toAccount, toApplication, toAudit, toCommission, toMember, toWithdrawal, WITHDRAWAL_COLS, } from "./sql.js";
 class Where {
     parts = [];
     vals = [];
@@ -13,10 +9,13 @@ class Where {
     sql() {
         return this.parts.length ? `WHERE ${this.parts.join(" AND ")}` : "";
     }
-    next() {
-        return `$${this.vals.length + 1}`;
+    /** 末尾追加 LIMIT / OFFSET 的占位与值 */
+    paged(limit, offset) {
+        const n = this.vals.length;
+        return { tail: `LIMIT $${n + 1} OFFSET $${n + 2}`, vals: [...this.vals, limit, offset] };
     }
 }
+const total = (r) => (r[0] ? Number(r[0].total_count) : 0);
 export async function listMembers(d, query = {}) {
     const { limit, offset } = page(query);
     const w = new Where();
@@ -28,17 +27,19 @@ export async function listMembers(d, query = {}) {
         w.add((p) => `m.parent_user_id = ${p}`, query.parentUserId);
     if (query.userIds)
         w.add((p) => `m.user_id = ANY(${p}::text[])`, query.userIds);
-    const lp = w.next();
-    const r = await rows(d.db, `SELECT ${MEMBER_COLS.split(", ").map((c) => `m.${c}`).join(", ")},
+    const pg = w.paged(limit, offset);
+    const r = await rows(d.db, `SELECT ${MEMBER_COLS.split(", ")
+        .map((c) => `m.${c}`)
+        .join(", ")},
        (SELECT count(*) FROM ${d.t.members} x WHERE x.parent_user_id = m.user_id)::int AS direct_count,
        (SELECT count(*) FROM ${d.t.members} x WHERE x.ancestors @> ARRAY[m.user_id]::text[])::int AS team_count,
-       a.frozen, a.available, a.withdrawing, a.withdrawn, a.earned, a.reversed,
+       a.frozen, a.held, a.available, a.withdrawing, a.withdrawn, a.earned, a.reversed,
        count(*) OVER()::int AS total_count
      FROM ${d.t.members} m LEFT JOIN ${d.t.accounts} a ON a.user_id = m.user_id
-     ${w.sql()} ORDER BY coalesce(a.earned, 0) DESC, m.created_at DESC LIMIT ${lp} OFFSET $${w.vals.length + 2}`, [...w.vals, limit, offset]);
+     ${w.sql()} ORDER BY coalesce(a.earned, 0) DESC, m.created_at DESC ${pg.tail}`, pg.vals);
     return {
         items: r.map((x) => ({ ...toMember(x), directCount: Number(x.direct_count), teamCount: Number(x.team_count), account: toAccount(String(x.user_id), x) })),
-        total: r[0] ? Number(r[0].total_count) : 0,
+        total: total(r),
         limit,
         offset,
     };
@@ -49,10 +50,9 @@ export async function listDownline(d, query) {
     const r = await rows(d.db, `SELECT ${MEMBER_COLS}, array_position(ancestors, $1)::int AS depth, count(*) OVER()::int AS total_count
      FROM ${d.t.members} WHERE ancestors @> ARRAY[$1]::text[] AND ($2::int IS NULL OR array_position(ancestors, $1) = $2)
      ORDER BY bound_at DESC NULLS LAST LIMIT $3 OFFSET $4`, [query.userId, query.level ?? null, limit, offset]);
-    return { items: r.map((x) => ({ ...toMember(x), depth: Number(x.depth) })), total: r[0] ? Number(r[0].total_count) : 0, limit, offset };
+    return { items: r.map((x) => ({ ...toMember(x), depth: Number(x.depth) })), total: total(r), limit, offset };
 }
-export async function listCommissions(d, query = {}) {
-    const { limit, offset } = page(query);
+function commissionWhere(query) {
     const w = new Where();
     if (query.beneficiaryUserId)
         w.add((p) => `beneficiary_user_id = ${p}`, query.beneficiaryUserId);
@@ -60,17 +60,23 @@ export async function listCommissions(d, query = {}) {
         w.add((p) => `buyer_user_id = ${p}`, query.buyerUserId);
     if (query.status)
         w.add((p) => `status = ${p}`, query.status);
+    if (query.sourceKind)
+        w.add((p) => `source_kind = ${p}`, query.sourceKind);
     if (query.sourceRef)
         w.add((p) => `source_ref = ${p}`, query.sourceRef);
+    if (query.productKey)
+        w.add((p) => `product_key = ${p}`, query.productKey);
+    if (query.since)
+        w.add((p) => `created_at >= ${p}`, query.since);
+    return w;
+}
+export async function listCommissions(d, query = {}) {
+    const { limit, offset } = page(query);
+    const w = commissionWhere(query);
+    const pg = w.paged(limit, offset);
     const r = await rows(d.db, `SELECT ${COMMISSION_COLS}, count(*) OVER()::int AS total_count, sum(amount) OVER()::bigint AS amount_sum
-     FROM ${d.t.commissions} ${w.sql()} ORDER BY id DESC LIMIT ${w.next()} OFFSET $${w.vals.length + 2}`, [...w.vals, limit, offset]);
-    return {
-        items: r.map(toCommission),
-        total: r[0] ? Number(r[0].total_count) : 0,
-        amountSum: r[0] ? BigInt(String(r[0].amount_sum)) : 0n,
-        limit,
-        offset,
-    };
+     FROM ${d.t.commissions} ${w.sql()} ORDER BY id DESC ${pg.tail}`, pg.vals);
+    return { items: r.map(toCommission), total: total(r), amountSum: r[0] ? BigInt(String(r[0].amount_sum)) : 0n, limit, offset };
 }
 export async function listWithdrawals(d, query = {}) {
     const { limit, offset } = page(query);
@@ -79,42 +85,29 @@ export async function listWithdrawals(d, query = {}) {
         w.add((p) => `user_id = ${p}`, query.userId);
     if (query.status)
         w.add((p) => `status = ${p}`, query.status);
-    const r = await rows(d.db, `SELECT ${WITHDRAWAL_COLS}, count(*) OVER()::int AS total_count FROM ${d.t.withdrawals} ${w.sql()} ORDER BY id DESC LIMIT ${w.next()} OFFSET $${w.vals.length + 2}`, [...w.vals, limit, offset]);
-    return { items: r.map(toWithdrawal), total: r[0] ? Number(r[0].total_count) : 0, limit, offset };
+    const pg = w.paged(limit, offset);
+    const r = await rows(d.db, `SELECT ${WITHDRAWAL_COLS}, count(*) OVER()::int AS total_count FROM ${d.t.withdrawals} ${w.sql()} ORDER BY id DESC ${pg.tail}`, pg.vals);
+    return { items: r.map(toWithdrawal), total: total(r), limit, offset };
 }
-export async function teamStats(d, userId) {
-    const r = await rows(d.db, `SELECT
-       (SELECT count(*) FROM ${d.t.members} WHERE parent_user_id = $1)::int AS direct,
-       (SELECT count(*) FROM ${d.t.members} WHERE ancestors @> ARRAY[$1]::text[])::int AS team,
-       (SELECT count(DISTINCT source_ref) FROM ${d.t.commissions} WHERE beneficiary_user_id = $1 AND status <> 'reversed')::int AS paid_orders,
-       (SELECT coalesce(sum(amount), 0) FROM ${d.t.commissions} WHERE beneficiary_user_id = $1 AND status <> 'reversed')::bigint AS total`, [userId]);
-    const x = r[0] ?? {};
-    return { direct: Number(x.direct ?? 0), team: Number(x.team ?? 0), paidOrders: Number(x.paid_orders ?? 0), commissionTotal: BigInt(String(x.total ?? 0)) };
+export async function listApplications(d, query = {}) {
+    const { limit, offset } = page(query);
+    const w = new Where();
+    if (query.userId)
+        w.add((p) => `user_id = ${p}`, query.userId);
+    if (query.status)
+        w.add((p) => `status = ${p}`, query.status);
+    const pg = w.paged(limit, offset);
+    const r = await rows(d.db, `SELECT ${APPLICATION_COLS}, count(*) OVER()::int AS total_count FROM ${d.t.applications} ${w.sql()} ORDER BY id DESC ${pg.tail}`, pg.vals);
+    return { items: r.map(toApplication), total: total(r), limit, offset };
 }
-export async function overview(d, since) {
-    const r = await rows(d.db, `SELECT
-       (SELECT count(*) FROM ${d.t.members} WHERE parent_user_id IS NOT NULL)::int AS bound,
-       (SELECT count(*) FROM ${d.t.members} WHERE tier_code IS NOT NULL)::int AS agents,
-       (SELECT coalesce(sum(frozen),0) FROM ${d.t.accounts})::bigint AS frozen,
-       (SELECT coalesce(sum(available),0) FROM ${d.t.accounts})::bigint AS available,
-       (SELECT coalesce(sum(withdrawing),0) FROM ${d.t.accounts})::bigint AS withdrawing,
-       (SELECT coalesce(sum(withdrawn),0) FROM ${d.t.accounts})::bigint AS withdrawn,
-       (SELECT coalesce(sum(reversed),0) FROM ${d.t.accounts})::bigint AS reversed,
-       (SELECT count(*) FROM ${d.t.withdrawals} WHERE status = 'pending')::int AS pending_w,
-       (SELECT coalesce(sum(amount),0) FROM ${d.t.commissions} WHERE created_at >= $1 AND status <> 'reversed')::bigint AS period_amt,
-       (SELECT count(*) FROM ${d.t.commissions} WHERE created_at >= $1 AND status <> 'reversed')::int AS period_cnt`, [since]);
-    const x = r[0] ?? {};
-    const b = (k) => BigInt(String(x[k] ?? 0));
-    return {
-        boundMembers: Number(x.bound ?? 0),
-        agents: Number(x.agents ?? 0),
-        frozen: b("frozen"),
-        available: b("available"),
-        withdrawing: b("withdrawing"),
-        withdrawn: b("withdrawn"),
-        reversed: b("reversed"),
-        pendingWithdrawals: Number(x.pending_w ?? 0),
-        periodCommission: b("period_amt"),
-        periodCount: Number(x.period_cnt ?? 0),
-    };
+export async function listAudit(d, query = {}) {
+    const { limit, offset } = page(query);
+    const w = new Where();
+    if (query.targetUserId)
+        w.add((p) => `target_user_id = ${p}`, query.targetUserId);
+    if (query.action)
+        w.add((p) => `action = ${p}`, query.action);
+    const pg = w.paged(limit, offset);
+    const r = await rows(d.db, `SELECT id, actor_id, action, target_user_id, detail, created_at, count(*) OVER()::int AS total_count FROM ${d.t.audit} ${w.sql()} ORDER BY id DESC ${pg.tail}`, pg.vals);
+    return { items: r.map(toAudit), total: total(r), limit, offset };
 }

@@ -14,9 +14,17 @@ export type Policy = {
   freezeDays: number
   minBaseCents: number
   minWithdrawalCents: number
+  holdAboveCents: number
+  planRules: PlanRule[]
+  recurringMaxOrders: number
+  recurringWithinDays: number
+  withdrawalFeeBps: number
+  withdrawalFeeFixedCents: number
 }
+export type PlanRule = { planId: string; excluded: boolean; multiplierBps: number }
 export type Account = {
   frozenCents: number
+  heldCents: number
   availableCents: number
   withdrawingCents: number
   withdrawnCents: number
@@ -41,6 +49,7 @@ export type Member = {
 }
 export type Commission = {
   id: string
+  sourceKind: string
   sourceRef: string
   orderNo: string | null
   planName: string | null
@@ -50,8 +59,10 @@ export type Commission = {
   baseCents: number
   rateBps: number
   amountCents: number
-  status: 'frozen' | 'available' | 'reversed'
+  status: 'frozen' | 'available' | 'held' | 'reversed'
   availableAt: string
+  holdReason: string | null
+  note: string | null
   reverseReason: string | null
   createdAt: string
 }
@@ -59,6 +70,8 @@ export type Withdrawal = {
   id: string
   username: string
   amountCents: number
+  feeCents: number
+  netCents: number
   status: 'pending' | 'paid' | 'rejected'
   payee: { method: string; account: string; name: string }
   adminNote: string | null
@@ -89,6 +102,7 @@ export const METHOD: Record<string, string> = { alipay: '支付宝', wechat: '�
 const C_STATUS: Record<string, { label: string; variant: BadgeProps['variant'] }> = {
   frozen: { label: '冻结中', variant: 'warning' },
   available: { label: '已到账', variant: 'success' },
+  held: { label: '待复核', variant: 'destructive' },
   reversed: { label: '已冲回', variant: 'secondary' },
 }
 const W_STATUS: Record<string, { label: string; variant: BadgeProps['variant'] }> = {

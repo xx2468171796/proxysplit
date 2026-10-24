@@ -1,7 +1,7 @@
 // 多级分销接口：推广人自己 /v1/fenxiao/*，后台 /v1/admin/fenxiao/*。业务在 core 的 FenxiaoService。
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 import { AppError } from '@proxysplit/shared'
-import { fenxiaoCommissionsQuery, fenxiaoGrantSchema, fenxiaoMemberPatchSchema, fenxiaoMembersQuery, fenxiaoMoveSchema, fenxiaoPolicySchema, fenxiaoReviewSchema, fenxiaoTeamQuery, fenxiaoWithdrawalsQuery, fenxiaoWithdrawSchema } from '@proxysplit/contracts'
+import { fenxiaoAdjustSchema, fenxiaoCommissionReviewSchema, fenxiaoCommissionsQuery, fenxiaoGrantSchema, fenxiaoMemberPatchSchema, fenxiaoMembersQuery, fenxiaoMoveSchema, fenxiaoPolicySchema, fenxiaoReviewSchema, fenxiaoTeamQuery, fenxiaoWithdrawalsQuery, fenxiaoWithdrawSchema } from '@proxysplit/contracts'
 import type { FenxiaoService, PgStore } from '@proxysplit/core'
 
 type Principal={userId:string;role:string}
@@ -44,21 +44,33 @@ export function registerFenxiaoRoutes(app:FastifyInstance,d:Deps){
   })
   app.get('/v1/admin/fenxiao/members',async(req)=>{await d.admin(req);return s.listMembers(fenxiaoMembersQuery.parse(req.query))})
   app.post('/v1/admin/fenxiao/members',async(req)=>{
-    const p=await d.admin(req);const {username,...patch}=fenxiaoGrantSchema.parse(req.body);const row=await s.grant(username,patch)
+    const p=await d.admin(req);const {username,...patch}=fenxiaoGrantSchema.parse(req.body);const row=await s.grant(username,patch,p.userId)
     await store.audit(p.userId,'admin.fenxiao.member','user',row.userId,req.ip,'success',{tierCode:row.tierCode,enabled:row.enabled})
     return row
   })
   app.patch('/v1/admin/fenxiao/members/:id',async(req)=>{
-    const p=await d.admin(req);const id=idParam(req);const row=await s.patchMember(id,fenxiaoMemberPatchSchema.parse(req.body))
+    const p=await d.admin(req);const id=idParam(req);const row=await s.patchMember(id,fenxiaoMemberPatchSchema.parse(req.body),p.userId)
     await store.audit(p.userId,'admin.fenxiao.member','user',id,req.ip,'success',{tierCode:row.tierCode,enabled:row.enabled})
     return row
   })
   app.post('/v1/admin/fenxiao/members/:id/move',async(req)=>{
-    const p=await d.admin(req);const id=idParam(req);const input=fenxiaoMoveSchema.parse(req.body);const row=await s.move(id,input.parentUsername)
+    const p=await d.admin(req);const id=idParam(req);const input=fenxiaoMoveSchema.parse(req.body);const row=await s.move(id,input.parentUsername,p.userId)
     await store.audit(p.userId,'admin.fenxiao.move','user',id,req.ip,'success',{parent:input.parentUsername})
     return row
   })
   app.get('/v1/admin/fenxiao/commissions',async(req)=>{await d.admin(req);return s.listCommissions(fenxiaoCommissionsQuery.parse(req.query))})
+  app.post('/v1/admin/fenxiao/commissions/:cid/review',async(req)=>{
+    const p=await d.admin(req);const cid=(req.params as {cid:string}).cid;const input=fenxiaoCommissionReviewSchema.parse(req.body)
+    const row=await s.reviewCommission(cid,input.action,p.userId,input.note)
+    await store.audit(p.userId,'admin.fenxiao.commission','fx-commission',cid,req.ip,'success',{action:input.action,amountCents:row.amountCents})
+    return row
+  })
+  app.post('/v1/admin/fenxiao/adjustments',async(req)=>{
+    const p=await d.admin(req);const input=fenxiaoAdjustSchema.parse(req.body)
+    const row=await s.adjust(input.username,input.amountCents,input.reason,p.userId)
+    await store.audit(p.userId,'admin.fenxiao.adjust','user',row.beneficiaryUserId,req.ip,'success',{amountCents:row.amountCents,reason:input.reason})
+    return row
+  })
   app.get('/v1/admin/fenxiao/withdrawals',async(req)=>{await d.admin(req);return s.listWithdrawals(fenxiaoWithdrawalsQuery.parse(req.query))})
   app.post('/v1/admin/fenxiao/withdrawals/:wid/review',async(req)=>{
     const p=await d.admin(req);const wid=(req.params as {wid:string}).wid;const input=fenxiaoReviewSchema.parse(req.body)

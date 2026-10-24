@@ -17,11 +17,19 @@ export const fenxiaoTierSchema = z.object({
   rates,
 })
 
-/** 后台「分销规则」。存 system_settings.fenxiao_policy；缺省 = 关。 */
+/** 按套餐的规则：planId = plans.id；excluded = 这个套餐不返佣；multiplierBps = 在正常比例上再乘（5000 = 减半） */
+export const fenxiaoPlanRuleSchema = z.object({
+  planId: z.string().uuid(),
+  excluded: z.boolean().default(false),
+  multiplierBps: z.number().int().min(0).max(30000).default(10000),
+})
+
+/** 后台「分销规则」。存 system_settings.fenxiao_policy；缺省 = 关。v1.9.94 起的新字段都有默认值，老配置照样能读。 */
 export const fenxiaoPolicySchema = z.object({
   enabled: z.boolean(),
   mode: z.enum(['level', 'differential']),
-  maxLevels: z.number().int().min(1).max(10),
+  // 合规：最多 3 级（公司分销包默认上限，国内「三级以上」有传销风险）
+  maxLevels: z.number().int().min(1).max(3),
   openToAll: z.boolean(),
   defaultRates: rates,
   tiers: z.array(fenxiaoTierSchema).max(20),
@@ -29,9 +37,20 @@ export const fenxiaoPolicySchema = z.object({
   freezeDays: z.number().int().min(0).max(365),
   minBaseCents: cents,
   minWithdrawalCents: cents.min(1),
+  /** 实付超过这个金额的单，佣金先挂起待后台复核；0 = 不挂 */
+  holdAboveCents: cents.default(0),
+  planRules: z.array(fenxiaoPlanRuleSchema).max(100).default([]),
+  /** 每个买家最多给上级返几单（0 = 不限）；绑定后多少天内的付款才返（0 = 不限） */
+  recurringMaxOrders: z.number().int().min(0).max(100000).default(0),
+  recurringWithinDays: z.number().int().min(0).max(36500).default(0),
+  /** 提现手续费：比例（万分比）+ 固定额（分），从提现金额里扣 */
+  withdrawalFeeBps: bps.default(0),
+  withdrawalFeeFixedCents: cents.default(0),
 }).superRefine((p, ctx) => {
   const codes = p.tiers.map(t => t.code)
   if (new Set(codes).size !== codes.length) ctx.addIssue({ code: 'custom', message: '等级代码重复', path: ['tiers'] })
+  const plans = p.planRules.map(r => r.planId)
+  if (new Set(plans).size !== plans.length) ctx.addIssue({ code: 'custom', message: '同一个套餐设了两条规则', path: ['planRules'] })
 })
 
 /** 后台设分销商 / 经销商：按用户名找人。tierCode=null 取消等级。 */
@@ -52,8 +71,19 @@ export const fenxiaoMembersQuery = paginationSchema.extend({
   parentUserId: z.string().uuid().optional(),
 })
 export const fenxiaoCommissionsQuery = paginationSchema.extend({
-  status: z.enum(['frozen', 'available', 'reversed']).optional(),
+  status: z.enum(['frozen', 'available', 'held', 'reversed']).optional(),
   beneficiaryUserId: z.string().uuid().optional(),
+})
+/** 复核挂起的佣金：approve 放行 / void 作废（必须写原因） */
+export const fenxiaoCommissionReviewSchema = z.object({
+  action: z.enum(['approve', 'void']),
+  note: z.string().trim().max(200).optional(),
+})
+/** 手工调账：正数补发、负数扣减，直接进可提现；原因推广人能看到 */
+export const fenxiaoAdjustSchema = z.object({
+  username: z.string().trim().min(1).max(64),
+  amountCents: z.number().int().min(-1_000_000_00).max(1_000_000_00).refine(v => v !== 0, '金额不能为 0'),
+  reason: z.string().trim().min(1).max(200),
 })
 export const fenxiaoWithdrawalsQuery = paginationSchema.extend({
   status: z.enum(['pending', 'paid', 'rejected']).optional(),
@@ -77,6 +107,8 @@ export const fenxiaoWithdrawSchema = z.object({
 })
 
 export type FenxiaoPolicyInput = z.infer<typeof fenxiaoPolicySchema>
+/** 后台提交的规则（新字段可省，按默认补） */
+export type FenxiaoPolicyBody = z.input<typeof fenxiaoPolicySchema>
 export type FenxiaoMemberPatch = z.infer<typeof fenxiaoMemberPatchSchema>
 export type FenxiaoMembersQuery = z.infer<typeof fenxiaoMembersQuery>
 export type FenxiaoCommissionsQuery = z.infer<typeof fenxiaoCommissionsQuery>

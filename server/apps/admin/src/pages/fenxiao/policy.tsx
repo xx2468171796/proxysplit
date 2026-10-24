@@ -7,6 +7,7 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { PlanRulesEditor } from './plan-rules'
 import { parseRates, ratesInput, type Policy } from './shared'
 
 type TierDraft = { code: string; name: string; rates: string }
@@ -55,8 +56,8 @@ export function PolicyTab({ policy, onSaved }: { policy: Policy; onSaved: (p: Po
             </SelectContent>
           </Select>
         </Row>
-        <Row label="最多返几级" hint="1 = 只给直接推荐人">
-          <Input type="number" className="w-28" min={1} max={10} value={p.maxLevels} onChange={(e) => set('maxLevels', Math.min(10, Math.max(1, Number(e.target.value) || 1)))} />
+        <Row label="最多返几级" hint="1 = 只给直接推荐人；最多 3 级（国内三级以上有传销风险）">
+          <Input type="number" className="w-28" min={1} max={3} value={p.maxLevels} onChange={(e) => set('maxLevels', Math.min(3, Math.max(1, Number(e.target.value) || 1)))} />
         </Row>
         <Row label="分销身份" hint={diff ? '每个身份填一个总比例（%）' : '每个身份填逐级比例（%），逗号分隔：一级, 二级, …'}>
           <div className="space-y-2">
@@ -86,8 +87,26 @@ export function PolicyTab({ policy, onSaved }: { policy: Policy; onSaved: (p: Po
         <Row label="最低付款金额（元）" hint="低于这个金额的付款不分佣，挡小额刷单">
           <Input type="number" className="w-28" min={0} value={p.minBaseCents / 100} onChange={(e) => set('minBaseCents', Math.round(Math.max(0, Number(e.target.value) || 0) * 100))} />
         </Row>
+        <Row label="按套餐" hint="某个套餐不返佣，或按正常比例打折 / 加成">
+          <PlanRulesEditor value={p.planRules} onChange={(v) => set('planRules', v)} />
+        </Row>
+        <Row label="复购限制" hint="订阅续费常用：每个被推荐用户只给上级返前几单 / 绑定后多少天内；0 = 不限">
+          <div className="flex flex-wrap items-center gap-2 text-sm">
+            前 <Input type="number" className="w-20" min={0} value={p.recurringMaxOrders} onChange={(e) => set('recurringMaxOrders', Math.max(0, Math.floor(Number(e.target.value) || 0)))} /> 单，
+            绑定后 <Input type="number" className="w-20" min={0} value={p.recurringWithinDays} onChange={(e) => set('recurringWithinDays', Math.max(0, Math.floor(Number(e.target.value) || 0)))} /> 天内
+          </div>
+        </Row>
+        <Row label="大额待复核（元）" hint="实付超过这个金额的单，佣金先挂起，到「佣金流水 → 待复核」放行或作废；0 = 不挂">
+          <Input type="number" className="w-28" min={0} value={p.holdAboveCents / 100} onChange={(e) => set('holdAboveCents', Math.round(Math.max(0, Number(e.target.value) || 0) * 100))} />
+        </Row>
         <Row label="最低提现金额（元）">
           <Input type="number" className="w-28" min={0.01} value={p.minWithdrawalCents / 100} onChange={(e) => set('minWithdrawalCents', Math.max(1, Math.round((Number(e.target.value) || 0) * 100)))} />
+        </Row>
+        <Row label="提现手续费" hint="从提现金额里扣，财务按实转金额打款；都填 0 = 不收">
+          <div className="flex flex-wrap items-center gap-2 text-sm">
+            <Input type="number" className="w-20" min={0} max={100} value={p.withdrawalFeeBps / 100} onChange={(e) => set('withdrawalFeeBps', Math.round(Math.min(100, Math.max(0, Number(e.target.value) || 0)) * 100))} /> % +
+            <Input type="number" className="w-24" min={0} value={p.withdrawalFeeFixedCents / 100} onChange={(e) => set('withdrawalFeeFixedCents', Math.round(Math.max(0, Number(e.target.value) || 0) * 100))} /> 元 / 笔
+          </div>
         </Row>
         <div className="flex justify-end"><Button disabled={busy} onClick={save}>{busy ? '保存中…' : '保存规则'}</Button></div>
       </CardContent>

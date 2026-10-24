@@ -1066,7 +1066,7 @@ export class PgStore {
   // 后台手动确认的单（payment_events 有 manual:<单号>）不算：没经网关到账的钱不发佣金（业主 2026-10-24）。
   // 放在保存点里：分佣出任何错都只记日志、不让客户的付款发货失败。
   private async settleCommissionInTx(client:TxClient,orderId:string){
-    const o=(await client.query(`SELECT o.user_id,coalesce(o.group_id::text,o.id::text) AS ref,
+    const o=(await client.query(`SELECT o.user_id,o.plan_id::text AS plan_id,coalesce(o.group_id::text,o.id::text) AS ref,
         (SELECT coalesce(sum(g.amount_cents),0) FROM orders g
           WHERE (g.id=o.id OR (o.group_id IS NOT NULL AND g.group_id=o.group_id AND g.status='paid'))
             AND NOT EXISTS (SELECT 1 FROM payment_events e WHERE e.event_id='manual:'||g.order_no)) AS base
@@ -1074,7 +1074,8 @@ export class PgStore {
     if(!o||Number(o.base)<=0)return
     await client.query('SAVEPOINT fenxiao_settle')
     try{
-      await this.fx.settle({buyerUserId:String(o.user_id),sourceRef:o.ref,baseAmount:BigInt(o.base),tx:client})
+      // productKey = 套餐 id：后台「按套餐」规则（不返 / 倍率）按它匹配
+      await this.fx.settle({buyerUserId:String(o.user_id),sourceRef:o.ref,baseAmount:BigInt(o.base),...(o.plan_id?{productKey:String(o.plan_id)}:{}),tx:client})
       await client.query('RELEASE SAVEPOINT fenxiao_settle')
     }catch(e){
       await client.query('ROLLBACK TO SAVEPOINT fenxiao_settle')
