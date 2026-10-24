@@ -5,6 +5,12 @@
 > 约定：sz = 深圳生产机；incoming = sz `/opt/proxysplit/incoming/`；客户端回滚 = 该版本 incoming 目录 `python3 publish-client.py rollback` 并删 releases 表里该版本那行。
 
 
+## v1.9.93（2026-10-24 14:13，全站发布，强制）
+- **全站发布**：release id 20261024-140848-cb0d214-v1.9.93，上一版 releases/20261024-040747-7f041c1-v1.9.92；备份 backups/postgres-20261024-140848-cb0d214-v1.9.93.sql.gz；无新迁移。
+- 内容：后台概览 / 用户与会员 / 订单接入分销（列、筛选、档案分销栏、订单佣金、退款提示）；修手动确认订单网关单号写死 MANUAL 撞唯一约束；分销页比例显示修正。
+- 客户端 v1.9.93：commit cb0d214，SHA256 7a7d638e77fd7356c77d16d3374d6c35abf5ec5b7425f9c381c0ef50ae209dbf，101,070,336 字节；releases id ae5b90f1-280c-470f-b482-09937d72cd33（强制，min 1.9.51）+ audit_logs。
+- 验收：飞牛 latest = 1.9.93；/health、官网、/admin/ 200；三个下载 sha 一致。本地 PGlite 逐页点击（分销四个标签、用户列表列与筛选、档案、订单佣金与退款弹窗）+ 场景 9 项连跑 3 次通过。
+
 ## v1.9.92（2026-10-24 04:12，全站发布，强制）
 - **全站发布**：release id 20261024-040747-7f041c1-v1.9.92，上一版 releases/20261023-012224-55103f0-v1.9.82；备份 backups/postgres-20261024-040747-7f041c1-v1.9.92.sql.gz；新迁移 0014_fenxiao（四张 fx_ 表，纯新增）。
 - 客户端 v1.9.92：exe 源 commit 7f041c1（tag v1.9.92），SHA256 c58ebb228fd0e7886feb4af511db3b0c769bc83293bb2391b44326bb88e3f744，101,069,824 字节，内核 1.14.3-relayops.1；releases id 73a74200-a442-4139-ab82-c9c36de3d59b（强制，min 1.9.51）+ audit_logs。
