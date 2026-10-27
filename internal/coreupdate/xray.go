@@ -46,21 +46,61 @@ func ParseXrayRelease(raw []byte) (XrayRelease, error) {
 func xrayPath(dir string) string       { return filepath.Join(dir, XrayExe) }
 func xrayBackupPath(dir string) string { return filepath.Join(dir, XrayExe+".old") }
 
+func xrayMarkPath(dir string) string { return filepath.Join(dir, XrayExe+".sha.json") }
+
+// xrayMark caches xray.exe's SHA256 keyed by size + mtime, so a launch does
+// not re-read and re-hash the whole binary when nothing changed.
+type xrayMark struct {
+	Size    int64  `json:"size"`
+	ModTime int64  `json:"mtime"` // UnixNano
+	SHA256  string `json:"sha256"`
+}
+
 // XrayInstalled reports whether dir/xray.exe is exactly the pinned build.
-func XrayInstalled(dir string, r XrayRelease) bool {
+func XrayInstalled(dir string, r XrayRelease) bool { return xraySHA(dir) == r.SHA256 }
+
+// xraySHA returns dir/xray.exe's SHA256 ("" if missing), from the marker when
+// size and mtime still match, else by hashing (and refreshing the marker).
+func xraySHA(dir string) string {
+	st, err := os.Stat(xrayPath(dir))
+	if err != nil {
+		return ""
+	}
+	var mk xrayMark
+	if raw, err := os.ReadFile(xrayMarkPath(dir)); err == nil && json.Unmarshal(raw, &mk) == nil &&
+		mk.Size == st.Size() && mk.ModTime == st.ModTime().UnixNano() && len(mk.SHA256) == 64 {
+		return mk.SHA256
+	}
 	data, err := os.ReadFile(xrayPath(dir))
 	if err != nil {
-		return false
+		return ""
 	}
 	sum := sha256.Sum256(data)
-	return hex.EncodeToString(sum[:]) == r.SHA256
+	sha := hex.EncodeToString(sum[:])
+	writeXrayMark(dir, sha)
+	return sha
+}
+
+// writeXrayMark records sha for the current dir/xray.exe (best effort).
+func writeXrayMark(dir, sha string) {
+	st, err := os.Stat(xrayPath(dir))
+	if err != nil {
+		return
+	}
+	raw, _ := json.Marshal(xrayMark{Size: st.Size(), ModTime: st.ModTime().UnixNano(), SHA256: sha})
+	_ = os.WriteFile(xrayMarkPath(dir), raw, 0o600)
 }
 
 // EnsureBundledXray installs the xray.exe embedded in the client when the
-// installed one differs from the pin (missing, older or damaged).
-func EnsureBundledXray(dir string, exe []byte, r XrayRelease) error {
+// installed one differs from the pin (missing, older or damaged). load reads
+// the embedded binary and is only called when an install is needed.
+func EnsureBundledXray(dir string, load func() ([]byte, error), r XrayRelease) error {
 	if XrayInstalled(dir, r) {
 		return nil
+	}
+	exe, err := load()
+	if err != nil {
+		return err
 	}
 	return InstallXray(dir, exe, r.SHA256)
 }
@@ -111,6 +151,7 @@ func InstallXray(dir string, exe []byte, expected string) error {
 		return werr
 	}
 	dst, old := xrayPath(dir), xrayBackupPath(dir)
+	_ = os.Remove(xrayMarkPath(dir)) // stale from here on; rewritten on success
 	if err := retry(func() error { return os.Remove(old) }); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("%w: %v", ErrBackupBusy, err)
 	}
@@ -126,6 +167,7 @@ func InstallXray(dir string, exe []byte, expected string) error {
 		}
 		return fmt.Errorf("替换 Xray 内核失败：%w", err)
 	}
+	writeXrayMark(dir, strings.ToLower(expected))
 	return nil
 }
 
@@ -136,6 +178,7 @@ func RollbackXray(dir string) error {
 	if _, err := os.Stat(xrayBackupPath(dir)); err != nil {
 		return fmt.Errorf("没有可回滚的旧 Xray 内核")
 	}
+	_ = os.Remove(xrayMarkPath(dir)) // re-hashed on the next check
 	if err := retry(func() error { return os.Remove(xrayPath(dir)) }); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("%w: %v", ErrBackupBusy, err)
 	}

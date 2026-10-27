@@ -18,12 +18,31 @@ import (
 // M is a JSON object.
 type M = map[string]any
 
-// Entry is one node served by the sidecar on 127.0.0.1:Port.
-type Entry struct {
-	Key  string // Key(node); also the inbound / outbound tag suffix
+// Endpoint is where sing-box reaches one node's sidecar inbound: SOCKS5 on
+// 127.0.0.1:Port with a per-launch random user / password, so no other local
+// program can borrow the node through the loopback port.
+type Endpoint struct {
 	Port int
+	User string
+	Pass string
+}
+
+// Entry is one node served by the sidecar.
+type Entry struct {
+	Key string // Key(node); also the inbound / outbound tag suffix
+	Endpoint
 	Node *nodes.Node
 }
+
+// directDNS are the China resolvers Xray uses for its own server lookups
+// (first one wins, the rest are fallbacks). Never the OS resolver: under TUN
+// that lookup would be hijacked into sing-box's remote DNS, which goes through
+// the proxy — i.e. through this very sidecar — and never resolves.
+var directDNS = []string{"223.5.5.5", "119.29.29.29"}
+
+// resolveStrategy makes every outbound resolve its server via the "dns" block
+// above instead of the system resolver (sockopt.domainStrategy).
+const resolveStrategy = "UseIP"
 
 // Key identifies a node across lines / extra nodes / port proxies so the same
 // node shares one inbound.
@@ -34,8 +53,9 @@ func Key(n *nodes.Node) string {
 	return fmt.Sprintf("%s-%s-%d", n.Type, n.Server, n.Port)
 }
 
-// BuildConfig renders the Xray JSON config: one SOCKS inbound (no auth, UDP
-// on) per entry, routed by inboundTag to that entry's outbound.
+// BuildConfig renders the Xray JSON config: one SOCKS inbound (password auth,
+// UDP on) per entry, routed by inboundTag to that entry's outbound, plus a
+// direct-resolver "dns" block for the outbounds' own server names.
 func BuildConfig(entries []Entry, logLevel string) ([]byte, error) {
 	if len(entries) == 0 {
 		return nil, fmt.Errorf("xray: no nodes")
@@ -44,7 +64,7 @@ func BuildConfig(entries []Entry, logLevel string) ([]byte, error) {
 	sort.Slice(sorted, func(i, j int) bool { return sorted[i].Port < sorted[j].Port })
 	var inbounds, outbounds, rules []M
 	for _, e := range sorted {
-		if e.Port <= 0 || e.Node == nil {
+		if e.Port <= 0 || e.Node == nil || e.User == "" || e.Pass == "" {
 			return nil, fmt.Errorf("xray: bad entry %q", e.Key)
 		}
 		ob, err := Outbound(e.Node, "out-"+e.Key)
@@ -53,7 +73,7 @@ func BuildConfig(entries []Entry, logLevel string) ([]byte, error) {
 		}
 		inbounds = append(inbounds, M{
 			"tag": "in-" + e.Key, "listen": "127.0.0.1", "port": e.Port, "protocol": "socks",
-			"settings": M{"auth": "noauth", "udp": true, "ip": "127.0.0.1"},
+			"settings": M{"auth": "password", "accounts": []M{{"user": e.User, "pass": e.Pass}}, "udp": true, "ip": "127.0.0.1"},
 		})
 		outbounds = append(outbounds, ob)
 		rules = append(rules, M{"type": "field", "inboundTag": []string{"in-" + e.Key}, "outboundTag": "out-" + e.Key})
@@ -63,6 +83,7 @@ func BuildConfig(entries []Entry, logLevel string) ([]byte, error) {
 	}
 	cfg := M{
 		"log":       M{"loglevel": logLevel},
+		"dns":       M{"servers": directDNS, "queryStrategy": "UseIP"},
 		"inbounds":  inbounds,
 		"outbounds": outbounds,
 		"routing":   M{"domainStrategy": "AsIs", "rules": rules},
@@ -95,7 +116,7 @@ func Outbound(n *nodes.Node, tag string) (M, error) {
 
 func streamSettings(n *nodes.Node) (M, error) {
 	network := n.XrayNetwork()
-	s := M{"network": network}
+	s := M{"network": network, "sockopt": M{"domainStrategy": resolveStrategy}}
 	switch network {
 	case nodes.NetXHTTP:
 		x := M{"path": firstNonEmpty(n.Path, "/")}

@@ -49,7 +49,9 @@ func NewManager(binPath, dataDir string, onLog LogFunc) *Manager {
 	if onLog == nil {
 		onLog = func(string) {}
 	}
-	return &Manager{binPath: binPath, dataDir: dataDir, onLog: onLog, xray: newSidecar(binPath, filepath.Join(dataDir, "xray"), onLog)}
+	m := &Manager{binPath: binPath, dataDir: dataDir, onLog: onLog, xray: newSidecar(binPath, filepath.Join(dataDir, "xray"), onLog)}
+	m.xray.AutoRestart, m.xray.OnDead = true, m.xrayDead // sidecar crash: restart once, then xrayDead
+	return m
 }
 
 // Running reports whether the core process is currently up.
@@ -103,7 +105,7 @@ func (m *Manager) Node() *nodes.Node {
 // Check validates a generated config using `sing-box check` without starting it.
 func (m *Manager) Check(node *nodes.Node, opts Options) error {
 	if node.NeedsXray() { // sing-box only sees the sidecar's SOCKS outbound
-		opts.XrayPorts = map[string]int{xray.Key(node): deadXrayPort}
+		opts.XrayPorts = map[string]xray.Endpoint{xray.Key(node): {Port: deadXrayPort}}
 	}
 	cfg, err := BuildConfig(node, 17890, "info", opts)
 	if err != nil {
