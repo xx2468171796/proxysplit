@@ -288,6 +288,7 @@ func (a *App) shutdown(ctx context.Context) {
 	if a.svc != nil {
 		a.svc.Stop()
 		a.svc.StopProxyPorts()
+		a.svc.Close()
 	}
 	telemetryExit()
 }

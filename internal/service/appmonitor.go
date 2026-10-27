@@ -27,7 +27,13 @@ func (s *Service) appMonitorLoop() {
 	})
 	t := time.NewTicker(time.Second)
 	defer t.Stop()
-	for now := range t.C {
+	for {
+		var now time.Time
+		select {
+		case <-s.quit:
+			return
+		case now = <-t.C:
+		}
 		if !s.core.Running() {
 			continue
 		}

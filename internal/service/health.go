@@ -49,8 +49,13 @@ func (s *Service) healthLoop() {
 	s.refreshHealth()
 	t := time.NewTicker(10 * time.Second)
 	defer t.Stop()
-	for range t.C {
-		s.refreshHealth()
+	for {
+		select {
+		case <-s.quit:
+			return
+		case <-t.C:
+			s.refreshHealth()
+		}
 	}
 }
 
