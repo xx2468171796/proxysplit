@@ -21,16 +21,50 @@ frontend/src/
               routing.ts    规则库、自定义规则、自定义线路
               nodes.ts subs.ts system.ts update.ts  节点测速 / 订阅 / 系统项与 Claude 加速 / 软件更新
   app/        app.tsx（Provider + 闸门：强制升级 → 登录 / 会员 → 主界面）、外壳 main-shell.tsx（qiantai/desktop 的 DesktopShell）、theme.ts（主色 / 明暗 / 外观默认）、生命周期（首屏快照、事件、定时器）
-  features/   一个页面一个目录：overview nodes apps rules subs logs settings account；页面只读 store、调动作
+  features/   一个功能一个目录：overview ai nodes subs apps ports rules logs settings account；页面只读 store、调动作。
+              合并页（2026-10-28）：nodes-hub-page（节点 | 订阅）、apps/routing-page（应用分流 | 端口代理）、ai（环境与出口 | Claude Code 加速 | AI 控制接口）、logs（实时连接 | 运行日志 | 诊断）；跳到分区用 navigate(page, intent, tab)
   shared/     纯函数（format.ts，有单测）、store
   dev/        浏览器预览用的假后端 + 预览参数（`vite dev` 或 `VITE_MOCK=1` 评审包才装，正式包不含）
 ```
 
 依赖方向：`features → state → api → wailsjs`；`shared` 被所有层用、不依赖别人。页面之间不互相 import。
 
+## Go 后端模块地图（2026-10-28 整理后）
+
+```
+app.go / *_app.go     Wails 绑定：只做参数转换、埋点（telemetry）、错误转文本，不写业务
+internal/service/     业务编排（一个 Service，按职责分文件）：
+  service.go            类型、默认值、New、调度器、日志
+  service_store.go      配置读写（.bak 恢复链、原子写）
+  lifecycle.go          启停、内核选项组装（splitOptionsLocked）、热应用
+  nodes_svc.go apprules_svc.go subs_svc.go settings_svc.go  节点 / 应用规则与线路 / 订阅 / 设置
+  capture_svc.go        接管方式（仅接管选中程序默认，驱动未就绪回落 TUN）
+  其余 *_svc.go / *.go   各自一项能力（AI 环境、出口 IP、端口代理、测速、诊断…）
+internal/core/        生成 sing-box 配置 + 管内核进程：config.go（整体组装）、outbounds.go（各协议出站）、
+                      rules.go（规则片段）、aiguard.go（AI 锁定与 TUN 前置规则）、process_config.go（由 TUN 配置改写）、
+                      tunaddr.go（TUN 网段挑选）、manager.go / portproc.go / probe.go（进程）
+internal/capture divert   仅接管选中程序（WinDivert）    internal/xray   Xray 旁路内核
+internal/nodes subs   节点模型与分享链接 / 订阅解析     internal/procjob   子进程随主程序退出（Job Object）
+internal/telemetry    日志与事件上报                   internal/aiguard   AI 锁定（NRPT、开机任务）
+```
+
+## 设计语言（新代码照这些形状写）
+
+| 部件 | 放在 | 命名 | 负责 |
+|---|---|---|---|
+| Wails 绑定 | `app.go` / `<能力>_app.go` | 与界面动作同名（`SetSubOptions`） | 转参、埋点、`errStr` 转错误文本（"" = 成功） |
+| 业务能力 | `internal/service/<能力>_svc.go` | 动词开头的 Service 方法 | 校验 → 先做可能失败的外部动作（拉取 / 探测）→ 成功后在 `s.mu` 下改配置并 `save()` → `applyLive()`；失败不改已保存状态 |
+| 内核配置片段 | `internal/core/<主题>.go` | `<主题>Rules()` / `build<协议>()` | 纯函数，输入 Options 输出 `M`；规则顺序是契约（config.go 顶部注释），新规则必须加 sing-box check 测试 |
+| 子进程 | `internal/core` / `internal/xray` | `Start…` / `Stop` | 启动后立刻 `procjob.Attach`；hideWindow；退出清残留 |
+| 下载 / 外部资源 | `internal/coreupdate` 等 | `Ensure…` / `…Ready` | 自家镜像 + SHA256 校验；不在 lifecycleMu 内下载 |
+| 界面数据 | `frontend/src/state/<域>.ts` | 动作函数返回错误文本 | 调 api → 刷新相关 store；页面不直接调 api |
+| 界面页面 | `frontend/src/features/<功能>/` | `<功能>-page.tsx`、`<功能>-dialog.tsx` | 只读 store、调 state 动作；纯逻辑放 `*-tools.ts` 并配单测 |
+| 埋点事件 | `internal/telemetry/catalog.go` + `server/.../telemetry.ts` + `docs/telemetry-events.md` | `域.动作` | 三处同步 |
+
+
 ## 关键规则（不变量）
 
-- 接管方式（`Settings.captureMode`）默认 `tun`；`process` 只在按应用分流下生效，AI 强制走线路开着时自动退回 TUN。两种方式共用同一套规则顺序：`BuildProcessConfig` 由 TUN 配置改写而来（进程条件 → 入站条件），不得各写一套。仅接管模式下应用名单热更新只换 `capture.Routes`，不重启内核；WinDivert 句柄随停止 / 内核退出关闭。
+- 接管方式（`Settings.captureMode`）默认「仅接管选中程序」（空值即 process，只有显式 `tun` 才整机虚拟网卡，顶栏 TUN 开关同一项；`Settings.ProcessCapture()` 是唯一判断处）；`process` 只在按应用分流下生效，AI 强制走线路开着时自动退回 TUN。两种方式共用同一套规则顺序：`BuildProcessConfig` 由 TUN 配置改写而来（进程条件 → 入站条件），不得各写一套。仅接管模式下应用名单热更新只换 `capture.Routes`，不重启内核；WinDivert 句柄随停止 / 内核退出关闭。
 
 - 节点和应用规则是不可替代的用户数据：重载时两者都读成功才替换屏幕；其余数据单项失败保留旧值（`state/data.ts reloadData`）。
 - Go 的 nil 切片是 `null`：只在 `api/backend.ts` 兜成空数组，界面层不再判空。
@@ -53,12 +87,13 @@ frontend/src/
 | 页面 | 模板 | 说明 |
 |---|---|---|
 | 概览 | 用户向首页（2026-10-22 改） | 连接面板（大开关 / 节点 / 速率 / 分流方式白话）+ AI 环境检测 + 常用操作 + 节点健康 + 应用分流摘要 + 最新日志 |
-| 节点 | T02 资源列表 | 导入（链接 / 手动）弹框，表格行内测 TCP / Google / 速度、设为活动、二维码、删除 |
-| 应用分流 | T03 指标 + 列表 | 分流模式、未列出应用的去向、规则表（方式 / 节点 / 启用 / 测试 / 目标条件 / 删除） |
-| 分流规则 | T05 分区合并 | 规则库 / 自定义规则 / 线路 三个分区 |
-| 订阅 | T02 资源列表 | 添加 / 编辑弹框，行内更新、自动更新开关、删除 |
-| 日志 | T05 分区合并 | 实时连接诊断 / 运行日志 |
-| 设置 | T08 设置页 | 账户与设备、AI 控制、Claude 加速、内核与诊断、分流引擎、系统集成 |
+| 节点 | T02 资源列表（分区：节点 | 订阅） | 导入（链接 / 手动）弹框，排序（默认 / 延迟 / 名称）、删除不通的，表格行内测 TCP / Google / 速度、设为活动、二维码、删除；订阅分区见下 |
+| 分流（应用分流 | 端口代理） | T03 指标 + 列表 | 分流模式、未列出应用的去向、规则表（方式 / 节点 / 启用 / 测试 / 目标条件 / 删除） |
+| 分流规则 | T05 分区合并 | 规则库 / 自定义规则 / 线路 三个分区；页头链到应用名单、清除与重置 |
+| 订阅（节点页分区） | T02 资源列表 | 添加 / 编辑弹框（编辑含高级：包含 / 排除、User-Agent、更新间隔），行内更新、自动更新开关、删除 |
+| 日志与诊断 | T05 分区合并 | 实时连接 / 运行日志 / 诊断 |
+| AI | 分区页 | 环境与出口 / Claude Code 加速 / AI 控制接口 |
+| 设置 | T08 设置页 | 常规、网络与接管、内核与节点、账号与设备、清除与重置 |
 | 登录 / 注册 | AuthLayout | POWER云 / AI 编程官网授权登录、免登录下载自动登录 |
 | 会员中心 | 弹框 / 整页闸门 | 套餐、兑换码、设备解绑、支付宝扫码、拆单支付 |
 
