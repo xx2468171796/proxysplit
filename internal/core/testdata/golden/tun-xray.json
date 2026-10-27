@@ -1,0 +1,172 @@
+{
+  "dns": {
+    "final": "dns-direct",
+    "rules": [
+      {
+        "process_path": [
+          "C:\\x\\xray.exe"
+        ],
+        "server": "dns-direct"
+      },
+      {
+        "rule_set": [
+          "geosite-cn"
+        ],
+        "server": "dns-direct"
+      }
+    ],
+    "servers": [
+      {
+        "detour": "proxy",
+        "server": "8.8.8.8",
+        "tag": "dns-remote",
+        "type": "udp"
+      },
+      {
+        "server": "223.5.5.5",
+        "tag": "dns-direct",
+        "type": "udp"
+      }
+    ],
+    "strategy": "ipv4_only"
+  },
+  "inbounds": [
+    {
+      "address": [
+        "172.19.0.1/30",
+        "fdfe:dcba:9876::1/126"
+      ],
+      "auto_route": true,
+      "mtu": 1500,
+      "stack": "system",
+      "strict_route": true,
+      "tag": "tun-in",
+      "type": "tun"
+    }
+  ],
+  "log": {
+    "level": "warn",
+    "timestamp": true
+  },
+  "outbounds": [
+    {
+      "password": "p",
+      "server": "127.0.0.1",
+      "server_port": 31001,
+      "tag": "proxy",
+      "type": "socks",
+      "username": "u",
+      "version": "5"
+    },
+    {
+      "tag": "direct",
+      "type": "direct"
+    }
+  ],
+  "route": {
+    "auto_detect_interface": true,
+    "default_domain_resolver": {
+      "server": "dns-direct"
+    },
+    "final": "proxy",
+    "rule_set": [
+      {
+        "format": "binary",
+        "path": "GEO/geosite-cn.srs",
+        "tag": "geosite-cn",
+        "type": "local"
+      },
+      {
+        "format": "binary",
+        "path": "GEO/geoip-cn.srs",
+        "tag": "geoip-cn",
+        "type": "local"
+      },
+      {
+        "format": "binary",
+        "path": "GEO/geosite-category-ads-all.srs",
+        "tag": "geosite-ads",
+        "type": "local"
+      }
+    ],
+    "rules": [
+      {
+        "action": "reject",
+        "ip_cidr": [
+          "172.19.0.1/32",
+          "fdfe:dcba:9876::1/128"
+        ],
+        "method": "drop"
+      },
+      {
+        "action": "reject",
+        "mode": "and",
+        "rules": [
+          {
+            "ip_version": 6
+          },
+          {
+            "invert": true,
+            "ip_is_private": true
+          },
+          {
+            "invert": true,
+            "port": [
+              53
+            ]
+          }
+        ],
+        "type": "logical"
+      },
+      {
+        "network": [
+          "icmp"
+        ],
+        "outbound": "direct"
+      },
+      {
+        "action": "sniff"
+      },
+      {
+        "outbound": "direct",
+        "process_path": [
+          "C:\\x\\xray.exe"
+        ]
+      },
+      {
+        "action": "hijack-dns",
+        "mode": "or",
+        "rules": [
+          {
+            "port": 53
+          },
+          {
+            "protocol": "dns"
+          }
+        ],
+        "type": "logical"
+      },
+      {
+        "ip_is_private": true,
+        "outbound": "direct"
+      },
+      {
+        "action": "reject",
+        "ip_version": 6
+      },
+      {
+        "action": "reject",
+        "rule_set": [
+          "geosite-ads"
+        ]
+      },
+      {
+        "outbound": "direct",
+        "rule_set": [
+          "geosite-cn",
+          "geoip-cn"
+        ]
+      }
+    ]
+  }
+}
