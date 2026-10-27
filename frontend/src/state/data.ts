@@ -174,7 +174,8 @@ export async function saveSettings(patch: Partial<Settings>): Promise<string> {
 export async function saveNetSettings(net: NetSettings): Promise<string> {
   if (!data.get().loaded) return NOT_LOADED;
   const err = await api.setNetSettings(net);
-  if (!err) data.set({ settings: { ...data.get().settings, net } });
+  // 「已保存,但…重启失败」也算存下了。
+  if (!err || err.startsWith("已保存")) data.set({ settings: { ...data.get().settings, net } });
   await refreshStatus();
   return err;
 }

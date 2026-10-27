@@ -91,3 +91,4 @@ service.streamPreset：直播伴侣.exe、MediaSDK_Server.exe（抖音直播伴�
 - 跟随「活动节点」的线路 / 按应用线路 / 端口代理自然跟着组走；startNodes 展开成员和前置节点，预解析与保活都覆盖。测速活动节点走主内核（或同组探针），不写回节点；TCP 延迟对 auto 不测。
 - 「选中节点不存在就改选第一个」的三处（lines.go healDangling、service_store dropPlaceholder、apptest 导入校验）都放过 auto。
 - 顺带修：`isCoreConfig` 原先在整个文件里找 `"outbounds"`，存了整组导入 / 官方节点（自带 outbounds）的配置会被当成内核配置，重载时退回 .bak；现只看顶层键。
+- 只作用于主内核（TUN / 仅接管程序共用的 buildTUNTree）；端口代理（portconfig.go）和旧多线路配置仍用内置 DNS。

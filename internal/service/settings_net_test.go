@@ -16,7 +16,7 @@ func TestNetSettingsValidate(t *testing.T) {
 		}
 	}
 	s, _ := New(t.TempDir(), t.TempDir())
-	if err := s.SetNetSettings(NetSettings{TunMTU: 1400}); err != nil || s.GetSettings().Net.TunMTU != 1400 {
+	if _, err := s.SetNetSettings(NetSettings{TunMTU: 1400}); err != nil || s.GetSettings().Net.TunMTU != 1400 {
 		t.Fatalf("save failed: %v", err)
 	}
 }

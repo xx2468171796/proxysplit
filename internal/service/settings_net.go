@@ -74,13 +74,18 @@ func (n NetSettings) coreDNS() core.DNSOptions {
 
 // SetNetSettings validates and saves the DNS / TUN advanced options; the core
 // restarts through SetSettings when they changed.
-func (s *Service) SetNetSettings(n NetSettings) error {
+func (s *Service) SetNetSettings(n NetSettings) (string, error) {
 	n.DNSDirect, n.DNSRemote = strings.TrimSpace(n.DNSDirect), strings.TrimSpace(n.DNSRemote)
 	if err := n.validate(); err != nil {
-		return err
+		return "", err
 	}
-	st := s.GetSettings()
-	st.Net = n
-	s.SetSettings(st)
-	return nil
+	s.mu.Lock()
+	changed := n.changed(s.cfg.Settings.Net)
+	s.cfg.Settings.Net = n
+	s.save()
+	s.mu.Unlock()
+	if !changed || !s.core.Running() {
+		return "", nil
+	}
+	return restartMsg(s.restart()), nil
 }

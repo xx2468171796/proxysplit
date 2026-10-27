@@ -10,7 +10,9 @@ import (
 // copy, ready for the core; n itself when it has none or the front is gone.
 // Caller holds s.mu.
 func (s *Service) chainLocked(n *nodes.Node) *nodes.Node {
-	if n == nil || n.Via == "" || n.Via == n.ID {
+	// A node that became unchainable (switched to Xray, or a refresh made it
+	// Xray-only) keeps Via stored but dials directly, so the core still starts.
+	if n == nil || n.Via == "" || n.Via == n.ID || n.UseXray() || n.HasRaw() {
 		return n
 	}
 	front := s.nodeByID(n.Via)
@@ -48,6 +50,12 @@ func (s *Service) SetNodeVia(id, viaID string) string {
 		case front.Via != "":
 			s.mu.Unlock()
 			return fmt.Sprintf("「%s」自己也设了前置，只支持一层前置", front.Name)
+		case n.Official:
+			s.mu.Unlock()
+			return "POWER云 官方线路不能再设前置代理"
+		case s.isFrontLocked(id):
+			s.mu.Unlock()
+			return fmt.Sprintf("「%s」已是别的节点的前置，只支持一层前置", n.Name)
 		case n.UseXray() || n.HasRaw():
 			s.mu.Unlock()
 			return fmt.Sprintf("「%s」暂不支持前置代理（Xray 节点或整组导入的配置）", n.Name)
@@ -57,4 +65,14 @@ func (s *Service) SetNodeVia(id, viaID string) string {
 	s.save()
 	s.mu.Unlock()
 	return restartMsg(s.restart())
+}
+
+// isFrontLocked: some node is dialled through id. Caller holds s.mu.
+func (s *Service) isFrontLocked(id string) bool {
+	for _, n := range s.cfg.Nodes {
+		if n != nil && n.Via == id {
+			return true
+		}
+	}
+	return false
 }

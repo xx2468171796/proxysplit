@@ -17,7 +17,7 @@ export function DNSSection() {
     setBusy(true);
     const err = await saveNetSettings(v);
     setBusy(false);
-    say(err ? `保存失败：${err}` : "已保存，内核已按新设置重启", err ? "error" : undefined);
+    say(err ? (err.startsWith("已保存") ? err : `保存失败：${err}`) : "已保存", err ? "error" : undefined);
   };
   return (
     <Panel

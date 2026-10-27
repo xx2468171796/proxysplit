@@ -65,8 +65,10 @@ func (s *Service) mainUsesNodeLocked(id string) bool {
 	if s.run == nil {
 		return false
 	}
-	if s.run.node != nil && s.run.node.ID == id {
-		return true
+	for _, n := range expandNodes([]*nodes.Node{s.run.node}) {
+		if n.ID == id {
+			return true
+		}
 	}
 	for _, en := range s.run.base.ExtraNodes {
 		if en.Node != nil && en.Node.ID == id {

@@ -48,3 +48,20 @@ func TestNodeViaRules(t *testing.T) {
 		t.Fatal("deleting the front must clear the reference")
 	}
 }
+
+// Review 2026-10-28: a node that is already a front can't get a front itself
+// (would silently become a 2-hop chain).
+func TestSetNodeViaRefusesFrontOfFront(t *testing.T) {
+	s, _ := New(t.TempDir(), t.TempDir())
+	if added, _ := s.AddNodes("socks://127.0.0.1:1080#A\nsocks://127.0.0.1:1081#B\nsocks://127.0.0.1:1082#C"); added != 3 {
+		t.Fatalf("added %d", added)
+	}
+	ns := s.Nodes()
+	a, b, c := ns[0].ID, ns[1].ID, ns[2].ID
+	if msg := s.SetNodeVia(c, a); msg != "" {
+		t.Fatal(msg)
+	}
+	if msg := s.SetNodeVia(a, b); msg == "" {
+		t.Fatal("front of a front must be refused")
+	}
+}
