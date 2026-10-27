@@ -24,8 +24,13 @@ func TestSanitize(t *testing.T) {
 		{"reality key Zm9vYmFyYmF6cXV4Zm9vYmFyYmF6cXV4Zm9vYmFyYmF6cXg end", "Zm9vYmFy", "[secret]"},
 		{"Authorization: Bearer abcdefghijklmnop", "abcdefghijklmnop", "[redacted]"},
 		{"token eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ4In0.c2lnbmF0dXJl here", "eyJhbGci", "[jwt]"},
-		{"GET https://api.example.com/sub/path?token=xyz&a=1 200", "xyz", "https://api.example.com/sub/path?[redacted]"},
-		{"proxy https://user:pw@host.com/x", "user:pw", "https://[redacted]@host.com"},
+		{"GET https://api.example.com/sub/path?token=xyz&a=1 200", "xyz", "https://api.example.com/[redacted] 200"},
+		{"proxy https://user:pw@host.com/x", "user", "https://host.com/[redacted]"},
+		{`Get "https://sub.host.net/link/AbC123xyz": dial tcp: timeout`, "AbC123xyz", `Get "https://sub.host.net/[redacted]": dial`},
+		{"ws://h.com:8080/p?k=1 and https://plain.com done", "k=1", "ws://h.com:8080/[redacted] and https://plain.com done"},
+		{"socks5h://u:p@1.2.3.4:1080 up", "u:p", "socks5h://[redacted]"},
+		{"socks://bob:pw@x.com:1080", "bob", "socks://[redacted]"},
+		{"ftp://bob:pw@x.com/f", "bob:pw", "ftp://[redacted]@x.com"},
 		{"secret=clash123 port 9090", "clash123", "secret=[redacted]"},
 		{"mail alice.smith@example.com", "alice.smith", "a***@example.com"},
 		{"dial tcp 8.8.8.8:443 via www.google.com timeout", "", "8.8.8.8:443 via www.google.com"},
@@ -41,6 +46,17 @@ func TestSanitize(t *testing.T) {
 	}
 	if got := Sanitize(strings.Repeat("a b ", 3000)); len(got) > maxLineLen+40 {
 		t.Errorf("long line not truncated: %d", len(got))
+	}
+}
+
+func TestMaskAccount(t *testing.T) {
+	for in, want := range map[string]string{
+		"alice@example.com": "a***@example.com", "13812345678": "138***78", "+86 138-1234-5678": "+86***78",
+		"bobby": "bo***", "张三丰": "张三***", "x": "x***", "": "",
+	} {
+		if got := MaskAccount(in); got != want {
+			t.Errorf("MaskAccount(%q) = %q, want %q", in, got, want)
+		}
 	}
 }
 

@@ -7,7 +7,8 @@ export type DbClient = { query: (sql: string, params?: unknown[]) => Promise<Que
 export type Db = { query: (sql: string, params?: unknown[]) => Promise<QueryResult>; connect: () => Promise<DbClient> }
 
 export type IngestContext = { accountId: string | null; ip: string; now?: Date }
-export type IngestResult = { events: number; logs: number }
+/** unverified：这批不是设备已绑账号本人（或根本没登录）发的，事件 / 日志照收但打标、不动设备资料。 */
+export type IngestResult = { events: number; logs: number; unverified: boolean }
 
 /** 客户端时间超前太多（改过系统时间）就按收到时间记，避免把统计挤到未来。 */
 const MAX_CLOCK_SKEW_MS = 10 * 60_000
@@ -44,39 +45,54 @@ export class TelemetryStore {
       chunk_id: l.chunkId, session_id: l.sessionId, started_at: clampTs(l.startedAt, now), ended_at: clampTs(l.endedAt, now),
       line_count: l.lineCount, bytes: Buffer.byteLength(l.text), text: l.text.replaceAll('\u0000', ''),
     }))
-    const start = lastStart(batch)
     const logBytes = logs.reduce((n, l) => n + l.bytes, 0)
     const client = await this.db.connect()
     try {
       await client.query('BEGIN')
-      await client.query(`INSERT INTO client_devices(device_id,app_version,core_version,os,arch,account_id,account_hint,last_ip,last_status,last_error_code,last_start_at,events_count,log_bytes)
+      // 任何人都能拿别人的设备号上报：只有令牌账号 = 设备已绑账号（或设备还没绑账号）时才允许改设备字段 / 绑账号；
+      // 否则只收事件和日志并标 unverified，设备上只累加计数。
+      const owner = await client.query('SELECT account_id FROM client_devices WHERE device_id=$1 FOR UPDATE', [batch.deviceId])
+      const bound = owner.rows[0]?.account_id
+      const boundId = typeof bound === 'string' ? bound : null
+      const trusted = boundId === null || boundId === ctx.accountId
+      const unverified = ctx.accountId === null || !trusted
+      if (trusted) await this.upsertDevice(client, batch, ctx, now, events.length, logBytes)
+      else await client.query('UPDATE client_devices SET events_count=events_count+$2,log_bytes=log_bytes+$3 WHERE device_id=$1', [batch.deviceId, events.length, logBytes])
+      const accountId = trusted ? ctx.accountId : null
+      const ev = events.length ? await client.query(`INSERT INTO client_events(event_id,device_id,account_id,session_id,seq,ts,type,status,duration_ms,error_code,error_text,app_version,os,schema_version,payload,unverified)
+        SELECT r.event_id,$2,$3,r.session_id,r.seq,r.ts,r.type,r.status,r.duration_ms,r.error_code,r.error_text,$4,$5,$6,coalesce(r.payload,'{}'::jsonb),$7
+        FROM jsonb_to_recordset($1::jsonb) AS r(event_id uuid,session_id text,seq bigint,ts timestamptz,type text,status text,duration_ms integer,error_code text,error_text text,payload jsonb)
+        ON CONFLICT(event_id) DO NOTHING`, [pgJson(events), batch.deviceId, accountId, batch.appVersion, batch.os ?? '', batch.schemaVersion, unverified]) : { rowCount: 0 }
+      const lg = logs.length ? await client.query(`INSERT INTO client_log_chunks(chunk_id,device_id,session_id,started_at,ended_at,line_count,bytes,text,unverified)
+        SELECT r.chunk_id,$2,r.session_id,r.started_at,r.ended_at,r.line_count,r.bytes,r.text,$3
+        FROM jsonb_to_recordset($1::jsonb) AS r(chunk_id uuid,session_id text,started_at timestamptz,ended_at timestamptz,line_count integer,bytes integer,text text)
+        ON CONFLICT(chunk_id) DO NOTHING`, [pgJson(logs), batch.deviceId, unverified]) : { rowCount: 0 }
+      await client.query('COMMIT')
+      return { events: ev.rowCount ?? 0, logs: lg.rowCount ?? 0, unverified }
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => {})
+      throw error
+    } finally { client.release() }
+  }
+
+  /** 新设备或本人上报：写入 / 更新设备行（账号只在令牌有效时绑上，见 ingest）。 */
+  private async upsertDevice(client: DbClient, batch: TelemetryBatch, ctx: IngestContext, now: Date, eventCount: number, logBytes: number) {
+    const start = lastStart(batch)
+    await client.query(`INSERT INTO client_devices(device_id,app_version,core_version,os,arch,account_id,account_hint,last_ip,last_status,last_error_code,last_start_at,events_count,log_bytes)
         VALUES($1,$2,$3,$4,$5,$6,$7,$8,coalesce($9,'info'),$10,$11,$12,$13)
         ON CONFLICT(device_id) DO UPDATE SET last_seen=now(),app_version=EXCLUDED.app_version,
           core_version=CASE WHEN EXCLUDED.core_version<>'' THEN EXCLUDED.core_version ELSE client_devices.core_version END,
           os=CASE WHEN EXCLUDED.os<>'' THEN EXCLUDED.os ELSE client_devices.os END,arch=EXCLUDED.arch,
-          account_id=coalesce(EXCLUDED.account_id,client_devices.account_id),
+          account_id=coalesce(client_devices.account_id,EXCLUDED.account_id),
           account_hint=CASE WHEN EXCLUDED.account_hint<>'' THEN EXCLUDED.account_hint ELSE client_devices.account_hint END,
           last_ip=EXCLUDED.last_ip,
           last_status=CASE WHEN $9::text IS NOT NULL AND (client_devices.last_start_at IS NULL OR $11::timestamptz>=client_devices.last_start_at) THEN $9 ELSE client_devices.last_status END,
           last_error_code=CASE WHEN $9::text IS NOT NULL AND (client_devices.last_start_at IS NULL OR $11::timestamptz>=client_devices.last_start_at) THEN $10 ELSE client_devices.last_error_code END,
           last_start_at=greatest(client_devices.last_start_at,$11::timestamptz),
-          events_count=client_devices.events_count+EXCLUDED.events_count,log_bytes=client_devices.log_bytes+EXCLUDED.log_bytes`,
+          events_count=client_devices.events_count+EXCLUDED.events_count,log_bytes=client_devices.log_bytes+EXCLUDED.log_bytes
+        WHERE client_devices.account_id IS NULL OR client_devices.account_id=EXCLUDED.account_id`,
         [batch.deviceId, batch.appVersion, batch.coreVersion ?? '', batch.os ?? '', batch.arch ?? '', ctx.accountId, batch.accountHint ?? '', ctx.ip,
-          start?.status ?? null, start?.errorCode ?? null, start ? clampTs(start.ts, now) : null, events.length, logBytes])
-      const ev = events.length ? await client.query(`INSERT INTO client_events(event_id,device_id,account_id,session_id,seq,ts,type,status,duration_ms,error_code,error_text,app_version,os,schema_version,payload)
-        SELECT r.event_id,$2,$3,r.session_id,r.seq,r.ts,r.type,r.status,r.duration_ms,r.error_code,r.error_text,$4,$5,$6,coalesce(r.payload,'{}'::jsonb)
-        FROM jsonb_to_recordset($1::jsonb) AS r(event_id uuid,session_id text,seq bigint,ts timestamptz,type text,status text,duration_ms integer,error_code text,error_text text,payload jsonb)
-        ON CONFLICT(event_id) DO NOTHING`, [pgJson(events), batch.deviceId, ctx.accountId, batch.appVersion, batch.os ?? '', batch.schemaVersion]) : { rowCount: 0 }
-      const lg = logs.length ? await client.query(`INSERT INTO client_log_chunks(chunk_id,device_id,session_id,started_at,ended_at,line_count,bytes,text)
-        SELECT r.chunk_id,$2,r.session_id,r.started_at,r.ended_at,r.line_count,r.bytes,r.text
-        FROM jsonb_to_recordset($1::jsonb) AS r(chunk_id uuid,session_id text,started_at timestamptz,ended_at timestamptz,line_count integer,bytes integer,text text)
-        ON CONFLICT(chunk_id) DO NOTHING`, [pgJson(logs), batch.deviceId]) : { rowCount: 0 }
-      await client.query('COMMIT')
-      return { events: ev.rowCount ?? 0, logs: lg.rowCount ?? 0 }
-    } catch (error) {
-      await client.query('ROLLBACK').catch(() => {})
-      throw error
-    } finally { client.release() }
+          start?.status ?? null, start?.errorCode ?? null, start ? clampTs(start.ts, now) : null, eventCount, logBytes])
   }
 
   /**

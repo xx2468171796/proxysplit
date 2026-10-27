@@ -8,6 +8,7 @@ import { AccelTokens, createCommercialCore, FenxiaoService, hashPassword, Paymen
 import type { ApiConfig } from './config.js'
 import { registerFenxiaoRoutes } from './fenxiao-routes.js'
 import { registerTelemetryRoutes, type TelemetryDeps } from './telemetry-routes.js'
+import { IpByteBudget } from './telemetry-budget.js'
 
 type Core={auth:AuthService;store:PgStore;fenxiao?:FenxiaoService;telemetry?:Pick<TelemetryDeps,'store'|'query'>;close:()=>Promise<void>}
 const bearer=(value?:string)=>value?.startsWith('Bearer ')?value.slice(7):''
@@ -50,8 +51,8 @@ export async function buildApp(config:ApiConfig,provided?:Core){
   registerFenxiaoRoutes(app,{service:core.fenxiao??new FenxiaoService(core.store),store:core.store,publicBaseUrl:config.PUBLIC_BASE_URL,auth:req=>auth(req),admin})
   // 客户端日志上报（telemetry-routes.ts）：令牌可选，没有就按设备 + IP 限流
   const telemetry=core.telemetry??{store:new TelemetryStore(core.store.pool),query:new TelemetryQuery(core.store.pool)}
-  registerTelemetryRoutes(app,{...telemetry,admin,retentionDays:config.TELEMETRY_RETENTION_DAYS??15,maxGzipBytes:config.TELEMETRY_MAX_GZIP_BYTES??1024*1024,
-    perDevicePerMinute:config.TELEMETRY_PER_DEVICE_PER_MINUTE??30,runRetention:config.NODE_ENV!=='test',log:app.log,
+  registerTelemetryRoutes(app,{...telemetry,admin,retentionDays:config.TELEMETRY_RETENTION_DAYS??15,maxGzipBytes:config.TELEMETRY_MAX_GZIP_BYTES??512*1024,
+    perDevicePerMinute:config.TELEMETRY_PER_DEVICE_PER_MINUTE??30,ipBudget:new IpByteBudget(config.TELEMETRY_IP_BYTES_PER_10MIN??20*1024*1024,10*60_000,redis),runRetention:config.NODE_ENV!=='test',log:app.log,
     optionalUser:async req=>{const token=bearer(req.headers.authorization);if(!token)return null;try{return (await core.auth.verifyAccess(token)).userId}catch{return null}}})
   // 分佣冻结期到了转可提现：每 5 分钟扫一次（查余额时也会给本人补跑）。
   const fenxiaoReleaseTimer=config.NODE_ENV==='test'?undefined:setInterval(()=>{core.store.fx.releaseDue().catch(e=>app.log.warn({err:e},'fenxiao releaseDue failed'))},5*60_000)

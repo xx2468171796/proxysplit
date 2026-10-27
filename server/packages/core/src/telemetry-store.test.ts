@@ -28,14 +28,42 @@ describe('telemetry ingest', () => {
   it('stores a batch in one transaction with one statement per table (no per-row queries)', async () => {
     const { db, calls } = fakeDb()
     const res = await new TelemetryStore(db).ingest(batch, { accountId: 'u1', ip: '1.2.3.4', now: new Date('2026-10-27T12:00:00Z') })
-    expect(res).toEqual({ events: 1, logs: 1 })
-    expect(calls.map(c => c.sql.trim().split(/\s+/)[0])).toEqual(['BEGIN', 'INSERT', 'INSERT', 'INSERT', 'COMMIT'])
-    const device = calls[1]!.params
+    expect(res).toEqual({ events: 1, logs: 1, unverified: false })
+    expect(calls.map(c => c.sql.trim().split(/\s+/)[0])).toEqual(['BEGIN', 'SELECT', 'INSERT', 'INSERT', 'INSERT', 'COMMIT'])
+    const device = calls[2]!.params
     expect(device[8]).toBe('ok') // newest proxy.start wins
-    const events = JSON.parse(String(calls[2]!.params[0]))
+    const events = JSON.parse(String(calls[3]!.params[0]))
     expect(events).toHaveLength(3)
-    expect(String(calls[2]!.params[0])).not.toContain('\\u0000')
     expect(String(calls[3]!.params[0])).not.toContain('\\u0000')
+    expect(String(calls[4]!.params[0])).not.toContain('\\u0000')
+  })
+
+  it('never lets another or anonymous sender rewrite a device bound to an account', async () => {
+    const calls: Call[] = []
+    const query = async (sql: string, params: unknown[] = []) => {
+      calls.push({ sql, params })
+      return { rows: sql.startsWith('SELECT') ? [{ account_id: 'owner' }] : [], rowCount: 1 }
+    }
+    const store = new TelemetryStore({ query, connect: async () => ({ query, release: () => {} }) })
+    for (const accountId of [null, 'intruder']) {
+      calls.length = 0
+      const res = await store.ingest(batch, { accountId, ip: '6.6.6.6' })
+      expect(res.unverified).toBe(true)
+      expect(calls.map(c => c.sql.trim().split(/\s+/)[0])).toEqual(['BEGIN', 'SELECT', 'UPDATE', 'INSERT', 'INSERT', 'COMMIT'])
+      expect(calls[2]!.sql).not.toMatch(/account|last_ip|app_version/)
+      expect(calls[3]!.params[2]).toBeNull() // events not attributed to the intruder
+      expect(calls[3]!.params[6]).toBe(true)
+      expect(calls[4]!.params[2]).toBe(true)
+    }
+    calls.length = 0
+    expect((await store.ingest(batch, { accountId: 'owner', ip: '1.1.1.1' })).unverified).toBe(false)
+    expect(calls[2]!.sql).toContain('INSERT INTO client_devices')
+  })
+
+  it('anonymous upload of an unbound device updates it but is flagged unverified', async () => {
+    const { db, calls } = fakeDb()
+    expect((await new TelemetryStore(db).ingest(batch, { accountId: null, ip: '1.2.3.4' })).unverified).toBe(true)
+    expect(calls[2]!.sql).toContain('INSERT INTO client_devices')
   })
 
   it('rolls back on failure', async () => {

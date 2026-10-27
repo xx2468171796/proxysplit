@@ -33,7 +33,7 @@ func (a *App) initTelemetry() {
 		DataDir: dataDir(), Endpoint: a.lic.APIBase() + "/v1/client/telemetry", Transport: telemetryTransport(),
 		Token: a.lic.AccessToken,
 		Meta: func() telemetry.Meta {
-			m := telemetry.Meta{DeviceID: a.lic.TelemetryDeviceID(), AppVersion: appVersion, OS: osInfo, Arch: runtime.GOARCH, AccountHint: a.lic.Username()}
+			m := telemetry.Meta{DeviceID: a.lic.TelemetryDeviceID(), AppVersion: appVersion, OS: osInfo, Arch: runtime.GOARCH, AccountHint: telemetry.MaskAccount(a.lic.Username())}
 			if a.svc != nil {
 				m.CoreVersion = a.svc.GetCoreVersion()
 			}
@@ -65,9 +65,13 @@ func (a *App) tmSnapshot() map[string]any {
 		return nil
 	}
 	st, s := a.svc.Status(), a.svc.GetSettings()
-	capture := "split"
+	// global = whole machine (TunMode); otherwise per-app split captured by the
+	// sing-box TUN (default) or WinDivert for selected programs only.
+	capture := service.CaptureTUN
 	if s.TunMode {
-		capture = "tun"
+		capture = "global"
+	} else if s.CaptureMode == service.CaptureProcess {
+		capture = service.CaptureProcess
 	}
 	return map[string]any{
 		"capture": capture, "ruleMode": a.svc.GetRuleMode(), "clashMode": a.svc.GetClashMode(), "routing": a.svc.GetRouting().Enabled,
@@ -233,7 +237,9 @@ func tmSelfTest(start time.Time, r service.SelfTestReport) service.SelfTestRepor
 }
 
 func tmRoute(start time.Time, r service.RouteTestResult) service.RouteTestResult {
-	telemetry.FailText(telemetry.RouteTest, start, r.Error, map[string]any{"process": r.Process, "url": r.URL, "ok": r.OK, "httpCode": r.HTTPCode, "route": r.Route})
+	p := urlHost(r.URL) // the user-typed URL may carry tokens; host only
+	p["process"], p["ok"], p["httpCode"], p["route"] = r.Process, r.OK, r.HTTPCode, r.Route
+	telemetry.FailText(telemetry.RouteTest, start, r.Error, p)
 	return r
 }
 

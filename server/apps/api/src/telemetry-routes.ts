@@ -6,6 +6,10 @@ import type { FastifyInstance, FastifyRequest } from 'fastify'
 import { AppError } from '@proxysplit/shared'
 import { telemetryAnalyticsQuery, telemetryBatchSchema, telemetryDeviceId, telemetryDeviceListQuery, telemetryEventListQuery, telemetryFailureQuery, telemetryLogQuery } from '@proxysplit/contracts'
 import type { TelemetryQuery, TelemetryStore } from '@proxysplit/core'
+import type { IpByteBudget } from './telemetry-budget.js'
+
+/** 解压后单次上报上限（客户端一段 256 KB，留足余量）。 */
+export const TELEMETRY_MAX_BODY_BYTES = 4 * 1024 * 1024
 
 type Principal = { userId: string; role: string }
 export type TelemetryDeps = {
@@ -17,6 +21,8 @@ export type TelemetryDeps = {
   retentionDays: number
   maxGzipBytes: number
   perDevicePerMinute: number
+  /** 每 IP 每 10 分钟最多收多少字节（解压后）。 */
+  ipBudget: IpByteBudget
   runRetention: boolean
   log: { warn: (obj: object, msg: string) => void; info: (obj: object, msg: string) => void }
 }
@@ -44,7 +50,7 @@ const deviceParam = (req: FastifyRequest) => {
 export function registerTelemetryRoutes(app: FastifyInstance, d: TelemetryDeps) {
   const limiter = new DeviceLimiter(d.perDevicePerMinute)
   app.post('/v1/client/telemetry', {
-    bodyLimit: 16 * 1024 * 1024, // 解压后上限；压缩前上限在 preParsing 里按 maxGzipBytes 查
+    bodyLimit: TELEMETRY_MAX_BODY_BYTES, // 解压后上限；压缩前上限在 preParsing 里按 maxGzipBytes 查
     config: { rateLimit: { max: 240, timeWindow: '1 minute' } }, // 每 IP（公司 NAT 后多台机器）
     preParsing: async (req, _reply, payload) => {
       if (Number(req.headers['content-length'] ?? 0) > d.maxGzipBytes) throw new AppError('PAYLOAD_TOO_LARGE', '上报数据过大', 413)
@@ -65,6 +71,8 @@ export function registerTelemetryRoutes(app: FastifyInstance, d: TelemetryDeps) 
     const batch = telemetryBatchSchema.parse(req.body)
     if (header && header !== batch.deviceId) throw new AppError('DEVICE_MISMATCH', '设备标识不一致', 400)
     if (!limiter.allow(batch.deviceId)) throw new AppError('RATE_LIMITED', '操作过于频繁，请稍后再试', 429)
+    if (!await d.ipBudget.charge(req.ip, Buffer.byteLength(JSON.stringify(req.body)))) throw new AppError('RATE_LIMITED', '上报数据过多，请稍后再试', 429)
+    // 账号绑定 / 设备字段能不能改由 store 按「令牌账号 vs 设备已有账号」判断，见 telemetry-store.ts
     const accountId = await d.optionalUser(req)
     const stored = await d.store.ingest(batch, { accountId, ip: req.ip })
     return { ok: true, ...stored }

@@ -35,9 +35,13 @@ type recorder struct {
 	kick    chan struct{}
 	stop    chan struct{}
 	done    chan struct{}
-	tailMu  sync.Mutex
-	tail    []string // last lines for crash reports
-	watch   logWatch
+	// ctx is cancelled by Close so an in-flight upload stops; upWG tracks it.
+	ctx    context.Context
+	cancel context.CancelFunc
+	upWG   sync.WaitGroup
+	tailMu sync.Mutex
+	tail   []string // last lines for crash reports
+	watch  logWatch
 	// uploading guards the single drain goroutine (Uploader is not concurrent).
 	uploading atomic.Bool
 }
@@ -75,6 +79,7 @@ func Init(cfg Config) error {
 		up:   &Uploader{Endpoint: cfg.Endpoint, Client: &http.Client{Transport: tr, Timeout: 20 * time.Second}, Meta: cfg.Meta, Token: cfg.Token, MinWait: 30 * time.Second, MaxWait: 30 * time.Minute},
 		logs: make(chan record, 4096), kick: make(chan struct{}, 1), stop: make(chan struct{}), done: make(chan struct{}),
 	}
+	r.ctx, r.cancel = context.WithCancel(context.Background())
 	active.Store(r)
 	go r.loop(cfg.Interval)
 	return nil
@@ -188,9 +193,17 @@ func Close() {
 		return
 	}
 	close(r.stop)
+	r.cancel()
+	deadline := time.After(2 * time.Second)
 	select {
 	case <-r.done:
-	case <-time.After(3 * time.Second):
+	case <-deadline:
+	}
+	uploaded := make(chan struct{})
+	go func() { r.upWG.Wait(); close(uploaded) }()
+	select {
+	case <-uploaded:
+	case <-deadline:
 	}
 	r.spool.Close()
 }
@@ -204,9 +217,11 @@ func (r *recorder) loop(interval time.Duration) {
 	upload := func() {
 		_ = r.spool.Seal()
 		if r.uploading.CompareAndSwap(false, true) {
+			r.upWG.Add(1)
 			go func() {
+				defer r.upWG.Done()
 				defer r.uploading.Store(false)
-				r.up.Drain(context.Background(), r.spool.Segments(), 20)
+				r.up.Drain(r.ctx, r.spool.Segments(), 20)
 			}()
 		}
 	}

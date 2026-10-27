@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { buildApp } from './app.js'
 import type { ApiConfig } from './config.js'
 import { DeviceLimiter } from './telemetry-routes.js'
+import { IpByteBudget } from './telemetry-budget.js'
 
 const config: ApiConfig = {
   NODE_ENV: 'test', HOST: '127.0.0.1', PORT: 18780, PUBLIC_BASE_URL: 'http://127.0.0.1:18780',
@@ -60,6 +61,23 @@ describe('client telemetry upload', () => {
     expect(huge.statusCode).toBe(413)
     expect(ingested).toHaveLength(0)
     await app.close()
+  })
+
+  it('caps bytes per IP per window (in memory without Redis, Redis when given)', async () => {
+    let t = 0
+    const mem = new IpByteBudget(100, 600_000, undefined, 10, () => t)
+    expect(await mem.charge('1.1.1.1', 60)).toBe(true)
+    expect(await mem.charge('1.1.1.1', 60)).toBe(false)
+    expect(await mem.charge('2.2.2.2', 60)).toBe(true)
+    t = 600_000
+    expect(await mem.charge('1.1.1.1', 60)).toBe(true)
+    const store = new Map<string, number>()
+    const redis = { incrby: async (k: string, n: number) => { store.set(k, (store.get(k) ?? 0) + n); return store.get(k)! }, pexpire: async () => 1 }
+    const viaRedis = new IpByteBudget(100, 600_000, redis, 10, () => 0)
+    expect(await viaRedis.charge('1.1.1.1', 80)).toBe(true)
+    expect(await viaRedis.charge('1.1.1.1', 80)).toBe(false)
+    const broken = new IpByteBudget(100, 600_000, { incrby: async () => { throw new Error('down') }, pexpire: async () => 1 }, 10, () => 0)
+    expect(await broken.charge('1.1.1.1', 80)).toBe(true)
   })
 
   it('rate-limits each device', async () => {

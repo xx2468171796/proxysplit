@@ -41,7 +41,8 @@ CREATE TABLE IF NOT EXISTS client_events (
   app_version     text NOT NULL DEFAULT '',
   os              text NOT NULL DEFAULT '',
   schema_version  smallint NOT NULL DEFAULT 1,
-  payload         jsonb NOT NULL DEFAULT '{}'
+  payload         jsonb NOT NULL DEFAULT '{}',
+  unverified      boolean NOT NULL DEFAULT false -- 不是设备已绑账号本人发的（没登录或令牌账号对不上），仅参考
 );
 CREATE INDEX IF NOT EXISTS client_events_device_ts_idx ON client_events (device_id, ts DESC);
 CREATE INDEX IF NOT EXISTS client_events_type_ts_idx ON client_events (type, ts DESC);
@@ -59,7 +60,8 @@ CREATE TABLE IF NOT EXISTS client_log_chunks (
   received_at  timestamptz NOT NULL DEFAULT now(),
   line_count   integer NOT NULL DEFAULT 0,
   bytes        integer NOT NULL DEFAULT 0,
-  text         text NOT NULL             -- 已脱敏；PG TOAST 自动压缩
+  text         text NOT NULL,            -- 已脱敏；PG TOAST 自动压缩
+  unverified   boolean NOT NULL DEFAULT false -- 同 client_events.unverified
 );
 CREATE INDEX IF NOT EXISTS client_log_chunks_device_idx ON client_log_chunks (device_id, started_at DESC);
 CREATE INDEX IF NOT EXISTS client_log_chunks_received_idx ON client_log_chunks (received_at);

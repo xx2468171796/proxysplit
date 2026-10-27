@@ -15,7 +15,7 @@
 | errorCode / errorText | 失败时：归一化错误码 + 原始错误（已脱敏） |
 | payload | 类型相关字段（下表），客户端已脱敏 |
 
-批次（POST /v1/client/telemetry，gzip JSON）外层：`schemaVersion, deviceId, appVersion, coreVersion, os, arch, accountHint, events[], logs[]`；
+批次（POST /v1/client/telemetry，gzip JSON）外层：`schemaVersion, deviceId, appVersion, coreVersion, os, arch, accountHint（打码：a***@域名 / 手机前 3 后 2 / 其他前 2 位）, events[], logs[]`；
 `logs[]` = `{chunkId, sessionId, startedAt, endedAt, lineCount, text}`，text 为脱敏后的原始日志行（应用日志 + sing-box 输出）。
 
 ## 事件类型
@@ -28,7 +28,7 @@
 | app.update_check | 检查更新 | available, version | 更新通道是否通 |
 | app.update | 下载并安排安装 | version | 更新失败率（UPDATE_*） |
 | app.update_result | 更新后第一次启动 | from, to, running | 安装回滚检测 |
-| proxy.start | 启动代理（界面 / 托盘 / 本机接口 / 更新后恢复） | trigger, capture(tun/split), ruleMode, clashMode, routing, protocol, appRules, customRules, fakeIP, remoteDNS, blockQUIC, lanShare, systemProxy | 启动成功率按版本 / 系统 / 模式 / 协议 |
+| proxy.start | 启动代理（界面 / 托盘 / 本机接口 / 更新后恢复） | trigger, capture(global=整机 / tun=虚拟网卡分流 / process=仅接管选中程序), ruleMode, clashMode, routing, protocol, appRules, customRules, fakeIP, remoteDNS, blockQUIC, lanShare, systemProxy | 启动成功率按版本 / 系统 / 模式 / 协议 |
 | proxy.stop / proxy.restart | 用户停止 / 重启 | trigger | 使用习惯、问题前后操作 |
 | tun.create | 内核日志 TUN up / TUN 启动失败 | — | 虚拟网卡失败率 |
 | core.exit / core.fatal | 内核退出 / FATAL、panic 行 | — | 内核崩溃 |
@@ -46,7 +46,7 @@
 | ruleset.change / line.change | 规则集开关 / 线路 | name, enabled / count | — |
 | settings.change | 设置保存 | changes{key:{old,new}}（局域网账号密码只记 changed） | 设置与故障相关性 |
 | mode.change | 规则模式 / 默认线路 / 分流开关 / clash 模式 / 系统代理 | key, old, new | 同上 |
-| diag.self_test / diag.route_test / diag.ai_env / diag.ai_env_fix | 诊断 | cases, failed, hints, dnsLogs / process, url, route / items[] / id | 用户自查结果 |
+| diag.self_test / diag.route_test / diag.ai_env / diag.ai_env_fix | 诊断 | cases, failed, hints, dnsLogs / process, host（只留域名）, route / items[] / id | 用户自查结果 |
 | account.login / logout / register / redeem | 账号操作 | method | 登录失败率 |
 | account.license | 启动时会员状态 | signedIn, authenticated, plan, tier, channel, expiresAt, error | 会员异常 |
 | powervpn.nodes | POWER云 线路刷新 | method, kind | 面板可用性 |

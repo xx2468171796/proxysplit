@@ -72,7 +72,7 @@ export class TelemetryQuery {
     if (p.q) add('(error_text ILIKE $? OR type ILIKE $?)', `%${likeEscape(p.q)}%`)
     vals.push(p.limit, p.offset)
     const r = await this.db.query(`SELECT id::text,event_id AS "eventId",session_id AS "sessionId",seq::int,ts,received_at AS "receivedAt",type,status,
-      duration_ms AS "durationMs",error_code AS "errorCode",error_text AS "errorText",app_version AS "appVersion",payload,(count(*) OVER())::int AS "totalCount"
+      duration_ms AS "durationMs",error_code AS "errorCode",error_text AS "errorText",app_version AS "appVersion",payload,unverified,(count(*) OVER())::int AS "totalCount"
       FROM client_events WHERE ${conds.join(' AND ')} ORDER BY ts DESC,seq DESC LIMIT $${vals.length - 1} OFFSET $${vals.length}`, vals)
     return page(r.rows, p.limit, p.offset)
   }
@@ -84,7 +84,7 @@ export class TelemetryQuery {
     let filter = ''
     if (p.q) { vals.push(`%${likeEscape(p.q)}%`); filter = `AND text ILIKE $${vals.length}` }
     vals.push(p.limit, p.offset)
-    const r = await this.db.query(`SELECT id::text,session_id AS "sessionId",started_at AS "startedAt",ended_at AS "endedAt",line_count AS "lineCount",bytes,text,
+    const r = await this.db.query(`SELECT id::text,session_id AS "sessionId",started_at AS "startedAt",ended_at AS "endedAt",line_count AS "lineCount",bytes,text,unverified,
       (count(*) OVER())::int AS "totalCount"
       FROM client_log_chunks WHERE device_id=$1 AND started_at<=$3 AND ended_at>=$2 ${filter}
       ORDER BY started_at DESC LIMIT $${vals.length - 1} OFFSET $${vals.length}`, vals)
