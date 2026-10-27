@@ -209,8 +209,10 @@ func (s *Service) persistLocked() error {
 	}
 	path := s.configPath()
 	if cur, rerr := os.ReadFile(path); rerr == nil && json.Valid(cur) && !isCoreConfig(cur) {
+		// The .bak is only a recovery aid: failing to refresh it must not stop
+		// the user's change from being saved (it never did before the split).
 		if err := os.WriteFile(path+".bak", cur, 0o600); err != nil {
-			return fmt.Errorf("write recovery backup: %w", err)
+			s.log("[store] 刷新配置备份失败（不影响保存）: " + err.Error())
 		}
 	}
 	tmp := path + ".import.tmp"
