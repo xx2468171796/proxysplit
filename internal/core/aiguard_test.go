@@ -292,3 +292,25 @@ func TestTUNAlwaysCarriesIPv6(t *testing.T) {
 		t.Fatalf("sing-box check: %v\n%s", err, o)
 	}
 }
+
+// Public IPv6 must be refused before sniff (a refused SYN, so apps fall back
+// to IPv4 at once) and ICMP must go direct in every mode.
+func TestTUNPreSniffRules(t *testing.T) {
+	for _, white := range []bool{true, false} {
+		opts := Options{Split: true, SplitWhitelist: white}
+		writeSplitSets(t, &opts)
+		node, _ := nodes.ParseLink(sampleLinks["vless-reality"])
+		cfg, err := BuildTUNConfig(node, "info", opts)
+		if err != nil {
+			t.Fatal(err)
+		}
+		rules := routeRulesFromConfig(t, cfg)
+		r0, r1, r2 := rules[0].(map[string]any), rules[1].(map[string]any), rules[2].(map[string]any)
+		if r0["action"] != "reject" || r0["type"] != "logical" || r2["action"] != "sniff" {
+			t.Fatalf("white=%v: want IPv6 reject, ICMP direct, then sniff: %v %v %v", white, r0, r1, r2)
+		}
+		if n, _ := r1["network"].([]any); len(n) != 1 || n[0] != "icmp" || r1["outbound"] != "direct" {
+			t.Fatalf("white=%v: ICMP rule = %v", white, r1)
+		}
+	}
+}

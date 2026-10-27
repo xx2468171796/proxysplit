@@ -97,7 +97,7 @@ func TestEgressConfigsPassCheck(t *testing.T) {
 		if parsed.Route.Final != "direct" {
 			t.Errorf("%s: final = %s, want direct", name, parsed.Route.Final)
 		}
-		if len(parsed.Route.Rules) == 0 || parsed.Route.Rules[0]["action"] != "sniff" {
+		if !sniffFirst(parsed.Route.Rules) {
 			t.Errorf("%s: 仅 AI routing needs sniff first", name)
 		}
 		p := filepath.Join(t.TempDir(), name+".json")
@@ -106,4 +106,14 @@ func TestEgressConfigsPassCheck(t *testing.T) {
 			t.Errorf("%s: sing-box check: %v\n%s\n%s", name, err, out, cfg)
 		}
 	}
+}
+
+// sniffFirst: sniff is the first rule, or follows only tunPreSniffRules.
+func sniffFirst(rules []M) bool {
+	for i, r := range rules {
+		if r["action"] == "sniff" {
+			return i == 0 || i == len(tunPreSniffRules())
+		}
+	}
+	return false
 }

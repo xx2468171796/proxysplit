@@ -72,6 +72,28 @@ func tunIPv6Rules() []M {
 	return []M{{"ip_version": 6, "action": "reject"}}
 }
 
+// tunPreSniffRules run ahead of sniff, while a TUN connection is still a bare
+// SYN / packet:
+//   - public IPv6 (DNS excepted, hijacked below) is refused for every app, the
+//     direct ones too. Refused after sniff, the TUN has already completed the
+//     handshake, so the app sees "connected, then closed" and keeps retrying
+//     IPv6 instead of falling back; on a PC without an IPv6 uplink WeChat
+//     failed to send images that way (业主 2026-10-28, 240e:… "unreachable
+//     network" in a loop). A refused SYN makes it use IPv4 at once.
+//   - ICMP (ping, WinMTR) goes direct: only the direct outbound can carry it,
+//     so in 默认全走代理 it was refused by the node and the app looked
+//     "proxied though set to 不走代理" (customer, 2026-10-28).
+func tunPreSniffRules() []M {
+	return []M{
+		{"type": "logical", "mode": "and", "rules": []M{
+			{"ip_version": 6},
+			{"ip_is_private": true, "invert": true},
+			{"port": []int{53}, "invert": true},
+		}, "action": "reject"},
+		{"network": []string{"icmp"}, "outbound": "direct"},
+	}
+}
+
 // tunAddresses is the TUN inbound's address list: IPv4 and IPv6, always.
 func tunAddresses(Options) []string {
 	return []string{"172.19.0.1/30", aiTUN6}
