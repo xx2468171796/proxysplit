@@ -5,6 +5,7 @@
 - 线上：**v1.9.95 stable（强制，min 1.9.51）**，2026-10-24 全站发布（付费会员不弹赞赏码；分销用公司 fenxiao 包 0.1.0，见 docs/memory/fenxiao.md，佣金默认关）；服务端 current = releases/20261024-234641-50d4859-v1.9.95，上一版 releases/20261024-190306-f4a5cd9-v1.9.94。客户端有新版一律自动升级；规则库由 sz 每天同步、客户端从 /rules/ 自动拉（见 docs/memory/routing.md）。
 - 前端已用 @ankotti/admin-ui 重写（React 19 + Vite 8 + TS 7 + pnpm 12.9.1，替换旧单文件 Svelte），随 v1.9.75 上线（已并入 main）；门禁 `pnpm --dir frontend check`，预览 `pnpm --dir frontend dev`。
 - 技术栈：Go + Wails + React 前端，sing-box 原生 TUN + process_name；服务端 Fastify + 深圳共享 PG（堡垒机数据源 sz-pg-proxysplit）。
+- **待发 1.9.96（分支 feat/dual-core-capture-telemetry，未合 main）**：Xray 双内核、仅接管选中程序（WinDivert，默认仍 TUN）、客户端日志全量上报（服务端迁移 0016 未跑）、socks/http 远程 DNS 走 TCP。2026-10-27 alonehome2 实测通过；发版前要：xray.exe 传 Gitea、WinDivert 两个文件传 proxysplit.zygskins.cn/download/windivert/2.2.2/、服务端部署 + 迁移、带 Defender 机器扫描新 exe。
 
 ## 红线（不得做）
 - 不碰腾讯云 110.40.185.27（支付网关），只能以客户端身份调接口。
