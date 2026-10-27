@@ -8,5 +8,6 @@
   "urlAuth": "gitea",
   "sha256": "dee38bbd43be0ef078bcefdcfceac24ae298a5a9f98c416675534c9ba3ba8d6f",
   "source": "上游 XTLS/Xray-core v26.6.1 用 scripts/build-xray.ps1 自编（-trimpath，参数同上游发布流程）；Gitea generic 包 gonggong/xray；只当 sing-box 跑不了的节点（XHTTP / mKCP / VLESS encryption）的旁路内核",
-  "verifiedAt": ""
+  "urls": ["https://proxysplit.zygskins.cn/download/xray/26.6.1/xray-windows-amd64.exe"],
+  "verifiedAt": "2026-10-27"
 }
