@@ -52,7 +52,7 @@ SelectNode / RemoveNode / SetRouting / SetSettings / SetLogLevel 返回重启错
 - 热更新：入站集合只随分组 / 按目标程序变化。应用在已有分组之间移动时配置字节不变，ApplySplitLists 返回 true，service 只换引擎里的 Routes；已在中转的旧连接按旧入站跑到关闭（clash 按进程名断旧连接在此模式下无效）。
 - 生命周期：内核起来后才开引擎；停止 / 内核退出（onCoreExit）先关引擎再停内核。句柄关完驱动自动卸载，进程崩溃句柄随进程关闭，不会残留拦截。需要管理员权限（manifest 已是 requireAdministrator）。
 - 限制：AI 强制走线路需要全机 DNS / 流量，开着时自动退回 TUN；只对「按应用分流」生效，整机全局仍是 TUN；UDP 端口登记靠 bind 事件，极少数程序首个非 DNS 数据报可能抢在过滤器更新前直连（毫秒级）；按目标规则的程序必须单独入站，增删这种程序会重启内核。
-- 二进制：scripts/fetch-core.ps1 从官方 basil00/WinDivert v2.2.2 下 zip，校验 zip 与 x64 dll / sys 的 SHA256 后放 bin/（git 忽略），app.go 内嵌并释放到 <数据目录>\bin。Defender 风险见 known-issues.md。
+- 二进制：scripts/fetch-core.ps1 从官方 basil00/WinDivert v2.2.2 下 zip，校验 zip 与 x64 dll / sys 的 SHA256 后放 bin/（git 忽略），仅供开发 / 测试；客户端不内嵌，运行时由 internal/coreupdate/windivert.go 按需从自家下载站拉取（同一组 SHA256）。Defender 风险见 known-issues.md。
 - 集成测试：管理员 PowerShell 里 `$env:PROXYSPLIT_CAPTURE_IT=1; go test ./internal/capture -run Engine -v`（curl.exe 当被接管程序，需联网）。
 
 ## 推流程序默认直连（两种接管方式都生效）
