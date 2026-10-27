@@ -3,6 +3,10 @@
 版本号以发布构建为准（`scripts/build-commercial.ps1 -Version <x.y.z>`，注入 `main.appVersion`），
 每个发布产物的 SHA256 见 `output/proxysplit-v<版本>.manifest.json`。
 
+## v1.10.5
+
+- 支持导入 WireGuard 节点：粘贴 wireguard:// 链接，或把整份 WireGuard .conf 内容粘进「导入节点」（如 Cloudflare WARP、自建 WireGuard）；也可以设前置代理。
+
 ## v1.10.4
 
 - 活动节点新增「自动选择（最快）」：按延迟自动挑最快的节点，当前节点挂了自动切到别的（POWER云 官方线路和 Xray 节点不参与）。

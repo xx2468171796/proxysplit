@@ -56,7 +56,7 @@ func (s *Service) nodeResolver() *noderesolve.Resolver {
 // probePort is the TCP port to probe for n; 0 for UDP-only transports.
 func probePort(n *nodes.Node) int {
 	switch strings.ToLower(n.Type) {
-	case "hysteria2", "hysteria", "tuic":
+	case "hysteria2", "hysteria", "tuic", "wireguard":
 		return 0
 	}
 	if n.XrayNetwork() == nodes.NetKCP {

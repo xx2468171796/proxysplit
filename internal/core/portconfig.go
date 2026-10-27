@@ -1,7 +1,6 @@
 package core
 
 import (
-	"encoding/json"
 	"fmt"
 
 	"proxysplit/internal/nodes"
@@ -114,5 +113,5 @@ func BuildPortConfig(pc PortConfig) ([]byte, error) {
 	if exp := clashExperimental(opts); exp != nil {
 		cfg["experimental"] = exp
 	}
-	return json.MarshalIndent(cfg, "", "  ")
+	return marshalConfig(cfg)
 }

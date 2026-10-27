@@ -60,6 +60,12 @@ type Node struct {
 	// the GFW, dialled through a working node. Kept across subscription
 	// refreshes by node ID. ViaNode is the resolved front node, set by the
 	// service on the copy handed to the core; never stored.
+	// WireGuard (Password = private key, PublicKey = peer key; wireguard.go).
+	WGAddress   []string `json:"wgAddress,omitempty"`
+	WGPreShared string   `json:"wgPreShared,omitempty"`
+	WGReserved  []int    `json:"wgReserved,omitempty"`
+	WGMTU       int      `json:"wgMtu,omitempty"`
+
 	Via     string `json:"via,omitempty"`
 	ViaNode *Node  `json:"-"`
 	// Members are the nodes of the synthetic "自动选择（最快）" node (Type

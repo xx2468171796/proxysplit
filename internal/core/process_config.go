@@ -3,7 +3,6 @@ package core
 import (
 	"crypto/sha1"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
@@ -196,5 +195,5 @@ func BuildProcessConfig(node *nodes.Node, logLevel string, opts Options) ([]byte
 		}
 	}
 	tree.RuleSets = sets
-	return json.MarshalIndent(tree.root(), "", "  ")
+	return marshalConfig(tree.root())
 }

@@ -3,7 +3,6 @@ package core
 import (
 	"crypto/sha1"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"regexp"
 	"strings"
@@ -430,5 +429,5 @@ func BuildMultiConfig(lines []LineConfig, logLevel string, opts Options) ([]byte
 		route["default_domain_resolver"] = M{"server": "dns-direct"}
 	}
 	cfg["route"] = route
-	return json.MarshalIndent(cfg, "", "  ")
+	return marshalConfig(cfg)
 }

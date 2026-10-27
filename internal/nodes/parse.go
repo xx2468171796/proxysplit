@@ -39,6 +39,8 @@ func ParseLink(link string) (*Node, error) {
 		n, err = parseTUIC(link)
 	case strings.HasPrefix(lower, "anytls://"):
 		n, err = parseAnyTLS(link)
+	case strings.HasPrefix(lower, "wireguard://"), strings.HasPrefix(lower, "wg://"):
+		n, err = parseWireGuard(link)
 	default:
 		u, ok := bareSocksURL(link)
 		if !ok {
@@ -115,6 +117,17 @@ func Manual(nodeType, name, server string, port int, username, password string) 
 // lines that fail to parse. It returns the successfully parsed nodes plus the
 // count of lines that were skipped.
 func ParseMany(text string) (out []*Node, skipped int) {
+	if IsWireGuardConf(text) {
+		link, err := WireGuardConfLink(text, "")
+		if err != nil {
+			return nil, 1
+		}
+		n, err := ParseLink(link)
+		if err != nil {
+			return nil, 1
+		}
+		return []*Node{n}, 0
+	}
 	for _, line := range strings.Split(strings.ReplaceAll(text, "\r\n", "\n"), "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" {

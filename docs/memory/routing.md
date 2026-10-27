@@ -92,3 +92,7 @@ service.streamPreset：直播伴侣.exe、MediaSDK_Server.exe（抖音直播伴�
 - 「选中节点不存在就改选第一个」的三处（lines.go healDangling、service_store dropPlaceholder、apptest 导入校验）都放过 auto。
 - 顺带修：`isCoreConfig` 原先在整个文件里找 `"outbounds"`，存了整组导入 / 官方节点（自带 outbounds）的配置会被当成内核配置，重载时退回 .bak；现只看顶层键。
 - 只作用于主内核（TUN / 仅接管程序共用的 buildTUNTree）；端口代理（portconfig.go）和旧多线路配置仍用内置 DNS。
+## WireGuard 节点（v1.10.5 起）
+- 解析 internal/nodes/wireguard.go：wireguard:// / wg:// 链接；整份 .conf（ParseMany 见到 [Interface]+[Peer] 先转成等价 wireguard:// 链接，只取第一个 Peer）。Password = 私钥、PublicKey = 对端公钥，其余放 WG* 字段。
+- sing-box 1.14 没有 wireguard 出站，只有 endpoint：buildWireGuard 照常进出站列表，所有配置统一经 core/wireguard.go marshalConfig 序列化，把 wireguard 挪到顶层 endpoints（tag 不变，路由 / detour 照常引用）。没有 WireGuard 时输出逐字不变。
+- 只走 sing-box（XraySupports=false）；UDP 协议，不做 TCP 探测（probePort=0）。

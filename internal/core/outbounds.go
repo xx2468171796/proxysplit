@@ -159,6 +159,8 @@ func buildOutbound(n *nodes.Node, tag string) (M, error) {
 		return buildTUIC(n, tag), nil
 	case "anytls":
 		return buildAnyTLS(n, tag), nil
+	case "wireguard":
+		return buildWireGuard(n, tag), nil
 	default:
 		return nil, fmt.Errorf("unsupported node type %q", n.Type)
 	}

@@ -1,7 +1,6 @@
 package core
 
 import (
-	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -16,7 +15,7 @@ func BuildTUNConfig(node *nodes.Node, logLevel string, opts Options) ([]byte, er
 	if err != nil {
 		return nil, err
 	}
-	return json.MarshalIndent(t.root(), "", "  ")
+	return marshalConfig(t.root())
 }
 
 // tunTree is BuildTUNConfig before marshalling, split into the sections
