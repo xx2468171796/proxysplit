@@ -7,6 +7,7 @@ import { useFeedback } from "../../app/use-feedback";
 import { fmtRate, fmtUptime, latencyGrade, latencyText } from "../../shared/format";
 import { useStore } from "../../shared/store";
 import { data, reloadData } from "../../state/data";
+import { AUTO_NODE_ID, AUTO_NODE_LABEL } from "../../state/nodes";
 import { isRunning, refreshHealth, refreshStatus, restartCore, runtime, toggleRun } from "../../state/runtime";
 import { useCountUp } from "./count-up";
 
@@ -42,18 +43,20 @@ function NodeLine() {
   const selected = useStore(runtime, (s) => s.status?.selectedId);
   const node = nodes.find((n) => n.id === selected);
   const untested = !node?.latency || node.latency === -99;
+  const auto = selected === AUTO_NODE_ID;
   return (
     <div className="ps-hero-node">
       <span className="ps-hero-label">当前节点</span>
-      <b>{node ? node.name : "未选择"}</b>
+      <b>{auto ? AUTO_NODE_LABEL : node ? node.name : "未选择"}</b>
       <span className="ps-row">
+        {auto ? <StatusBadge tone="neutral">按延迟自动挑</StatusBadge> : null}
         {node ? (
           <StatusBadge tone={untested ? "neutral" : GRADE_TONE[latencyGrade(node.latency)]}>
             {latencyText(node.latency)}
           </StatusBadge>
         ) : null}
         <Button size="sm" variant="text" onClick={() => navigate("nodes")}>
-          {node ? "换一个" : "去选一个"}
+          {node || auto ? "换一个" : "去选一个"}
         </Button>
       </span>
     </div>

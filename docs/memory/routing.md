@@ -84,3 +84,10 @@ service.streamPreset：直播伴侣.exe、MediaSDK_Server.exe（抖音直播伴�
 - Settings.Net（service/settings_net.go）→ core.Options.DNS / TunMTU / StrictRouteOff（core/dnsopts.go）。零值 = 原配置，golden 快照逐字不变。
 - 国内 / 国外 DNS 只收 IP（SetNetSettings 校验）；hosts 生成 `type: hosts` 服务器 dns-hosts + 一条排在最前的 domain 规则；拦截 HTTPS/SVCB = `query_type` + `action: predefined, rcode: NOERROR`，默认关。
 - MTU 只认 1280–9000，其它值按 1500。两种接管方式共用 buildTUNTree，都生效。
+
+## 自动选择（最快）（v1.10.4，参考 v2rayN urltest 组）
+- 活动节点切换器第一项「自动选择（最快）」= `SelectedID "auto"`（service/auto_svc.go）。`selectedNode()` 返回合成节点 {ID:auto, Type:urltest, Members}：成员 = 非官方、非整组导入（HasRaw）、非 Xray 的已存节点，各自过 `chainLocked`（前置代理照用）。官方 POWER云 线路按自己的出站 tag 带出口限制（egress.go），混进组会失效，所以排除；Xray 节点为了简单先不进组。
+- 内核（core/urltest.go，buildNodeOutbounds 入口分流）：成员按 `<tag>/m<i>` 走原单节点构建器（预解析 IP 钉住 / 前置 detour 都生效），组 `{type:urltest, url: gstatic generate_204, interval 3m, tolerance 50, idle_timeout 30m, interrupt_exist_connections:false}`，sing-box 1.14 check 通过。没有成员 → 启动报「没有可自动选择的节点」。
+- 跟随「活动节点」的线路 / 按应用线路 / 端口代理自然跟着组走；startNodes 展开成员和前置节点，预解析与保活都覆盖。测速活动节点走主内核（或同组探针），不写回节点；TCP 延迟对 auto 不测。
+- 「选中节点不存在就改选第一个」的三处（lines.go healDangling、service_store dropPlaceholder、apptest 导入校验）都放过 auto。
+- 顺带修：`isCoreConfig` 原先在整个文件里找 `"outbounds"`，存了整组导入 / 官方节点（自带 outbounds）的配置会被当成内核配置，重载时退回 .bak；现只看顶层键。

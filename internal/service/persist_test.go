@@ -12,6 +12,18 @@ import (
 	"proxysplit/internal/nodes"
 )
 
+// A stored raw node carries "outbounds" inside "nodes"; the app config must
+// still load as-is (not be mistaken for a sing-box config and replaced by .bak).
+func TestRawNodeConfigIsNotCoreConfig(t *testing.T) {
+	app := []byte(`{"nodes":[{"id":"a","outbounds":[{"type":"direct","tag":"x"}]}]}`)
+	if isCoreConfig(app) {
+		t.Fatal("app config with a raw node was taken for a core config")
+	}
+	if !isCoreConfig([]byte(`{"log":{},"outbounds":[]}`)) {
+		t.Fatal("real core config not detected")
+	}
+}
+
 // TestConfigSurvivesCoreStart is the regression test for the data-loss bug: the
 // core used to write its sing-box config to config.json, clobbering the app's
 // nodes/rules. Here we add a node, start the core (which writes its config),

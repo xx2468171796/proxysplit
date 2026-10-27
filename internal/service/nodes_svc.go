@@ -109,7 +109,11 @@ func (s *Service) SelectNode(id string) string {
 	return restartMsg(s.applyLive())
 }
 
+// selectedNode is the active node; for AutoNodeID the synthetic urltest node.
 func (s *Service) selectedNode() *nodes.Node {
+	if s.cfg.SelectedID == AutoNodeID {
+		return s.autoNodeLocked()
+	}
 	for _, n := range s.cfg.Nodes {
 		if n.ID == s.cfg.SelectedID {
 			return n

@@ -38,7 +38,15 @@ func (s *Service) altConfigPath() string {
 // inbounds) rather than the app config — a guard against ever loading a file the
 // core clobbered into place.
 func isCoreConfig(data []byte) bool {
-	return bytes.Contains(data, []byte(`"outbounds"`)) || bytes.Contains(data, []byte(`"inbounds"`))
+	// Top-level keys only: stored raw nodes (POWER云 / imported groups) carry
+	// their own "outbounds" inside "nodes" and must not look like a core config.
+	var top map[string]json.RawMessage
+	if json.Unmarshal(data, &top) != nil {
+		return bytes.Contains(data, []byte(`"outbounds"`)) || bytes.Contains(data, []byte(`"inbounds"`))
+	}
+	_, ob := top["outbounds"]
+	_, ib := top["inbounds"]
+	return ob || ib
 }
 
 func decodeAppConfig(data []byte) (Config, bool) {
@@ -167,7 +175,7 @@ func (s *Service) dropPlaceholderNodesLocked() bool {
 		}
 	}
 	s.cfg.Nodes = kept
-	if !selectedStillPresent {
+	if !selectedStillPresent && s.cfg.SelectedID != AutoNodeID {
 		s.cfg.SelectedID = ""
 		if len(kept) > 0 {
 			s.cfg.SelectedID = kept[0].ID
