@@ -21,7 +21,12 @@ describe("front node candidates", () => {
   it("excludes self, official lines and nodes that already have a front", async () => {
     const { frontCandidates } = await import("./node-via-dialog");
     const self = { id: "s", name: "s" } as Node;
-    const list = [self, { id: "a", name: "a" }, { id: "o", name: "o", official: true }, { id: "c", name: "c", via: "a" }] as Node[];
+    const list = [
+      self,
+      { id: "a", name: "a" },
+      { id: "o", name: "o", official: true },
+      { id: "c", name: "c", via: "a" },
+    ] as Node[];
     expect(frontCandidates(self, list).map((n) => n.id)).toEqual(["a"]);
   });
 });
