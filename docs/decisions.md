@@ -4,6 +4,12 @@
 > 结论与坑已提炼到 `docs/memory/<主题>.md`；这里是事实存档，按标题取（`node ~/.ankotti/ai-kit/mem.mjs <关键词>`），不要整份读。
 > 约定：sz = 深圳生产机；incoming = sz `/opt/proxysplit/incoming/`；客户端回滚 = 该版本 incoming 目录 `python3 publish-client.py rollback` 并删 releases 表里该版本那行。
 
+## v1.10.3（2026-10-28 05:15，全站发布，强制）
+- release id 20261028-045352-336b1c5-v1.10.3，上一版 releases/20261028-041054-d90b72f-v1.10.2；备份 backups/postgres-20261028-045352-336b1c5-v1.10.3.sql.gz；无新迁移。exe SHA256 dafdefacebd3c8a479f406acc1c9b434c51b56436e1e95345e2796512294ba57。
+- 内容：页面合并（导航 9→7）、顶栏 TUN 开关、节点排序 / 删除不通的、订阅过滤 / UA / 间隔（SaveSub 一次保存）、Job Object、service.go / config.go 按职责拆分；前置代理服务层已在包内但界面未上（v1.10.4）。
+- 发布前独立审查：拆分为纯搬移；按意见修 EditSub 丢过滤、两次拉取、逐个删节点重启。
+- 验证：alonehome2 离线，改用 pve VM153：Defender（病毒库 1.461.231.0）0 检出；主程序可启动；VM 无账号无法启动内核，Job Object 由 procjob 单测（IsProcessInJob）覆盖。教训：第一次构建期间改了工作区，产物作废重建（知识库 ev:1087）。
+
 ## v1.10.2（2026-10-28 04:25，全站发布，强制）
 - release id 20261028-041054-d90b72f-v1.10.2，上一版 releases/20261028-032339-0607adf-v1.10.1；备份 backups/postgres-20261028-041054-d90b72f-v1.10.2.sql.gz；无新迁移。exe SHA256 175cd4334bbb01d5248b37db9fceb211c5d7d8637fb8d456fd23c61cc7ef210a。
 - 内容见下面两条 2026-10-28 决策（默认仅接管选中程序 + v2rayN 加固；IPv6 sniff 前拒绝 + ICMP 直连）及进程接管 IPv6 回 RST。alonehome2 正式包实测（AI 劫持开着故仍 TUN）：IPv6 2 s 被拒、ping 正常、自测 20/20、新规则在配置里。仅接管选中程序路径未能在 alonehome2 实测（不得远程关 AI 劫持），靠单测 + 业主办公室机器后续日志确认。
