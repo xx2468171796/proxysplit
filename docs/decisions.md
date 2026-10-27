@@ -4,6 +4,10 @@
 > 结论与坑已提炼到 `docs/memory/<主题>.md`；这里是事实存档，按标题取（`node ~/.ankotti/ai-kit/mem.mjs <关键词>`），不要整份读。
 > 约定：sz = 深圳生产机；incoming = sz `/opt/proxysplit/incoming/`；客户端回滚 = 该版本 incoming 目录 `python3 publish-client.py rollback` 并删 releases 表里该版本那行。
 
+## v1.10.2（2026-10-28 04:25，全站发布，强制）
+- release id 20261028-041054-d90b72f-v1.10.2，上一版 releases/20261028-032339-0607adf-v1.10.1；备份 backups/postgres-20261028-041054-d90b72f-v1.10.2.sql.gz；无新迁移。exe SHA256 175cd4334bbb01d5248b37db9fceb211c5d7d8637fb8d456fd23c61cc7ef210a。
+- 内容见下面两条 2026-10-28 决策（默认仅接管选中程序 + v2rayN 加固；IPv6 sniff 前拒绝 + ICMP 直连）及进程接管 IPv6 回 RST。alonehome2 正式包实测（AI 劫持开着故仍 TUN）：IPv6 2 s 被拒、ping 正常、自测 20/20、新规则在配置里。仅接管选中程序路径未能在 alonehome2 实测（不得远程关 AI 劫持），靠单测 + 业主办公室机器后续日志确认。
+
 ## 2026-10-28 默认接管方式改为仅接管选中程序 + 参照 v2rayN 加固 TUN（v1.10.2）
 - 业主：产品核心是只接管选中程序，没加进名单的程序不能经过本软件。Settings.ProcessCapture()：CaptureMode 为空即 process，只有显式 "tun" 才整机虚拟网卡；AI 劫持开着仍用 TUN；WinDivert 驱动未就绪时本次回落 TUN 并后台下载（不报错）。
 - 起因：业主账号设备 bbbc… 一直跑默认 TUN，微信虽判直连但经 TUN，被 IPv6 问题拖慢。
