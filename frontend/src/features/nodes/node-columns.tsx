@@ -8,7 +8,7 @@ import {
   Tag,
   useMediaQuery,
 } from "@ankotti/admin-ui";
-import { CirclePlay, Cpu, Gauge, Globe, Network, Share2, Trash2 } from "lucide-react";
+import { CirclePlay, Cpu, Gauge, Globe, Link2, Network, Share2, Trash2 } from "lucide-react";
 import { type ReactNode, useMemo } from "react";
 import type { Node } from "../../api/types";
 import { useFeedback } from "../../app/use-feedback";
@@ -39,7 +39,12 @@ function LatencyBadge({ ms, text }: { ms?: number; text: string }) {
   );
 }
 
-export type NodeRowHandlers = { share: (n: Node) => void; remove: (n: Node) => void; core: (n: Node) => void };
+export type NodeRowHandlers = {
+  share: (n: Node) => void;
+  remove: (n: Node) => void;
+  core: (n: Node) => void;
+  via: (n: Node) => void;
+};
 
 type TestKind = "tcpId" | "googleId" | "speedId";
 
@@ -100,6 +105,9 @@ function nodeActions(
     });
   }
   actions.push({ key: "core", label: "内核", icon: <Cpu />, onSelect: () => on.core(n) });
+  if (!n.official) {
+    actions.push({ key: "via", label: "前置代理", icon: <Link2 />, onSelect: () => on.via(n) });
+  }
   // POWER云 官方线路是会员专属，不给分享入口（后端也会拒绝）。
   if (!n.official) {
     actions.push({ key: "share", label: "分享节点", icon: <Share2 />, onSelect: () => on.share(n) });
@@ -126,6 +134,11 @@ export function useNodeColumns(on: NodeRowHandlers): Column<Node>[] {
             <Tag size="sm" variant="plain" title={n.core ? "手动指定的内核" : "自动选择的内核"}>
               {coreLabel(n)}
             </Tag>
+            {n.via && (
+              <Tag size="sm" variant="plain" title="经由前置节点连接">
+                前置
+              </Tag>
+            )}
             <CellText primary={n.name} secondary={`${n.server}:${n.port}`} />
           </span>
         ),

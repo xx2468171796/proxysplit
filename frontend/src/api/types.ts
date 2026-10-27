@@ -17,6 +17,8 @@ export type Node = {
   official?: boolean;
   /** 用户选的内核：'' 自动 | 'sing-box' | 'xray' */
   core?: string;
+  /** 前置代理：经由哪个节点连过去（"" / 无 = 直接连）。 */
+  via?: string;
   /** Go 端算好的内核信息（实际内核、能选哪些） */
   coreInfo?: NodeCoreInfo;
 };

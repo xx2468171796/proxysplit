@@ -151,3 +151,10 @@ export async function setNodeCore(id: string, core: string): Promise<string> {
   await Promise.all([refreshNodes(), refreshStatus()]);
   return err;
 }
+
+/** 设前置代理（"" = 取消）；代理在跑时后端会重启内核。返回 '' = 成功。 */
+export async function setNodeVia(id: string, via: string): Promise<string> {
+  const err = await api.setNodeVia(id, via).catch((e: unknown) => String(e));
+  await Promise.all([refreshNodes(), refreshStatus()]);
+  return err;
+}

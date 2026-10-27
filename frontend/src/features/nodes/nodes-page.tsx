@@ -13,6 +13,7 @@ import { NodeCoreDialog } from "./node-core-dialog";
 import { NodeImportDialog } from "./node-import-dialog";
 import { type NodeShare, NodeShareDialog } from "./node-share-dialog";
 import { type NodeSort, NodeSortControl, RemoveDeadButton, sortNodes } from "./node-tools";
+import { NodeViaDialog } from "./node-via-dialog";
 import "./nodes.css";
 
 const HELP =
@@ -65,6 +66,7 @@ export function NodesPage() {
   const [adding, setAdding] = useState(false);
   const [share, setShare] = useState<NodeShare | null>(null);
   const [coreOf, setCoreOf] = useState<Node | null>(null);
+  const [viaOf, setViaOf] = useState<Node | null>(null);
   const [removing, setRemoving] = useState<Node | null>(null);
   const [sort, setSort] = useState<NodeSort>("default");
 
@@ -81,6 +83,7 @@ export function NodesPage() {
         ),
       remove: (n: Node) => setRemoving(n),
       core: (n: Node) => setCoreOf(n),
+      via: (n: Node) => setViaOf(n),
     }),
     [say],
   );
@@ -142,6 +145,7 @@ export function NodesPage() {
       </PageBody>
       {adding && <NodeImportDialog onClose={() => setAdding(false)} />}
       {coreOf && <NodeCoreDialog node={coreOf} onClose={() => setCoreOf(null)} />}
+      {viaOf && <NodeViaDialog node={viaOf} onClose={() => setViaOf(null)} />}
       {share && <NodeShareDialog share={share} onClose={() => setShare(null)} />}
       <ConfirmDialog
         open={removing !== null}

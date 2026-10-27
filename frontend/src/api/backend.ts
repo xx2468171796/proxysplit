@@ -85,6 +85,7 @@ export const api = {
   removeNodes: (ids: string[]) => W.RemoveNodes(ids),
   selectNode: (id: string) => W.SelectNode(id),
   setNodeCore: (id: string, core: string) => W.SetNodeCore(id, core),
+  setNodeVia: (id: string, via: string) => W.SetNodeVia(id, via),
   testAllLatency: () => W.TestAllLatency(),
   testLatency: (id: string) => W.TestLatency(id),
   testTCP: (id: string) => W.TestTCP(id),
