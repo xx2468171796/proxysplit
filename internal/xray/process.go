@@ -97,7 +97,7 @@ func (s *Sidecar) Ports() map[string]Endpoint {
 func (s *Sidecar) Ensure(ns []*nodes.Node) (map[string]Endpoint, error) {
 	want := map[string]*nodes.Node{}
 	for _, n := range ns {
-		if n.NeedsXray() {
+		if n.UseXray() {
 			want[Key(n)] = n
 		}
 	}

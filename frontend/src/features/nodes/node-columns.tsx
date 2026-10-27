@@ -8,7 +8,7 @@ import {
   Tag,
   useMediaQuery,
 } from "@ankotti/admin-ui";
-import { CirclePlay, Gauge, Globe, Network, Share2, Trash2 } from "lucide-react";
+import { CirclePlay, Cpu, Gauge, Globe, Network, Share2, Trash2 } from "lucide-react";
 import { type ReactNode, useMemo } from "react";
 import type { Node } from "../../api/types";
 import { useFeedback } from "../../app/use-feedback";
@@ -17,6 +17,7 @@ import { useStore } from "../../shared/store";
 import { selectNode } from "../../state/data";
 import { type NodeTestState, nodeTests, testGoogle, testSpeed, testTCP } from "../../state/nodes";
 import { runtime } from "../../state/runtime";
+import { coreLabel } from "./node-core-dialog";
 
 const GRADE_TONE = ["danger", "warning", "warning", "success", "success"] as const;
 
@@ -38,7 +39,7 @@ function LatencyBadge({ ms, text }: { ms?: number; text: string }) {
   );
 }
 
-export type NodeRowHandlers = { share: (n: Node) => void; remove: (n: Node) => void };
+export type NodeRowHandlers = { share: (n: Node) => void; remove: (n: Node) => void; core: (n: Node) => void };
 
 type TestKind = "tcpId" | "googleId" | "speedId";
 
@@ -98,6 +99,7 @@ function nodeActions(
       onSelect: () => void selectNode(n.id).then((err) => say(err || `已切换到「${n.name}」`)),
     });
   }
+  actions.push({ key: "core", label: "内核", icon: <Cpu />, onSelect: () => on.core(n) });
   // POWER云 官方线路是会员专属，不给分享入口（后端也会拒绝）。
   if (!n.official) {
     actions.push({ key: "share", label: "分享节点", icon: <Share2 />, onSelect: () => on.share(n) });
@@ -121,6 +123,9 @@ export function useNodeColumns(on: NodeRowHandlers): Column<Node>[] {
         render: (n) => (
           <span className="ps-node-cell">
             <Tag size="sm">{n.type.toUpperCase()}</Tag>
+            <Tag size="sm" variant="plain" title={n.core ? "手动指定的内核" : "自动选择的内核"}>
+              {coreLabel(n)}
+            </Tag>
             <CellText primary={n.name} secondary={`${n.server}:${n.port}`} />
           </span>
         ),

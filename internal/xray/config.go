@@ -104,6 +104,11 @@ func Outbound(n *nodes.Node, tag string) (M, error) {
 		settings = M{"address": n.Server, "port": n.Port, "id": n.UUID, "security": firstNonEmpty(n.Cipher, "auto")}
 	case "trojan":
 		settings = M{"address": n.Server, "port": n.Port, "password": n.Password}
+	case "shadowsocks", "socks", "http":
+		if !n.XraySupports() {
+			return nil, fmt.Errorf("xray: unsupported node %q (shadowsocks plugin?)", n.Name)
+		}
+		settings = plainSettings(n)
 	default:
 		return nil, fmt.Errorf("xray: unsupported node type %q", n.Type)
 	}
@@ -200,6 +205,7 @@ func security(n *nodes.Node, s M) {
 		if len(n.ALPN) > 0 {
 			t["alpn"] = n.ALPN
 		}
+		tlsExtras(n, t)
 		s["security"] = "tls"
 		s["tlsSettings"] = t
 	default:

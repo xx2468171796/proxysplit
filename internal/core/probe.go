@@ -53,7 +53,7 @@ func StartProbe(binPath, tempBase string, node *nodes.Node, startupTimeout time.
 	}
 	opts := Options{RouteMode: RouteGlobal}
 	var sc *xray.Sidecar
-	if node.NeedsXray() {
+	if node.UseXray() {
 		// Xray-only node: its own short-lived sidecar inside the probe dir.
 		sc = newSidecar(binPath, filepath.Join(dir, "xray"), nil)
 		ports, err := sc.Ensure([]*nodes.Node{node})

@@ -48,6 +48,7 @@ const (
 	NodeTCP        = "node.tcp"         // protocol, ms or timeout
 	NodeLatencyAll = "node.latency_all" // batch latency test
 	NodeSpeed      = "node.speed"       // protocol, Mbps
+	NodeCoreChange = "node.core"        // per-node core choice: nodeType, transport, from, to
 	SubAdd         = "sub.add"          // subscription host, node count
 	SubUpdate      = "sub.update"       // subscription refresh
 	SubEdit        = "sub.edit"         // subscription edited
