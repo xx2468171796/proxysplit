@@ -1,21 +1,19 @@
 // 主界面外壳：qiantai 桌面外壳 DesktopShell（标题栏 + 左侧导航 + 内容区 + 「外观」面板 + 背景层）。
 // 标题栏中间是活动节点 / 代理策略 / 速率，右侧启动 / 停止 + 自绘窗口按钮（Wails 无边框，见 window-controls.ts）；导航底部是账号菜单。
 import { AccountMenu, ContentSkeleton, PanelErrorBoundary, SlowLoadingNote, useSlowLoading } from "@ankotti/admin-ui";
-import { Bot, Gauge, LayoutGrid, Logs, type LucideIcon, Plug, Rss, Server, Settings, ShieldCheck } from "lucide-react";
+import { Bot, Gauge, LayoutGrid, Logs, type LucideIcon, Server, Settings, ShieldCheck } from "lucide-react";
 import { DesktopShell } from "qiantai/desktop";
 import { type ReactNode, useEffect } from "react";
 import { api } from "../api/backend";
 import logo from "../assets/proxysplit-logo.svg";
 import { AccountDialogs } from "../features/account/account-dialogs";
 import { AIPage } from "../features/ai/ai-page";
-import { AppsPage } from "../features/apps/apps-page";
+import { RoutingPage } from "../features/apps/routing-page";
 import { LogsPage } from "../features/logs/logs-page";
-import { NodesPage } from "../features/nodes/nodes-page";
+import { NodesHubPage } from "../features/nodes/nodes-hub-page";
 import { OverviewPage } from "../features/overview/overview-page";
-import { PortsPage } from "../features/ports/ports-page";
 import { RulesPage } from "../features/rules/rules-page";
 import { SettingsPage } from "../features/settings/settings-page";
-import { SubsPage } from "../features/subs/subs-page";
 import { useStore } from "../shared/store";
 import { data } from "../state/data";
 import { useAccountMenu } from "./account-menu";
@@ -30,15 +28,13 @@ import { useWindowControls } from "./window-controls";
 const PAGES: Record<PageId, { title: string; icon: LucideIcon; render: () => ReactNode }> = {
   overview: { title: "概览", icon: Gauge, render: () => <OverviewPage /> },
   ai: { title: "AI", icon: Bot, render: () => <AIPage /> },
-  nodes: { title: "节点", icon: Server, render: () => <NodesPage /> },
-  apps: { title: "应用分流", icon: LayoutGrid, render: () => <AppsPage /> },
-  ports: { title: "端口代理", icon: Plug, render: () => <PortsPage /> },
+  nodes: { title: "节点", icon: Server, render: () => <NodesHubPage /> },
+  apps: { title: "分流", icon: LayoutGrid, render: () => <RoutingPage /> },
   rules: { title: "分流规则", icon: ShieldCheck, render: () => <RulesPage /> },
-  subs: { title: "订阅", icon: Rss, render: () => <SubsPage /> },
-  logs: { title: "日志", icon: Logs, render: () => <LogsPage /> },
+  logs: { title: "日志与诊断", icon: Logs, render: () => <LogsPage /> },
   settings: { title: "设置", icon: Settings, render: () => <SettingsPage /> },
 };
-const ORDER: PageId[] = ["overview", "ai", "nodes", "apps", "ports", "rules", "subs", "logs", "settings"];
+const ORDER: PageId[] = ["overview", "ai", "nodes", "apps", "rules", "logs", "settings"];
 
 seedDefaultAppearance();
 

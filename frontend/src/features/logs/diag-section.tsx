@@ -1,11 +1,10 @@
-// 诊断：日志级别、日志上传说明、去日志页看连接 / 原始日志、去清除与重置修网络。
-// AI 控制接口（同样是诊断用的本机接口）是下面单独一节。
+// 诊断（「日志与诊断」页的一个分区）：日志级别、日志上传说明、去「清除与重置」修网络。
 import { Choice, FormField, FormSection, Panel } from "@ankotti/admin-ui";
-import { navigate, openSettings } from "../../app/nav";
+import { openSettings } from "../../app/nav";
 import { useFeedback } from "../../app/use-feedback";
 import { useStore } from "../../shared/store";
 import { setLogLevel, system } from "../../state/system";
-import { LinkRow } from "./link-row";
+import { LinkRow } from "../settings/link-row";
 
 const LOG_LEVELS = ["error", "warn", "info", "debug"].map((v) => ({ value: v, label: v }));
 
@@ -27,12 +26,6 @@ export function DiagSection() {
             onChange={(v) => void setLogLevel(v).then((e) => say(e, "error"))}
           />
         </FormField>
-        <LinkRow
-          id="diag-logs"
-          label="实时连接与运行日志"
-          hint="每条连接命中了哪条规则、走了哪个出口"
-          actions={[{ label: "打开日志页", onClick: () => navigate("logs") }]}
-        />
         <LinkRow
           id="diag-reset"
           label="网页打不开 / 节点连不上"

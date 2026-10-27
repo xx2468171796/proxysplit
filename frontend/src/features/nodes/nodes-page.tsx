@@ -42,7 +42,7 @@ function NodeActions({ onAdd }: { onAdd: () => void }) {
         <Gauge />
         测活动节点速度
       </Button>
-      <Button variant="outline" onClick={() => navigate("subs", "add-sub")}>
+      <Button variant="outline" onClick={() => navigate("nodes", "add-sub", "subs")}>
         <Rss />
         添加订阅
       </Button>
