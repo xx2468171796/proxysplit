@@ -35,6 +35,18 @@ type Result struct {
 // parsed in compat mode: base64 / plain share links, Clash YAML, or sing-box
 // JSON. viaProxy (host:port SOCKS) may be used to fetch through the core.
 func FetchWith(url string, viaProxy string, pv *powervpn.Client) (*Result, error) {
+	return FetchOpts(url, viaProxy, pv, Options{})
+}
+
+// Options are per-subscription fetch settings (v2rayN SubItem).
+type Options struct {
+	// UserAgent replaces the default "Clash.Meta" for third-party panels (some
+	// only answer v2rayN / sing-box / their own app). Never sent to POWER云.
+	UserAgent string
+}
+
+// FetchOpts is FetchWith with per-subscription options.
+func FetchOpts(url string, viaProxy string, pv *powervpn.Client, opt Options) (*Result, error) {
 	tr := &http.Transport{}
 	if viaProxy != "" {
 		d, err := proxy.SOCKS5("tcp", viaProxy, nil, proxy.Direct)
@@ -57,6 +69,9 @@ func FetchWith(url string, viaProxy string, pv *powervpn.Client) (*Result, error
 	// POWER云 panel keys on the "ProxySplit/" prefix; third-party panels still
 	// see "clash.meta" in the UA and answer in Clash format.
 	req.Header.Set("User-Agent", "Clash.Meta")
+	if ua := strings.TrimSpace(opt.UserAgent); ua != "" {
+		req.Header.Set("User-Agent", ua)
+	}
 	official := false
 	if pv != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
