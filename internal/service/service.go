@@ -26,6 +26,13 @@ type Sub struct {
 	AutoUpdate bool   `json:"autoUpdate"`
 	LastUpdate string `json:"lastUpdate"`
 	NodeCount  int    `json:"nodeCount"`
+	// Per-subscription options (v2rayN SubItem): User-Agent for third-party
+	// panels, node-name include / exclude filters (case-insensitive regex),
+	// auto-update interval in minutes (0 = every 6 hours).
+	UserAgent   string `json:"userAgent,omitempty"`
+	Include     string `json:"include,omitempty"`
+	Exclude     string `json:"exclude,omitempty"`
+	IntervalMin int    `json:"intervalMin,omitempty"`
 }
 
 // Settings holds user-tunable options.
@@ -232,16 +239,36 @@ func (s *Service) directDomains() []string {
 	return append([]string(nil), s.directDomainList...)
 }
 
-// startScheduler periodically auto-updates subscriptions that opt in.
+// subDefaultInterval is the auto-update period when a subscription sets none.
+const subDefaultInterval = 6 * time.Hour
+
+// startScheduler auto-updates subscriptions that opt in, each on its own
+// interval (checked every minute; the first run comes one interval after
+// launch, as before).
 func (s *Service) startScheduler() {
 	go func() {
-		t := time.NewTicker(6 * time.Hour)
+		t := time.NewTicker(time.Minute)
 		defer t.Stop()
+		started := time.Now()
+		last := map[string]time.Time{}
 		for range t.C {
+			now := time.Now()
 			for _, sub := range s.GetSubs() {
 				if !sub.AutoUpdate {
 					continue
 				}
+				every := subDefaultInterval
+				if sub.IntervalMin > 0 {
+					every = time.Duration(max(sub.IntervalMin, 10)) * time.Minute
+				}
+				prev, ok := last[sub.ID]
+				if !ok {
+					prev = started
+				}
+				if now.Sub(prev) < every {
+					continue
+				}
+				last[sub.ID] = now
 				if err := s.UpdateSub(sub.ID); err != nil {
 					s.log(fmt.Sprintf("[subs] auto-update %s failed: %v", sub.Name, err))
 				} else {

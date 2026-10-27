@@ -39,6 +39,11 @@ func (s *Service) proxyViaLocked() string {
 // fetchSubscription resolves a subscription address to nodes. The pseudo
 // address powervpn://profile is the logged-in POWER云 account's profile.
 func (s *Service) fetchSubscription(url string) ([]*nodes.Node, error) {
+	return s.fetchSubscriptionOpts(url, subs.Options{})
+}
+
+// fetchSubscriptionOpts is fetchSubscription with per-subscription options.
+func (s *Service) fetchSubscriptionOpts(url string, opt subs.Options) ([]*nodes.Node, error) {
 	s.mu.Lock()
 	via := s.proxyViaLocked()
 	pv := s.pv
@@ -65,7 +70,7 @@ func (s *Service) fetchSubscription(url string) ([]*nodes.Node, error) {
 		}
 		return list, nil
 	}
-	res, err := subs.FetchWith(url, via, pv)
+	res, err := subs.FetchOpts(url, via, pv, opt)
 	if err != nil {
 		return nil, err
 	}

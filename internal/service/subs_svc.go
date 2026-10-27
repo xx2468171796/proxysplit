@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"proxysplit/internal/nodes"
+	"proxysplit/internal/powervpn"
+	"proxysplit/internal/subs"
 )
 
 // GetSubs returns configured subscriptions.
@@ -47,10 +49,11 @@ func (s *Service) UpdateSub(id string) error {
 	// Copy the primitive fields out under the lock; do NOT retain a pointer into
 	// the Subs slice, which AddSub/RemoveSub may reallocate or compact in place.
 	s.mu.Lock()
-	url, found := "", false
+	var sub Sub
+	found := false
 	for i := range s.cfg.Subs {
 		if s.cfg.Subs[i].ID == id {
-			url = s.cfg.Subs[i].URL
+			sub = s.cfg.Subs[i]
 			found = true
 		}
 	}
@@ -59,7 +62,7 @@ func (s *Service) UpdateSub(id string) error {
 		return fmt.Errorf("订阅不存在")
 	}
 
-	list, err := s.fetchSubscription(url)
+	list, err := s.fetchSubWithOptions(sub)
 	if err != nil {
 		return err
 	}
@@ -277,6 +280,86 @@ func (s *Service) RemoveSub(id string) {
 	s.save()
 	s.mu.Unlock()
 	s.applyLive()
+}
+
+// fetchSubWithOptions fetches with the subscription's User-Agent and applies
+// its name filters (never to the signed POWER云 profile).
+func (s *Service) fetchSubWithOptions(sub Sub) ([]*nodes.Node, error) {
+	list, err := s.fetchSubscriptionOpts(sub.URL, subs.Options{UserAgent: sub.UserAgent})
+	if err != nil {
+		return nil, err
+	}
+	if strings.EqualFold(strings.TrimSpace(sub.URL), powervpn.ProfileSubURL) {
+		return list, nil
+	}
+	kept, err := subs.FilterNodes(list, sub.Include, sub.Exclude)
+	if err != nil {
+		return nil, err
+	}
+	if len(kept) == 0 && len(list) > 0 {
+		return nil, fmt.Errorf("过滤后没有剩下节点（共 %d 个），请检查「包含 / 排除」", len(list))
+	}
+	return kept, nil
+}
+
+// SubOptions are the editable per-subscription options.
+type SubOptions struct {
+	UserAgent   string `json:"userAgent"`
+	Include     string `json:"include"`
+	Exclude     string `json:"exclude"`
+	IntervalMin int    `json:"intervalMin"`
+}
+
+// SetSubOptions validates the options by fetching with them first (like
+// EditSub): only a successful fetch saves them and replaces the nodes, so a
+// filter that matches nothing never leaves a subscription that always fails.
+func (s *Service) SetSubOptions(id string, o SubOptions) error {
+	o.UserAgent, o.Include, o.Exclude = strings.TrimSpace(o.UserAgent), strings.TrimSpace(o.Include), strings.TrimSpace(o.Exclude)
+	if _, err := subs.FilterNodes(nil, o.Include, o.Exclude); err != nil {
+		return err
+	}
+	if o.IntervalMin < 0 || o.IntervalMin > 7*24*60 {
+		return fmt.Errorf("自动更新间隔应在 0～10080 分钟之间（0 = 每 6 小时）")
+	}
+	if o.IntervalMin > 0 && o.IntervalMin < 10 {
+		o.IntervalMin = 10
+	}
+	s.mu.Lock()
+	var cand Sub
+	found := false
+	for i := range s.cfg.Subs {
+		if s.cfg.Subs[i].ID == id {
+			cand, found = s.cfg.Subs[i], true
+		}
+	}
+	s.mu.Unlock()
+	if !found {
+		return fmt.Errorf("订阅不存在")
+	}
+	cand.UserAgent, cand.Include, cand.Exclude, cand.IntervalMin = o.UserAgent, o.Include, o.Exclude, o.IntervalMin
+	list, err := s.fetchSubWithOptions(cand)
+	if err != nil {
+		return err
+	}
+	s.mu.Lock()
+	found = false
+	for i := range s.cfg.Subs {
+		if s.cfg.Subs[i].ID == id {
+			sub := &s.cfg.Subs[i]
+			sub.UserAgent, sub.Include, sub.Exclude, sub.IntervalMin = o.UserAgent, o.Include, o.Exclude, o.IntervalMin
+			found = true
+		}
+	}
+	if found {
+		s.replaceSubscriptionNodesLocked(id, list)
+		s.save()
+	}
+	s.mu.Unlock()
+	if !found {
+		return fmt.Errorf("订阅不存在")
+	}
+	s.applyLive()
+	return nil
 }
 
 // SetSubAutoUpdate toggles auto-update for a subscription.
