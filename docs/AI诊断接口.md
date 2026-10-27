@@ -19,6 +19,8 @@ ProxySplit 内置一组诊断接口，让 AI（或工程师）在任何一台装
 | `GET /api/diag/logs?n=300&grep=baidu` | `proxysplit_logs` | 最近日志（含内核日志），可过滤 |
 | `GET/POST /api/custom-rules` `{"rules":[{"type":"suffix","value":"x.com","action":"proxy"}]}` | `proxysplit_set_custom_rules` | 读取 / 整体替换自定义规则 |
 | `POST /api/split-mode` `{"mode":"whitelist"}` | `proxysplit_set_split_mode` | 分流模式：whitelist = 只代理列出的，blacklist = 默认全走代理 |
+| `GET /api/reset`；`POST /api/reset` `{"items":["core-dns-cache",...],"confirm":"确认重置"}` | `proxysplit_reset`（不传 items = 列清单） | 清除与重置中心：缓存 / 网络修复 / 配置重置；恢复出厂要 confirm；任何一项都不解除 AI 劫持 |
+| `POST /api/reset/undo` | `proxysplit_reset_undo` | 撤销上次配置重置（恢复最近一份重置前备份） |
 | `POST /api/log-level` `{"level":"info"}` | — | 日志级别；路由测试读日志需要 info 或 debug |
 | `GET /api/account` | `proxysplit_account` | 登录与会员状态（ProxySplit 账号、POWER云） |
 | `POST /api/account/login` `{"username","password"}` | — | 用 ProxySplit 账号登录（密码经标准输入传给 curl，别写进命令行） |

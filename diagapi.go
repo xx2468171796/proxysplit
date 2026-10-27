@@ -162,6 +162,14 @@ func (a *App) registerDiagAPI(mux *http.ServeMux, auth func(func(http.ResponseWr
 		}
 		writeJSON(w, 200, a.RunReset(b.Items, b.Confirm))
 	}))
+	// POST /api/reset/undo — 撤销上次配置重置（恢复最近一份重置前备份）。
+	mux.HandleFunc("/api/reset/undo", auth(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			writeJSON(w, 405, map[string]string{"error": "POST only"})
+			return
+		}
+		writeJSON(w, 200, okOr(a.UndoReset()))
+	}))
 }
 
 func okOr(msg string) map[string]any {
@@ -202,6 +210,11 @@ func diagMCPTools() []map[string]any {
 		{"name": "proxysplit_set_split_mode", "description": "设置分流模式：whitelist=只代理列出的应用，blacklist=默认全走代理。", "inputSchema": map[string]any{"type": "object", "properties": map[string]any{
 			"mode": map[string]any{"type": "string", "enum": []string{"whitelist", "blacklist"}},
 		}, "required": []string{"mode"}}},
+		{"name": "proxysplit_reset", "description": "清除与重置：不传 items = 列出全部可清除 / 重置项（id、作用、是否重启内核、危险程度）；传 items 则执行。恢复出厂要 confirm=确认重置。任何一项都不会解除 AI 劫持。", "inputSchema": map[string]any{"type": "object", "properties": map[string]any{
+			"items":   map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+			"confirm": str("只有 factory（恢复出厂）需要：确认重置"),
+		}}},
+		{"name": "proxysplit_reset_undo", "description": "撤销上次配置重置：恢复最近一份重置前自动备份。", "inputSchema": empty},
 	}
 }
 
@@ -242,6 +255,18 @@ func (a *App) diagMCPCall(name string, args json.RawMessage) (string, bool) {
 		return j(okOr(a.svc.SetCustomRules(m.Rules))), true
 	case "proxysplit_set_split_mode":
 		return j(okOr(a.svc.SetRuleMode(m.Mode))), true
+	case "proxysplit_reset":
+		var r struct {
+			Items   []string `json:"items"`
+			Confirm string   `json:"confirm"`
+		}
+		_ = json.Unmarshal(args, &r)
+		if len(r.Items) == 0 {
+			return j(a.GetResetCenter()), true
+		}
+		return j(a.RunReset(r.Items, r.Confirm)), true
+	case "proxysplit_reset_undo":
+		return j(okOr(a.UndoReset())), true
 	}
 	return "", false
 }
