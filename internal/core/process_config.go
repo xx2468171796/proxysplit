@@ -162,12 +162,12 @@ func BuildProcessConfig(node *nodes.Node, logLevel string, opts Options) ([]byte
 	if !opts.Split || opts.Process == nil {
 		return nil, fmt.Errorf("process capture needs app-split options")
 	}
-	cfg, err := buildTUNTree(node, logLevel, opts)
+	tree, err := buildTUNTree(node, logLevel, opts)
 	if err != nil {
 		return nil, err
 	}
 	var inbounds []M
-	for _, in := range cfg["inbounds"].([]M) {
+	for _, in := range tree.Inbounds {
 		if in["type"] != "tun" {
 			inbounds = append(inbounds, in)
 		}
@@ -179,22 +179,22 @@ func BuildProcessConfig(node *nodes.Node, logLevel string, opts Options) ([]byte
 		}
 		inbounds = append(inbounds, M{"type": "mixed", "tag": tag, "listen": "127.0.0.1", "listen_port": port})
 	}
-	cfg["inbounds"] = inbounds
-	route := cfg["route"].(M)
+	tree.Inbounds = inbounds
 	rw := newProcessRewrite(opts)
 	var rules []M
-	for _, r := range route["rules"].([]M) {
+	for _, r := range tree.Rules {
 		if nr, ok := rw.rule(r); ok {
 			rules = append(rules, nr)
 		}
 	}
-	route["rules"] = rules
+	tree.Rules = rules
 	var sets []M
-	for _, s := range route["rule_set"].([]M) {
-		if _, isApp := rw.sets[s["tag"].(string)]; !isApp {
+	for _, s := range tree.RuleSets {
+		tag, _ := s["tag"].(string)
+		if _, isApp := rw.sets[tag]; !isApp {
 			sets = append(sets, s)
 		}
 	}
-	route["rule_set"] = sets
-	return json.MarshalIndent(cfg, "", "  ")
+	tree.RuleSets = sets
+	return json.MarshalIndent(tree.root(), "", "  ")
 }

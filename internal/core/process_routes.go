@@ -60,7 +60,7 @@ func ProcessRoutes(opts Options) *capture.Routes {
 // process_path (端口代理 core, xray sidecar). The process config drops those
 // rules (sing-box sees no process there), so the engine must exclude the same
 // paths or 默认全走代理 would loop the cores' upstream traffic into themselves.
-// Keep in sync with the process_path rules in buildTUNTree (guarded by a test).
+// Keep in sync with the process_path rules in tunDirectRules / xrayRules (guarded by a test).
 func processPathDirect(opts Options) []string {
 	var out []string
 	for _, p := range []string{opts.PortProcessPath, opts.XrayPath} {

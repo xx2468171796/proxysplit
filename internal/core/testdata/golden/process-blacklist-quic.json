@@ -1,0 +1,505 @@
+{
+  "dns": {
+    "final": "dns-remote",
+    "rules": [
+      {
+        "clash_mode": "direct",
+        "server": "dns-direct"
+      },
+      {
+        "rule_set": [
+          "geosite-cn"
+        ],
+        "server": "dns-direct"
+      }
+    ],
+    "servers": [
+      {
+        "detour": "proxy",
+        "server": "8.8.8.8",
+        "tag": "dns-remote",
+        "type": "udp"
+      },
+      {
+        "server": "223.5.5.5",
+        "tag": "dns-direct",
+        "type": "udp"
+      }
+    ],
+    "strategy": "ipv4_only"
+  },
+  "experimental": {
+    "clash_api": {
+      "external_controller": "127.0.0.1:19095",
+      "secret": "secret"
+    }
+  },
+  "inbounds": [
+    {
+      "listen": "127.0.0.1",
+      "listen_port": 30000,
+      "tag": "in-apps-g-17db2ee46f",
+      "type": "mixed"
+    },
+    {
+      "listen": "127.0.0.1",
+      "listen_port": 30001,
+      "tag": "in-apps-g-289e05519b",
+      "type": "mixed"
+    },
+    {
+      "listen": "127.0.0.1",
+      "listen_port": 30002,
+      "tag": "in-apps-g-d3222716d1",
+      "type": "mixed"
+    },
+    {
+      "listen": "127.0.0.1",
+      "listen_port": 30003,
+      "tag": "in-default",
+      "type": "mixed"
+    },
+    {
+      "listen": "127.0.0.1",
+      "listen_port": 30004,
+      "tag": "in-s-0ef290bb69",
+      "type": "mixed"
+    },
+    {
+      "listen": "127.0.0.1",
+      "listen_port": 30005,
+      "tag": "in-s-7a73b78f67",
+      "type": "mixed"
+    }
+  ],
+  "log": {
+    "level": "warn",
+    "timestamp": true
+  },
+  "outbounds": [
+    {
+      "flow": "xtls-rprx-vision",
+      "server": "example.com",
+      "server_port": 443,
+      "tag": "proxy",
+      "tls": {
+        "enabled": true,
+        "insecure": false,
+        "reality": {
+          "enabled": true,
+          "public_key": "jNXHt1yRo0vDuchQlIP6Z0ZvjT3KtzVI-T4E7RoLJS0",
+          "short_id": "0123abcd"
+        },
+        "server_name": "www.microsoft.com",
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      },
+      "type": "vless",
+      "uuid": "11111111-2222-3333-4444-555555555555"
+    },
+    {
+      "tag": "direct",
+      "type": "direct"
+    },
+    {
+      "password": "password123",
+      "server": "example.com",
+      "server_port": 443,
+      "tag": "node-x",
+      "tls": {
+        "enabled": true,
+        "insecure": false,
+        "server_name": "example.com"
+      },
+      "type": "trojan"
+    }
+  ],
+  "route": {
+    "auto_detect_interface": true,
+    "default_domain_resolver": {
+      "server": "dns-direct"
+    },
+    "final": "node-x",
+    "rule_set": [
+      {
+        "format": "binary",
+        "path": "GEO/geosite-cn.srs",
+        "tag": "geosite-cn",
+        "type": "local"
+      },
+      {
+        "format": "binary",
+        "path": "GEO/geoip-cn.srs",
+        "tag": "geoip-cn",
+        "type": "local"
+      },
+      {
+        "format": "binary",
+        "path": "GEO/geosite-category-ads-all.srs",
+        "tag": "geosite-ads",
+        "type": "local"
+      }
+    ],
+    "rules": [
+      {
+        "action": "reject",
+        "ip_cidr": [
+          "172.19.0.1/32",
+          "fdfe:dcba:9876::1/128"
+        ],
+        "method": "drop"
+      },
+      {
+        "action": "reject",
+        "mode": "and",
+        "rules": [
+          {
+            "ip_version": 6
+          },
+          {
+            "invert": true,
+            "ip_is_private": true
+          },
+          {
+            "invert": true,
+            "port": [
+              53
+            ]
+          }
+        ],
+        "type": "logical"
+      },
+      {
+        "network": [
+          "icmp"
+        ],
+        "outbound": "direct"
+      },
+      {
+        "action": "sniff"
+      },
+      {
+        "action": "hijack-dns",
+        "mode": "or",
+        "rules": [
+          {
+            "port": 53
+          },
+          {
+            "protocol": "dns"
+          }
+        ],
+        "type": "logical"
+      },
+      {
+        "action": "reject",
+        "inbound": [
+          "in-s-7a73b78f67"
+        ],
+        "port_range": [
+          "6881:6889"
+        ]
+      },
+      {
+        "domain": [
+          "api.example.cn"
+        ],
+        "domain_suffix": [
+          "api.example.cn"
+        ],
+        "outbound": "direct"
+      },
+      {
+        "ip_is_private": true,
+        "outbound": "direct"
+      },
+      {
+        "inbound": [
+          "in-s-0ef290bb69"
+        ],
+        "outbound": "direct"
+      },
+      {
+        "inbound": [
+          "in-s-7a73b78f67"
+        ],
+        "ip_cidr": [
+          "10.1.0.0/16"
+        ],
+        "outbound": "direct"
+      },
+      {
+        "action": "reject",
+        "ip_version": 6
+      },
+      {
+        "clash_mode": "direct",
+        "outbound": "direct"
+      },
+      {
+        "action": "reject",
+        "clash_mode": "global",
+        "network": [
+          "udp"
+        ],
+        "port": [
+          443
+        ]
+      },
+      {
+        "action": "reject",
+        "mode": "and",
+        "rules": [
+          {
+            "mode": "and",
+            "rules": [
+              {
+                "inbound": [
+                  "in-apps-g-d3222716d1",
+                  "in-s-7a73b78f67"
+                ]
+              },
+              {
+                "network": [
+                  "udp"
+                ],
+                "port": [
+                  443
+                ]
+              }
+            ],
+            "type": "logical"
+          },
+          {
+            "invert": true,
+            "rule_set": [
+              "geosite-cn",
+              "geoip-cn"
+            ]
+          }
+        ],
+        "type": "logical"
+      },
+      {
+        "action": "reject",
+        "mode": "and",
+        "rules": [
+          {
+            "inbound": [
+              "in-apps-g-289e05519b"
+            ]
+          },
+          {
+            "network": [
+              "udp"
+            ],
+            "port": [
+              443
+            ]
+          }
+        ],
+        "type": "logical"
+      },
+      {
+        "action": "reject",
+        "mode": "and",
+        "rules": [
+          {
+            "mode": "and",
+            "rules": [
+              {
+                "inbound": [
+                  "in-apps-g-17db2ee46f"
+                ]
+              },
+              {
+                "network": [
+                  "udp"
+                ],
+                "port": [
+                  443
+                ]
+              }
+            ],
+            "type": "logical"
+          },
+          {
+            "invert": true,
+            "rule_set": [
+              "geosite-cn",
+              "geoip-cn"
+            ]
+          }
+        ],
+        "type": "logical"
+      },
+      {
+        "action": "reject",
+        "network": [
+          "udp"
+        ],
+        "port": [
+          443
+        ]
+      },
+      {
+        "domain_suffix": [
+          "github.com"
+        ],
+        "inbound": [
+          "in-s-0ef290bb69"
+        ],
+        "outbound": "proxy"
+      },
+      {
+        "mode": "and",
+        "outbound": "proxy",
+        "rules": [
+          {
+            "inbound": [
+              "in-apps-g-d3222716d1",
+              "in-s-7a73b78f67"
+            ]
+          },
+          {
+            "clash_mode": "global"
+          }
+        ],
+        "type": "logical"
+      },
+      {
+        "mode": "and",
+        "outbound": "proxy",
+        "rules": [
+          {
+            "inbound": [
+              "in-apps-g-289e05519b"
+            ]
+          },
+          {
+            "clash_mode": "global"
+          }
+        ],
+        "type": "logical"
+      },
+      {
+        "mode": "and",
+        "outbound": "node-x",
+        "rules": [
+          {
+            "inbound": [
+              "in-apps-g-17db2ee46f"
+            ]
+          },
+          {
+            "clash_mode": "global"
+          }
+        ],
+        "type": "logical"
+      },
+      {
+        "clash_mode": "global",
+        "outbound": "proxy"
+      },
+      {
+        "clash_mode": "rule",
+        "domain_suffix": [
+          "custom.com"
+        ],
+        "outbound": "direct"
+      },
+      {
+        "action": "reject",
+        "mode": "and",
+        "rules": [
+          {
+            "inbound": [
+              "in-apps-g-d3222716d1",
+              "in-s-7a73b78f67"
+            ]
+          },
+          {
+            "rule_set": [
+              "geosite-ads"
+            ]
+          }
+        ],
+        "type": "logical"
+      },
+      {
+        "mode": "and",
+        "outbound": "direct",
+        "rules": [
+          {
+            "inbound": [
+              "in-apps-g-d3222716d1",
+              "in-s-7a73b78f67"
+            ]
+          },
+          {
+            "rule_set": [
+              "geosite-cn",
+              "geoip-cn"
+            ]
+          }
+        ],
+        "type": "logical"
+      },
+      {
+        "inbound": [
+          "in-apps-g-d3222716d1",
+          "in-s-7a73b78f67"
+        ],
+        "outbound": "proxy"
+      },
+      {
+        "inbound": [
+          "in-apps-g-289e05519b"
+        ],
+        "outbound": "proxy"
+      },
+      {
+        "action": "reject",
+        "mode": "and",
+        "rules": [
+          {
+            "inbound": [
+              "in-apps-g-17db2ee46f"
+            ]
+          },
+          {
+            "domain_keyword": [
+              "tracker"
+            ]
+          }
+        ],
+        "type": "logical"
+      },
+      {
+        "mode": "and",
+        "outbound": "direct",
+        "rules": [
+          {
+            "inbound": [
+              "in-apps-g-17db2ee46f"
+            ]
+          },
+          {
+            "domain_suffix": [
+              "cn"
+            ]
+          }
+        ],
+        "type": "logical"
+      },
+      {
+        "inbound": [
+          "in-apps-g-17db2ee46f"
+        ],
+        "outbound": "node-x"
+      }
+    ]
+  }
+}

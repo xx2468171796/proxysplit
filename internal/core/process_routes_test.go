@@ -23,7 +23,7 @@ func TestProcessRoutesExcludeProcessPathRules(t *testing.T) {
 	}
 	r := ProcessRoutes(opts)
 	var seen int
-	for _, rule := range tree["route"].(M)["rules"].([]M) {
+	for _, rule := range tree.Rules {
 		paths, ok := rule["process_path"].([]string)
 		if !ok {
 			continue

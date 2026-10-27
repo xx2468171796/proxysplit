@@ -1,0 +1,115 @@
+{
+  "dns": {
+    "final": "dns-direct",
+    "rules": [
+      {
+        "clash_mode": "direct",
+        "server": "dns-direct"
+      }
+    ],
+    "servers": [
+      {
+        "server": "223.5.5.5",
+        "tag": "dns-direct",
+        "type": "udp"
+      }
+    ]
+  },
+  "experimental": {
+    "clash_api": {
+      "default_mode": "direct",
+      "external_controller": "127.0.0.1:1",
+      "secret": "s"
+    }
+  },
+  "inbounds": [
+    {
+      "listen": "0.0.0.0",
+      "listen_port": 10801,
+      "tag": "in-port",
+      "type": "socks",
+      "users": [
+        {
+          "password": "p",
+          "username": "u"
+        }
+      ]
+    }
+  ],
+  "log": {
+    "level": "info",
+    "timestamp": true
+  },
+  "outbounds": [
+    {
+      "tag": "direct",
+      "type": "direct"
+    }
+  ],
+  "route": {
+    "auto_detect_interface": true,
+    "default_domain_resolver": {
+      "server": "dns-direct"
+    },
+    "final": "direct",
+    "rule_set": [
+      {
+        "format": "binary",
+        "path": "GEO/geosite-cn.srs",
+        "tag": "geosite-cn",
+        "type": "local"
+      },
+      {
+        "format": "binary",
+        "path": "GEO/geoip-cn.srs",
+        "tag": "geoip-cn",
+        "type": "local"
+      },
+      {
+        "format": "binary",
+        "path": "GEO/geosite-category-ads-all.srs",
+        "tag": "geosite-ads",
+        "type": "local"
+      }
+    ],
+    "rules": [
+      {
+        "action": "sniff"
+      },
+      {
+        "domain": [
+          "api.example.cn"
+        ],
+        "domain_suffix": [
+          "api.example.cn"
+        ],
+        "outbound": "direct"
+      },
+      {
+        "ip_is_private": true,
+        "outbound": "direct"
+      },
+      {
+        "clash_mode": "direct",
+        "outbound": "direct"
+      },
+      {
+        "clash_mode": "global",
+        "outbound": "direct"
+      },
+      {
+        "action": "reject",
+        "rule_set": [
+          "geosite-ads"
+        ]
+      },
+      {
+        "outbound": "direct",
+        "rule_set": [
+          "geosite-cn",
+          "geoip-cn"
+        ]
+      }
+    ]
+  }
+}
