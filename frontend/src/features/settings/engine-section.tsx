@@ -46,7 +46,7 @@ export function EngineSection() {
         <SwitchField
           id="engine-streamDirect"
           label="推流程序默认直连"
-          hint="抖音 / 快手直播伴侣、B站直播姬、OBS 没加进名单时一律直连，推流不绕节点；自己把它们加进名单则按名单走"
+          hint="仅在「仅接管选中程序」下生效：抖音 / 快手直播伴侣、B站直播姬、OBS 没加进名单时一律直连，推流不绕节点；自己把它们加进名单则按名单走"
           checked={!settings.streamDirectOff}
           onChange={(on) => save({ streamDirectOff: !on })}
         />

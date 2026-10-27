@@ -55,5 +55,5 @@ SelectNode / RemoveNode / SetRouting / SetSettings / SetLogLevel 返回重启错
 - 二进制：scripts/fetch-core.ps1 从官方 basil00/WinDivert v2.2.2 下 zip，校验 zip 与 x64 dll / sys 的 SHA256 后放 bin/（git 忽略），仅供开发 / 测试；客户端不内嵌，运行时由 internal/coreupdate/windivert.go 按需从自家下载站拉取（同一组 SHA256）。Defender 风险见 known-issues.md。
 - 集成测试：管理员 PowerShell 里 `$env:PROXYSPLIT_CAPTURE_IT=1; go test ./internal/capture -run Engine -v`（curl.exe 当被接管程序，需联网）。
 
-## 推流程序默认直连（两种接管方式都生效）
-service.streamPreset：直播伴侣.exe、MediaSDK_Server.exe（抖音直播伴侣）、obs64/obs32.exe、快手直播伴侣.exe、kwailive.exe、livehime.exe（B站直播姬）没出现在任何名单时自动进直连列表（应用规则集热加载，不重启）。用户把它们加进任何名单则按名单；设置「推流程序默认直连」可关（streamDirectOff）。exe 名除 OBS / livehime 外待真机核对。
+## 推流程序默认直连（只在「仅接管选中程序」下生效）
+service.streamPreset：直播伴侣.exe、MediaSDK_Server.exe（抖音直播伴侣）、obs64/obs32.exe、快手直播伴侣.exe、kwailive.exe、livehime.exe（B站直播姬）没出现在任何名单时自动进直连列表（应用规则集热加载，不重启）。用户把它们加进任何名单则按名单；设置「推流程序默认直连」可关（streamDirectOff）。exe 名除 OBS / livehime 外待真机核对。 TUN 下不生效：会把老用户经代理推海外（OBS → YouTube）的流悄悄改直连（2026-10-27 审查）。

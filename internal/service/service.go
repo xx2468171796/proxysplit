@@ -1776,7 +1776,9 @@ func (s *Service) splitOptionsLocked(opts *core.Options, node *nodes.Node) split
 			opts.SplitDefault = &d
 		}
 	}
-	if !s.cfg.Settings.StreamDirectOff {
+	// 推流程序默认直连 only in 仅接管选中程序: in TUN it would silently move
+	// existing users who stream abroad through the proxy (OBS → YouTube) to direct.
+	if s.cfg.Settings.CaptureMode == CaptureProcess && !s.cfg.Settings.StreamDirectOff {
 		directApps = append(directApps, streamPresetApps(sum.targets)...)
 	}
 	sort.Strings(directApps)
