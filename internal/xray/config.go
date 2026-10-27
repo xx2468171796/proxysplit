@@ -205,6 +205,7 @@ func security(n *nodes.Node, s M) {
 		if len(n.ALPN) > 0 {
 			t["alpn"] = n.ALPN
 		}
+		tlsExtras(n, t)
 		s["security"] = "tls"
 		s["tlsSettings"] = t
 	default:

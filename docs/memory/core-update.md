@@ -47,3 +47,8 @@ sing-box 跑不了的节点（XHTTP/splithttp、mKCP、VLESS encryption）走 Xr
   - 入口：Wails `SetNodeCore(id, core)`；诊断接口 `POST /api/nodes/core {"id","core":"auto|sing-box|xray"}`（返回 {ok} 或 {ok:false,error:中文}）；节点在用（活动节点 / 线路附加节点 / 端口代理出口）且实际内核变了才重启对应内核。/api/diag 节点带 `core`（实际）和 `coreSet`（用户选择）。
   - 界面：节点列名称旁显示实际内核标签；行操作「内核」弹窗（自动 / sing-box / Xray，不可选项置灰 + 说明）。界面数据来自 Service.Nodes() 副本上的派生字段 `coreInfo`（不落盘）。
   - 遥测：`node.core`（nodeType, transport, from, to, choice）；node.select / latency / tcp / speed 载荷多了 `core`。
+- Xray v26.6.1 TLS / XHTTP 扩展（2026-10-28，同分支；字段名按模块缓存里 94ffd50 源码 infra/conf/transport_internet.go 核对）：
+  - 分享链接 `ech`（→ tlsSettings.echConfigList，裸 "+" 会被解成空格已修正）、`echForceQuery`（只收 none/half/full，其它值会让 Xray 整个拒启动所以丢弃）、`pcs`（→ pinnedPeerCertSha256，只留 64 位 hex / 冒号格式）；vless 与 trojan 链接都读。Clash `ech-opts {enable, config}` 只取静态 config。
+  - 我们的 sing-box 出站生成不了 ECH / 证书指纹固定 → `security=tls` 的 vless/vmess/trojan 带这两者即 NeedsXray（强制 Xray）。Clash 节点 ID 仍只看原规则（needsXrayTransport），老 ID 不变。
+  - XHTTP `extra` 原样透传未知键；`xmux` 里已知键（maxConcurrency / maxConnections / cMaxReuseTimes / hMaxRequestTimes / hMaxReusableSecs 为整数或 "a-b"，hKeepAlivePeriod 为整数）值不合法就丢该键、xmux 不是对象就丢 xmux——否则 Xray 解析 extra 失败会拒启动。
+  - 实测（internal/xray/reality_hello_test.go，真 xray 抓 ClientHello）：REALITY + fp=chrome 的 supported_groups 与 key_share 都含 X25519MLKEM768（0x11ec）；firefox、safari 也含；edge 不含；random 随机。

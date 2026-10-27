@@ -19,3 +19,17 @@ func plainSettings(n *nodes.Node) M {
 	}
 	return s
 }
+
+// tlsExtras adds the Xray v26 tlsSettings fields sing-box has no equivalent
+// for here (names from v26.6.1 infra/conf/transport_internet.go TLSConfig).
+func tlsExtras(n *nodes.Node, t M) {
+	if n.ECH != "" {
+		t["echConfigList"] = n.ECH
+		if n.ECHForceQuery != "" {
+			t["echForceQuery"] = n.ECHForceQuery
+		}
+	}
+	if n.PinnedCert != "" {
+		t["pinnedPeerCertSha256"] = n.PinnedCert
+	}
+}

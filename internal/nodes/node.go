@@ -46,6 +46,12 @@ type Node struct {
 	Seed       string `json:"seed,omitempty"`       // mKCP seed
 	SpiderX    string `json:"spiderX,omitempty"`    // reality spiderX
 	PQV        string `json:"pqv,omitempty"`        // reality mldsa65Verify
+	// TLS extras sing-box cannot express here (NeedsXray): Xray v26
+	// tlsSettings echConfigList / echForceQuery / pinnedPeerCertSha256.
+	ECH           string `json:"ech,omitempty"`           // ECHConfigList (base64) or DNS query spec
+	ECHForceQuery string `json:"echForceQuery,omitempty"` // none | half | full
+	PinnedCert    string `json:"pinnedCert,omitempty"`    // cert SHA256 hex list ("pcs")
+
 	// Core is the user's core choice: "" = auto, "sing-box", "xray" (see
 	// EffectiveCore). Kept across subscription refreshes by node ID.
 	Core string `json:"core,omitempty"`
