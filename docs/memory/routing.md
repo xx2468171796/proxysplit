@@ -38,24 +38,24 @@ SelectNode / RemoveNode / SetRouting / SetSettings / SetLogLevel 返回重启错
 - 后台同步：service.StartRuleSync（启动 30 秒后、每 6 小时），不需要代理在跑；sing-box 本地 rule_set 文件变化自动重载。
 - 镜像出问题先看 sz `journalctl -u proxysplit-rules`；sz 能直连 GitHub，jsDelivr 是兜底源。
 
-## 仅接管选中程序（captureMode=process，2026-10-27 起，默认仍是 TUN）
+## 仅接管选中程序（captureMode=process，2026-10-27 起；v1.10.2 起为默认，空值即此模式，只有显式 "tun" 才整机虚拟网卡）
 代码 internal/divert（WinDivert 2.2.2 免 cgo 绑定 + 纯 Go 包头 / 校验和）、internal/capture（引擎）、core/process_config.go + process_routes.go、service/capture_svc.go。
 - 目的：TUN 下所有程序的包都进内核再判直连，直播推流偶发卡顿、内核重启断全部直连。此模式只接管名单里的程序，其它程序不经过本软件（无 TUN 路由、无 DNS 劫持）。
-- 抓包设计（WinDivert 能做到的最低开销，WFP 连接重定向要自写内核驱动，不考虑）：
-  - 探测句柄 `outbound and !loopback and (纯 SYN 或 UDP 53)`：没列出的程序每条 TCP 连接只有第一个 SYN 过一次用户态，DNS 查询也过一次；数据包一个不进来。
-  - SOCKET 层 sniff 句柄记录 本地端口 → PID（connect / bind / close 事件），没赶上时探测循环不等：把 SYN / DNS 复制进待定队列（512 条，满了直接放行），resolveLoop 到达后最多等 2 ms 再查 GetExtendedTcp/UdpTable（探测循环里不 sleep）；PID → exe 路径缓存一分钟，按 capture.Routes 判定（自家内核排除 > 拦截 > 有按目标规则的应用 > 直连 > 分组 > 默认线路）。
-  - 自家内核排除（2026-10-27 审查 BLOCKER）：binDir 下的 sing-box.exe 和 xray.exe（主 / 端口代理 / 测速的 xray 旁路都跑这同一个文件）按完整路径永不接管；TUN 规则里的 process_path → direct（端口代理内核、XrayPath）由 core.processPathDirect 转成 Routes.Exclude，否则默认全走代理时 xray 的上游被接管回 sing-box 形成回环。测试 TestProcessRoutesExcludeProcessPathRules 守住「TUN 树里每条 process_path 都被排除」。
-  - 数据句柄的过滤器只列被接管连接的本地端口（连续端口合成区间）；变更按 25 ms 批量合并成一次换句柄（先开新句柄再 ShutdownRecv 旧句柄排空），被接管的 SYN 拿一份副本等覆盖它的那次换句柄后才放行，避免握手后的 ACK 漏到原目标被 RST。端口比较项上限 FilterBudget=200（WinDivert 过滤器最多 256 个对象），超了就把间隔最小的区间合并——多盖进来的别的程序的少数端口进用户态查表后原样放回，绝不退回「全部出站流量」。
-  - 看门狗：每个正在处理的包 / 被扣住的 SYN、DNS 都记开始时间，任何一个超过 3 秒就判定卡死：立即 Shutdown 全部句柄（流量直接放行=直连），日志提示「…请在设置里改用「整机虚拟网卡」」，再后台 Stop。
-  - UDP 登记带 PID，端口换了主人（漏了 close 事件）就作废；TCP 数据包核对原目标 IP 和端口。连接表只放 TCP、UDP 另有表，所以按本地端口做键不会跨协议串。
-  - TCP：SYN 及后续包改写成 127.0.0.1→127.0.0.1:中转端口（保留源端口作连接表键），中转 accept 后按表查原目标，SOCKS5 CONNECT 原 IP:端口 到该组的 sing-box mixed 入站（sing-box 嗅探出域名再走原规则）；中转回包改回「原目标 → 应用」从原网卡注入。
-  - UDP：按 bind 事件登记端口；数据报用 SOCKS5 UDP ASSOCIATE 交给组入站，回包在 Go 里拼 IPv4/UDP 注入。DNS（53）同样走组入站，由 sing-box 的 sniff + hijack-dns 应答。QUIC 仍由配置里的 quicRules 拒绝（BlockQUIC）。
-  - 被接管程序的 IPv6 SYN / UDP 直接丢，逼它回落 IPv4（中转只做 IPv4），避免 IPv6 漏直连。拦截程序在 WinDivert 直接丢包。
+- 抓包设计（WinDivert 能做到的最低开销，WFP 连接重定向要自写内核驱动，不考虑），分条如下。
+- 探测句柄 `outbound and !loopback and (纯 SYN 或 UDP 53)`：没列出的程序每条 TCP 连接只有第一个 SYN 过一次用户态，DNS 查询也过一次；数据包一个不进来。
+- SOCKET 层 sniff 句柄记录 本地端口 → PID（connect / bind / close 事件），没赶上时探测循环不等：把 SYN / DNS 复制进待定队列（512 条，满了直接放行），resolveLoop 到达后最多等 2 ms 再查 GetExtendedTcp/UdpTable（探测循环里不 sleep）；PID → exe 路径缓存一分钟，按 capture.Routes 判定（自家内核排除 > 拦截 > 有按目标规则的应用 > 直连 > 分组 > 默认线路）。
+- 自家内核排除（2026-10-27 审查 BLOCKER）：binDir 下的 sing-box.exe 和 xray.exe（主 / 端口代理 / 测速的 xray 旁路都跑这同一个文件）按完整路径永不接管；TUN 规则里的 process_path → direct（端口代理内核、XrayPath）由 core.processPathDirect 转成 Routes.Exclude，否则默认全走代理时 xray 的上游被接管回 sing-box 形成回环。测试 TestProcessRoutesExcludeProcessPathRules 守住「TUN 树里每条 process_path 都被排除」。
+- 数据句柄的过滤器只列被接管连接的本地端口（连续端口合成区间）；变更按 25 ms 批量合并成一次换句柄（先开新句柄再 ShutdownRecv 旧句柄排空），被接管的 SYN 拿一份副本等覆盖它的那次换句柄后才放行，避免握手后的 ACK 漏到原目标被 RST。端口比较项上限 FilterBudget=200（WinDivert 过滤器最多 256 个对象），超了就把间隔最小的区间合并——多盖进来的别的程序的少数端口进用户态查表后原样放回，绝不退回「全部出站流量」。
+- 看门狗：每个正在处理的包 / 被扣住的 SYN、DNS 都记开始时间，任何一个超过 3 秒就判定卡死：立即 Shutdown 全部句柄（流量直接放行=直连），日志提示「…请在设置里改用「整机虚拟网卡」」，再后台 Stop。
+- UDP 登记带 PID，端口换了主人（漏了 close 事件）就作废；TCP 数据包核对原目标 IP 和端口。连接表只放 TCP、UDP 另有表，所以按本地端口做键不会跨协议串。
+- TCP：SYN 及后续包改写成 127.0.0.1→127.0.0.1:中转端口（保留源端口作连接表键），中转 accept 后按表查原目标，SOCKS5 CONNECT 原 IP:端口 到该组的 sing-box mixed 入站（sing-box 嗅探出域名再走原规则）；中转回包改回「原目标 → 应用」从原网卡注入。
+- UDP：按 bind 事件登记端口；数据报用 SOCKS5 UDP ASSOCIATE 交给组入站，回包在 Go 里拼 IPv4/UDP 注入。DNS（53）同样走组入站，由 sing-box 的 sniff + hijack-dns 应答。QUIC 仍由配置里的 quicRules 拒绝（BlockQUIC）。
+- 被接管程序的 IPv6 SYN 回 RST（divert.BuildRSTv6，v1.10.2 起；原来静默丢弃要等约 21 s），IPv6 UDP 丢弃，逼它立即回落 IPv4（中转只做 IPv4），避免 IPv6 漏直连。拦截程序在 WinDivert 直接丢包。
 - sing-box 配置：BuildProcessConfig 先生成 TUN 配置再改写，规则顺序不变：去掉 tun 入站，每个分组一个 mixed 入站 in-<组规则集 tag>；有按目标规则的程序单独一个 in-s-<hash>；默认全走代理多一个 in-default。rule_set 应用组 → inbound；process_name / process_path_regex（按目标规则）→ 该程序入站；自身 / 端口代理的进程规则删掉；应用规则集定义删掉（sing-box 不再查进程）。
 - 热更新：入站集合只随分组 / 按目标程序变化。应用在已有分组之间移动时配置字节不变，ApplySplitLists 返回 true，service 只换引擎里的 Routes；已在中转的旧连接按旧入站跑到关闭（clash 按进程名断旧连接在此模式下无效）。
 - 生命周期：内核起来后才开引擎；停止 / 内核退出（onCoreExit）先关引擎再停内核。句柄关完驱动自动卸载，进程崩溃句柄随进程关闭，不会残留拦截。需要管理员权限（manifest 已是 requireAdministrator）。
 - 限制：AI 强制走线路需要全机 DNS / 流量，开着时自动退回 TUN；只对「按应用分流」生效，整机全局仍是 TUN；UDP 端口登记靠 bind 事件，极少数程序首个非 DNS 数据报可能抢在过滤器更新前直连（毫秒级）；按目标规则的程序必须单独入站，增删这种程序会重启内核。
-- 二进制：scripts/fetch-core.ps1 从官方 basil00/WinDivert v2.2.2 下 zip，校验 zip 与 x64 dll / sys 的 SHA256 后放 bin/（git 忽略），仅供开发 / 测试；客户端不内嵌，运行时由 internal/coreupdate/windivert.go 按需从自家下载站拉取（同一组 SHA256）。下载只在拿 lifecycleMu 之前做：SetSettings 切到该模式时、Start 开头（ensureWinDivertUnlocked，最多等 60 秒，超时后台继续）；startCapture 在锁内只做 WinDivertReady 本地校验，没好就报「正在后台下载」并启动后台下载，不会因镜像慢卡住启停。Defender 风险见 known-issues.md。
+- 二进制：scripts/fetch-core.ps1 从官方 basil00/WinDivert v2.2.2 下 zip，校验 zip 与 x64 dll / sys 的 SHA256 后放 bin/（git 忽略），仅供开发 / 测试；客户端不内嵌，运行时由 internal/coreupdate/windivert.go 按需从自家下载站拉取（同一组 SHA256）。下载只在拿 lifecycleMu 之前做：SetSettings 切到该模式时、Start 开头（ensureWinDivertUnlocked，最多等 60 秒，超时后台继续）；prepareProcessCapture 发现驱动没就绪时本次回落 TUN 并后台下载（v1.10.2 起，不再报错），不会因镜像慢卡住启停。Defender 风险见 known-issues.md。
 - 集成测试：管理员 PowerShell 里 `$env:PROXYSPLIT_CAPTURE_IT=1; go test ./internal/capture -run Engine -v`（curl.exe 当被接管程序，需联网）。
 
 - **系统 DNS 被污染（2026-10-27 alonehome2 实测）**：curl / Git / 游戏等走 Windows DNS 客户端的程序，查询由 svchost 发出、不被接管，墙内拿到假 IP（www.google.com → 31.13.92.37）；Edge / Chrome 自带 DNS 不受影响。sing-box 1.14 已无「用嗅探域名覆盖目标」，故中转 internal/capture/sniff.go 先读首包（≤300 ms、≤8 KB），有 TLS SNI / HTTP Host 就按域名 SOCKS CONNECT，让节点解析；服务器先发话的协议超时后照旧按 IP。
