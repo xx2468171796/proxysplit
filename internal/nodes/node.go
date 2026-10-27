@@ -55,6 +55,13 @@ type Node struct {
 	// Core is the user's core choice: "" = auto, "sing-box", "xray" (see
 	// EffectiveCore). Kept across subscription refreshes by node ID.
 	Core string `json:"core,omitempty"`
+	// Via is the ID of a front node this node is reached through (前置代理 /
+	// chained proxy, v2rayN-style detour): e.g. a plain socks5 node blocked by
+	// the GFW, dialled through a working node. Kept across subscription
+	// refreshes by node ID. ViaNode is the resolved front node, set by the
+	// service on the copy handed to the core; never stored.
+	Via     string `json:"via,omitempty"`
+	ViaNode *Node  `json:"-"`
 	// CoreInfo is derived (EffectiveCore / NeedsXray / XraySupports), filled
 	// only on the copies handed to the UI; never set on stored nodes.
 	CoreInfo *CoreInfo `json:"coreInfo,omitempty"`

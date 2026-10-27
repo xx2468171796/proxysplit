@@ -127,13 +127,53 @@ func viaSidecar(n *nodes.Node, eps map[string]xray.Endpoint, strict bool) (*node
 	return &c, nil
 }
 
-// buildNodeOutbounds is buildOutbounds behind the sidecar substitution.
+// buildNodeOutbounds is buildOutbounds behind the sidecar substitution, plus
+// the front node of a chain (n.ViaNode): its outbounds are emitted as
+// "<tag>~via" and the node's entry outbound dials through it (detour).
 func buildNodeOutbounds(n *nodes.Node, tag string, opts Options, strict bool) ([]M, error) {
 	sn, err := viaSidecar(PinNode(n, opts.ServerIPs), opts.XrayPorts, strict)
 	if err != nil {
 		return nil, err
 	}
-	return buildOutbounds(sn, tag, opts.RealityHybrid)
+	obs, err := buildOutbounds(sn, tag, opts.RealityHybrid)
+	if err != nil || n.ViaNode == nil {
+		return obs, err
+	}
+	if err := chainable(n); err != nil {
+		return nil, err
+	}
+	if n.ViaNode.Official {
+		// Official lines carry egress restrictions (restrictEgress, e.g. AI-only);
+		// as a hidden detour they would carry any traffic.
+		return nil, fmt.Errorf("POWER云 官方线路不能用作前置代理")
+	}
+	front := *n.ViaNode
+	front.ViaNode = nil // one hop only: a chain of chains could loop
+	viaTag := tag + "~via"
+	fobs, err := buildNodeOutbounds(&front, viaTag, opts, strict)
+	if err != nil {
+		return nil, fmt.Errorf("前置节点「%s」：%w", front.Name, err)
+	}
+	for _, ob := range obs {
+		if ob["tag"] == tag {
+			ob["detour"] = viaTag
+		}
+	}
+	return append(obs, fobs...), nil
+}
+
+// chainable rejects nodes whose outbound cannot take a detour: an Xray node
+// becomes a local SOCKS hop to the sidecar (detouring that would send the
+// loopback hop through the front node), and verbatim sing-box groups pick
+// their own members.
+func chainable(n *nodes.Node) error {
+	switch {
+	case n.UseXray():
+		return fmt.Errorf("节点「%s」走 Xray 内核，暂不支持前置代理", n.Name)
+	case n.HasRaw():
+		return fmt.Errorf("节点「%s」是整组导入的配置，暂不支持前置代理", n.Name)
+	}
+	return nil
 }
 
 // xrayRules keeps the sidecar's own (already-proxied) traffic out of the TUN.
