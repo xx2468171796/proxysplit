@@ -4,6 +4,10 @@
 > 结论与坑已提炼到 `docs/memory/<主题>.md`；这里是事实存档，按标题取（`node ~/.ankotti/ai-kit/mem.mjs <关键词>`），不要整份读。
 > 约定：sz = 深圳生产机；incoming = sz `/opt/proxysplit/incoming/`；客户端回滚 = 该版本 incoming 目录 `python3 publish-client.py rollback` 并删 releases 表里该版本那行。
 
+## v1.10.1（2026-10-28 03:40，全站发布，强制）
+- release id 20261028-032339-0607adf-v1.10.1，上一版 releases/20261028-031250-94ac7cb-v1.10.0；备份 backups/postgres-20261028-032339-0607adf-v1.10.1.sql.gz；无新迁移。exe SHA256 0c26eaeceb5d4324767581bfee77ed1888306579272c57cd431bcf0b4bcb47c0。
+- 新增 net.conn_summary（每 5 分钟连接成败汇总）。先部署服务端再测（新事件类型要服务端合同先认），alonehome2 正式包实测：自测 20/20，03:33 汇总事件进 client_events，内容正确；之后才登记 releases。
+
 ## v1.10.0（2026-10-28 03:25，全站发布，强制）
 - release id 20261028-031250-94ac7cb-v1.10.0，上一版 releases/20261028-020437-d65f5fb-v1.9.99（另一会话发）；备份 backups/postgres-20261028-031250-94ac7cb-v1.10.0.sql.gz；无新迁移。
 - 内容：双栈电脑打不开部分网站（claude00002 / ippure.com，节点无 IPv6 出口、浏览器经 TUN 连 IPv6 一直重试）→ DNS 一律 ipv4_only + 公网 IPv6 去节点前 reject；无前缀 socks（IP:端口:用户名:密码）导入。
