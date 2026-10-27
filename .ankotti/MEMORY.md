@@ -2,7 +2,7 @@
 > 最后更新：2026-10-28。细节按下方路由表读 docs/memory/，逐版发布史在 docs/decisions.md（按标题取）。
 
 ## 当前状态
-- 线上：**v1.10.3 stable（强制，min 1.9.51）**，2026-10-28 全站发布（页面合并、TUN 开关、订阅过滤、Job Object、代码按职责拆分）；服务端 current = releases/20261028-045352-336b1c5-v1.10.3，上一版 releases/20261028-041054-d90b72f-v1.10.2。夜间计划见 docs/plan-2026-10-28-v2rayn.md。客户端有新版一律自动升级；规则库由 sz 每天同步、客户端从 /rules/ 自动拉（见 docs/memory/routing.md）。
+- 线上：**v1.10.4 stable（强制，min 1.9.51）**，2026-10-28 全站发布（自动选最快、前置代理、测速改进、DNS 与高级）；服务端 current = releases/20261028-052838-436ff73-v1.10.4，上一版 releases/20261028-045352-336b1c5-v1.10.3。夜间计划见 docs/plan-2026-10-28-v2rayn.md。客户端有新版一律自动升级；规则库由 sz 每天同步、客户端从 /rules/ 自动拉（见 docs/memory/routing.md）。
 - 前端已用 @ankotti/admin-ui 重写（React 19 + Vite 8 + TS 7 + pnpm 12.9.1，替换旧单文件 Svelte），随 v1.9.75 上线（已并入 main）；门禁 `pnpm --dir frontend check`，预览 `pnpm --dir frontend dev`。
 - 技术栈：Go + Wails + React 前端，sing-box 原生 TUN + process_name；服务端 Fastify + 深圳共享 PG（堡垒机数据源 sz-pg-proxysplit）。
 - **下一步**：日志详细化（net.conn_summary 连接成败汇总，业主 2026-10-28 要求，方便版本迭代排查）；有真实 IPv6 的电脑仍待实测（claude00002 是现成用户）；socks5 链式前置代理待业主决定；macOS 版：业主准备 Mac 接堡垒机，先不买 Apple 开发者账号。发版前用正式下载包跑 alonehome2 自检，查别的会话未合并分支，测试机经 coord 轮流用。

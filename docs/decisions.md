@@ -4,6 +4,11 @@
 > 结论与坑已提炼到 `docs/memory/<主题>.md`；这里是事实存档，按标题取（`node ~/.ankotti/ai-kit/mem.mjs <关键词>`），不要整份读。
 > 约定：sz = 深圳生产机；incoming = sz `/opt/proxysplit/incoming/`；客户端回滚 = 该版本 incoming 目录 `python3 publish-client.py rollback` 并删 releases 表里该版本那行。
 
+## v1.10.4（2026-10-28 06:25，全站发布，强制）
+- release id 20261028-052838-436ff73-v1.10.4，上一版 releases/20261028-045352-336b1c5-v1.10.3；备份 backups/postgres-20261028-052838-436ff73-v1.10.4.sql.gz；无新迁移。exe SHA256 b7a8b40a14dfe21d632427ee4826d141b793e784b75d90e86f811e73ddddc630。
+- 内容：自动选择（最快，sing-box urltest）、前置代理、测速两次取优 / 并发 8、DNS 与高级（国内外 DNS、hosts、HTTPS/SVCB、MTU、严格路由）、isCoreConfig 只看顶层字段。
+- 发布前独立审查 6 条（3 中 3 低）已全部修复（436ff73）。测试：VM153 Defender 0 威胁（签名 1.461.231.0，VM 内更新签名失败）；alonehome2 离线，未做真机实测；飞牛验收 latest=1.10.4，两个下载 sha 一致。
+
 ## v1.10.3（2026-10-28 05:15，全站发布，强制）
 - release id 20261028-045352-336b1c5-v1.10.3，上一版 releases/20261028-041054-d90b72f-v1.10.2；备份 backups/postgres-20261028-045352-336b1c5-v1.10.3.sql.gz；无新迁移。exe SHA256 dafdefacebd3c8a479f406acc1c9b434c51b56436e1e95345e2796512294ba57。
 - 内容：页面合并（导航 9→7）、顶栏 TUN 开关、节点排序 / 删除不通的、订阅过滤 / UA / 间隔（SaveSub 一次保存）、Job Object、service.go / config.go 按职责拆分；前置代理服务层已在包内但界面未上（v1.10.4）。
