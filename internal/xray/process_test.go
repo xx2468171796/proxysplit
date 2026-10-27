@@ -23,7 +23,15 @@ func TestBuildConfigDNSAndAuth(t *testing.T) {
 				Accounts []struct{ User, Pass string }
 			}
 		}
+		Routing struct {
+			Rules []struct {
+				InboundTag  []string `json:"inboundTag"`
+				OutboundTag string   `json:"outboundTag"`
+			} `json:"rules"`
+		} `json:"routing"`
 		Outbounds []struct {
+			Tag            string `json:"tag"`
+			Protocol       string `json:"protocol"`
 			StreamSettings struct {
 				Sockopt struct {
 					DomainStrategy string `json:"domainStrategy"`
@@ -42,7 +50,17 @@ func TestBuildConfigDNSAndAuth(t *testing.T) {
 			t.Fatalf("inbound %d accounts: %+v", i, in.Settings)
 		}
 	}
+	// The DNS module must not resolve the node through the node itself.
+	if r := cfg.Routing.Rules; len(r) == 0 || len(r[0].InboundTag) != 1 || r[0].InboundTag[0] != dnsTag || r[0].OutboundTag != directTag {
+		t.Fatalf("first routing rule must send DNS direct: %+v", cfg.Routing)
+	}
+	if last := cfg.Outbounds[len(cfg.Outbounds)-1]; last.Tag != directTag || last.Protocol != "freedom" {
+		t.Fatalf("missing freedom outbound: %+v", last)
+	}
 	for i, ob := range cfg.Outbounds {
+		if ob.Protocol == "freedom" {
+			continue
+		}
 		if ob.StreamSettings.Sockopt.DomainStrategy != resolveStrategy {
 			t.Fatalf("outbound %d sockopt: %+v", i, ob.StreamSettings)
 		}

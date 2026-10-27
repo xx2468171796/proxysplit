@@ -57,14 +57,15 @@ func TestBuildConfigShape(t *testing.T) {
 	if err := json.Unmarshal(raw, &cfg); err != nil {
 		t.Fatal(err)
 	}
-	if len(cfg.Inbounds) != 4 || len(cfg.Outbounds) != 4 || len(cfg.Routing.Rules) != 4 {
+	// 4 nodes + the freedom outbound / DNS rule that keep server lookups off the nodes.
+	if len(cfg.Inbounds) != 4 || len(cfg.Outbounds) != 5 || len(cfg.Routing.Rules) != 5 {
 		t.Fatalf("counts: %s", raw)
 	}
 	for i, in := range cfg.Inbounds {
 		if in.Listen != "127.0.0.1" || in.Protocol != "socks" || in.Settings["udp"] != true || in.Settings["auth"] != "password" {
 			t.Fatalf("inbound %d: %+v", i, in)
 		}
-		r := cfg.Routing.Rules[i]
+		r := cfg.Routing.Rules[i+1] // rule 0 sends the DNS module direct
 		if r.InboundTag[0] != in.Tag || r.OutboundTag != cfg.Outbounds[i].Tag {
 			t.Fatalf("rule %d does not pair inbound with outbound", i)
 		}

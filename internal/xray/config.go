@@ -44,6 +44,12 @@ var directDNS = []string{"223.5.5.5", "119.29.29.29"}
 // above instead of the system resolver (sockopt.domainStrategy).
 const resolveStrategy = "UseIP"
 
+// dnsTag / directTag route the DNS module's queries straight out (see BuildConfig).
+const (
+	dnsTag    = "dns-direct"
+	directTag = "direct"
+)
+
 // Key identifies a node across lines / extra nodes / port proxies so the same
 // node shares one inbound.
 func Key(n *nodes.Node) string {
@@ -82,11 +88,14 @@ func BuildConfig(entries []Entry, logLevel string) ([]byte, error) {
 		logLevel = "warning"
 	}
 	cfg := M{
-		"log":       M{"loglevel": logLevel},
-		"dns":       M{"servers": directDNS, "queryStrategy": "UseIP"},
+		"log": M{"loglevel": logLevel},
+		// The DNS module's own queries are routed like any traffic and would
+		// otherwise take the default (first) outbound — the node, whose server
+		// name is what we are resolving — so they go out a freedom outbound.
+		"dns":       M{"servers": directDNS, "queryStrategy": "UseIP", "tag": dnsTag},
 		"inbounds":  inbounds,
-		"outbounds": outbounds,
-		"routing":   M{"domainStrategy": "AsIs", "rules": rules},
+		"outbounds": append(outbounds, M{"tag": directTag, "protocol": "freedom"}),
+		"routing":   M{"domainStrategy": "AsIs", "rules": append([]M{{"type": "field", "inboundTag": []string{dnsTag}, "outboundTag": directTag}}, rules...)},
 	}
 	return json.MarshalIndent(cfg, "", "  ")
 }
