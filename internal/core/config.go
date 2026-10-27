@@ -145,7 +145,14 @@ type Options struct {
 	AIGuard *AIGuard
 	// AIProxy is the loopback AI-line proxy for other programs (nil = none).
 	AIProxy *AIProxy
+
+	// Process selects 仅接管选中程序 (BuildProcessConfig): mixed inbounds per app
+	// group fed by internal/capture instead of the TUN. nil = TUN.
+	Process *ProcessCapture
 }
+
+// AIGuardActive reports whether the AI lock is on (it needs the TUN).
+func (o Options) AIGuardActive() bool { return o.AIGuard.active() }
 
 const accelInbound = "accel-in"
 
@@ -664,6 +671,15 @@ func BuildMultiConfig(lines []LineConfig, logLevel string, opts Options) ([]byte
 // a sing-box tun inbound (wintun) captures ALL system traffic and routes it per
 // the given mode out through the node. No WinDivert engine is used in this mode.
 func BuildTUNConfig(node *nodes.Node, logLevel string, opts Options) ([]byte, error) {
+	cfg, err := buildTUNTree(node, logLevel, opts)
+	if err != nil {
+		return nil, err
+	}
+	return json.MarshalIndent(cfg, "", "  ")
+}
+
+// buildTUNTree is BuildTUNConfig before marshalling (BuildProcessConfig rewrites it).
+func buildTUNTree(node *nodes.Node, logLevel string, opts Options) (M, error) {
 	if node == nil {
 		return nil, fmt.Errorf("nil node")
 	}
@@ -925,7 +941,7 @@ func BuildTUNConfig(node *nodes.Node, logLevel string, opts Options) ([]byte, er
 	if clashExp != nil {
 		cfg["experimental"] = clashExp
 	}
-	return json.MarshalIndent(cfg, "", "  ")
+	return cfg, nil
 }
 
 // ruleMatch builds a sing-box route match object from a custom rule (without the

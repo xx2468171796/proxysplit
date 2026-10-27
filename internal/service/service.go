@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"proxysplit/internal/appid"
+	"proxysplit/internal/capture"
 	"proxysplit/internal/core"
 	"proxysplit/internal/coreupdate"
 	"proxysplit/internal/engine"
@@ -60,6 +61,10 @@ type Settings struct {
 	// Claude Code 加速（docs/Claude加速-网关切换.md）：默认开启、自动切换；零值即默认，老配置升级后自动生效
 	ClaudeAccelOff     bool `json:"claudeAccelOff,omitempty"`     // 整个功能关掉（不开本机入口，恢复官方默认）
 	ClaudeAccelAutoOff bool `json:"claudeAccelAutoOff,omitempty"` // 关掉自动切换（只在用户手动点编码模式时编码）
+	// 接管方式（capture_svc.go）："" / "tun" = 整机虚拟网卡（默认），"process" = 仅接管选中程序（WinDivert）
+	CaptureMode string `json:"captureMode,omitempty"`
+	// 关掉内置「推流程序默认直连」（零值 = 开）
+	StreamDirectOff bool `json:"streamDirectOff,omitempty"`
 }
 
 func defaultSettings() Settings {
@@ -164,6 +169,7 @@ type Service struct {
 	aiProxyPass      string
 	aiProxyFile      string // 约定文件（App 设置），见 aiproxy.go
 	aiProxyState     AIProxyInfo
+	capEng           *capture.Engine // 仅接管选中程序的抓包引擎（capture_svc.go；nil = TUN）
 
 	followOnce    sync.Once // core follow (corefollow.go)
 	followStart   sync.Once
@@ -938,7 +944,14 @@ func (s *Service) applyAppRules() error {
 	opts := run.base
 	sum := s.splitOptionsLocked(&opts, run.node)
 	port, secret := s.clashPort, s.clashSecret
+	set := s.cfg.Settings
 	s.mu.Unlock()
+	if run.procPorts != nil {
+		if err := s.prepareProcessCapture(set, &opts, run.procPorts); err != nil {
+			s.lifecycleMu.Unlock()
+			return s.applyLive()
+		}
+	}
 	ok, err := s.core.ApplySplitLists(run.node, run.level, run.route, nil, opts)
 	if err != nil || !ok {
 		s.lifecycleMu.Unlock()
@@ -947,6 +960,7 @@ func (s *Service) applyAppRules() error {
 		}
 		return s.applyLive()
 	}
+	s.updateCaptureRoutes(opts)
 	changed := changedApps(run.targets, sum.targets)
 	s.mu.Lock()
 	run.targets = sum.targets
@@ -1412,7 +1426,7 @@ func (s *Service) SetSettings(st Settings) string {
 		old.LanShare != st.LanShare || old.RemoteDNS != st.RemoteDNS ||
 		old.LanPort != st.LanPort || old.LanType != st.LanType || old.LanUser != st.LanUser || old.LanPass != st.LanPass ||
 		old.PrivateDirect != st.PrivateDirect || old.ExcludeSelf != st.ExcludeSelf ||
-		old.ClaudeAccelOff != st.ClaudeAccelOff) {
+		old.ClaudeAccelOff != st.ClaudeAccelOff || old.CaptureMode != st.CaptureMode || old.StreamDirectOff != st.StreamDirectOff) {
 		if err := s.restart(); err != nil {
 			s.log("[service] restart after settings change failed: " + err.Error())
 			return restartMsg(err)
@@ -1573,14 +1587,21 @@ func (s *Service) startLocked() error {
 	opts := base
 	sum := s.splitOptionsLocked(&opts, node)
 	s.mu.Unlock()
+	if err := s.prepareProcessCapture(set, &opts, nil); err != nil {
+		return err
+	}
 	if err := s.core.StartTUN(node, level, tunRoute, nil, opts); err != nil {
 		return s.withSecurityHint(fmt.Errorf("core(应用分流 TUN): %w", err))
+	}
+	if err := s.startCapture(opts); err != nil {
+		_ = s.core.Stop()
+		return s.withSecurityHint(err)
 	}
 
 	s.mu.Lock()
 	s.startedAt = time.Now()
 	s.activeFP = nil
-	s.run = &runState{node: node, level: level, route: tunRoute, base: base, targets: sum.targets}
+	s.run = &runState{node: node, level: level, route: tunRoute, base: base, targets: sum.targets, procPorts: processPorts(opts)}
 	s.accelOut = opts.AccelOutbound
 	s.noteAIGuardStartedLocked(&opts)
 	s.mu.Unlock()
@@ -1599,6 +1620,8 @@ type runState struct {
 	route   string
 	base    core.Options      // everything except the per-app fields
 	targets map[string]string // app name (lower) -> where it is routed
+	// procPorts: inbound tag -> port of 仅接管选中程序 (nil = TUN capture)
+	procPorts map[string]int
 }
 
 type splitSummary struct {
@@ -1751,6 +1774,9 @@ func (s *Service) splitOptionsLocked(opts *core.Options, node *nodes.Node) split
 			opts.SplitDefault = &d
 		}
 	}
+	if !s.cfg.Settings.StreamDirectOff {
+		directApps = append(directApps, streamPresetApps(sum.targets)...)
+	}
 	sort.Strings(directApps)
 	sort.Strings(blockApps)
 	opts.SplitDirect, opts.SplitBlock = directApps, blockApps
@@ -1786,6 +1812,7 @@ func (s *Service) stopLocked() {
 	s.trafficStats = Stats{}
 	clearSysProxy := s.sysProxyOn
 	s.mu.Unlock()
+	s.stopCapture() // before the core: captured apps must not hit dead inbounds
 	s.core.Stop()
 	s.flushAIDNSOnStop()
 	// Never leave the OS pointing at a now-dead proxy (would black-hole all HTTP).

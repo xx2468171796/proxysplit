@@ -1,11 +1,12 @@
-// 分流引擎：四个开关，改了立即保存（部分会重启内核）。
-import { FormSection, Panel } from "@ankotti/admin-ui";
+// 分流引擎：接管方式 + 几个开关，改了立即保存（部分会重启内核）。
+import { FormField, FormSection, Panel, SegmentedControl } from "@ankotti/admin-ui";
 import type { Settings } from "../../api/types";
 import { useStore } from "../../shared/store";
 import { data } from "../../state/data";
 import { SwitchField, useSaveSettings } from "./setting-fields";
 
 type Key = "blockQUIC" | "remoteDNS" | "privateDirect" | "excludeSelf";
+type Capture = "tun" | "process";
 
 const ITEMS: { key: Key; label: string; hint: string }[] = [
   {
@@ -18,12 +19,37 @@ const ITEMS: { key: Key; label: string; hint: string }[] = [
   { key: "excludeSelf", label: "代理程序自身不走代理", hint: "避免流量绕圈 / 死循环。建议开" },
 ];
 
+const asCapture = (v: string | undefined): Capture => (v === "process" ? "process" : "tun");
+
 export function EngineSection() {
   const settings = useStore(data, (s) => s.settings);
   const save = useSaveSettings();
   return (
     <Panel className="qd-pane" title="分流引擎" description="这几项都建议保持开启；改了立即生效。">
       <FormSection>
+        <FormField
+          label="接管方式"
+          htmlFor="engine-capture"
+          hint="仅接管选中程序：只有名单里的程序经过本软件，其它程序完全不受影响、内核重启也不断线（推荐直播、游戏用户）。只在「按应用分流」下生效；开着 AI 强制走线路时仍用整机虚拟网卡"
+        >
+          <SegmentedControl<Capture>
+            label="接管方式"
+            size="sm"
+            value={asCapture(settings.captureMode)}
+            onValueChange={(v) => save({ captureMode: v })}
+            options={[
+              { value: "tun", label: "整机虚拟网卡" },
+              { value: "process", label: "仅接管选中程序（推荐直播、游戏用户）" },
+            ]}
+          />
+        </FormField>
+        <SwitchField
+          id="engine-streamDirect"
+          label="推流程序默认直连"
+          hint="抖音 / 快手直播伴侣、B站直播姬、OBS 没加进名单时一律直连，推流不绕节点；自己把它们加进名单则按名单走"
+          checked={!settings.streamDirectOff}
+          onChange={(on) => save({ streamDirectOff: !on })}
+        />
         {ITEMS.map((it) => (
           <SwitchField
             key={it.key}

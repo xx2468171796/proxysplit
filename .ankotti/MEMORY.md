@@ -28,7 +28,7 @@
 | AI 劫持模式 | docs/memory/ai-guard.md | NRPT 锁 127.0.0.53、范围、恢复、待实测 |
 | 内核/多源下载/自动跟随 | docs/memory/core-update.md | relayops 内核版本线、mirror.go、corefollow.go |
 | POWER云/会员/aigw/支付 | docs/memory/account-membership.md | 接入标准、AI 套餐会员、egress、刷新令牌容错、退款 |
-| 分流规则/TUN 配置 | docs/memory/routing.md | 规则顺序、热加载、占位进程、真内核测试 |
+| 分流规则/TUN 配置 | docs/memory/routing.md | 规则顺序、热加载、占位进程、真内核测试、仅接管选中程序（WinDivert）、推流直连预设 |
 | AI 控制/MCP/诊断接口 | docs/memory/ai-control.md | 18088 诊断接口、--mcp 桥、DNS 12 秒问题 |
 | 测试机/远程测试 | docs/memory/testing-machines.md | alonehome2、火绒复现、本机拍图坑 |
 | 开发机坑 | docs/memory/dev-machine-pitfalls.md | git credential、PATH、Windows 实现坑、自动更新 |

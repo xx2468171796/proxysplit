@@ -39,3 +39,5 @@ internal/service/config.json
 
 # Wails-generated frontend hash (regenerated each build)
 /frontend/package.json.md5
+/bin/WinDivert.dll
+/bin/WinDivert64.sys

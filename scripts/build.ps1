@@ -83,6 +83,10 @@ $coreExe = Join-Path $root 'bin\sing-box.exe'
 if (-not (Test-Path -LiteralPath $coreExe)) { throw 'Missing core: run scripts\fetch-core.ps1 first' }
 $coreHash = (Get-FileHash -LiteralPath $coreExe -Algorithm SHA256).Hash.ToLowerInvariant()
 if ($coreHash -ne $coreRelease.sha256) { throw 'Bundled core does not match bin/core-release.json; run scripts\fetch-core.ps1' }
+# WinDivert (仅接管选中程序) is embedded too; fetch-core.ps1 pins and verifies it.
+foreach ($wdFile in @('WinDivert.dll', 'WinDivert64.sys')) {
+    if (-not (Test-Path -LiteralPath (Join-Path $root "bin\$wdFile"))) { throw "Missing bin\$wdFile`: run scripts\fetch-core.ps1 first" }
+}
 
 $env:Path = "C:\Program Files\Go\bin;$env:USERPROFILE\go\bin;$env:Path"
 $env:CGO_ENABLED = "0"
