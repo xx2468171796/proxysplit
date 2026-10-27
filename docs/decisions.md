@@ -4,6 +4,12 @@
 > 结论与坑已提炼到 `docs/memory/<主题>.md`；这里是事实存档，按标题取（`node ~/.ankotti/ai-kit/mem.mjs <关键词>`），不要整份读。
 > 约定：sz = 深圳生产机；incoming = sz `/opt/proxysplit/incoming/`；客户端回滚 = 该版本 incoming 目录 `python3 publish-client.py rollback` 并删 releases 表里该版本那行。
 
+## v1.9.96（2026-10-28 00:31，全站发布，强制）
+- release id 20261028-002750-ea7928e-v1.9.96，上一版 releases/20261024-234641-50d4859-v1.9.95；备份 backups/postgres-20261028-002750-ea7928e-v1.9.96.sql.gz；迁移 0016_client_telemetry.sql。
+- 内容：Xray 双内核；仅接管选中程序（WinDivert 按需下载）；客户端日志上报；socks/http 远程 DNS 走 TCP；AI 锁启动先锁 + 开机任务 ProxySplit-AILock；环境配置单项恢复 / 全部恢复（含劫持）。
+- 客户端 commit ea7928e，SHA256 965e008f2ba3d675b883137528d298c78bc974e13897e1a55ae46b11339391af，101,521,408 字节；releases（强制，min 1.9.51）+ audit_logs。
+- 验收：飞牛 latest = 1.9.96 mandatory；/health、官网、/admin/ 200；三个下载 sha 一致。开机任务 alonehome2 SYSTEM 实测通过。Defender 扫描未做（tw-win11 离线、alonehome2 是火绒），待补。
+
 ## v1.9.95（2026-10-24 23:50，全站发布，强制）
 - release id 20261024-234641-50d4859-v1.9.95，上一版 releases/20261024-190306-f4a5cd9-v1.9.94；无新迁移。
 - 内容：已付费会员（登录 + 非试用套餐，isPaidMember）不弹赞赏码，弹窗开着时变成付费也自动关；试用 / 未登录照常弹（业主 2026-10-24 定）。

@@ -1,11 +1,11 @@
 # ProxySplit 项目记忆（L1，一屏）
-> 最后更新：2026-10-24。细节按下方路由表读 docs/memory/，逐版发布史在 docs/decisions.md（按标题取）。
+> 最后更新：2026-10-28。细节按下方路由表读 docs/memory/，逐版发布史在 docs/decisions.md（按标题取）。
 
 ## 当前状态
-- 线上：**v1.9.95 stable（强制，min 1.9.51）**，2026-10-24 全站发布（付费会员不弹赞赏码；分销用公司 fenxiao 包 0.1.0，见 docs/memory/fenxiao.md，佣金默认关）；服务端 current = releases/20261024-234641-50d4859-v1.9.95，上一版 releases/20261024-190306-f4a5cd9-v1.9.94。客户端有新版一律自动升级；规则库由 sz 每天同步、客户端从 /rules/ 自动拉（见 docs/memory/routing.md）。
+- 线上：**v1.9.96 stable（强制，min 1.9.51）**，2026-10-28 全站发布（Xray 双内核、仅接管选中程序、日志上报 0016、AI 锁开机任务）；服务端 current = releases/20261028-002750-ea7928e-v1.9.96，上一版 releases/20261024-234641-50d4859-v1.9.95。客户端有新版一律自动升级；规则库由 sz 每天同步、客户端从 /rules/ 自动拉（见 docs/memory/routing.md）。
 - 前端已用 @ankotti/admin-ui 重写（React 19 + Vite 8 + TS 7 + pnpm 12.9.1，替换旧单文件 Svelte），随 v1.9.75 上线（已并入 main）；门禁 `pnpm --dir frontend check`，预览 `pnpm --dir frontend dev`。
 - 技术栈：Go + Wails + React 前端，sing-box 原生 TUN + process_name；服务端 Fastify + 深圳共享 PG（堡垒机数据源 sz-pg-proxysplit）。
-- **待发 1.9.96（分支 feat/dual-core-capture-telemetry，未合 main）**：Xray 双内核、仅接管选中程序（WinDivert，默认仍 TUN）、客户端日志全量上报（服务端迁移 0016 未跑）、socks/http 远程 DNS 走 TCP。2026-10-27 alonehome2 实测通过；发版前要：xray.exe 传 Gitea、WinDivert 两个文件传 proxysplit.zygskins.cn/download/windivert/2.2.2/、服务端部署 + 迁移、带 Defender 机器扫描新 exe。
+- **下一步 1.9.97**：独立「AI」页（实时显示分应用代理出口 IP 与 AI 出口 IP、检测 / 劫持 / 环境配置集中，业主 2026-10-28 提）；1.9.96 的 Defender 扫描待 tw-win11 上线补做。macOS 版：业主准备 Mac 接堡垒机，先不买 Apple 开发者账号（未签名包 + TUN 模式）。
 
 ## 红线（不得做）
 - 不碰腾讯云 110.40.185.27（支付网关），只能以客户端身份调接口。
