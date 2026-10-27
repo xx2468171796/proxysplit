@@ -9,9 +9,7 @@
 param([switch]$RequireXray)
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
-<<<<<<< HEAD
 & (Join-Path $PSScriptRoot 'fetch-xray.ps1') -Require:$RequireXray
-=======
 
 # WinDivert 2.2.2 (仅接管选中程序, internal/capture): official basil00 release,
 # archive and both x64 files pinned by SHA256 (archive hash matches the
