@@ -11,6 +11,7 @@
 
 ## 锁机制
 NRPT 把 AI 域名指到一个 DNS 服务器，随代理自动切（service.SyncAILock）：运行中 → TUN IPv6 对端 fdfe:dcba:9876::2（进隧道走线路）；停了 → 127.0.0.53（没人监听，立即失败）；强杀 / 断电 → TUN 没了，fdfe 地址不可达，仍锁住。
+- **IPv4-only 机器的坑（2026-10-28 alonehome2 实测）**：劫持开着时 TUN 带 IPv6 地址（aiTUN6），系统多出 `::/0 → tun0`，程序优先连 AAAA，内核直连 IPv6 不通 → 握手后被重置；浏览器会退回 IPv4，curl / Git / 游戏直接失败（关代理就好）。修：启动前 service.hostHasIPv6()（udp6 connect 只查路由表，排除自家 fdfe::/48 与 Teredo 2001::/32），没 IPv6 出口就给 core.Options.NoHostIPv6 → dns.strategy=ipv4_only，DNS 只回 A 记录。
 - 切换节奏（internal/service/ailock.go）：启动预热 10 秒 → 隧道试解析通过才放行；每 15 秒检测，失败立即锁回；用户停止 / 退出先锁再等 5 秒停内核；界面显示倒计时。
 - 意外情况（v1.9.96）：service.New 里先 SyncAILock（核没跑 → 锁回回环），不等自动登录；锁存在时注册计划任务 ProxySplit-AILock（SYSTEM，开机触发，PowerShell -EncodedCommand 只把我们的规则 Set 成 127.0.0.53，只收紧不解锁），Install 时建、Remove 时删，老版本留下的锁启动时补建。Windows 关机不走 Wails OnShutdown，靠这个任务兜底。2026-10-28 alonehome2 实测 SYSTEM 运行把 fdfe::2 改回 127.0.0.53。
 - 独立「AI」页（v1.9.97，业主 2026-10-28）：features/ai（实时出口 + 检测/劫持 + 环境配置，设置页这两节已移走）；出口三条路 internal/service/exits.go：本机直连、分应用代理（TUN 下走内核 exit-probe-in 本机入口，带随机账号，出当前节点）、AI（经 AI 线路代理测 claude.ai trace，永不直连）；Cloudflare trace 每 3 秒，iplocate 按 IP 缓存 30 分钟；诊断接口 GET /api/exits。

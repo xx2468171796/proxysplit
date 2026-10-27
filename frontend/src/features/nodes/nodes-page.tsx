@@ -9,6 +9,7 @@ import { useStore } from "../../shared/store";
 import { data } from "../../state/data";
 import { nodeShare, nodeTests, removeNode, testActiveSpeed, testAllLatency } from "../../state/nodes";
 import { useNodeColumns } from "./node-columns";
+import { NodeCoreDialog } from "./node-core-dialog";
 import { NodeImportDialog } from "./node-import-dialog";
 import { type NodeShare, NodeShareDialog } from "./node-share-dialog";
 import "./nodes.css";
@@ -62,6 +63,7 @@ export function NodesPage() {
   const [query, setQuery] = useState("");
   const [adding, setAdding] = useState(false);
   const [share, setShare] = useState<NodeShare | null>(null);
+  const [coreOf, setCoreOf] = useState<Node | null>(null);
   const [removing, setRemoving] = useState<Node | null>(null);
 
   const openAdd = useCallback(() => setAdding(true), []);
@@ -76,6 +78,7 @@ export function NodesPage() {
             : setShare({ name: n.name, link: r.link, qr: r.qr ?? "" }),
         ),
       remove: (n: Node) => setRemoving(n),
+      core: (n: Node) => setCoreOf(n),
     }),
     [say],
   );
@@ -132,6 +135,7 @@ export function NodesPage() {
         </ResourcePanel>
       </PageBody>
       {adding && <NodeImportDialog onClose={() => setAdding(false)} />}
+      {coreOf && <NodeCoreDialog node={coreOf} onClose={() => setCoreOf(null)} />}
       {share && <NodeShareDialog share={share} onClose={() => setShare(null)} />}
       <ConfirmDialog
         open={removing !== null}

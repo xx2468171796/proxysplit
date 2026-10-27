@@ -44,6 +44,12 @@ var directDNS = []string{"223.5.5.5", "119.29.29.29"}
 // above instead of the system resolver (sockopt.domainStrategy).
 const resolveStrategy = "UseIP"
 
+// dnsTag / directTag route the DNS module's queries straight out (see BuildConfig).
+const (
+	dnsTag    = "dns-direct"
+	directTag = "direct"
+)
+
 // Key identifies a node across lines / extra nodes / port proxies so the same
 // node shares one inbound.
 func Key(n *nodes.Node) string {
@@ -82,11 +88,14 @@ func BuildConfig(entries []Entry, logLevel string) ([]byte, error) {
 		logLevel = "warning"
 	}
 	cfg := M{
-		"log":       M{"loglevel": logLevel},
-		"dns":       M{"servers": directDNS, "queryStrategy": "UseIP"},
+		"log": M{"loglevel": logLevel},
+		// The DNS module's own queries are routed like any traffic and would
+		// otherwise take the default (first) outbound — the node, whose server
+		// name is what we are resolving — so they go out a freedom outbound.
+		"dns":       M{"servers": directDNS, "queryStrategy": "UseIP", "tag": dnsTag},
 		"inbounds":  inbounds,
-		"outbounds": outbounds,
-		"routing":   M{"domainStrategy": "AsIs", "rules": rules},
+		"outbounds": append(outbounds, M{"tag": directTag, "protocol": "freedom"}),
+		"routing":   M{"domainStrategy": "AsIs", "rules": append([]M{{"type": "field", "inboundTag": []string{dnsTag}, "outboundTag": directTag}}, rules...)},
 	}
 	return json.MarshalIndent(cfg, "", "  ")
 }
@@ -104,6 +113,11 @@ func Outbound(n *nodes.Node, tag string) (M, error) {
 		settings = M{"address": n.Server, "port": n.Port, "id": n.UUID, "security": firstNonEmpty(n.Cipher, "auto")}
 	case "trojan":
 		settings = M{"address": n.Server, "port": n.Port, "password": n.Password}
+	case "shadowsocks", "socks", "http":
+		if !n.XraySupports() {
+			return nil, fmt.Errorf("xray: unsupported node %q (shadowsocks plugin?)", n.Name)
+		}
+		settings = plainSettings(n)
 	default:
 		return nil, fmt.Errorf("xray: unsupported node type %q", n.Type)
 	}
@@ -200,6 +214,7 @@ func security(n *nodes.Node, s M) {
 		if len(n.ALPN) > 0 {
 			t["alpn"] = n.ALPN
 		}
+		tlsExtras(n, t)
 		s["security"] = "tls"
 		s["tlsSettings"] = t
 	default:

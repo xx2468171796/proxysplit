@@ -137,3 +137,10 @@ export async function nodeShare(id: string): Promise<{ link?: string; qr?: strin
   const r = await api.nodeShare(id);
   return r?.err ? { err: r.err } : { link: r?.link || "", qr: r?.qr || "" };
 }
+
+/** 改节点内核（'' 自动 / 'sing-box' / 'xray'）；节点在用时后端会重启内核。返回 '' = 成功。 */
+export async function setNodeCore(id: string, core: string): Promise<string> {
+  const err = await api.setNodeCore(id, core).catch((e: unknown) => String(e));
+  await Promise.all([refreshNodes(), refreshStatus()]);
+  return err;
+}

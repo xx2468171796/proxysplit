@@ -45,6 +45,7 @@ type clashProxy struct {
 
 	XHTTPOpts  clashXHTTP `yaml:"xhttp-opts"`
 	Encryption string     `yaml:"encryption"`
+	ECHOpts    clashECH   `yaml:"ech-opts"`
 
 	CongestionController string `yaml:"congestion-controller"`
 

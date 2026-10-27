@@ -1,7 +1,6 @@
 package nodes
 
 import (
-	"encoding/json"
 	"net/url"
 	"strings"
 )
@@ -16,14 +15,17 @@ const (
 
 // NeedsXray reports whether this node can only be served by Xray-core:
 // XHTTP (splithttp) or mKCP transport, or VLESS "encryption" other than none.
-// Raw sing-box outbounds (POWER云 / imported configs) never do.
+// Also TLS extras our sing-box config cannot express: ECH and certificate
+// pinning (needsXrayTLS). Raw sing-box outbounds (POWER云 / imported
+// configs) never do.
 func (n *Node) NeedsXray() bool {
-	if n == nil || n.HasRaw() {
-		return false
-	}
-	switch n.Type {
-	case "vless", "vmess", "trojan":
-	default:
+	return n.needsXrayTransport() || n.needsXrayTLS()
+}
+
+// needsXrayTransport is the original rule (XHTTP / mKCP / VLESS encryption);
+// Clash node IDs depend on it, so it must not grow.
+func (n *Node) needsXrayTransport() bool {
+	if !n.xrayFamily() {
 		return false
 	}
 	switch normalNetwork(n.Network) {
@@ -31,6 +33,18 @@ func (n *Node) NeedsXray() bool {
 		return true
 	}
 	return n.Type == "vless" && n.Encryption != "" && n.Encryption != "none"
+}
+
+// xrayFamily: a synthesized vless / vmess / trojan node.
+func (n *Node) xrayFamily() bool {
+	if n == nil || n.HasRaw() {
+		return false
+	}
+	switch n.Type {
+	case "vless", "vmess", "trojan":
+		return true
+	}
+	return false
 }
 
 // XrayNetwork returns the node's transport in Xray naming (xhttp / kcp / ws /
@@ -59,13 +73,14 @@ func applyXrayQuery(n *Node, q url.Values) {
 	if enc := strings.TrimSpace(q.Get("encryption")); enc != "" {
 		n.Encryption = enc
 	}
+	applyTLSExtras(n, q)
 	n.SpiderX = q.Get("spx")
 	n.PQV = q.Get("pqv")
 	switch normalNetwork(n.Network) {
 	case NetXHTTP:
 		n.Network = NetXHTTP
 		n.Mode = q.Get("mode")
-		n.Extra = compactJSON(q.Get("extra"))
+		n.Extra = sanitizeExtra(q.Get("extra"))
 		// Host fallback to sni is a sing-box habit; xhttp derives it itself.
 		n.Host = q.Get("host")
 	case NetKCP:
@@ -91,23 +106,6 @@ func applyVMessXray(n *Node, typ string) {
 	}
 }
 
-// compactJSON keeps s only if it is a JSON object (re-encoded compactly), so
-// a malformed "extra" cannot break the whole Xray config.
-func compactJSON(s string) string {
-	s = strings.TrimSpace(s)
-	if s == "" {
-		return ""
-	}
-	var obj map[string]any
-	if err := json.Unmarshal([]byte(s), &obj); err != nil {
-		return ""
-	}
-	b, err := json.Marshal(obj)
-	if err != nil {
-		return ""
-	}
-	return string(b)
-}
 
 // clashXHTTP is Mihomo's `xhttp-opts`.
 type clashXHTTP struct {
@@ -120,6 +118,7 @@ type clashXHTTP struct {
 // applyClashXray copies the Mihomo fields only Xray understands.
 func applyClashXray(n *Node, p clashProxy) {
 	n.Encryption = strings.TrimSpace(p.Encryption)
+	applyClashECH(n, p.ECHOpts)
 	if normalNetwork(n.Network) == NetXHTTP {
 		n.Network = NetXHTTP
 		n.Path = strings.TrimSpace(p.XHTTPOpts.Path)
@@ -131,7 +130,7 @@ func applyClashXray(n *Node, p clashProxy) {
 // clashXrayID adds the Xray-only fields to a Clash node's identity, only for
 // nodes that need Xray so every other node keeps its existing ID.
 func clashXrayID(n *Node) string {
-	if !n.NeedsXray() {
+	if !n.needsXrayTransport() {
 		return ""
 	}
 	return "|" + strings.Join([]string{n.Mode, n.Encryption, n.Extra}, "|")

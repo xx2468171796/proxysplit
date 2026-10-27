@@ -69,6 +69,18 @@ func (a *App) registerDiagAPI(mux *http.ServeMux, auth func(func(http.ResponseWr
 		}
 		writeJSON(w, 200, okOr(a.svc.SetCustomRules(b.Rules)))
 	}))
+	// POST /api/nodes/core {"id":"<node id>","core":"auto|sing-box|xray"}
+	mux.HandleFunc("/api/nodes/core", auth(func(w http.ResponseWriter, r *http.Request) {
+		var b struct {
+			ID   string `json:"id"`
+			Core string `json:"core"`
+		}
+		if r.Method != http.MethodPost || json.NewDecoder(r.Body).Decode(&b) != nil || b.ID == "" {
+			writeJSON(w, 400, map[string]string{"error": "POST {\"id\":\"<节点 id>\",\"core\":\"auto|sing-box|xray\"}"})
+			return
+		}
+		writeJSON(w, 200, okOr(a.SetNodeCore(b.ID, b.Core)))
+	}))
 	// POST /api/split-mode {"mode":"whitelist|blacklist"}
 	mux.HandleFunc("/api/split-mode", auth(func(w http.ResponseWriter, r *http.Request) {
 		var b struct {

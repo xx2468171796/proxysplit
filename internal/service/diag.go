@@ -88,6 +88,8 @@ type DiagNode struct {
 	Official bool   `json:"official,omitempty"` // POWER云 node
 	Egress   string `json:"egress,omitempty"`   // POWER云 access scope: ai_only / deny-list
 	Selected bool   `json:"selected,omitempty"`
+	Core     string `json:"core"`              // effective core: sing-box / xray
+	CoreSet  string `json:"coreSet,omitempty"` // user choice ("" = auto)
 }
 
 // DiagSnapshot is everything needed to understand how traffic is routed now.
@@ -134,7 +136,7 @@ func (s *Service) Diagnose() DiagSnapshot {
 		if n == nil {
 			continue
 		}
-		d := DiagNode{ID: n.ID, Name: n.Name, Type: n.Type, Server: n.Server, Port: n.Port, Official: n.Official, Selected: n.ID == s.cfg.SelectedID}
+		d := DiagNode{ID: n.ID, Name: n.Name, Type: n.Type, Server: n.Server, Port: n.Port, Official: n.Official, Selected: n.ID == s.cfg.SelectedID, Core: n.EffectiveCore(), CoreSet: n.Core}
 		if n.Egress.Active() {
 			d.Egress = "deny-list"
 			if n.Egress.Restricted() {

@@ -82,6 +82,7 @@ export const api = {
     W.AddManualNode(type, name, server, port, user, pass),
   removeNode: (id: string) => W.RemoveNode(id),
   selectNode: (id: string) => W.SelectNode(id),
+  setNodeCore: (id: string, core: string) => W.SetNodeCore(id, core),
   testAllLatency: () => W.TestAllLatency(),
   testLatency: (id: string) => W.TestLatency(id),
   testTCP: (id: string) => W.TestTCP(id),

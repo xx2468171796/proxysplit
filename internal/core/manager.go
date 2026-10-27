@@ -104,7 +104,7 @@ func (m *Manager) Node() *nodes.Node {
 
 // Check validates a generated config using `sing-box check` without starting it.
 func (m *Manager) Check(node *nodes.Node, opts Options) error {
-	if node.NeedsXray() { // sing-box only sees the sidecar's SOCKS outbound
+	if node.UseXray() { // sing-box only sees the sidecar's SOCKS outbound
 		opts.XrayPorts = map[string]xray.Endpoint{xray.Key(node): {Port: deadXrayPort}}
 	}
 	cfg, err := BuildConfig(node, 17890, "info", opts)

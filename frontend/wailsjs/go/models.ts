@@ -841,6 +841,22 @@ export namespace main {
 
 export namespace nodes {
 	
+	export class CoreInfo {
+	    effective: string;
+	    xrayOnly: boolean;
+	    xraySupported: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new CoreInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.effective = source["effective"];
+	        this.xrayOnly = source["xrayOnly"];
+	        this.xraySupported = source["xraySupported"];
+	    }
+	}
 	export class EgressAllow {
 	    domains?: string[];
 	    domainSuffixes?: string[];
@@ -931,6 +947,11 @@ export namespace nodes {
 	    seed?: string;
 	    spiderX?: string;
 	    pqv?: string;
+	    ech?: string;
+	    echForceQuery?: string;
+	    pinnedCert?: string;
+	    core?: string;
+	    coreInfo?: CoreInfo;
 	    multiplex?: Record<string, any>;
 	    plugin?: string;
 	    pluginOpts?: string;
@@ -982,6 +1003,11 @@ export namespace nodes {
 	        this.seed = source["seed"];
 	        this.spiderX = source["spiderX"];
 	        this.pqv = source["pqv"];
+	        this.ech = source["ech"];
+	        this.echForceQuery = source["echForceQuery"];
+	        this.pinnedCert = source["pinnedCert"];
+	        this.core = source["core"];
+	        this.coreInfo = this.convertValues(source["coreInfo"], CoreInfo);
 	        this.multiplex = source["multiplex"];
 	        this.plugin = source["plugin"];
 	        this.pluginOpts = source["pluginOpts"];

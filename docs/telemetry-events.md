@@ -35,10 +35,11 @@
 | core.update | 手动更新内核 | trigger, version | 内核下载问题 |
 | net.blocked | 启动后检测到被拦截 | products | 安全软件拦截 |
 | node.add | 粘贴导入 / 手动添加 | source, schemes / protocol, added, skipped | 解析失败（PARSE_FAIL） |
-| node.remove / node.select | 删除 / 选择节点 | protocol | 协议使用度 |
-| node.latency / node.tcp | 单个测速 | protocol, ms（-1 失败） | 各协议测速失败率 |
+| node.remove / node.select | 删除 / 选择节点 | protocol, core（实际内核 sing-box / xray） | 协议使用度、Xray 占比 |
+| node.latency / node.tcp | 单个测速 | protocol, core, ms（-1 失败） | 各协议 / 各内核测速失败率 |
 | node.latency_all | 全部测速 | total{协议:数}, failed{协议:数} | 同上 |
-| node.speed | 下载测速 | protocol, mbps | 带宽 |
+| node.speed | 下载测速 | protocol, core, mbps | 带宽 |
+| node.core | 用户改节点内核（自动 / sing-box / Xray） | nodeType, transport, from, to（前后实际内核）, choice | 哪些协议要强制 Xray、改了是否报错 |
 | sub.add / sub.edit / sub.update / sub.remove | 订阅操作 | host（只留域名）, nodeCount | 订阅拉取失败 |
 | app_rule.change | 应用分流列表变更 | added[程序→线路], removed[], total | 最常添加的应用 |
 | custom_app.change | 自定义应用 | apps[名称] | 应用库缺口 |

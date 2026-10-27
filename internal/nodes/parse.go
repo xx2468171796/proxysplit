@@ -233,6 +233,7 @@ func parseTrojan(link string) (*Node, error) {
 		ALPN:        splitCSV(q.Get("alpn")),
 		Insecure:    q.Get("allowInsecure") == "1" || q.Get("insecure") == "1",
 	}
+	applyTLSExtras(n, q)
 	if n.Server == "" || n.Port == 0 || n.Password == "" {
 		return nil, fmt.Errorf("trojan: missing server/port/password")
 	}
