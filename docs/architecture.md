@@ -42,7 +42,7 @@ internal/service/     业务编排（一个 Service，按职责分文件）：
   其余 *_svc.go / *.go   各自一项能力（AI 环境、出口 IP、端口代理、测速、诊断…）
 internal/core/        生成 sing-box 配置 + 管内核进程：config.go（整体组装）、multiconfig.go（多线路配置）、outbounds.go（各协议出站）、
                       rules.go（规则片段）、aiguard.go（AI 锁定与 TUN 前置规则）、process_config.go（由 TUN 配置改写）、
-                      tunaddr.go（TUN 网段挑选）、manager.go / portproc.go / probe.go（进程）
+                      tunaddr.go（TUN 网段挑选）、manager.go（启停）/ manager_tun.go（TUN 启动与名单热加载）/ portproc.go / probe.go（进程）
 internal/capture divert   仅接管选中程序（WinDivert）    internal/xray   Xray 旁路内核
 internal/nodes subs   节点模型与分享链接 / 订阅解析     internal/procjob   子进程随主程序退出（Job Object）
 internal/telemetry    日志与事件上报                   internal/aiguard   AI 锁定（NRPT、开机任务）
