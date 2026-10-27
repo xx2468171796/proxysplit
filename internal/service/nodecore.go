@@ -96,15 +96,20 @@ func (s *Service) portsUsingNodeLocked(id string) []string {
 // choice the refreshed node no longer allows (e.g. it became XHTTP) is
 // dropped back to auto.
 func keepNodeCores(oldNodes, freshNodes []*nodes.Node) {
-	byID := make(map[string]string, len(oldNodes))
+	byID := make(map[string]*nodes.Node, len(oldNodes))
 	for _, o := range oldNodes {
-		if o != nil && o.Core != "" {
-			byID[o.ID] = o.Core
+		if o != nil {
+			byID[o.ID] = o
 		}
 	}
 	for _, f := range freshNodes {
-		if c, ok := byID[f.ID]; ok && f.ValidateCore(c) == nil {
-			f.Core = c
+		o := byID[f.ID]
+		if o == nil {
+			continue
 		}
+		if o.Core != "" && f.ValidateCore(o.Core) == nil {
+			f.Core = o.Core
+		}
+		f.Via = o.Via // the user's 前置代理 choice survives a refresh too
 	}
 }

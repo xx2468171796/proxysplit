@@ -951,3 +951,6 @@ func dataDir() string {
 	}
 	return filepath.Join(base, "proxysplit")
 }
+
+// SetNodeVia sets the node a node is dialled through (前置代理; "" clears).
+func (a *App) SetNodeVia(id, viaID string) string { return a.svc.SetNodeVia(id, viaID) }

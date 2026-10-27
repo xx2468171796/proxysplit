@@ -74,7 +74,7 @@ func (s *Service) startLocked() error {
 		}
 	}
 	s.mu.Lock()
-	node := s.selectedNode()
+	node := s.chainLocked(s.selectedNode())
 	level := s.cfg.LogLevel
 	mode := s.cfg.RuleMode
 	set := s.cfg.Settings
@@ -139,7 +139,7 @@ func (s *Service) startLocked() error {
 		extra := map[string]*nodes.Node{}
 		s.applyAIGuardLocked(&tunOpts, node.ID, extra)
 		for tag, n := range extra {
-			tunOpts.ExtraNodes = append(tunOpts.ExtraNodes, core.ExtraNode{Tag: tag, Node: n})
+			tunOpts.ExtraNodes = append(tunOpts.ExtraNodes, core.ExtraNode{Tag: tag, Node: s.chainLocked(n)})
 		}
 		s.mu.Unlock()
 		tunOpts.ServerIPs = s.serverIPs(startNodes(node, &tunOpts))
@@ -386,7 +386,7 @@ func (s *Service) splitOptionsLocked(opts *core.Options, node *nodes.Node) split
 	sort.Strings(extraTags)
 	opts.ExtraNodes = nil
 	for _, tag := range extraTags {
-		opts.ExtraNodes = append(opts.ExtraNodes, core.ExtraNode{Tag: tag, Node: extraByTag[tag]})
+		opts.ExtraNodes = append(opts.ExtraNodes, core.ExtraNode{Tag: tag, Node: s.chainLocked(extraByTag[tag])})
 	}
 	return sum
 }

@@ -376,7 +376,7 @@ func (s *Service) launchPort(id string, rt *portRuntime) error {
 		s.mu.Unlock()
 		return fmt.Errorf("端口不存在")
 	}
-	node := s.portNodeLocked(*p)
+	node := s.chainLocked(s.portNodeLocked(*p))
 	ruleSets := core.RuleSetOptions{
 		GeoSiteCN: s.cfg.RuleSets["geosite-cn.srs"],
 		GeoIPCN:   s.cfg.RuleSets["geoip-cn.srs"],

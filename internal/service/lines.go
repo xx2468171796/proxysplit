@@ -230,6 +230,12 @@ func (s *Service) healDanglingNodeRefsLocked() bool {
 		}
 		changed = true
 	}
+	for _, node := range s.cfg.Nodes {
+		if node != nil && node.Via != "" && !nodeIDs[node.Via] {
+			node.Via = "" // front node deleted: dial directly again
+			changed = true
+		}
+	}
 	for i := range s.cfg.Rules {
 		nodeID := s.cfg.Rules[i].Node
 		if nodeID != "" && nodeID != "active" && !nodeIDs[nodeID] {

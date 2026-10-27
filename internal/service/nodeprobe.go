@@ -20,6 +20,7 @@ func (s *Service) measureNode(node *nodes.Node, timeout time.Duration) latency.R
 	node = s.pinned(node) // dial the pre-resolved IP, like the core will
 
 	s.mu.Lock()
+	node = s.chainLocked(node) // 前置代理: test through the same chain
 	selectedID := s.cfg.SelectedID
 	binPath := filepath.Join(s.binDir, "sing-box.exe")
 	probeDir := filepath.Join(s.dataDir, "probes")
@@ -49,6 +50,7 @@ func (s *Service) nodeSocks(node *nodes.Node) (addr string, closeFn func(), err 
 	node = s.pinned(node)
 
 	s.mu.Lock()
+	node = s.chainLocked(node)
 	selectedID := s.cfg.SelectedID
 	binPath := filepath.Join(s.binDir, "sing-box.exe")
 	probeDir := filepath.Join(s.dataDir, "probes")

@@ -221,6 +221,8 @@ export function SetLogLevel(arg1:string):Promise<string>;
 
 export function SetNodeCore(arg1:string,arg2:string):Promise<string>;
 
+export function SetNodeVia(arg1:string,arg2:string):Promise<string>;
+
 export function SetProxyPortEnabled(arg1:string,arg2:boolean):Promise<string>;
 
 export function SetProxyPortMode(arg1:string,arg2:string):Promise<string>;
