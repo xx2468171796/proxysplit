@@ -151,7 +151,8 @@ func TestAIGuardConfig(t *testing.T) {
 			routeAt = i
 		}
 	}
-	if quicAt < 0 || routeAt != quicAt+1 {
+	// QUIC reject, then the IPv6 refusal, then the route (nothing else between).
+	if quicAt < 0 || routeAt != quicAt+2 || cfg.Route.Rules[quicAt+1]["ip_version"] != float64(6) {
 		t.Fatalf("AI QUIC reject at %d, AI route at %d", quicAt, routeAt)
 	}
 	// WebRTC: browsers' STUN goes through the AI line, right after the AI

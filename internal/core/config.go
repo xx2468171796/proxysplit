@@ -49,12 +49,6 @@ type Options struct {
 	// no DNS leak). Requires no DNS interception in our redirect model.
 	RemoteDNS bool
 
-	// NoHostIPv6: the machine has no IPv6 uplink. DNS answers are then IPv4
-	// only — otherwise, with the TUN carrying an IPv6 address (AI 劫持), apps
-	// pick an AAAA address, the core cannot dial it, and apps without a
-	// fallback (curl, Git, games) fail while browsers quietly retry IPv4.
-	NoHostIPv6 bool
-
 	// RealityHybrid: the bundled core carries relayops patch 0005, so POWER云
 	// VLESS + Reality outbounds keep the X25519MLKEM768 key share (ClientHello
 	// like real Chrome). Never applied to third-party nodes (compat mode).
@@ -777,6 +771,9 @@ func buildTUNTree(node *nodes.Node, logLevel string, opts Options) (M, error) {
 			}
 		}
 	}
+	// Public IPv6 stops here: after LAN / private, ourselves and the direct
+	// app list (those may use IPv6 directly), before anything node-bound.
+	rules = append(rules, tunIPv6Rules()...)
 	if clashExp != nil {
 		rules = append(rules, M{"clash_mode": "direct", "outbound": "direct"})
 	}
@@ -918,9 +915,10 @@ func buildTUNTree(node *nodes.Node, logLevel string, opts Options) (M, error) {
 		"rules":   dnsRules,
 		"final":   dnsFinal,
 	}
-	if opts.NoHostIPv6 {
-		dnsBlock["strategy"] = "ipv4_only"
-	}
+	// IPv4-only answers, always (see tunIPv6Rules): most nodes have no IPv6
+	// egress, and an app handed an AAAA address keeps retrying IPv6 through
+	// the TUN instead of falling back (ippure.com on a dual-stack PC, 2026-10-28).
+	dnsBlock["strategy"] = "ipv4_only"
 	tunInbounds := []M{
 		{
 			"type":         "tun",

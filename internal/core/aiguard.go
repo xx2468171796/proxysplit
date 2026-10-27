@@ -55,11 +55,22 @@ func (g *AIGuard) match(withIPs bool) M {
 // follows the same rules as IPv4. Without it an IPv4-only TUN leaves every
 // IPv6 connection outside: a proxied app reaching an IPv6 address would leave
 // from this PC's own IPv6 (real-IP leak, 业主 2026-10-28), and an AI address
-// learnt outside our DNS (app DoH, hosts file) would bypass the guard. Hosts
-// without an IPv6 uplink get IPv4-only DNS answers (Options.NoHostIPv6). Its
+// learnt outside our DNS (app DoH, hosts file) would bypass the guard. DNS
+// answers are IPv4-only and public IPv6 is refused (tunIPv6Rules). Its
 // peer ::2 is the AI lock's DNS server (aiguard.TunnelServer) while the core
 // runs.
 const aiTUN6 = "fdfe:dcba:9876::1/126"
+
+// tunIPv6Rules refuse public IPv6 destinations that reach the TUN, after the
+// DNS hijack, LAN / private addresses, ProxySplit itself and the direct app
+// list, and before anything that could send them to a node. Our DNS only answers
+// IPv4, so these are apps with their own resolver or literal addresses: a
+// node usually cannot dial IPv6, and a refused connection makes the app fall
+// back to IPv4 at once instead of retrying a tunnel that never connects. IPv6
+// therefore never leaks around the proxy and never hangs.
+func tunIPv6Rules() []M {
+	return []M{{"ip_version": 6, "action": "reject"}}
+}
 
 // tunAddresses is the TUN inbound's address list: IPv4 and IPv6, always.
 func tunAddresses(Options) []string {
@@ -81,7 +92,12 @@ func aiGuardRules(opts Options) []M {
 	quic["network"] = []string{"udp"}
 	quic["port"] = []int{443}
 	quic["action"] = "reject"
-	rules := []M{quic, emit(g.match(true), g.Outbound)}
+	// AI over IPv6 (app DoH, cached AAAA): refused like any public IPv6
+	// (tunIPv6Rules) so the app retries IPv4 through the line at once.
+	v6 := g.match(true)
+	v6["ip_version"] = 6
+	v6["action"] = "reject"
+	rules := []M{quic, v6, emit(g.match(true), g.Outbound)}
 	if procs := cleanList(g.STUNProcesses); len(procs) > 0 {
 		rules = append(rules, emit(M{"protocol": []string{"stun"}, "process_name": procs}, g.Outbound))
 	}

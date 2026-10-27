@@ -1544,7 +1544,6 @@ func (s *Service) startLocked() error {
 	// Bundled core with relayops patch 0005: POWER云 Reality outbounds keep the
 	// X25519MLKEM768 key share. Cached per core file; stock cores never get it.
 	realityHybrid := coreupdate.HasTag(s.binDir, coreupdate.RealityHybridTag)
-	noIPv6 := !s.hostIPv6()
 	clashOptsFor := func(port int) core.Options {
 		ctl := ""
 		if port > 0 {
@@ -1554,7 +1553,7 @@ func (s *Service) startLocked() error {
 			LanShare: set.LanShare, LanPort: set.LanPort, LanType: set.LanType, LanUser: set.LanUser, LanPass: set.LanPass,
 			CustomRules: custom, RuleSets: &ruleSets, DirectDomains: s.directDomains(),
 			ProxyPrivate: !set.PrivateDirect, BlockQUIC: set.BlockQUIC, SelfProcess: selfProcess(set.ExcludeSelf), PortProcessPath: s.portProcessPath(),
-			AccelPort: accelPort, RealityHybrid: realityHybrid, NoHostIPv6: noIPv6,
+			AccelPort: accelPort, RealityHybrid: realityHybrid,
 			// Off by itself while the AI guard is active (core/dnscache.go).
 			DNSOptimistic: true, DNSCacheFile: filepath.Join(s.dataDir, dnsCacheFile)}
 	}
