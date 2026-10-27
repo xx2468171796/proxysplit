@@ -488,6 +488,7 @@ export namespace main {
 	    on: boolean;
 	    locked: boolean;
 	    visible: boolean;
+	    lock: service.AILockStatus;
 	
 	    static createFrom(source: any = {}) {
 	        return new AIHijackState(source);
@@ -498,7 +499,26 @@ export namespace main {
 	        this.on = source["on"];
 	        this.locked = source["locked"];
 	        this.visible = source["visible"];
+	        this.lock = this.convertValues(source["lock"], service.AILockStatus);
 	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 	export class AddResult {
 	    added: number;
@@ -904,6 +924,13 @@ export namespace nodes {
 	    network?: string;
 	    path?: string;
 	    host?: string;
+	    mode?: string;
+	    extra?: string;
+	    encryption?: string;
+	    headerType?: string;
+	    seed?: string;
+	    spiderX?: string;
+	    pqv?: string;
 	    multiplex?: Record<string, any>;
 	    plugin?: string;
 	    pluginOpts?: string;
@@ -948,6 +975,13 @@ export namespace nodes {
 	        this.network = source["network"];
 	        this.path = source["path"];
 	        this.host = source["host"];
+	        this.mode = source["mode"];
+	        this.extra = source["extra"];
+	        this.encryption = source["encryption"];
+	        this.headerType = source["headerType"];
+	        this.seed = source["seed"];
+	        this.spiderX = source["spiderX"];
+	        this.pqv = source["pqv"];
 	        this.multiplex = source["multiplex"];
 	        this.plugin = source["plugin"];
 	        this.pluginOpts = source["pluginOpts"];
@@ -1071,6 +1105,20 @@ export namespace service {
 		    }
 		    return a;
 		}
+	}
+	export class AILockStatus {
+	    phase: string;
+	    seconds: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new AILockStatus(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.phase = source["phase"];
+	        this.seconds = source["seconds"];
+	    }
 	}
 	export class AppDetail {
 	    stat: appid.Stat;
