@@ -56,14 +56,40 @@ func Measure(n *nodes.Node, socksAddr string, timeout time.Duration) Result {
 	res := Result{TCPLatency: measureTCP(n, timeout)}
 
 	if socksAddr != "" {
-		elapsed, err := measureHTTPThroughSOCKS(socksAddr, connectivityURL, timeout, nil)
-		if err != nil {
-			res.Latency = -1
-		} else {
-			res.Latency = int(elapsed.Round(time.Millisecond) / time.Millisecond)
-		}
+		res.Latency = bestOf(googleAttempts, timeout, func() (time.Duration, error) {
+			return measureHTTPThroughSOCKS(socksAddr, connectivityURL, timeout, nil)
+		})
 	}
 	return res
+}
+
+// googleAttempts: like v2rayN, the first request through a fresh tunnel pays
+// the protocol handshake, so the 204 request is repeated and the minimum kept.
+const googleAttempts = 2
+
+// bestOf runs attempt up to n times and returns the fastest success in ms, or
+// -1 when every attempt failed. A single success counts. When an attempt fails
+// after using the whole timeout, further attempts are skipped so a dead node
+// still costs at most one timeout.
+func bestOf(n int, timeout time.Duration, attempt func() (time.Duration, error)) int {
+	best := time.Duration(-1)
+	for i := 0; i < n; i++ {
+		start := time.Now()
+		d, err := attempt()
+		if err != nil {
+			if time.Since(start) >= timeout {
+				break
+			}
+			continue
+		}
+		if best < 0 || d < best {
+			best = d
+		}
+	}
+	if best < 0 {
+		return -1
+	}
+	return int(best.Round(time.Millisecond) / time.Millisecond)
 }
 
 // measureTCP returns the raw TCP 延迟 to the node's edge (with the protocol

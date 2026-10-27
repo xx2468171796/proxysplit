@@ -1923,6 +1923,22 @@ export namespace service {
 	        this.streamDirectOff = source["streamDirectOff"];
 	    }
 	}
+	export class SpeedAllSummary {
+	    total: number;
+	    passed: number;
+	    speedOk: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new SpeedAllSummary(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.total = source["total"];
+	        this.passed = source["passed"];
+	        this.speedOk = source["speedOk"];
+	    }
+	}
 	export class Stats {
 	    running: boolean;
 	    activeConns: number;

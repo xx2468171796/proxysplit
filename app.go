@@ -431,6 +431,13 @@ func (a *App) TestTCP(id string) int {
 }
 func (a *App) TestAllLatency() { defer a.tmLatencyAll(time.Now()); a.svc.TestAllLatency() }
 
+// TestThenSpeedAll 测通再测速: latency for all nodes, then sequential speed
+// tests for the nodes that passed.
+func (a *App) TestThenSpeedAll() service.SpeedAllSummary {
+	defer a.tmLatencyAll(time.Now())
+	return a.svc.TestThenSpeedAll()
+}
+
 // GetConnections returns the live per-connection routing trace (进程 → 目标 →
 // 命中规则 → 出口) for the diagnostics view.
 func (a *App) GetConnections() []service.ConnInfo { return a.svc.Connections() }

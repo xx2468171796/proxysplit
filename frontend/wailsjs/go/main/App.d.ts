@@ -255,6 +255,8 @@ export function TestLatency(arg1:string):Promise<number>;
 
 export function TestTCP(arg1:string):Promise<number>;
 
+export function TestThenSpeedAll():Promise<service.SpeedAllSummary>;
+
 export function TrackPage(arg1:string):Promise<void>;
 
 export function UnbindMyDevice(arg1:string):Promise<string>;
