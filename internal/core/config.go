@@ -867,7 +867,7 @@ func BuildTUNConfig(node *nodes.Node, logLevel string, opts Options) ([]byte, er
 	}
 	dnsServers := []M{
 		// Foreign resolver through the node (anti-pollution) with a 2nd fallback.
-		{"type": "udp", "tag": "dns-remote", "server": "8.8.8.8", "detour": "proxy"},
+		remoteDNSServer(node, "proxy"),
 		// China resolver, DIRECT — reachable even when the node is down.
 		{"type": "udp", "tag": "dns-direct", "server": "223.5.5.5"},
 	}
@@ -1470,4 +1470,17 @@ func firstNonEmpty(vals ...string) string {
 		}
 	}
 	return ""
+}
+
+// remoteDNSServer is the foreign resolver reached through the node. SOCKS5 and
+// HTTP proxies often cannot relay UDP (HTTP never can; many sold SOCKS5 IPs
+// skip UDP ASSOCIATE), so plain UDP DNS through them fails and every foreign
+// site looks dead while v2rayN (system proxy, remote hostname) still works.
+// Those nodes get DNS over TCP instead.
+func remoteDNSServer(n *nodes.Node, detour string) M {
+	typ := "udp"
+	if n != nil && (n.Type == "socks" || n.Type == "http") {
+		typ = "tcp"
+	}
+	return M{"type": typ, "tag": "dns-remote", "server": "8.8.8.8", "detour": detour}
 }

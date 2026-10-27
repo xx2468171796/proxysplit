@@ -92,7 +92,7 @@ func BuildPortConfig(pc PortConfig) ([]byte, error) {
 	dnsRules := clashDNSRules(opts)
 	dnsFinal := "dns-direct"
 	if pc.Node != nil {
-		dnsServers = append(dnsServers, M{"type": "udp", "tag": "dns-remote", "server": "8.8.8.8", "detour": proxyTag})
+		dnsServers = append(dnsServers, remoteDNSServer(pc.Node, proxyTag))
 		dnsRules = append(dnsRules, M{"rule_set": []string{"geosite-cn"}, "server": "dns-direct"})
 		dnsFinal = "dns-remote"
 	}
