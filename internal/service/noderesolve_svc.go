@@ -40,7 +40,7 @@ var (
 func (s *Service) nodeResolver() *noderesolve.Resolver {
 	resolverOnce.Do(func() {
 		resolverInst = noderesolve.New(noderesolve.Config{
-			WantIPv6: hostHasIPv6,
+			WantIPv6: s.hostIPv6, // stopped-time answer: the TUN always carries IPv6
 			DoHOnly:  func() bool { return s.core != nil && s.core.Running() },
 			OnResult: func(r noderesolve.Result, err error) {
 				s.log("[resolve] " + noderesolve.Summary(r, err))
