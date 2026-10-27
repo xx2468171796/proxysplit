@@ -32,3 +32,14 @@ func TestParseWireGuardConf(t *testing.T) {
 		t.Fatalf("node = %+v", n)
 	}
 }
+
+// Review 2026-10-28: unescaped base64 keys ("+" and "/") still parse.
+func TestParseWireGuardRawKeys(t *testing.T) {
+	n, err := ParseLink("wireguard://ab/c+d=@1.2.3.4:51820?publickey=" + wgPub + "&address=10.0.0.2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n.Password != "ab/c+d=" || n.PublicKey != wgPub || n.Server != "1.2.3.4" {
+		t.Fatalf("node = %+v", n)
+	}
+}

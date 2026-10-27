@@ -117,7 +117,8 @@ func Manual(nodeType, name, server string, port int, username, password string) 
 // lines that fail to parse. It returns the successfully parsed nodes plus the
 // count of lines that were skipped.
 func ParseMany(text string) (out []*Node, skipped int) {
-	if IsWireGuardConf(text) {
+	// A whole WireGuard .conf (and nothing else) is one node.
+	if IsWireGuardConf(text) && !strings.Contains(text, "://") {
 		link, err := WireGuardConfLink(text, "")
 		if err != nil {
 			return nil, 1

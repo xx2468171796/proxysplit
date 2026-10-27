@@ -13,7 +13,7 @@ import (
 // wireguard://<private key>@host:port?publickey=..&address=10.0.0.2/32,fd00::2/128
 // &presharedkey=..&reserved=1,2,3&mtu=1280#name
 func parseWireGuard(link string) (*Node, error) {
-	u, err := url.Parse(link)
+	u, err := url.Parse(escapeWGKey(link))
 	if err != nil {
 		return nil, err
 	}
@@ -28,8 +28,8 @@ func parseWireGuard(link string) (*Node, error) {
 		Server:      u.Hostname(),
 		Port:        port,
 		Password:    priv,
-		PublicKey:   firstNonEmpty(q.Get("publickey"), q.Get("publicKey"), q.Get("public_key")),
-		WGPreShared: firstNonEmpty(q.Get("presharedkey"), q.Get("preSharedKey"), q.Get("pre_shared_key")),
+		PublicKey:   wgKey(firstNonEmpty(q.Get("publickey"), q.Get("publicKey"), q.Get("public_key"))),
+		WGPreShared: wgKey(firstNonEmpty(q.Get("presharedkey"), q.Get("preSharedKey"), q.Get("pre_shared_key"))),
 		WGAddress:   splitCSV(firstNonEmpty(q.Get("address"), q.Get("ip"))),
 		WGReserved:  parseReserved(q.Get("reserved")),
 		WGMTU:       toInt(q.Get("mtu")),
@@ -127,4 +127,22 @@ func WireGuardConfLink(text, name string) (string, error) {
 		name = ep
 	}
 	return "wireguard://" + url.PathEscape(kv["interface.privatekey"]) + "@" + ep + "?" + q.Encode() + "#" + url.PathEscape(name), nil
+}
+
+// wgKey undoes "+" → " " from exporters that leave base64 keys unescaped.
+func wgKey(s string) string { return strings.ReplaceAll(s, " ", "+") }
+
+// escapeWGKey percent-encodes a raw private key (base64 may hold "/" or "+"),
+// so url.Parse still finds host:port after the "@".
+func escapeWGKey(link string) string {
+	i := strings.Index(link, "://")
+	at := strings.LastIndex(link, "@")
+	if i < 0 || at < i {
+		return link
+	}
+	key, err := url.PathUnescape(link[i+3 : at])
+	if err != nil {
+		key = link[i+3 : at]
+	}
+	return link[:i+3] + url.QueryEscape(key) + link[at:]
 }
