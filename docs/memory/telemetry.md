@@ -32,5 +32,19 @@ SELECT device_id,count(*),max(ts) FROM client_events WHERE status='fail' AND err
 SELECT started_at,text FROM client_log_chunks WHERE device_id='<64位>' AND started_at>now()-interval '6 hours' AND text ILIKE '%wintun%';
 ```
 
+### 连接成败汇总（net.conn_summary，v1.10.1 起）
+```sql
+-- 某设备最近的连接汇总（先看这个，再决定翻哪段日志）
+SELECT ts,status,payload->>'total' total,payload->>'failed' failed,payload->'failures' failures,payload->'kinds' kinds,payload->>'v6Failures' v6,payload->'top' top
+FROM client_events WHERE device_id='<64位>' AND type='net.conn_summary' ORDER BY ts DESC LIMIT 12;
+-- 全网最近 24 小时连接失败严重的设备（按失败数）
+SELECT device_id,count(*) windows,sum((payload->>'failed')::int) failed,sum((payload->>'total')::int) total
+FROM client_events WHERE type='net.conn_summary' AND status='fail' AND ts>now()-interval '1 day' GROUP BY 1 ORDER BY 3 DESC LIMIT 30;
+-- 各失败原因的分布（看新版本是否引入回归：按 app_version 对比）
+SELECT d.app_version,k.key kind,sum(k.value::int) n FROM client_events e JOIN client_devices d USING(device_id), jsonb_each_text(e.payload->'kinds') k
+WHERE e.type='net.conn_summary' AND e.ts>now()-interval '3 days' GROUP BY 1,2 ORDER BY 1 DESC,3 DESC;
+```
+- 判读：proxy 出站大量 timeout = 节点不通 / 被封；v6Failures 高 = IPv6 问题；dns 多 = 解析问题；direct 出站 refused / reset = 安全软件或运营商拦截。确定方向后再按时间窗翻 client_log_chunks。
+
 ## 体量估算
 info 级日志每台每天约 1–5 千行（约 0.2–0.8 MB 原文，gzip 后 30–120 KB 上行）；事件约 100–500 条（每条约 0.4 KB）。debug 级可到 10 倍，客户端 20 MB 封顶。1000 台活跃 × 15 天 ≈ 5–15 GB 原文，PG TOAST 压缩后约 1/3。

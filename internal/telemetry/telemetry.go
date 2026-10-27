@@ -42,6 +42,7 @@ type recorder struct {
 	tailMu sync.Mutex
 	tail   []string // last lines for crash reports
 	watch  logWatch
+	conns  *connStats // net.conn_summary (connstats.go)
 	// uploading guards the single drain goroutine (Uploader is not concurrent).
 	uploading atomic.Bool
 }
@@ -75,6 +76,7 @@ func Init(cfg Config) error {
 		tr = http.DefaultTransport
 	}
 	r := &recorder{
+		conns: newConnStats(),
 		spool: sp, session: session,
 		up:   &Uploader{Endpoint: cfg.Endpoint, Client: &http.Client{Transport: tr, Timeout: 20 * time.Second}, Meta: cfg.Meta, Token: cfg.Token, MinWait: 30 * time.Second, MaxWait: 30 * time.Minute},
 		logs: make(chan record, 4096), kick: make(chan struct{}, 1), stop: make(chan struct{}), done: make(chan struct{}),
@@ -188,6 +190,9 @@ func Recover() {
 
 // Close flushes and stops (on app exit); pending segments upload next launch.
 func Close() {
+	if r := active.Load(); r != nil {
+		r.emitConnSummary(false) // the partial window would be lost otherwise
+	}
 	r := active.Swap(nil)
 	if r == nil {
 		return
@@ -214,6 +219,8 @@ func (r *recorder) loop(interval time.Duration) {
 	defer tick.Stop()
 	flush := time.NewTicker(time.Second)
 	defer flush.Stop()
+	conns := time.NewTicker(connSummaryEvery)
+	defer conns.Stop()
 	upload := func() {
 		_ = r.spool.Seal()
 		if r.uploading.CompareAndSwap(false, true) {
@@ -231,6 +238,8 @@ func (r *recorder) loop(interval time.Duration) {
 			r.writeLog(rec)
 		case <-flush.C:
 			_ = r.spool.Flush()
+		case <-conns.C:
+			r.emitConnSummary(true)
 		case <-tick.C:
 			upload()
 		case <-r.kick:
@@ -249,6 +258,24 @@ func (r *recorder) loop(interval time.Duration) {
 	}
 }
 
+// emitConnSummary reports the connection window (nothing when idle). async:
+// from the loop, where emit may Kick back into it.
+func (r *recorder) emitConnSummary(async bool) {
+	p, bad := r.conns.take()
+	if p == nil {
+		return
+	}
+	st := Info
+	if bad {
+		st = Fail
+	}
+	if async {
+		go emit(NetConnSummary, st, nil, nil, p)
+		return
+	}
+	emit(NetConnSummary, st, nil, nil, p)
+}
+
 func (r *recorder) writeLog(rec record) {
 	rec.S = Sanitize(rec.S)
 	r.tailMu.Lock()
@@ -258,6 +285,7 @@ func (r *recorder) writeLog(rec record) {
 	}
 	r.tailMu.Unlock()
 	_ = r.spool.Append(rec)
+	r.conns.observe(rec.S)
 	if typ, st, text := r.watch.inspect(rec.S); typ != "" {
 		var err error
 		if text != "" {

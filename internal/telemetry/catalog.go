@@ -52,6 +52,7 @@ const (
 	NodeResolve    = "node.resolve"     // node domain pre-resolve: resolvers, candidates, chosen_ip
 	NodeHealth     = "node.health"      // keep-warm state change: from, to, rtt p50, fails
 	DNSPrewarm     = "dns.prewarm"      // post-start DNS prewarm summary: count, ok, ms
+	NetConnSummary = "net.conn_summary" // 5-minute connection outcome summary per outbound (connstats.go)
 	SubAdd         = "sub.add"          // subscription host, node count
 	SubUpdate      = "sub.update"       // subscription refresh
 	SubEdit        = "sub.edit"         // subscription edited

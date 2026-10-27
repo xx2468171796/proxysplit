@@ -42,7 +42,7 @@ func typeDefault(typ string) string {
 		return ErrUpdateDownload
 	case typ == NodeResolve, typ == DNSPrewarm:
 		return ErrDNS
-	case strings.HasPrefix(typ, "node.latency"), typ == NodeTCP, typ == NodeSpeed, typ == NodeHealth:
+	case strings.HasPrefix(typ, "node.latency"), typ == NodeTCP, typ == NodeSpeed, typ == NodeHealth, typ == NetConnSummary:
 		return ErrNodeUnreach
 	case strings.HasPrefix(typ, "account."):
 		return ErrLicense
