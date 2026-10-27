@@ -86,7 +86,17 @@ export type Status = {
   stats?: CoreStats;
 };
 
-export type Sub = { id: string; name: string; url: string; autoUpdate: boolean; lastUpdate: string; nodeCount: number };
+/** 订阅的高级选项（参照 v2rayN）：UA、节点名包含 / 排除（不区分大小写的正则）、自动更新间隔（分钟，0 = 每 6 小时）。 */
+export type SubOptions = { userAgent: string; include: string; exclude: string; intervalMin: number };
+
+export type Sub = {
+  id: string;
+  name: string;
+  url: string;
+  autoUpdate: boolean;
+  lastUpdate: string;
+  nodeCount: number;
+} & Partial<SubOptions>;
 
 export type RuleSet = {
   name: string;

@@ -1,21 +1,37 @@
-// 添加 / 编辑订阅。编辑保存后 Go 端会立即重新拉取一次，所以按钮叫「保存并更新」。
+// 添加 / 编辑订阅（含高级选项）。保存后 Go 端会立即重新拉取一次，所以编辑按钮叫「保存并更新」。
 import { FormDialog, FormField, FormSection, Input, Switch } from "@ankotti/admin-ui";
 import { useState } from "react";
 import type { Sub } from "../../api/types";
 import { useFeedback } from "../../app/use-feedback";
-import { addSub, editSub } from "../../state/subs";
+import { addSub, editSub, setSubOptions } from "../../state/subs";
+import { SubOptionsFields, sameOptions, subOptionsOf } from "./sub-options-fields";
 
 export function SubDialog({ sub, onClose }: { sub?: Sub; onClose: () => void }) {
   const { say } = useFeedback();
   const [name, setName] = useState(sub?.name ?? "");
   const [url, setUrl] = useState(sub?.url ?? "");
   const [auto, setAuto] = useState(false);
-  const dirty = name !== (sub?.name ?? "") || url !== (sub?.url ?? "");
+  const [opts, setOpts] = useState(subOptionsOf(sub));
+  const basicDirty = name !== (sub?.name ?? "") || url !== (sub?.url ?? "");
+  const optsDirty = !sameOptions(opts, subOptionsOf(sub));
+  const dirty = basicDirty || optsDirty;
 
   const submit = async () => {
-    const err = sub ? await editSub(sub.id, name, url) : await addSub(name, url, auto);
-    if (err) throw new Error(err);
-    say(sub ? "已保存并更新订阅" : "订阅已添加");
+    if (!sub) {
+      const err = await addSub(name, url, auto);
+      if (err) throw new Error(err);
+      say("订阅已添加");
+      return;
+    }
+    if (basicDirty) {
+      const err = await editSub(sub.id, name, url);
+      if (err) throw new Error(err);
+    }
+    if (optsDirty) {
+      const err = await setSubOptions(sub.id, opts);
+      if (err) throw new Error(err);
+    }
+    say("已保存并更新订阅");
   };
 
   return (
@@ -41,6 +57,7 @@ export function SubDialog({ sub, onClose }: { sub?: Sub; onClose: () => void }) 
           </FormField>
         )}
       </FormSection>
+      {sub && <SubOptionsFields value={opts} onChange={setOpts} />}
     </FormDialog>
   );
 }

@@ -233,6 +233,8 @@ export function SetSettings(arg1:service.Settings):Promise<string>;
 
 export function SetSubAutoUpdate(arg1:string,arg2:boolean):Promise<void>;
 
+export function SetSubOptions(arg1:string,arg2:service.SubOptions):Promise<string>;
+
 export function SetSystemProxy(arg1:boolean):Promise<string>;
 
 export function SpeedTest():Promise<main.SpeedResult>;

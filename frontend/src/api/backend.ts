@@ -37,6 +37,7 @@ import type {
   Settings,
   Status,
   Sub,
+  SubOptions,
 } from "./types";
 
 type Listed<T> = { items: T[]; err?: string };
@@ -149,6 +150,7 @@ export const api = {
   updateSub: (id: string) => W.UpdateSub(id),
   removeSub: (id: string) => W.RemoveSub(id),
   setSubAutoUpdate: (id: string, on: boolean) => W.SetSubAutoUpdate(id, on),
+  setSubOptions: (id: string, o: SubOptions) => W.SetSubOptions(id, o),
 
   // 设置与系统
   settings: () => W.GetSettings() as Promise<Settings>,

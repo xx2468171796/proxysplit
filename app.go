@@ -446,6 +446,12 @@ func (a *App) RemoveSub(id string) {
 }
 func (a *App) SetSubAutoUpdate(id string, on bool) { a.svc.SetSubAutoUpdate(id, on) }
 
+// SetSubOptions saves a subscription's User-Agent / name filters / interval
+// after a successful fetch with them ("" = ok).
+func (a *App) SetSubOptions(id string, o service.SubOptions) string {
+	return errStr(tmErr(telemetry.SubEdit, time.Now(), a.tmSub(id), a.svc.SetSubOptions(id, o)))
+}
+
 // Core (sing-box) version + update.
 func (a *App) GetCoreVersion() string { return a.svc.GetCoreVersion() }
 func (a *App) UpdateCore() string     { return a.tmCoreUpdate(time.Now(), a.svc.UpdateCore()) }

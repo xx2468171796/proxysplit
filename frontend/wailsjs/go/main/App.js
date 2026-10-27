@@ -446,6 +446,10 @@ export function SetSubAutoUpdate(arg1, arg2) {
   return window['go']['main']['App']['SetSubAutoUpdate'](arg1, arg2);
 }
 
+export function SetSubOptions(arg1, arg2) {
+  return window['go']['main']['App']['SetSubOptions'](arg1, arg2);
+}
+
 export function SetSystemProxy(arg1) {
   return window['go']['main']['App']['SetSystemProxy'](arg1);
 }

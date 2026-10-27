@@ -1,5 +1,6 @@
 // 订阅：添加、编辑、更新、自动更新开关、删除。每行的进行中状态放在 pending 里。
 import { api } from "../api/backend";
+import type { SubOptions } from "../api/types";
 import { createStore } from "../shared/store";
 import { data, refreshNodes, refreshSubs } from "./data";
 
@@ -66,4 +67,17 @@ export async function setSubAutoUpdate(id: string, on: boolean): Promise<void> {
 export async function removeSub(id: string): Promise<void> {
   await api.removeSub(id);
   await Promise.all([refreshSubs(), refreshNodes()]);
+}
+
+/** 保存订阅高级选项；Go 端先按新选项拉取一次，成功才保存。 */
+export async function setSubOptions(id: string, o: SubOptions): Promise<string> {
+  setPending(id, "save");
+  try {
+    const err = await api.setSubOptions(id, o);
+    if (err) return `保存失败：${err}`;
+    await Promise.all([refreshSubs(), refreshNodes()]);
+    return "";
+  } finally {
+    setPending(id);
+  }
 }

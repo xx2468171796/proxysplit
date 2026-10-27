@@ -1994,6 +1994,10 @@ export namespace service {
 	    autoUpdate: boolean;
 	    lastUpdate: string;
 	    nodeCount: number;
+	    userAgent?: string;
+	    include?: string;
+	    exclude?: string;
+	    intervalMin?: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new Sub(source);
@@ -2007,6 +2011,28 @@ export namespace service {
 	        this.autoUpdate = source["autoUpdate"];
 	        this.lastUpdate = source["lastUpdate"];
 	        this.nodeCount = source["nodeCount"];
+	        this.userAgent = source["userAgent"];
+	        this.include = source["include"];
+	        this.exclude = source["exclude"];
+	        this.intervalMin = source["intervalMin"];
+	    }
+	}
+	export class SubOptions {
+	    userAgent: string;
+	    include: string;
+	    exclude: string;
+	    intervalMin: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new SubOptions(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.userAgent = source["userAgent"];
+	        this.include = source["include"];
+	        this.exclude = source["exclude"];
+	        this.intervalMin = source["intervalMin"];
 	    }
 	}
 
