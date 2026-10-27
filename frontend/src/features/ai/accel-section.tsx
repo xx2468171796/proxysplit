@@ -14,7 +14,7 @@ import { fmtBytes } from "../../shared/format";
 import { useStore } from "../../shared/store";
 import { data } from "../../state/data";
 import { accelSavedPercent, setAccelMode, setAccelOption, system } from "../../state/system";
-import { SwitchField } from "./setting-fields";
+import { SwitchField } from "../settings/setting-fields";
 
 type Mode = "official" | "encode";
 

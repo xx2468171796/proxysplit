@@ -1,10 +1,22 @@
 // 预览 / 评审包专用的地址参数（只在装假后端时调用）：
-// ?page=<页面 id> 打开指定页；?look=1 打开「外观」面板；?donate=0 赞赏码倒计时一结束就替人点关闭（截图不被挡）。
+// ?page=<页面 id> 打开指定页（&tab=<分区 id> 切到合并页的某个分区）；?look=1 打开「外观」面板；?donate=0 赞赏码倒计时一结束就替人点关闭（截图不被挡）。
 
-import { navigate, type PageId } from "../app/nav";
+import { navigate, type PageId, type PageTab } from "../app/nav";
 import { previewSearch } from "./search";
 
-const PAGE_IDS: readonly PageId[] = ["overview", "ai", "nodes", "apps", "ports", "rules", "subs", "logs", "settings"];
+const PAGE_IDS: readonly PageId[] = ["overview", "ai", "nodes", "apps", "rules", "logs", "settings"];
+const PAGE_TABS: readonly PageTab[] = [
+  "nodes",
+  "subs",
+  "apps",
+  "ports",
+  "conns",
+  "logs",
+  "diag",
+  "env",
+  "accel",
+  "control",
+];
 
 /** 每 100ms 找一次目标，找到就点，最多等 limitMs。 */
 function clickWhenReady(find: () => HTMLButtonElement | null | undefined, limitMs: number, then?: () => void): void {
@@ -28,7 +40,8 @@ const donateClose = () =>
 export function applyPreviewParams(): void {
   const params = new URLSearchParams(previewSearch());
   const page = PAGE_IDS.find((p) => p === params.get("page"));
-  if (page) navigate(page);
+  const tab = PAGE_TABS.find((t) => t === params.get("tab")) ?? null;
+  if (page) navigate(page, null, tab);
   const openLook = () => clickWhenReady(() => document.querySelector<HTMLButtonElement>(".qd-look"), 5000);
   if (params.get("donate") === "0")
     clickWhenReady(donateClose, 8000, params.get("look") === "1" ? openLook : undefined);
