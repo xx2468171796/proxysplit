@@ -54,10 +54,6 @@ export function DeleteProxyPort(arg1) {
   return window['go']['main']['App']['DeleteProxyPort'](arg1);
 }
 
-export function EditSub(arg1, arg2, arg3) {
-  return window['go']['main']['App']['EditSub'](arg1, arg2, arg3);
-}
-
 export function ExportAppRules() {
   return window['go']['main']['App']['ExportAppRules']();
 }
@@ -330,6 +326,10 @@ export function RemoveNode(arg1) {
   return window['go']['main']['App']['RemoveNode'](arg1);
 }
 
+export function RemoveNodes(arg1) {
+  return window['go']['main']['App']['RemoveNodes'](arg1);
+}
+
 export function RemoveSub(arg1) {
   return window['go']['main']['App']['RemoveSub'](arg1);
 }
@@ -364,6 +364,10 @@ export function RunReset(arg1, arg2) {
 
 export function SaveProxyPort(arg1) {
   return window['go']['main']['App']['SaveProxyPort'](arg1);
+}
+
+export function SaveSub(arg1, arg2, arg3, arg4) {
+  return window['go']['main']['App']['SaveSub'](arg1, arg2, arg3, arg4);
 }
 
 export function SelectNode(arg1) {
@@ -444,10 +448,6 @@ export function SetSettings(arg1) {
 
 export function SetSubAutoUpdate(arg1, arg2) {
   return window['go']['main']['App']['SetSubAutoUpdate'](arg1, arg2);
-}
-
-export function SetSubOptions(arg1, arg2) {
-  return window['go']['main']['App']['SetSubOptions'](arg1, arg2);
 }
 
 export function SetSystemProxy(arg1) {

@@ -77,11 +77,19 @@ func (s *Service) Nodes() []*nodes.Node {
 }
 
 // RemoveNode deletes a node by id.
-func (s *Service) RemoveNode(id string) string {
+func (s *Service) RemoveNode(id string) string { return s.RemoveNodes([]string{id}) }
+
+// RemoveNodes deletes several nodes with one save and one core restart
+// (deleting one by one restarted the core per node).
+func (s *Service) RemoveNodes(ids []string) string {
+	drop := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		drop[id] = true
+	}
 	s.mu.Lock()
 	kept := s.cfg.Nodes[:0]
 	for _, n := range s.cfg.Nodes {
-		if n.ID != id {
+		if !drop[n.ID] {
 			kept = append(kept, n)
 		}
 	}

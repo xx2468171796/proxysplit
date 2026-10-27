@@ -372,6 +372,12 @@ func (a *App) AddManualNode(nodeType, name, server string, port int, username, p
 	return tmText(telemetry.NodeAdd, time.Now(), map[string]any{"source": "manual", "protocol": nodeType}, a.svc.AddManualNode(nodeType, name, server, port, username, password))
 }
 
+// RemoveNodes deletes several nodes at once (one core restart).
+func (a *App) RemoveNodes(ids []string) string {
+	telemetry.Note(telemetry.NodeRemove, map[string]any{"count": len(ids)})
+	return a.svc.RemoveNodes(ids)
+}
+
 // RemoveNode deletes a node by id.
 func (a *App) RemoveNode(id string) string {
 	return tmText(telemetry.NodeRemove, time.Now(), a.tmNode(id), a.svc.RemoveNode(id))
@@ -434,9 +440,6 @@ func (a *App) GetSubs() []service.Sub { return a.svc.GetSubs() }
 func (a *App) AddSub(name, url string, autoUpdate bool) string {
 	return errStr(tmErr(telemetry.SubAdd, time.Now(), urlHost(url), a.svc.AddSub(name, url, autoUpdate)))
 }
-func (a *App) EditSub(id, name, url string) string {
-	return errStr(tmErr(telemetry.SubEdit, time.Now(), urlHost(url), a.svc.EditSub(id, name, url)))
-}
 func (a *App) UpdateSub(id string) string {
 	return errStr(tmErr(telemetry.SubUpdate, time.Now(), a.tmSub(id), a.svc.UpdateSub(id)))
 }
@@ -446,10 +449,10 @@ func (a *App) RemoveSub(id string) {
 }
 func (a *App) SetSubAutoUpdate(id string, on bool) { a.svc.SetSubAutoUpdate(id, on) }
 
-// SetSubOptions saves a subscription's User-Agent / name filters / interval
-// after a successful fetch with them ("" = ok).
-func (a *App) SetSubOptions(id string, o service.SubOptions) string {
-	return errStr(tmErr(telemetry.SubEdit, time.Now(), a.tmSub(id), a.svc.SetSubOptions(id, o)))
+// SaveSub saves a subscription's name, address and options after a
+// successful fetch with them ("" = ok).
+func (a *App) SaveSub(id, name, url string, o service.SubOptions) string {
+	return errStr(tmErr(telemetry.SubEdit, time.Now(), urlHost(url), a.svc.SaveSub(id, name, url, o)))
 }
 
 // Core (sing-box) version + update.

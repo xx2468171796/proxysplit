@@ -29,7 +29,7 @@ func TestEditSubIsTransactional(t *testing.T) {
 	}
 	id := s.GetSubs()[0].ID
 
-	if err := s.EditSub(id, "new name", broken.URL); err == nil {
+	if err := s.SaveSub(id, "new name", broken.URL, SubOptions{}); err == nil {
 		t.Fatal("broken replacement URL must fail")
 	}
 	unchanged := s.GetSubs()[0]
@@ -37,7 +37,7 @@ func TestEditSubIsTransactional(t *testing.T) {
 		t.Fatalf("failed edit changed persisted state: sub=%+v node=%+v", unchanged, s.Nodes()[0])
 	}
 
-	if err := s.EditSub(id, "new name", second.URL); err != nil {
+	if err := s.SaveSub(id, "new name", second.URL, SubOptions{}); err != nil {
 		t.Fatalf("edit subscription: %v", err)
 	}
 	edited := s.GetSubs()[0]

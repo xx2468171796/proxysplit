@@ -82,6 +82,7 @@ export const api = {
   addManualNode: (type: string, name: string, server: string, port: number, user: string, pass: string) =>
     W.AddManualNode(type, name, server, port, user, pass),
   removeNode: (id: string) => W.RemoveNode(id),
+  removeNodes: (ids: string[]) => W.RemoveNodes(ids),
   selectNode: (id: string) => W.SelectNode(id),
   setNodeCore: (id: string, core: string) => W.SetNodeCore(id, core),
   testAllLatency: () => W.TestAllLatency(),
@@ -146,11 +147,10 @@ export const api = {
   // 订阅
   subs: async () => arr((await W.GetSubs()) as Sub[]),
   addSub: (name: string, url: string, auto: boolean) => W.AddSub(name, url, auto),
-  editSub: (id: string, name: string, url: string) => W.EditSub(id, name, url),
   updateSub: (id: string) => W.UpdateSub(id),
   removeSub: (id: string) => W.RemoveSub(id),
   setSubAutoUpdate: (id: string, on: boolean) => W.SetSubAutoUpdate(id, on),
-  setSubOptions: (id: string, o: SubOptions) => W.SetSubOptions(id, o),
+  saveSub: (id: string, name: string, url: string, o: SubOptions) => W.SaveSub(id, name, url, o),
 
   // 设置与系统
   settings: () => W.GetSettings() as Promise<Settings>,

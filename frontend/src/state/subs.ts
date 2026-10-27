@@ -25,20 +25,6 @@ export async function addSub(name: string, url: string, auto: boolean): Promise<
   return "";
 }
 
-/** 改名 / 改地址后 Go 端会重新拉取一次。 */
-export async function editSub(id: string, name: string, url: string): Promise<string> {
-  if (!name.trim() || !url.trim()) return "请填写订阅名称和地址";
-  setPending(id, "save");
-  try {
-    const err = await api.editSub(id, name.trim(), url.trim());
-    if (err) return `保存失败：${err}`;
-    await Promise.all([refreshSubs(), refreshNodes()]);
-    return "";
-  } finally {
-    setPending(id);
-  }
-}
-
 export async function updateSub(id: string): Promise<string> {
   if (subTasks.get().pending[id]) return "";
   setPending(id, "update");
@@ -69,11 +55,12 @@ export async function removeSub(id: string): Promise<void> {
   await Promise.all([refreshSubs(), refreshNodes()]);
 }
 
-/** 保存订阅高级选项；Go 端先按新选项拉取一次，成功才保存。 */
-export async function setSubOptions(id: string, o: SubOptions): Promise<string> {
+/** 保存订阅（名称 / 地址 / 高级选项一次提交）；Go 端先按新值拉取一次，成功才保存。 */
+export async function saveSub(id: string, name: string, url: string, o: SubOptions): Promise<string> {
+  if (!name.trim() || !url.trim()) return "请填写订阅名称和地址";
   setPending(id, "save");
   try {
-    const err = await api.setSubOptions(id, o);
+    const err = await api.saveSub(id, name.trim(), url.trim(), o);
     if (err) return `保存失败：${err}`;
     await Promise.all([refreshSubs(), refreshNodes()]);
     return "";

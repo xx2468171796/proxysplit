@@ -78,54 +78,65 @@ func (s *Service) UpdateSub(id string) error {
 	return nil
 }
 
-// EditSub changes a subscription's display name/address and validates the new
-// address before mutating any saved state. A failed fetch therefore leaves the
-// old subscription and all of its nodes intact.
-func (s *Service) EditSub(id, name, url string) error {
+// SaveSub changes a subscription's name, address and options in one step:
+// it fetches with the new values first and only then saves them and replaces
+// the nodes, so a failed fetch (bad address, filter that keeps nothing)
+// leaves the old subscription and all of its nodes intact.
+func (s *Service) SaveSub(id, name, url string, o SubOptions) error {
 	name, url = strings.TrimSpace(name), strings.TrimSpace(url)
 	if name == "" || url == "" {
 		return fmt.Errorf("订阅名称和地址不能为空")
 	}
-	s.mu.Lock()
-	found := false
-	for _, sub := range s.cfg.Subs {
-		if sub.ID == id {
-			found = true
-		} else if strings.EqualFold(strings.TrimSpace(sub.URL), url) {
-			s.mu.Unlock()
-			return fmt.Errorf("订阅地址已存在")
-		}
-	}
-	s.mu.Unlock()
-	if !found {
-		return fmt.Errorf("订阅不存在")
-	}
-
-	list, err := s.fetchSubscription(url)
+	o, err := normalizeSubOptions(o)
 	if err != nil {
 		return err
 	}
 	s.mu.Lock()
-	index := -1
+	cand, err := s.subForEditLocked(id, url)
+	s.mu.Unlock()
+	if err != nil {
+		return err
+	}
+	cand.Name, cand.URL = name, url
+	cand.UserAgent, cand.Include, cand.Exclude, cand.IntervalMin = o.UserAgent, o.Include, o.Exclude, o.IntervalMin
+	list, err := s.fetchSubWithOptions(cand)
+	if err != nil {
+		return err
+	}
+	s.mu.Lock()
+	if _, err := s.subForEditLocked(id, url); err != nil {
+		s.mu.Unlock()
+		return err
+	}
 	for i := range s.cfg.Subs {
 		if s.cfg.Subs[i].ID == id {
-			index = i
-		} else if strings.EqualFold(strings.TrimSpace(s.cfg.Subs[i].URL), url) {
-			s.mu.Unlock()
-			return fmt.Errorf("订阅地址已存在")
+			cand.AutoUpdate, cand.LastUpdate, cand.NodeCount = s.cfg.Subs[i].AutoUpdate, s.cfg.Subs[i].LastUpdate, s.cfg.Subs[i].NodeCount
+			s.cfg.Subs[i] = cand
 		}
 	}
-	if index < 0 {
-		s.mu.Unlock()
-		return fmt.Errorf("订阅不存在")
-	}
-	s.cfg.Subs[index].Name = name
-	s.cfg.Subs[index].URL = url
 	s.replaceSubscriptionNodesLocked(id, list)
 	s.save()
 	s.mu.Unlock()
 	s.applyLive()
 	return nil
+}
+
+// subForEditLocked returns the subscription id, or an error when it is gone
+// or another subscription already uses url.
+func (s *Service) subForEditLocked(id, url string) (Sub, error) {
+	var cur Sub
+	found := false
+	for _, sub := range s.cfg.Subs {
+		if sub.ID == id {
+			cur, found = sub, true
+		} else if strings.EqualFold(strings.TrimSpace(sub.URL), url) {
+			return Sub{}, fmt.Errorf("订阅地址已存在")
+		}
+	}
+	if !found {
+		return Sub{}, fmt.Errorf("订阅不存在")
+	}
+	return cur, nil
 }
 
 func (s *Service) subscriptionExistsLocked(id string) bool {
@@ -289,8 +300,8 @@ func (s *Service) fetchSubWithOptions(sub Sub) ([]*nodes.Node, error) {
 	if err != nil {
 		return nil, err
 	}
-	if strings.EqualFold(strings.TrimSpace(sub.URL), powervpn.ProfileSubURL) {
-		return list, nil
+	if strings.EqualFold(strings.TrimSpace(sub.URL), powervpn.ProfileSubURL) || (len(list) > 0 && list[0].Official) {
+		return list, nil // signed POWER云 profile: the account decides its lines
 	}
 	kept, err := subs.FilterNodes(list, sub.Include, sub.Exclude)
 	if err != nil {
@@ -310,56 +321,20 @@ type SubOptions struct {
 	IntervalMin int    `json:"intervalMin"`
 }
 
-// SetSubOptions validates the options by fetching with them first (like
-// EditSub): only a successful fetch saves them and replaces the nodes, so a
-// filter that matches nothing never leaves a subscription that always fails.
-func (s *Service) SetSubOptions(id string, o SubOptions) error {
+// normalizeSubOptions trims and validates options (regex, interval range;
+// intervals under 10 minutes are raised to 10).
+func normalizeSubOptions(o SubOptions) (SubOptions, error) {
 	o.UserAgent, o.Include, o.Exclude = strings.TrimSpace(o.UserAgent), strings.TrimSpace(o.Include), strings.TrimSpace(o.Exclude)
 	if _, err := subs.FilterNodes(nil, o.Include, o.Exclude); err != nil {
-		return err
+		return o, err
 	}
 	if o.IntervalMin < 0 || o.IntervalMin > 7*24*60 {
-		return fmt.Errorf("自动更新间隔应在 0～10080 分钟之间（0 = 每 6 小时）")
+		return o, fmt.Errorf("自动更新间隔应在 0～10080 分钟之间（0 = 每 6 小时）")
 	}
 	if o.IntervalMin > 0 && o.IntervalMin < 10 {
 		o.IntervalMin = 10
 	}
-	s.mu.Lock()
-	var cand Sub
-	found := false
-	for i := range s.cfg.Subs {
-		if s.cfg.Subs[i].ID == id {
-			cand, found = s.cfg.Subs[i], true
-		}
-	}
-	s.mu.Unlock()
-	if !found {
-		return fmt.Errorf("订阅不存在")
-	}
-	cand.UserAgent, cand.Include, cand.Exclude, cand.IntervalMin = o.UserAgent, o.Include, o.Exclude, o.IntervalMin
-	list, err := s.fetchSubWithOptions(cand)
-	if err != nil {
-		return err
-	}
-	s.mu.Lock()
-	found = false
-	for i := range s.cfg.Subs {
-		if s.cfg.Subs[i].ID == id {
-			sub := &s.cfg.Subs[i]
-			sub.UserAgent, sub.Include, sub.Exclude, sub.IntervalMin = o.UserAgent, o.Include, o.Exclude, o.IntervalMin
-			found = true
-		}
-	}
-	if found {
-		s.replaceSubscriptionNodesLocked(id, list)
-		s.save()
-	}
-	s.mu.Unlock()
-	if !found {
-		return fmt.Errorf("订阅不存在")
-	}
-	s.applyLive()
-	return nil
+	return o, nil
 }
 
 // SetSubAutoUpdate toggles auto-update for a subscription.

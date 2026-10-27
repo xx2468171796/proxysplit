@@ -3,7 +3,7 @@ import { FormDialog, FormField, FormSection, Input, Switch } from "@ankotti/admi
 import { useState } from "react";
 import type { Sub } from "../../api/types";
 import { useFeedback } from "../../app/use-feedback";
-import { addSub, editSub, setSubOptions } from "../../state/subs";
+import { addSub, saveSub } from "../../state/subs";
 import { SubOptionsFields, sameOptions, subOptionsOf } from "./sub-options-fields";
 
 export function SubDialog({ sub, onClose }: { sub?: Sub; onClose: () => void }) {
@@ -23,14 +23,8 @@ export function SubDialog({ sub, onClose }: { sub?: Sub; onClose: () => void }) 
       say("订阅已添加");
       return;
     }
-    if (basicDirty) {
-      const err = await editSub(sub.id, name, url);
-      if (err) throw new Error(err);
-    }
-    if (optsDirty) {
-      const err = await setSubOptions(sub.id, opts);
-      if (err) throw new Error(err);
-    }
+    const err = await saveSub(sub.id, name, url, opts);
+    if (err) throw new Error(err);
     say("已保存并更新订阅");
   };
 

@@ -64,6 +64,13 @@ export async function removeNode(id: string): Promise<string> {
   return err;
 }
 
+/** 批量删除（一次保存、内核只重启一次）。 */
+export async function removeNodes(ids: string[]): Promise<string> {
+  const err = await api.removeNodes(ids);
+  await Promise.all([refreshNodes(), refreshStatus()]);
+  return err;
+}
+
 async function runTest(key: "googleId" | "tcpId" | "speedId", id: string, call: () => Promise<unknown>) {
   if (nodeTests.get()[key]) return "";
   nodeTests.set({ [key]: id });

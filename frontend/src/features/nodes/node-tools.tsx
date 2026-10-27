@@ -4,7 +4,7 @@ import { Trash2 } from "lucide-react";
 import { useState } from "react";
 import type { Node } from "../../api/types";
 import { useFeedback } from "../../app/use-feedback";
-import { removeNode } from "../../state/nodes";
+import { removeNodes } from "../../state/nodes";
 
 export type NodeSort = "default" | "latency" | "name";
 
@@ -43,11 +43,8 @@ export function RemoveDeadButton({ nodes }: { nodes: Node[] }) {
   const [open, setOpen] = useState(false);
   const dead = nodes.filter(isDead);
   const confirm = async () => {
-    let failed = 0;
-    for (const n of dead) {
-      if (await removeNode(n.id)) failed++;
-    }
-    say(failed ? `已删除 ${dead.length - failed} 个，${failed} 个删除失败` : `已删除 ${dead.length} 个不通的节点`);
+    const err = await removeNodes(dead.map((n) => n.id));
+    say(err ? `已删除 ${dead.length} 个不通的节点（${err}）` : `已删除 ${dead.length} 个不通的节点`);
   };
   return (
     <>

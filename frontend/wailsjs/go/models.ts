@@ -985,6 +985,7 @@ export namespace nodes {
 	    echForceQuery?: string;
 	    pinnedCert?: string;
 	    core?: string;
+	    via?: string;
 	    coreInfo?: CoreInfo;
 	    multiplex?: Record<string, any>;
 	    plugin?: string;
@@ -1041,6 +1042,7 @@ export namespace nodes {
 	        this.echForceQuery = source["echForceQuery"];
 	        this.pinnedCert = source["pinnedCert"];
 	        this.core = source["core"];
+	        this.via = source["via"];
 	        this.coreInfo = this.convertValues(source["coreInfo"], CoreInfo);
 	        this.multiplex = source["multiplex"];
 	        this.plugin = source["plugin"];

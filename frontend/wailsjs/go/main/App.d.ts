@@ -37,8 +37,6 @@ export function CreateMembershipOrder(arg1:string):Promise<main.OrderResult>;
 
 export function DeleteProxyPort(arg1:string):Promise<void>;
 
-export function EditSub(arg1:string,arg2:string,arg3:string):Promise<string>;
-
 export function ExportAppRules():Promise<string>;
 
 export function ExportConfig():Promise<string>;
@@ -175,6 +173,8 @@ export function Register(arg1:string,arg2:string,arg3:string,arg4:string):Promis
 
 export function RemoveNode(arg1:string):Promise<string>;
 
+export function RemoveNodes(arg1:Array<string>):Promise<string>;
+
 export function RemoveSub(arg1:string):Promise<void>;
 
 export function RequestFenxiaoWithdrawal(arg1:number,arg2:string,arg3:string,arg4:string):Promise<main.FenxiaoResult>;
@@ -192,6 +192,8 @@ export function RestoreEnvConfig(arg1:Array<string>):Promise<string>;
 export function RunReset(arg1:Array<string>,arg2:string):Promise<service.ResetReport>;
 
 export function SaveProxyPort(arg1:service.ProxyPort):Promise<string>;
+
+export function SaveSub(arg1:string,arg2:string,arg3:string,arg4:service.SubOptions):Promise<string>;
 
 export function SelectNode(arg1:string):Promise<string>;
 
@@ -232,8 +234,6 @@ export function SetRuleSetEnabled(arg1:string,arg2:boolean):Promise<string>;
 export function SetSettings(arg1:service.Settings):Promise<string>;
 
 export function SetSubAutoUpdate(arg1:string,arg2:boolean):Promise<void>;
-
-export function SetSubOptions(arg1:string,arg2:service.SubOptions):Promise<string>;
 
 export function SetSystemProxy(arg1:boolean):Promise<string>;
 

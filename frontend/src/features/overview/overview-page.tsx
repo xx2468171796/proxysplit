@@ -26,7 +26,7 @@ function QuickActions() {
             icon: <RefreshCw />,
             onSelect: () => void testAllLatency().then(say),
           },
-          { key: "diag", label: "网络诊断", icon: <Stethoscope />, onSelect: () => navigate("logs") },
+          { key: "diag", label: "网络诊断", icon: <Stethoscope />, onSelect: () => navigate("logs", null, "diag") },
         ]}
       />
     </Panel>
