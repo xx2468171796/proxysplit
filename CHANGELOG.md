@@ -3,6 +3,10 @@
 版本号以发布构建为准（`scripts/build-commercial.ps1 -Version <x.y.z>`，注入 `main.appVersion`），
 每个发布产物的 SHA256 见 `output/proxysplit-v<版本>.manifest.json`。
 
+## v1.9.98
+
+- 防止 IPv6 泄露：以前没开 AI 劫持时，IPv6 流量不经过代理，电脑有 IPv6 网络的话，走代理的程序可能直接用本机 IPv6 出去、暴露真实 IP。现在 IPv6 流量也一律进代理，按分流规则走。
+
 ## v1.9.97
 
 - 新增独立的「AI」页：实时显示三个出口 IP，分别是本机网络、分应用代理和 AI 线路（Claude / ChatGPT 实际看到的 IP），带地区、IP 类型、运营商和延迟，每 3 秒刷新一次。页面上方会直接告诉你 AI 有没有走官方线路。

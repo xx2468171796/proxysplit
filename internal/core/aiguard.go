@@ -51,19 +51,19 @@ func (g *AIGuard) match(withIPs bool) M {
 	return m
 }
 
-// aiTUN6 gives the TUN an IPv6 address while the guard is on, so IPv6 also
-// enters the tunnel (an AI address learnt outside our DNS — app DoH, hosts
-// file — would otherwise go straight out over IPv6); non-AI IPv6 still
-// follows the normal rules. Its peer ::2 is the AI lock's DNS server
-// (aiguard.TunnelServer) while the core runs.
+// aiTUN6 gives the TUN an IPv6 address, so IPv6 enters the tunnel too and
+// follows the same rules as IPv4. Without it an IPv4-only TUN leaves every
+// IPv6 connection outside: a proxied app reaching an IPv6 address would leave
+// from this PC's own IPv6 (real-IP leak, 业主 2026-10-28), and an AI address
+// learnt outside our DNS (app DoH, hosts file) would bypass the guard. Hosts
+// without an IPv6 uplink get IPv4-only DNS answers (Options.NoHostIPv6). Its
+// peer ::2 is the AI lock's DNS server (aiguard.TunnelServer) while the core
+// runs.
 const aiTUN6 = "fdfe:dcba:9876::1/126"
 
-// tunAddresses is the TUN inbound's address list.
-func tunAddresses(opts Options) []string {
-	if opts.AIGuard.active() {
-		return []string{"172.19.0.1/30", aiTUN6}
-	}
-	return []string{"172.19.0.1/30"}
+// tunAddresses is the TUN inbound's address list: IPv4 and IPv6, always.
+func tunAddresses(Options) []string {
+	return []string{"172.19.0.1/30", aiTUN6}
 }
 
 // aiDNSTTL caps the TTL clients see for AI names, so after the core stops
