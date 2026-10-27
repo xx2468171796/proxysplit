@@ -116,7 +116,9 @@ export function NodeImportDialog({ onClose }: { onClose: () => void }) {
               value={links}
               onChange={(e) => setLinks(e.target.value)}
               minRows={6}
-              placeholder={"每行粘贴一个链接\nvless://  vmess://  trojan://\nss://  socks://  http://\n也支持 IP:端口:用户名:密码（按 socks5）"}
+              placeholder={
+                "每行粘贴一个链接\nvless://  vmess://  trojan://\nss://  socks://  http://\n也支持 IP:端口:用户名:密码（按 socks5）"
+              }
             />
           </FormField>
         ) : (
