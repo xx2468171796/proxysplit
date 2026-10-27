@@ -46,6 +46,7 @@ func (a *App) initTelemetry() {
 	}
 	a.svc.SetLogTap(telemetry.Log)
 	service.SetNodeResolveHook(tmNodeResolve)
+	service.SetEventHook(func(typ string, err error, p map[string]any) { telemetry.Emit(typ, telemetry.Info, err, p) })
 	telemetry.Note(telemetry.AppStart, map[string]any{"os": osInfo, "arch": runtime.GOARCH, "admin": telemetry.IsAdmin(), "locale": telemetry.Locale(), "freshInstall": a.freshInstall, "background": a.background, "snapshot": a.tmSnapshot()})
 	go a.tmEnvProbes()
 }

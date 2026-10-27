@@ -71,3 +71,8 @@ service.streamPreset：直播伴侣.exe、MediaSDK_Server.exe（抖音直播伴�
 - 改写点只有 `core.PinNode`（Options.ServerIPs 域名 → IP）：server/address 换 IP，把原来隐式来自域名的名字写死——SNI 为空时按各构建器原规则补（vless/vmess/trojan+TLS：SNI→Host→Server；其他：SNI→Server），ws/http/h2/httpupgrade/xhttp 的 Host 为空时补域名。原始 sing-box outbounds（含 POWER云 签名配置）和带插件的 ss 不改。Xray 在 `withSidecar` 用同一份 pin 后的节点，`xray.Key` 两边一致。
 - 日志：「节点域名 x 解析：8 个 DNS（2 个成功）返回 1 个 IP，选 1.2.3.4（连通 35 ms）」；遥测 node.resolve。
 - 没把 sing-box "local"（系统）解析器加进 default_domain_resolver：TUN + strict_route 下系统解析会被 hijack-dns 抓回内核，有回环 / 泄漏风险；预解析已覆盖节点域名。
+
+## 节点保活 + DNS 缓存 / 预热（internal/nodewarm、internal/dnswarm，1.9.96 分支起）
+- 保活（warm_svc.go）：代理运行时每 30 s 直连（绑物理网卡、不握 TLS）TCP 探测主节点和在用线路 / 额外节点的预解析 IP:port，最多同时 3 个；每节点留最近 20 个 RTT；连续 3 次失败 = down（中文日志 + node.health，只报状态变化），之后 5 分钟不探测；恢复时绕过缓存重新解析（新 IP 下次启动内核才用）。只观察，不改任何路由（AI 劫持也不动）。UDP 协议节点（hy2 / tuic / mKCP）不探测。/api/diag 的 `nodeHealth`：lastRttMs / p50Ms / fails / state。停内核时一起停。
+- DNS 缓存（core/dnscache.go）：TUN 配置加 `dns.optimistic: true`（1.14 起，过期答案先回、后台刷新）+ `experimental.cache_file {path: <dataDir>/dns-cache.db, store_dns: true}`，重启也是热缓存。**AI 劫持开着时两样都不加**：sing-box 不能按规则排除，AI 域名要 10 秒 TTL 尽快过期。回归测试 `TestAIGuardUntouchedByPreresolveAndCache`（AI DNS 规则、全部路由规则及顺序、TUN 入站逐字节不变，缓存未开）。
+- 预热：每分钟从 Clash API /connections 记下走节点（非 direct / reject）的域名，跳过 AI 劫持名单、IP、.cn；本地 `<dataDir>/dnswarm.json` 留前 50、3 天半衰。启动 5 秒后用 Clash API `GET /dns/query?name=&type=A`（1.14.3 实测可用，按内核自己的 DNS 规则走）并发 4 解析一遍；只上报汇总 dns.prewarm{count, ok, ms}，域名不出本机。

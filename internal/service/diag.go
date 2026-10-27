@@ -10,6 +10,7 @@ import (
 	"sync"
 
 	"proxysplit/internal/core"
+	"proxysplit/internal/nodewarm"
 )
 
 // Self-diagnostics for AI / remote troubleshooting (exposed through the local
@@ -112,6 +113,8 @@ type DiagSnapshot struct {
 	CoreConfig  json.RawMessage     `json:"coreConfig,omitempty"`
 	Security    []string            `json:"security,omitempty"` // running security products (火绒、360 …)
 	Hints       []string            `json:"hints,omitempty"`
+	// NodeHealth: keep-warm probes of the nodes in use (warm_svc.go).
+	NodeHealth []nodewarm.Stats `json:"nodeHealth,omitempty"`
 }
 
 // Diagnose returns a credential-free snapshot of the routing state, including
@@ -131,6 +134,7 @@ func (s *Service) Diagnose() DiagSnapshot {
 		Lines:       append([]Line{}, s.cfg.Lines...),
 		CustomRules: append([]core.RouteRule{}, s.cfg.CustomRules...),
 		Settings:    s.cfg.Settings,
+		NodeHealth:  s.NodeHealth(),
 	}
 	for _, n := range s.cfg.Nodes {
 		if n == nil {

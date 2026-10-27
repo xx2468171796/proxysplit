@@ -183,6 +183,7 @@ type Service struct {
 
 	appMon appid.Monitor // 逐应用连接监测（appmonitor.go）
 	tap    logTap        // 客户端日志上报（telemetry_tap.go）
+	warm   warmState     // 节点保活 + DNS 预热（warm_svc.go）
 }
 
 // New loads (or initializes) config from dataDir.
@@ -1543,7 +1544,9 @@ func (s *Service) startLocked() error {
 			LanShare: set.LanShare, LanPort: set.LanPort, LanType: set.LanType, LanUser: set.LanUser, LanPass: set.LanPass,
 			CustomRules: custom, RuleSets: &ruleSets, DirectDomains: s.directDomains(),
 			ProxyPrivate: !set.PrivateDirect, BlockQUIC: set.BlockQUIC, SelfProcess: selfProcess(set.ExcludeSelf), PortProcessPath: s.portProcessPath(),
-			AccelPort: accelPort, RealityHybrid: realityHybrid, NoHostIPv6: noIPv6}
+			AccelPort: accelPort, RealityHybrid: realityHybrid, NoHostIPv6: noIPv6,
+			// Off by itself while the AI guard is active (core/dnscache.go).
+			DNSOptimistic: true, DNSCacheFile: filepath.Join(s.dataDir, dnsCacheFile)}
 	}
 
 	// System-wide mode: sing-box TUN routes the whole machine.
@@ -1580,6 +1583,7 @@ func (s *Service) startLocked() error {
 		s.run = nil
 		s.mu.Unlock()
 		s.applySystemProxyOnStart()
+		s.startWarm(node, tunOpts, clashPort, clashSecret)
 		s.log(fmt.Sprintf("[service] started — 全局 TUN 模式 (%s), 节点 %s", tunRoute, node.Name))
 		return nil
 	}
@@ -1622,6 +1626,7 @@ func (s *Service) startLocked() error {
 	s.mu.Unlock()
 
 	s.applySystemProxyOnStart()
+	s.startWarm(node, opts, clashPort, clashSecret)
 	s.log(fmt.Sprintf("[service] started — 应用分流 (TUN+进程名), 代理 %d / 直连 %d / 拦截 %d 个程序, 额外节点 %d, 主节点 %s",
 		sum.proxied, sum.direct, sum.blocked, len(opts.ExtraNodes), node.Name))
 	return nil
@@ -1831,6 +1836,7 @@ func (s *Service) stopLocked() {
 	clearSysProxy := s.sysProxyOn
 	s.mu.Unlock()
 	s.stopCapture() // before the core: captured apps must not hit dead inbounds
+	s.stopWarm()
 	s.core.Stop()
 	s.flushAIDNSOnStop()
 	// Never leave the OS pointing at a now-dead proxy (would black-hole all HTTP).
