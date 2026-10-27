@@ -261,3 +261,33 @@ func TestAIProxyConfig(t *testing.T) {
 		}
 	}
 }
+
+// TestTUNAlwaysCarriesIPv6: without the guard the TUN still takes IPv6, so a
+// proxied app reaching an IPv6 address cannot leave from this PC's own IPv6
+// (业主 2026-10-28); the real core accepts the config.
+func TestTUNAlwaysCarriesIPv6(t *testing.T) {
+	node, _ := nodes.ParseLink(sampleLinks["vless-reality"])
+	opts := Options{Split: true, SplitWhitelist: true, RemoteDNS: true, RuleDir: t.TempDir(), GeoDir: filepath.Join("..", "..", "bin")}
+	raw, err := BuildTUNConfig(node, "warn", opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cfg struct {
+		Inbounds []M `json:"inbounds"`
+	}
+	json.Unmarshal(raw, &cfg)
+	if addrs, _ := cfg.Inbounds[0]["address"].([]any); len(addrs) != 2 || addrs[1] != aiTUN6 {
+		t.Fatalf("TUN must carry IPv6 without the guard too: %v", cfg.Inbounds[0]["address"])
+	}
+	if _, err := os.Stat(singboxPath(t)); err != nil {
+		return
+	}
+	p := filepath.Join(t.TempDir(), "v6.json")
+	os.WriteFile(p, raw, 0o600)
+	for tag, data := range SplitRuleSets(opts) {
+		os.WriteFile(filepath.Join(opts.RuleDir, tag+".json"), data, 0o600)
+	}
+	if o, err := exec.Command(singboxPath(t), "check", "-c", p).CombinedOutput(); err != nil {
+		t.Fatalf("sing-box check: %v\n%s", err, o)
+	}
+}
