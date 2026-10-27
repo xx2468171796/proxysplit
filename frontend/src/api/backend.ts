@@ -158,7 +158,6 @@ export const api = {
   setLogLevel: (level: string) => W.SetLogLevel(level),
   exportConfig: () => W.ExportConfig(),
   importConfig: () => W.ImportConfig(),
-  resetConfig: () => W.ResetConfig(),
   aiControlInfo: () => W.GetAIControlInfo() as Promise<AIControlInfo>,
   claudeAccel: () => W.GetClaudeAccel() as Promise<AccelState>,
   setClaudeAccelMode: (mode: string) => W.SetClaudeAccelMode(mode),

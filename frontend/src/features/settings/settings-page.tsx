@@ -1,7 +1,21 @@
-// 设置（T08 设置页）：SideNavLayout 分节，每节一个 Panel；开关改了立即生效，所以不放保存条。
+// 设置：SideNavLayout 分节（常规 / 网络与接管 / 内核与节点 / 规则 / AI 功能 / 账号 / 诊断 / 清除与重置），
+// 每节一个 Panel；开关改了立即生效，所以不放保存条。每个功能只有一个正式位置，别处只放跳转（docs/ui-audit-2026-10.md）。
 import { PageBody, PageHeader, SideNavLayout, type SideNavSection } from "@ankotti/admin-ui";
-import { Bot, Cpu, DatabaseBackup, Globe, Monitor, ShieldAlert, Split, UserRound, Zap } from "lucide-react";
+import {
+  Bot,
+  Cpu,
+  Eraser,
+  Globe,
+  ListFilter,
+  Network,
+  ShieldAlert,
+  SlidersHorizontal,
+  Stethoscope,
+  UserRound,
+  Zap,
+} from "lucide-react";
 import { useEffect } from "react";
+import { useSectionJump } from "../../app/nav";
 import { useStore } from "../../shared/store";
 import { license } from "../../state/account";
 import { loadSystem } from "../../state/system";
@@ -9,43 +23,52 @@ import { AccountSection } from "../account/account-section";
 import { AIEnvPanel } from "../overview/ai-env-panel";
 import { AccelSection } from "./accel-section";
 import { AIControlSection } from "./ai-control-section";
-import { BackupSection } from "./backup-section";
 import { CoreSection } from "./core-section";
-import { EngineSection } from "./engine-section";
+import { DiagSection } from "./diag-section";
 import { EnvConfigSection } from "./env-config-section";
-import { SystemSection } from "./system-section";
+import { GeneralSection } from "./general-section";
+import { NetworkSection } from "./network-section";
+import { ResetSection } from "./reset/reset-section";
+import { RulesLinkSection } from "./rules-link-section";
 import "./settings.css";
 
-const SECTIONS: SideNavSection[] = [
-  // AI 劫持对所有人开放（业主 2026-10-23）：不管账号渠道，下载了软件就能在这里劫持 / 恢复。
+const BASE = "设置";
+const BEFORE_ACCOUNT: SideNavSection[] = [
+  { id: "general", label: "常规", group: BASE, icon: <SlidersHorizontal />, content: <GeneralSection /> },
+  { id: "network", label: "网络与接管", group: BASE, icon: <Network />, content: <NetworkSection /> },
+  { id: "core", label: "内核与节点", group: BASE, icon: <Cpu />, content: <CoreSection /> },
+  { id: "rules", label: "规则", group: BASE, icon: <ListFilter />, content: <RulesLinkSection /> },
+  // AI 劫持对所有人开放（业主 2026-10-23）：不管账号渠道，下载了软件就能在这里劫持 / 恢复（唯一解除入口）。
   { id: "hijack", label: "AI 劫持", group: "AI 功能", icon: <ShieldAlert />, content: <AIEnvPanel always /> },
   // 环境配置：Windows 时区 / 区域 / 浏览器语言等一键配置、一键恢复（pkg/aienv），和劫持互相独立。
   { id: "envcfg", label: "环境配置", group: "AI 功能", icon: <Globe />, content: <EnvConfigSection /> },
-  { id: "ai", label: "AI 控制", group: "AI 功能", icon: <Bot />, content: <AIControlSection /> },
   { id: "accel", label: "Claude Code 加速", group: "AI 功能", icon: <Zap />, content: <AccelSection /> },
-  { id: "core", label: "内核与更新", group: "代理", icon: <Cpu />, content: <CoreSection /> },
-  { id: "engine", label: "分流引擎", group: "代理", icon: <Split />, content: <EngineSection /> },
-  { id: "system", label: "系统集成", group: "代理", icon: <Monitor />, content: <SystemSection /> },
-  { id: "backup", label: "备份与重置", group: "维护", icon: <DatabaseBackup />, content: <BackupSection /> },
 ];
 const ACCOUNT: SideNavSection = {
   id: "account",
-  label: "账户与设备",
-  group: "账户",
+  label: "账号与设备",
+  group: "账号",
   icon: <UserRound />,
   content: <AccountSection />,
 };
+const AFTER_ACCOUNT: SideNavSection[] = [
+  { id: "diag", label: "诊断", group: "维护", icon: <Stethoscope />, content: <DiagSection /> },
+  { id: "ai", label: "AI 控制接口", group: "维护", icon: <Bot />, content: <AIControlSection /> },
+  { id: "reset", label: "清除与重置", group: "维护", icon: <Eraser />, content: <ResetSection /> },
+];
 
 export function SettingsPage() {
   const licensed = useStore(license, (s) => s.status.enabled);
   // 自启 / 日志级别 / 局域网 IP / AI 接口信息可能在别处变了：进页面时重读一次（很便宜）。
   useEffect(() => void loadSystem(), []);
+  useSectionJump();
 
+  const sections = licensed ? [...BEFORE_ACCOUNT, ACCOUNT, ...AFTER_ACCOUNT] : [...BEFORE_ACCOUNT, ...AFTER_ACCOUNT];
   return (
     <>
       <PageHeader title="设置" />
       <PageBody>
-        <SideNavLayout label="设置分节" sections={licensed ? [ACCOUNT, ...SECTIONS] : SECTIONS} />
+        <SideNavLayout label="设置分节" sections={sections} />
       </PageBody>
     </>
   );

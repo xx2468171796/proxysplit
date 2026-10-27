@@ -36,10 +36,17 @@ func (a *App) trayReady() {
 
 	mShow := systray.AddMenuItem("显示主界面", "")
 	mToggle := systray.AddMenuItem("启动 / 停止代理", "")
+	mReset := systray.AddMenuItem("清除与重置…", "清缓存、修网络、恢复默认")
 	systray.AddSeparator()
 	mQuit := systray.AddMenuItem("退出", "")
 
 	mShow.Click(a.showWindow)
+	mReset.Click(func() { // 打开主界面并跳到设置「清除与重置」（frontend use-app-lifecycle）
+		a.showWindow()
+		if a.ctx != nil {
+			runtime.EventsEmit(a.ctx, "open-settings", "reset")
+		}
+	})
 	systray.SetOnClick(func(systray.IMenu) { a.showWindow() }) // left-click the icon
 	mToggle.Click(func() {
 		if a.svc == nil {

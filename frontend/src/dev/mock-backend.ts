@@ -6,6 +6,7 @@ import { createAppMonMock } from "./mock-appmon";
 import { mockFenxiao } from "./mock-fenxiao";
 import { mockSetNodeCore } from "./mock-node-core";
 import { createPortsMock } from "./mock-ports";
+import { mockReset } from "./mock-reset";
 import { previewSearch } from "./search";
 
 type Fn = (...args: unknown[]) => unknown;
@@ -450,6 +451,7 @@ const impl: Record<string, Fn> = {
     return "";
   },
   SetNodeCore: (id, core) => mockSetNodeCore(nodes, id, core),
+  ...mockReset,
   SetRuleSetEnabled: (name, on) => {
     const rs = ruleSets.find((r) => r.name === name);
     if (rs) rs.enabled = !!on;

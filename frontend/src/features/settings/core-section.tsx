@@ -1,34 +1,28 @@
-// 内核与更新：软件版本 / 自动更新、sing-box 内核版本 / 自动更新、本地端口、日志级别。
-import { Button, Choice, DescriptionList, FormField, FormSection, Panel } from "@ankotti/admin-ui";
-import { Download, RefreshCw } from "lucide-react";
+// 内核与节点：sing-box 版本 / 本地端口、立即更新内核、自动更新内核；节点内核选择的批量恢复在「清除与重置」。
+import { Button, DescriptionList, FormSection, Panel } from "@ankotti/admin-ui";
+import { Download } from "lucide-react";
+import { navigate, openSettings } from "../../app/nav";
 import { useFeedback } from "../../app/use-feedback";
 import { useStore } from "../../shared/store";
 import { data } from "../../state/data";
 import { isRunning, runtime } from "../../state/runtime";
-import { setLogLevel, system, updateCore } from "../../state/system";
-import { appUpdate, checkAppUpdate } from "../../state/update";
+import { system, updateCore } from "../../state/system";
+import { LinkRow } from "./link-row";
 import { SwitchField, useSaveSettings } from "./setting-fields";
 
-const LOG_LEVELS = ["error", "warn", "info", "debug"].map((v) => ({ value: v, label: v }));
-
 function CoreFacts() {
-  const current = useStore(appUpdate, (s) => s.info.current);
   const coreVersion = useStore(runtime, (s) => s.coreVersion);
   const running = useStore(runtime, (s) => isRunning(s.status));
   const port = useStore(runtime, (s) => s.status?.corePort);
+  const nodeCount = useStore(data, (s) => s.nodes.length);
   return (
     <DescriptionList
       columns={3}
       layout="stacked"
       items={[
-        { label: "ProxySplit 版本", value: `v${current}`, hint: "升级后自动重启，不会改动节点和规则" },
         { label: "sing-box 版本", value: coreVersion || "—", hint: "POWER云 标准内核" },
         { label: "本地端口", value: running ? port || "—" : "未运行", hint: "混合入站 SOCKS5 + HTTP，自动分配" },
-        {
-          label: "运行日志",
-          value: "自动上传",
-          hint: "为了排查问题，客户端会把运行日志上传到服务器（不含节点密码和账号密钥）",
-        },
+        { label: "节点", value: `${nodeCount} 个`, hint: "Xray 节点按需自动下载内核" },
       ]}
     />
   );
@@ -37,40 +31,26 @@ function CoreFacts() {
 export function CoreSection() {
   const { say } = useFeedback();
   const save = useSaveSettings();
-  const checking = useStore(appUpdate, (s) => s.busy);
   const coreUpdating = useStore(system, (s) => s.coreUpdating);
-  const logLevel = useStore(system, (s) => s.logLevel);
   const autoCore = useStore(data, (s) => !s.settings.autoUpdateCoreOff);
 
   return (
     <Panel
       className="qd-pane"
-      title="内核与更新"
-      description="每次打开都会检查新版本，有新版自动下载安装并重启（代理自动恢复）；签名与 SHA256 校验通过才安装。内核来自 POWER云，同样校验后才装。"
+      title="内核与节点"
+      description="内核来自 POWER云，签名与 SHA256 校验通过才安装；新内核起不来会自动换回旧内核。"
       actions={
-        <>
-          <Button
-            size="sm"
-            variant="outline"
-            loading={checking}
-            loadingText="检查中…"
-            onClick={() => void checkAppUpdate(false).then(say)}
-          >
-            <RefreshCw />
-            检查软件更新
-          </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            loading={coreUpdating}
-            loadingText="检查中…"
-            tooltip="立即检查 POWER云 标准内核（签名 + SHA256 校验）"
-            onClick={() => void updateCore().then(say)}
-          >
-            <Download />
-            更新内核
-          </Button>
-        </>
+        <Button
+          size="sm"
+          variant="outline"
+          loading={coreUpdating}
+          loadingText="检查中…"
+          tooltip="立即检查 POWER云 标准内核（签名 + SHA256 校验）"
+          onClick={() => void updateCore().then(say)}
+        >
+          <Download />
+          更新内核
+        </Button>
       }
     >
       <CoreFacts />
@@ -79,18 +59,19 @@ export function CoreSection() {
           <SwitchField
             id="auto-update-core"
             label="自动更新内核"
-            hint="每小时检查 POWER云 发布的标准内核，有新版自动下载校验并重启内核（约 1 秒）；新内核起不来会自动换回旧内核"
+            hint="每小时检查一次，有新版自动下载校验并重启内核（约 1 秒）"
             checked={autoCore}
             onChange={(on) => save({ autoUpdateCoreOff: !on })}
           />
-          <FormField label="日志级别" htmlFor="log-level" hint="debug 最详细，排查问题时再开">
-            <Choice
-              label="日志级别"
-              value={logLevel}
-              options={LOG_LEVELS}
-              onChange={(v) => void setLogLevel(v).then((e) => say(e, "error"))}
-            />
-          </FormField>
+          <LinkRow
+            id="core-nodes"
+            label="节点与每个节点的内核"
+            hint="在节点页逐个选择 sing-box / Xray；全部恢复自动在「清除与重置」"
+            actions={[
+              { label: "打开节点页", onClick: () => navigate("nodes") },
+              { label: "清除与重置", onClick: () => openSettings("reset") },
+            ]}
+          />
         </FormSection>
       </div>
     </Panel>
