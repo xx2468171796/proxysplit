@@ -1,7 +1,6 @@
 package service
 
 import (
-	"sync"
 	"time"
 
 	"proxysplit/internal/latency"
@@ -192,46 +191,16 @@ func (s *Service) TestAllLatency() {
 	}
 	s.mu.Unlock()
 
-	type measured struct {
-		id      string
-		latency int
-		tcp     int
-	}
-	jobs := make(chan nodes.Node)
-	results := make(chan measured, len(snaps))
-	workers := 4
-	if len(snaps) < workers {
-		workers = len(snaps)
-	}
-	var wg sync.WaitGroup
-	for i := 0; i < workers; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for n := range jobs {
-				r := s.measureNode(&n, 8*time.Second)
-				results <- measured{id: n.ID, latency: r.Latency, tcp: r.TCPLatency}
-			}
-		}()
-	}
-	go func() {
-		for _, n := range snaps {
-			jobs <- n
-		}
-		close(jobs)
-		wg.Wait()
-		close(results)
-	}()
-
-	measuredResults := make([]measured, 0, len(snaps))
-	for r := range results {
-		measuredResults = append(measuredResults, r)
-	}
+	results := make([]latency.Result, len(snaps))
+	forEachBounded(len(snaps), latencyConcurrency, func(i int) {
+		results[i] = latency.Result{Latency: -1, TCPLatency: -1} // kept if measureNode panics
+		results[i] = s.measureNode(&snaps[i], 8*time.Second)
+	})
 	s.mu.Lock()
-	for _, r := range measuredResults {
-		if n := s.nodeByID(r.id); n != nil {
-			n.Latency = r.latency
-			n.TCPLatency = r.tcp
+	for i, r := range results {
+		if n := s.nodeByID(snaps[i].ID); n != nil {
+			n.Latency = r.Latency
+			n.TCPLatency = r.TCPLatency
 		}
 	}
 	s.save()

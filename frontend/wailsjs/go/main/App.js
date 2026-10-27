@@ -490,6 +490,10 @@ export function TestTCP(arg1) {
   return window['go']['main']['App']['TestTCP'](arg1);
 }
 
+export function TestThenSpeedAll() {
+  return window['go']['main']['App']['TestThenSpeedAll']();
+}
+
 export function TrackPage(arg1) {
   return window['go']['main']['App']['TrackPage'](arg1);
 }

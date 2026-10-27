@@ -76,3 +76,7 @@ service.streamPreset：直播伴侣.exe、MediaSDK_Server.exe（抖音直播伴�
 - 保活（warm_svc.go）：代理运行时每 30 s 直连（绑物理网卡、不握 TLS）TCP 探测主节点和在用线路 / 额外节点的预解析 IP:port，最多同时 3 个；每节点留最近 20 个 RTT；连续 3 次失败 = down（中文日志 + node.health，只报状态变化），之后 5 分钟不探测；恢复时绕过缓存重新解析（新 IP 下次启动内核才用）。只观察，不改任何路由（AI 劫持也不动）。UDP 协议节点（hy2 / tuic / mKCP）不探测。/api/diag 的 `nodeHealth`：lastRttMs / p50Ms / fails / state。停内核时一起停。
 - DNS 缓存（core/dnscache.go）：TUN 配置加 `dns.optimistic: true`（1.14 起，过期答案先回、后台刷新）+ `experimental.cache_file {path: <dataDir>/dns-cache.db, store_dns: true}`，重启也是热缓存。**AI 劫持开着时两样都不加**：sing-box 不能按规则排除，AI 域名要 10 秒 TTL 尽快过期。回归测试 `TestAIGuardUntouchedByPreresolveAndCache`（AI DNS 规则、全部路由规则及顺序、TUN 入站逐字节不变，缓存未开）。
 - 预热：每分钟从 Clash API /connections 记下走节点（非 direct / reject）的域名，跳过 AI 劫持名单、IP、.cn；本地 `<dataDir>/dnswarm.json` 留前 50、3 天半衰。启动 5 秒后用 Clash API `GET /dns/query?name=&type=A`（1.14.3 实测可用，按内核自己的 DNS 规则走）并发 4 解析一遍；只上报汇总 dns.prewarm{count, ok, ms}，域名不出本机。
+
+## 节点测试（2026-10-28，参考 v2rayN SpeedtestService）
+- Google 延迟：同一隧道连发两次 204 取最小（首次含握手），任一次成功即算通；首次已用满超时则不再试第二次（latency.bestOf）。TestAllLatency 并发上限 latencyConcurrency=8（forEachBounded，单个 panic 不影响其它，探针由 measureNode defer 关闭；活动节点仍复用主内核）。
+- 「测速全部（先测通）」：TestThenSpeedAll 先全量测延迟，再对 Latency>0 的节点逐个（串行，避免抢带宽）SpeedTestNode，返回 total / passed / speedOk。

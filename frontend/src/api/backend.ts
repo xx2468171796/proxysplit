@@ -86,6 +86,7 @@ export const api = {
   selectNode: (id: string) => W.SelectNode(id),
   setNodeCore: (id: string, core: string) => W.SetNodeCore(id, core),
   testAllLatency: () => W.TestAllLatency(),
+  testThenSpeedAll: () => W.TestThenSpeedAll() as Promise<{ total: number; passed: number; speedOk: number }>,
   testLatency: (id: string) => W.TestLatency(id),
   testTCP: (id: string) => W.TestTCP(id),
   speedTest: () => W.SpeedTest() as Promise<SpeedResult>,

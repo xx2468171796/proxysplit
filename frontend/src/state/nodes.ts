@@ -12,10 +12,12 @@ export type NodeTestState = {
   tcpId: string;
   speedId: string;
   activeSpeed: boolean;
+  speedAll: boolean;
 };
 
 export const nodeTests = createStore<NodeTestState>({
   allLatency: false,
+  speedAll: false,
   googleId: "",
   tcpId: "",
   speedId: "",
@@ -97,6 +99,22 @@ export async function testAllLatency(): Promise<string> {
   } finally {
     await refreshNodes();
     nodeTests.set({ allLatency: false });
+  }
+}
+
+/** 测通再测速：先全部测 Google 延迟，再逐个测通过节点的下载速度。 */
+export async function testThenSpeedAll(): Promise<string> {
+  if (nodeTests.get().allLatency || nodeTests.get().speedAll) return "";
+  nodeTests.set({ allLatency: true, speedAll: true });
+  markNodes(() => true, { latency: -99, tcpLatency: -99 });
+  try {
+    const r = await api.testThenSpeedAll();
+    return `共 ${r?.total ?? 0} 个节点，测通 ${r?.passed ?? 0} 个，测速成功 ${r?.speedOk ?? 0} 个`;
+  } catch (e) {
+    return `测速失败：${String(e)}`;
+  } finally {
+    await refreshNodes();
+    nodeTests.set({ allLatency: false, speedAll: false });
   }
 }
 

@@ -1,13 +1,14 @@
-// 节点（T02 资源列表）：搜索 + 排序 + 删除不通的 + 节点表；页头按钮：检测全部可用性、测活动节点速度、去添加订阅、添加节点。
+// 节点（T02 资源列表）：搜索 + 排序 + 删除不通的 + 节点表；页头按钮见 node-actions.tsx。
 import { Button, ConfirmDialog, DataTable, PageBody, PageHeader, QueryBar, ResourcePanel } from "@ankotti/admin-ui";
-import { Gauge, Plus, Rss, Stethoscope } from "lucide-react";
+import { Plus } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 import type { Node } from "../../api/types";
-import { navigate, useIntent } from "../../app/nav";
+import { useIntent } from "../../app/nav";
 import { useFeedback } from "../../app/use-feedback";
 import { useStore } from "../../shared/store";
 import { data } from "../../state/data";
-import { nodeShare, nodeTests, removeNode, testActiveSpeed, testAllLatency } from "../../state/nodes";
+import { nodeShare, removeNode } from "../../state/nodes";
+import { NodeActions } from "./node-actions";
 import { useNodeColumns } from "./node-columns";
 import { NodeCoreDialog } from "./node-core-dialog";
 import { NodeImportDialog } from "./node-import-dialog";
@@ -17,42 +18,6 @@ import "./nodes.css";
 
 const HELP =
   "TCP 延迟：直连到节点边缘的传输层延迟，反映线路是否可达。Google 延迟：经完整代理链路访问 Google（HTTP 204）的端到端延迟，反映真实可用性。点「设为活动」切换当前节点。";
-
-function NodeActions({ onAdd }: { onAdd: () => void }) {
-  const { say } = useFeedback();
-  const allLatency = useStore(nodeTests, (s) => s.allLatency);
-  const activeSpeed = useStore(nodeTests, (s) => s.activeSpeed);
-  return (
-    <>
-      <Button
-        variant="outline"
-        loading={allLatency}
-        loadingText="Google 检测中…"
-        onClick={() => void testAllLatency().then(say)}
-      >
-        <Stethoscope />
-        检测全部可用性
-      </Button>
-      <Button
-        variant="outline"
-        loading={activeSpeed}
-        loadingText="下载测速中…"
-        onClick={() => void testActiveSpeed().then(say)}
-      >
-        <Gauge />
-        测活动节点速度
-      </Button>
-      <Button variant="outline" onClick={() => navigate("nodes", "add-sub", "subs")}>
-        <Rss />
-        添加订阅
-      </Button>
-      <Button onClick={onAdd}>
-        <Plus />
-        添加节点
-      </Button>
-    </>
-  );
-}
 
 function matches(n: Node, q: string): boolean {
   return `${n.name} ${n.server} ${n.type}`.toLowerCase().includes(q);
