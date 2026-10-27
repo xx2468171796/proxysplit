@@ -1,9 +1,9 @@
-// 设置页的系统项：开机自启、日志级别、局域网 IP、AI 控制接口、Claude Code 加速、内核更新、配置备份 / 重置。
+// 设置页的系统项：开机自启、日志级别、局域网 IP、AI 控制接口、Claude Code 加速、内核更新、配置导出 / 导入（重置见 state/reset.ts）。
 import { api } from "../api/backend";
 import type { AccelState, AIControlInfo } from "../api/types";
 import { createStore } from "../shared/store";
-import { data, refreshClashMode, refreshLines, refreshRules, reloadData, saveSettings } from "./data";
-import { refreshStatus, runtime } from "./runtime";
+import { reloadData, saveSettings } from "./data";
+import { runtime } from "./runtime";
 
 export type SystemState = {
   autostart: boolean;
@@ -107,19 +107,6 @@ export async function importConfig(): Promise<string> {
   if (err) return `导入失败：${err}`;
   await reloadData();
   return "已导入配置备份";
-}
-
-/** 恢复默认设置、清空应用规则和自定义线路；保留节点和订阅。 */
-export async function resetConfig(): Promise<string> {
-  await api.resetConfig();
-  await Promise.all([refreshRules(), refreshLines(), refreshClashMode(), refreshStatus()]);
-  const [settings, defaultLine, ruleMode] = await Promise.all([api.settings(), api.defaultLine(), api.ruleMode()]);
-  data.set({
-    settings: settings ?? data.get().settings,
-    defaultLine: defaultLine || "rule",
-    ruleMode: ruleMode === "blacklist" ? "blacklist" : "whitelist",
-  });
-  return "已重置为默认配置（节点已保留）";
 }
 
 /** 复制到剪贴板：优先走 Go（WebView2 剪贴板权限偶尔不可用）。 */

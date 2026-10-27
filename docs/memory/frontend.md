@@ -21,6 +21,9 @@
 - `?update=1|force` 更新提示 / 强制更新。
 - `?page=apps` 指定页、`?look=1` 外观面板、`?donate=0` 自动关赞赏码。
 
+## 设置分节（2026-10-28，docs/ui-audit-2026-10.md）
+常规 / 网络与接管 / 内核与节点 / 规则（只放入口）/ AI 功能 / 账号与设备 / 维护（诊断、AI 控制接口、清除与重置）。一个功能只有一个正式位置，别处用 `LinkRow` + `openSettings(<分节 id>)` 跳过去；新加重置类操作一律进清除与重置（docs/memory/reset-center.md），不要再在各页加零散「清空 / 重置」。
+
 ## 绑定与构建
 Wails 构建会重新生成 frontend/wailsjs 绑定，需随提交带上；正式构建流程见 release-process.md。
 

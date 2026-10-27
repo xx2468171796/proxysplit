@@ -40,7 +40,9 @@ func typeDefault(typ string) string {
 		return ErrSubFetch
 	case strings.HasPrefix(typ, "app.update"), typ == CoreUpdate:
 		return ErrUpdateDownload
-	case strings.HasPrefix(typ, "node.latency"), typ == NodeTCP, typ == NodeSpeed:
+	case typ == NodeResolve, typ == DNSPrewarm:
+		return ErrDNS
+	case strings.HasPrefix(typ, "node.latency"), typ == NodeTCP, typ == NodeSpeed, typ == NodeHealth:
 		return ErrNodeUnreach
 	case strings.HasPrefix(typ, "account."):
 		return ErrLicense

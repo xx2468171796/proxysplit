@@ -145,6 +145,23 @@ func (a *App) registerDiagAPI(mux *http.ServeMux, auth func(func(http.ResponseWr
 		_ = json.NewDecoder(r.Body).Decode(&b)
 		writeJSON(w, 200, okOr(a.svc.SetLogLevel(b.Level)))
 	}))
+	// GET /api/reset — 清除与重置清单；POST {"items":["core-dns-cache",...],"confirm":"确认重置"}
+	// 没有任何一项会解除 AI 劫持（解除只能在界面点「恢复」）。
+	mux.HandleFunc("/api/reset", auth(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			writeJSON(w, 200, a.GetResetCenter())
+			return
+		}
+		var b struct {
+			Items   []string `json:"items"`
+			Confirm string   `json:"confirm"`
+		}
+		if r.Method != http.MethodPost || json.NewDecoder(r.Body).Decode(&b) != nil || len(b.Items) == 0 {
+			writeJSON(w, 400, map[string]string{"error": "POST {\"items\":[\"<id>\",...],\"confirm\":\"恢复出厂时填 确认重置\"}"})
+			return
+		}
+		writeJSON(w, 200, a.RunReset(b.Items, b.Confirm))
+	}))
 }
 
 func okOr(msg string) map[string]any {

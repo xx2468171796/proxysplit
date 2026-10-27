@@ -61,3 +61,18 @@ SelectNode / RemoveNode / SetRouting / SetSettings / SetLogLevel 返回重启错
 - **系统 DNS 被污染（2026-10-27 alonehome2 实测）**：curl / Git / 游戏等走 Windows DNS 客户端的程序，查询由 svchost 发出、不被接管，墙内拿到假 IP（www.google.com → 31.13.92.37）；Edge / Chrome 自带 DNS 不受影响。sing-box 1.14 已无「用嗅探域名覆盖目标」，故中转 internal/capture/sniff.go 先读首包（≤300 ms、≤8 KB），有 TLS SNI / HTTP Host 就按域名 SOCKS CONNECT，让节点解析；服务器先发话的协议超时后照旧按 IP。
 ## 推流程序默认直连（只在「仅接管选中程序」下生效）
 service.streamPreset：直播伴侣.exe、MediaSDK_Server.exe（抖音直播伴侣）、obs64/obs32.exe、快手直播伴侣.exe、kwailive.exe、livehime.exe（B站直播姬）没出现在任何名单时自动进直连列表（应用规则集热加载，不重启）。用户把它们加进任何名单则按名单；设置「推流程序默认直连」可关（streamDirectOff）。exe 名除 OBS / livehime 外待真机核对。 TUN 下不生效：会把老用户经代理推海外（OBS → YouTube）的流悄悄改直连（2026-10-27 审查）。
+
+## 节点域名预解析（internal/noderesolve，1.9.96 分支起）
+- 问题：域名节点以前只靠一个 DNS（sing-box default_domain_resolver = 223.5.5.5，Xray 223.5.5.5/119.29.29.29），移动 / 联通 / 电信用户会遇到超时、劫持、或拿到对本运营商很差的 CDN IP。
+- 时机：启动 / 重启内核前（`startLocked`，只持 lifecycleMu，总时长 ≤2.5 s）并行解析主节点 + 额外 / 线路节点；端口代理、测延迟、测速走同一个解析器（`s.pinned`），显示的延迟就是实际要连的 IP。
+- 同时问：本机网卡（运营商）DNS（GetAdaptersAddresses，跳过自家 TUN 172.19.0.0/30 / fdfe:、127.x、fec0:: 占位）、阿里 223.5.5.5/223.6.6.6、DNSPod 119.29.29.29、114、百度 180.76.76.76（UDP），加 DoH https://223.5.5.5 与 https://1.12.12.12（按 IP，无需引导）。每个 ≤1.5 s；第一个答复到后其余再等 400 ms 记 late（别的 TUN 开着 strict_route 时 UDP 53 被静默丢，开发机实测只有 DoH 通）。有 IPv6 出口（hostnet.HasIPv6）才问 AAAA。
+- 套接字用 IP_UNICAST_IF 绑物理默认网卡（`noderesolve.DirectDialer`），不进自家 TUN；自家内核运行时只用 DoH。
+- 合并去重、丢弃无效地址（私网、回环、198.18/15 fake-ip、100.64/10、保留段），按票数取前 8 个并行 TCP 探测（≤1 s）按耗时排名；都连不上按票数（fallback）；一个都没解析到 → 不填，沿用域名交给内核（老行为）。hysteria2 / tuic / mKCP 是 UDP，不做 TCP 探测。缓存：成功 10 分钟、失败 30 秒，singleflight。
+- 改写点只有 `core.PinNode`（Options.ServerIPs 域名 → IP）：server/address 换 IP，把原来隐式来自域名的名字写死——SNI 为空时按各构建器原规则补（vless/vmess/trojan+TLS：SNI→Host→Server；其他：SNI→Server），ws/http/h2/httpupgrade/xhttp 的 Host 为空时补域名。原始 sing-box outbounds（含 POWER云 签名配置）和带插件的 ss 不改。Xray 在 `withSidecar` 用同一份 pin 后的节点，`xray.Key` 两边一致。
+- 日志：「节点域名 x 解析：8 个 DNS（2 个成功）返回 1 个 IP，选 1.2.3.4（连通 35 ms）」；遥测 node.resolve。
+- 没把 sing-box "local"（系统）解析器加进 default_domain_resolver：TUN + strict_route 下系统解析会被 hijack-dns 抓回内核，有回环 / 泄漏风险；预解析已覆盖节点域名。
+
+## 节点保活 + DNS 缓存 / 预热（internal/nodewarm、internal/dnswarm，1.9.96 分支起）
+- 保活（warm_svc.go）：代理运行时每 30 s 直连（绑物理网卡、不握 TLS）TCP 探测主节点和在用线路 / 额外节点的预解析 IP:port，最多同时 3 个；每节点留最近 20 个 RTT；连续 3 次失败 = down（中文日志 + node.health，只报状态变化），之后 5 分钟不探测；恢复时绕过缓存重新解析（新 IP 下次启动内核才用）。只观察，不改任何路由（AI 劫持也不动）。UDP 协议节点（hy2 / tuic / mKCP）不探测。/api/diag 的 `nodeHealth`：lastRttMs / p50Ms / fails / state。停内核时一起停。
+- DNS 缓存（core/dnscache.go）：TUN 配置加 `dns.optimistic: true`（1.14 起，过期答案先回、后台刷新）+ `experimental.cache_file {path: <dataDir>/dns-cache.db, store_dns: true}`，重启也是热缓存。**AI 劫持开着时两样都不加**：sing-box 不能按规则排除，AI 域名要 10 秒 TTL 尽快过期。回归测试 `TestAIGuardUntouchedByPreresolveAndCache`（AI DNS 规则、全部路由规则及顺序、TUN 入站逐字节不变，缓存未开）。
+- 预热：每分钟从 Clash API /connections 记下走节点（非 direct / reject）的域名，跳过 AI 劫持名单、IP、.cn；本地 `<dataDir>/dnswarm.json` 留前 50、3 天半衰。启动 5 秒后用 Clash API `GET /dns/query?name=&type=A`（1.14.3 实测可用，按内核自己的 DNS 规则走）并发 4 解析一遍；只上报汇总 dns.prewarm{count, ok, ms}，域名不出本机。

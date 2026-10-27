@@ -822,6 +822,40 @@ export namespace main {
 	        this.items = source["items"];
 	    }
 	}
+	export class ResetCenter {
+	    items: service.ResetItem[];
+	    lastBackup: string;
+	    confirm: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ResetCenter(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.items = this.convertValues(source["items"], service.ResetItem);
+	        this.lastBackup = source["lastBackup"];
+	        this.confirm = source["confirm"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class SpeedResult {
 	    mbps: number;
 	    err: string;
@@ -1625,6 +1659,99 @@ export namespace service {
 		    return a;
 		}
 	}
+	export class ResetItem {
+	    id: string;
+	    group: string;
+	    title: string;
+	    effect: string;
+	    restarts: boolean;
+	    danger: string;
+	    lost?: string[];
+	    kept?: string[];
+	    confirm?: string;
+	    backup: boolean;
+	    available: boolean;
+	    count: number;
+	    countText?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ResetItem(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.group = source["group"];
+	        this.title = source["title"];
+	        this.effect = source["effect"];
+	        this.restarts = source["restarts"];
+	        this.danger = source["danger"];
+	        this.lost = source["lost"];
+	        this.kept = source["kept"];
+	        this.confirm = source["confirm"];
+	        this.backup = source["backup"];
+	        this.available = source["available"];
+	        this.count = source["count"];
+	        this.countText = source["countText"];
+	    }
+	}
+	export class ResetResult {
+	    id: string;
+	    title: string;
+	    ok: boolean;
+	    message: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ResetResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.title = source["title"];
+	        this.ok = source["ok"];
+	        this.message = source["message"];
+	    }
+	}
+	export class ResetReport {
+	    results: ResetResult[];
+	    backup?: string;
+	    ok: number;
+	    failed: number;
+	    ms: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new ResetReport(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.results = this.convertValues(source["results"], ResetResult);
+	        this.backup = source["backup"];
+	        this.ok = source["ok"];
+	        this.failed = source["failed"];
+	        this.ms = source["ms"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
 	export class RouteHop {
 	    host: string;
 	    dest?: string;

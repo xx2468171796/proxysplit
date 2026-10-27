@@ -49,6 +49,9 @@ const (
 	NodeLatencyAll = "node.latency_all" // batch latency test
 	NodeSpeed      = "node.speed"       // protocol, Mbps
 	NodeCoreChange = "node.core"        // per-node core choice: nodeType, transport, from, to
+	NodeResolve    = "node.resolve"     // node domain pre-resolve: resolvers, candidates, chosen_ip
+	NodeHealth     = "node.health"      // keep-warm state change: from, to, rtt p50, fails
+	DNSPrewarm     = "dns.prewarm"      // post-start DNS prewarm summary: count, ok, ms
 	SubAdd         = "sub.add"          // subscription host, node count
 	SubUpdate      = "sub.update"       // subscription refresh
 	SubEdit        = "sub.edit"         // subscription edited
@@ -78,6 +81,9 @@ const (
 	EnvOtherVPN = "env.other_vpn" // other VPN / proxy adapters
 	EnvDefender = "env.defender"  // Defender detection history
 	ProxyPort   = "proxy_port.change"
+
+	ResetRun  = "reset.run"  // 清除与重置: items, ok, failed, ms
+	ResetUndo = "reset.undo" // 撤销上一次重置: backup
 )
 
 // Normalised error codes. Raw error text is always kept next to the code.

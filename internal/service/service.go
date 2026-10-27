@@ -186,6 +186,7 @@ type Service struct {
 
 	appMon appid.Monitor // 逐应用连接监测（appmonitor.go）
 	tap    logTap        // 客户端日志上报（telemetry_tap.go）
+	warm   warmState     // 节点保活 + DNS 预热（warm_svc.go）
 }
 
 // New loads (or initializes) config from dataDir.
@@ -212,6 +213,7 @@ func New(binDir, dataDir string) (*Service, error) {
 	s.startScheduler()
 	go s.healthLoop() // live line/node reachability for the status panel
 	go s.appMonitorLoop()
+	s.registerCacheResetters()
 	return s, nil
 }
 
@@ -665,7 +667,7 @@ func (s *Service) TestTCP(id string) int {
 	if n == nil {
 		return -1
 	}
-	res := latency.Measure(&snap, "", 6*time.Second)
+	res := latency.Measure(s.pinned(&snap), "", 6*time.Second)
 	s.mu.Lock()
 	if current := s.nodeByID(id); current != nil {
 		current.TCPLatency = res.TCPLatency
@@ -1550,7 +1552,9 @@ func (s *Service) startLocked() error {
 			LanShare: set.LanShare, LanPort: set.LanPort, LanType: set.LanType, LanUser: set.LanUser, LanPass: set.LanPass,
 			CustomRules: custom, RuleSets: &ruleSets, DirectDomains: s.directDomains(),
 			ProxyPrivate: !set.PrivateDirect, BlockQUIC: set.BlockQUIC, SelfProcess: selfProcess(set.ExcludeSelf), PortProcessPath: s.portProcessPath(),
-			AccelPort: accelPort, RealityHybrid: realityHybrid, NoHostIPv6: noIPv6}
+			AccelPort: accelPort, RealityHybrid: realityHybrid, NoHostIPv6: noIPv6,
+			// Off by itself while the AI guard is active (core/dnscache.go).
+			DNSOptimistic: true, DNSCacheFile: filepath.Join(s.dataDir, dnsCacheFile)}
 	}
 
 	// System-wide mode: sing-box TUN routes the whole machine.
@@ -1573,6 +1577,7 @@ func (s *Service) startLocked() error {
 			tunOpts.ExtraNodes = append(tunOpts.ExtraNodes, core.ExtraNode{Tag: tag, Node: n})
 		}
 		s.mu.Unlock()
+		tunOpts.ServerIPs = s.serverIPs(startNodes(node, &tunOpts))
 		if err := s.core.StartTUN(node, level, tunRoute, nil, tunOpts); err != nil {
 			return s.withSecurityHint(fmt.Errorf("core(TUN): %w", err))
 		}
@@ -1586,6 +1591,7 @@ func (s *Service) startLocked() error {
 		s.run = nil
 		s.mu.Unlock()
 		s.applySystemProxyOnStart()
+		s.startWarm(node, tunOpts, clashPort, clashSecret)
 		s.log(fmt.Sprintf("[service] started — 全局 TUN 模式 (%s), 节点 %s", tunRoute, node.Name))
 		return nil
 	}
@@ -1605,6 +1611,9 @@ func (s *Service) startLocked() error {
 	opts := base
 	sum := s.splitOptionsLocked(&opts, node)
 	s.mu.Unlock()
+	// Kept in base too, so hot app-list reloads rebuild the same outbounds.
+	opts.ServerIPs = s.serverIPs(startNodes(node, &opts))
+	base.ServerIPs = opts.ServerIPs
 	if err := s.prepareProcessCapture(set, &opts, nil); err != nil {
 		return err
 	}
@@ -1625,6 +1634,7 @@ func (s *Service) startLocked() error {
 	s.mu.Unlock()
 
 	s.applySystemProxyOnStart()
+	s.startWarm(node, opts, clashPort, clashSecret)
 	s.log(fmt.Sprintf("[service] started — 应用分流 (TUN+进程名), 代理 %d / 直连 %d / 拦截 %d 个程序, 额外节点 %d, 主节点 %s",
 		sum.proxied, sum.direct, sum.blocked, len(opts.ExtraNodes), node.Name))
 	return nil
@@ -1834,6 +1844,7 @@ func (s *Service) stopLocked() {
 	clearSysProxy := s.sysProxyOn
 	s.mu.Unlock()
 	s.stopCapture() // before the core: captured apps must not hit dead inbounds
+	s.stopWarm()
 	s.core.Stop()
 	s.flushAIDNSOnStop()
 	// Never leave the OS pointing at a now-dead proxy (would black-hole all HTTP).

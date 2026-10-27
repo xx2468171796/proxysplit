@@ -17,6 +17,7 @@ import (
 	"proxysplit/internal/appid"
 	"proxysplit/internal/core"
 	"proxysplit/internal/license"
+	"proxysplit/internal/noderesolve"
 	"proxysplit/internal/service"
 	"proxysplit/internal/telemetry"
 	"proxysplit/internal/updater"
@@ -44,6 +45,8 @@ func (a *App) initTelemetry() {
 		return
 	}
 	a.svc.SetLogTap(telemetry.Log)
+	service.SetNodeResolveHook(tmNodeResolve)
+	service.SetEventHook(func(typ string, err error, p map[string]any) { telemetry.Emit(typ, telemetry.Info, err, p) })
 	telemetry.Note(telemetry.AppStart, map[string]any{"os": osInfo, "arch": runtime.GOARCH, "admin": telemetry.IsAdmin(), "locale": telemetry.Locale(), "freshInstall": a.freshInstall, "background": a.background, "snapshot": a.tmSnapshot()})
 	go a.tmEnvProbes()
 }
@@ -383,4 +386,9 @@ func tmUpdateResult(from, to string, failed bool) {
 		err = telemetry.Errorf("update to v%s did not start; rolled back", to)
 	}
 	telemetry.Emit(telemetry.AppUpdateResult, telemetry.OK, err, map[string]any{"from": from, "to": to, "running": appVersion})
+}
+
+// tmNodeResolve records one node-domain pre-resolve (domain + IPs only).
+func tmNodeResolve(r noderesolve.Result, err error) {
+	telemetry.Emit(telemetry.NodeResolve, telemetry.Info, err, noderesolve.Payload(r, err))
 }

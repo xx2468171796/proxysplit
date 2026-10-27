@@ -39,6 +39,9 @@
 | node.latency / node.tcp | 单个测速 | protocol, core, ms（-1 失败） | 各协议 / 各内核测速失败率 |
 | node.latency_all | 全部测速 | total{协议:数}, failed{协议:数} | 同上 |
 | node.speed | 下载测速 | protocol, core, mbps | 带宽 |
+| node.resolve | 启动 / 测速前预解析节点域名（每个域名缓存 10 分钟，只记新解析） | host（只有域名）, resolvers[{name, ok, ms, ips（个数）, error_code: timeout / late / nxdomain / empty / bogus / refused / doh / error}], candidates, chosen_ip, probe_ms, best_ms, fallback（全部解析失败或探测都没连上） | 哪家 DNS 在哪类网络上不可靠、域名节点连不上的原因（失败 DNS_FAIL） |
+| node.health | 代理运行时节点保活探测状态变化（连续 3 次 TCP 连不上 → down；恢复 → up；不是每次探测都报） | from, to, rtt_p50, fails | 节点掉线频率、掉线前延迟 |
+| dns.prewarm | 启动 5 秒后预热常用境外域名，一次一条汇总 | count, ok, ms（不含域名） | 预热效果 |
 | node.core | 用户改节点内核（自动 / sing-box / Xray） | nodeType, transport, from, to（前后实际内核）, choice | 哪些协议要强制 Xray、改了是否报错 |
 | sub.add / sub.edit / sub.update / sub.remove | 订阅操作 | host（只留域名）, nodeCount | 订阅拉取失败 |
 | app_rule.change | 应用分流列表变更 | added[程序→线路], removed[], total | 最常添加的应用 |
@@ -54,6 +57,8 @@
 | env.security | 启动时 | products[] | 安全软件分布 |
 | env.other_vpn | 启动时 | adapters[], ipv6 | 冲突 VPN |
 | env.defender | 启动 30 秒后 | status, detections[{threatId, when, files(仅文件名)}], threats | Defender 误报 |
+| reset.run | 清除与重置中心执行（界面 / POST /api/reset） | items[]（项 id）, ok, failed, ms, backup（是否做了自动备份）；失败时 errorText = 「id: 原因; …」 | 哪些清除项常用、哪些失败 |
+| reset.undo | 撤销上一次重置 | backup（备份文件名） | 误操作频率 |
 
 ## 错误码（errorCode）
 CORE_START_FAIL, CORE_EXIT, TUN_CREATE_FAIL, CORE_BLOCKED_AV, DNS_FAIL, NODE_TIMEOUT, NODE_AUTH_FAIL, NODE_UNREACHABLE, TLS_FAIL, PARSE_FAIL, SUB_FETCH_FAIL, NO_NODE, PORT_IN_USE, PERMISSION_DENIED, CONFIG_INVALID, LICENSE_DENIED, NETWORK_FAIL, UPDATE_DOWNLOAD_FAIL, UPDATE_VERIFY_FAIL, PANIC, UNKNOWN。

@@ -16,11 +16,13 @@ export const TELEMETRY_EVENT_TYPES = [
   'app.start','app.exit','app.crash','app.page_view','app.update_check','app.update','app.update_result',
   'proxy.start','proxy.stop','proxy.restart','tun.create','core.exit','core.fatal','core.update','net.blocked',
   'node.add','node.remove','node.select','node.latency','node.tcp','node.latency_all','node.speed',
+  'node.resolve','node.health','dns.prewarm',
   'sub.add','sub.update','sub.edit','sub.remove',
   'app_rule.change','custom_app.change','rule.change','ruleset.change','line.change','settings.change','mode.change',
   'diag.self_test','diag.route_test','diag.ai_env','diag.ai_env_fix',
   'account.login','account.logout','account.register','account.redeem','account.license','powervpn.nodes',
   'env.security','env.other_vpn','env.defender','proxy_port.change',
+  'reset.run','reset.undo',
 ] as const
 
 /** 归一化错误码（客户端 errcode.go）。 */

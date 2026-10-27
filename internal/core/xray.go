@@ -129,7 +129,7 @@ func viaSidecar(n *nodes.Node, eps map[string]xray.Endpoint, strict bool) (*node
 
 // buildNodeOutbounds is buildOutbounds behind the sidecar substitution.
 func buildNodeOutbounds(n *nodes.Node, tag string, opts Options, strict bool) ([]M, error) {
-	sn, err := viaSidecar(n, opts.XrayPorts, strict)
+	sn, err := viaSidecar(PinNode(n, opts.ServerIPs), opts.XrayPorts, strict)
 	if err != nil {
 		return nil, err
 	}
@@ -169,7 +169,8 @@ func (m *Manager) withSidecar(primary []*nodes.Node, opts Options) (Options, err
 			all = append(all, en.Node)
 		}
 	}
-	ports, err := m.xray.Ensure(all)
+	// Pinned like buildNodeOutbounds, so xray.Key matches on both sides.
+	ports, err := m.xray.Ensure(pinAll(all, opts.ServerIPs))
 	if err != nil {
 		for _, n := range primary {
 			if n.UseXray() {

@@ -33,7 +33,8 @@
 | AI 控制/MCP/诊断接口 | docs/memory/ai-control.md | 18088 诊断接口、--mcp 桥、DNS 12 秒问题 |
 | 测试机/远程测试 | docs/memory/testing-machines.md | alonehome2、火绒复现、本机拍图坑 |
 | 开发机坑 | docs/memory/dev-machine-pitfalls.md | git credential、PATH、Windows 实现坑、自动更新 |
-| 前端（admin-ui） | docs/memory/frontend.md | 配色、门禁、mock 预览参数 |
+| 前端（admin-ui） | docs/memory/frontend.md | 配色、门禁、mock 预览参数、设置分节 |
+| 清除与重置 | docs/memory/reset-center.md | 唯一入口、每项做法、备份撤销、AI 劫持红线、RegisterResetter |
 | 应用识别/模拟器/逐应用监测 | docs/memory/app-monitor.md | internal/appid 应用库、模拟器预设、连接成功失败判定 |
 | 端口代理/更新说明弹窗 | docs/memory/proxy-ports.md | 指纹浏览器多端口独立进程、设备与日志、防火墙、升级后弹更新内容 |
 | 多级分销/推广赚钱 | docs/memory/fenxiao.md | tuiguang/fenxiao 接线、分佣 / 冻结 / 冲回 / 提现、规则存哪、坑 |
