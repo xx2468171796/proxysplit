@@ -49,6 +49,12 @@ type Options struct {
 	// no DNS leak). Requires no DNS interception in our redirect model.
 	RemoteDNS bool
 
+	// NoHostIPv6: the machine has no IPv6 uplink. DNS answers are then IPv4
+	// only — otherwise, with the TUN carrying an IPv6 address (AI 劫持), apps
+	// pick an AAAA address, the core cannot dial it, and apps without a
+	// fallback (curl, Git, games) fail while browsers quietly retry IPv4.
+	NoHostIPv6 bool
+
 	// RealityHybrid: the bundled core carries relayops patch 0005, so POWER云
 	// VLESS + Reality outbounds keep the X25519MLKEM768 key share (ClientHello
 	// like real Chrome). Never applied to third-party nodes (compat mode).
@@ -901,6 +907,9 @@ func buildTUNTree(node *nodes.Node, logLevel string, opts Options) (M, error) {
 		"servers": dnsServers,
 		"rules":   dnsRules,
 		"final":   dnsFinal,
+	}
+	if opts.NoHostIPv6 {
+		dnsBlock["strategy"] = "ipv4_only"
 	}
 	tunInbounds := []M{
 		{

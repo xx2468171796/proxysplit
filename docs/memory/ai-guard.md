@@ -11,6 +11,7 @@
 
 ## 锁机制
 NRPT 把 AI 域名指到一个 DNS 服务器，随代理自动切（service.SyncAILock）：运行中 → TUN IPv6 对端 fdfe:dcba:9876::2（进隧道走线路）；停了 → 127.0.0.53（没人监听，立即失败）；强杀 / 断电 → TUN 没了，fdfe 地址不可达，仍锁住。
+- **IPv4-only 机器的坑（2026-10-28 alonehome2 实测）**：劫持开着时 TUN 带 IPv6 地址（aiTUN6），系统多出 `::/0 → tun0`，程序优先连 AAAA，内核直连 IPv6 不通 → 握手后被重置；浏览器会退回 IPv4，curl / Git / 游戏直接失败（关代理就好）。修：启动前 service.hostHasIPv6()（udp6 connect 只查路由表，排除自家 fdfe::/48 与 Teredo 2001::/32），没 IPv6 出口就给 core.Options.NoHostIPv6 → dns.strategy=ipv4_only，DNS 只回 A 记录。
 - 切换节奏（internal/service/ailock.go）：启动预热 10 秒 → 隧道试解析通过才放行；每 15 秒检测，失败立即锁回；用户停止 / 退出先锁再等 5 秒停内核；界面显示倒计时。
 - 坑（2026-10-27 实测）：sing-tun strict_route 用 WFP 拦掉所有不走 TUN 的 53 端口查询，回环也拦，所以 1.9.71–1.9.95 内核在 127.0.0.53 的监听收不到包，一开劫持 Claude 就解析超时；监听已删，不要再改回回环应答。
 - 必须用回环地址：锁最初指向 TUN 对端 172.19.0.2，内核停后被办公室路由器 DNS 劫持代答（198.18.x）。
