@@ -131,6 +131,9 @@ func viaSidecar(n *nodes.Node, eps map[string]xray.Endpoint, strict bool) (*node
 // the front node of a chain (n.ViaNode): its outbounds are emitted as
 // "<tag>~via" and the node's entry outbound dials through it (detour).
 func buildNodeOutbounds(n *nodes.Node, tag string, opts Options, strict bool) ([]M, error) {
+	if n.Type == nodes.TypeURLTest {
+		return buildURLTestOutbounds(n, tag, opts, strict)
+	}
 	sn, err := viaSidecar(PinNode(n, opts.ServerIPs), opts.XrayPorts, strict)
 	if err != nil {
 		return nil, err

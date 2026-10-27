@@ -80,3 +80,10 @@ service.streamPreset：直播伴侣.exe、MediaSDK_Server.exe（抖音直播伴�
 ## 节点测试（2026-10-28，参考 v2rayN SpeedtestService）
 - Google 延迟：同一隧道连发两次 204 取最小（首次含握手），任一次成功即算通；首次已用满超时则不再试第二次（latency.bestOf）。TestAllLatency 并发上限 latencyConcurrency=8（forEachBounded，单个 panic 不影响其它，探针由 measureNode defer 关闭；活动节点仍复用主内核）。
 - 「测速全部（先测通）」：TestThenSpeedAll 先全量测延迟，再对 Latency>0 的节点逐个（串行，避免抢带宽）SpeedTestNode，返回 total / passed / speedOk。
+
+## 自动选择（最快）（v1.10.4，参考 v2rayN urltest 组）
+- 活动节点切换器第一项「自动选择（最快）」= `SelectedID "auto"`（service/auto_svc.go）。`selectedNode()` 返回合成节点 {ID:auto, Type:urltest, Members}：成员 = 非官方、非整组导入（HasRaw）、非 Xray 的已存节点，各自过 `chainLocked`（前置代理照用）。官方 POWER云 线路按自己的出站 tag 带出口限制（egress.go），混进组会失效，所以排除；Xray 节点为了简单先不进组。
+- 内核（core/urltest.go，buildNodeOutbounds 入口分流）：成员按 `<tag>/m<i>` 走原单节点构建器（预解析 IP 钉住 / 前置 detour 都生效），组 `{type:urltest, url: gstatic generate_204, interval 3m, tolerance 50, idle_timeout 30m, interrupt_exist_connections:false}`，sing-box 1.14 check 通过。没有成员 → 启动报「没有可自动选择的节点」。
+- 跟随「活动节点」的线路 / 按应用线路 / 端口代理自然跟着组走；startNodes 展开成员和前置节点，预解析与保活都覆盖。测速活动节点走主内核（或同组探针），不写回节点；TCP 延迟对 auto 不测。
+- 「选中节点不存在就改选第一个」的三处（lines.go healDangling、service_store dropPlaceholder、apptest 导入校验）都放过 auto。
+- 顺带修：`isCoreConfig` 原先在整个文件里找 `"outbounds"`，存了整组导入 / 官方节点（自带 outbounds）的配置会被当成内核配置，重载时退回 .bak；现只看顶层键。

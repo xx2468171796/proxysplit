@@ -6,6 +6,7 @@ import type { ClashMode } from "../api/types";
 import { fmtRate, fmtUptime, latencyText } from "../shared/format";
 import { useStore } from "../shared/store";
 import { data, saveSettings, selectNode, setClashMode } from "../state/data";
+import { AUTO_NODE_ID, AUTO_NODE_LABEL } from "../state/nodes";
 import { isRunning, runtime, toggleRun } from "../state/runtime";
 import { useFeedback } from "./use-feedback";
 
@@ -20,13 +21,15 @@ function NodeSwitcher() {
   const nodes = useStore(data, (s) => s.nodes);
   const selected = useStore(runtime, (s) => s.status?.selectedId ?? "");
   const options = useMemo(
-    () =>
-      nodes.map((n) => ({
+    () => [
+      { value: AUTO_NODE_ID, label: AUTO_NODE_LABEL, hint: "按延迟自动挑，挂了自动切", keywords: "auto 自动 最快" },
+      ...nodes.map((n) => ({
         value: n.id,
         label: n.name,
         hint: latencyText(n.latency),
         keywords: `${n.server} ${n.type}`,
       })),
+    ],
     [nodes],
   );
   return (

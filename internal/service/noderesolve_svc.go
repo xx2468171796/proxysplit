@@ -130,5 +130,5 @@ func startNodes(node *nodes.Node, opts *core.Options) []*nodes.Node {
 	for _, en := range opts.ExtraNodes {
 		list = append(list, en.Node)
 	}
-	return list
+	return expandNodes(list) // group members and front nodes get pinned too
 }

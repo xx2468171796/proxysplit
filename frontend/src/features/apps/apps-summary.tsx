@@ -5,6 +5,7 @@ import { useMemo } from "react";
 import type { RuleMode } from "../../api/types";
 import { useStore } from "../../shared/store";
 import { data, setDefaultLine, setRuleMode } from "../../state/data";
+import { nodeName } from "../../state/nodes";
 import { BUILTIN_LINES, builtinLineOptions, modeLabel } from "../../state/routing";
 import { runtime } from "../../state/runtime";
 import { useSaveNotice } from "./use-save-notice";
@@ -25,7 +26,7 @@ function useUnlisted(): { value: string; note: string } {
   const selectedId = useStore(runtime, (s) => s.status?.selectedId);
   if (ruleMode === "whitelist" || defaultLine === "direct")
     return { value: BUILTIN_LINES.direct.label, note: "直接连接" };
-  const active = nodes.find((n) => n.id === selectedId)?.name || "活动节点";
+  const active = (selectedId && nodeName(selectedId, nodes)) || "活动节点";
   if (defaultLine === "rule") return { value: BUILTIN_LINES.rule.label, note: active };
   if (defaultLine === "global") return { value: BUILTIN_LINES.global.label, note: active };
   const line = lines.find((l) => l.id === defaultLine);

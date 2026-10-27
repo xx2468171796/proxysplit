@@ -322,6 +322,9 @@ func (s *Service) Connections() []ConnInfo {
 // active node, "node-<id>" = that specific node. Caller holds s.mu.
 func (s *Service) outboundLabelsLocked() map[string]string {
 	m := make(map[string]string, len(s.cfg.Nodes)+1)
+	if s.cfg.SelectedID == AutoNodeID {
+		m["proxy"] = AutoNodeName
+	}
 	for _, n := range s.cfg.Nodes {
 		if n == nil {
 			continue

@@ -22,6 +22,16 @@ func (s *Service) SpeedTest() (float64, error) {
 	if id == "" {
 		return 0, fmt.Errorf("没有可测速的活动节点")
 	}
+	if id == AutoNodeID {
+		// The group is not a stored node: measure it through the running core
+		// (or a probe of the same group); nothing is saved.
+		socks, closeFn, err := s.nodeSocks(node)
+		if err != nil {
+			return 0, fmt.Errorf("启动节点测速失败: %w", err)
+		}
+		defer closeFn()
+		return latency.SpeedTest(socks, 12*time.Second)
+	}
 	return s.SpeedTestNode(id)
 }
 
