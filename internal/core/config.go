@@ -690,11 +690,10 @@ func BuildTUNConfig(node *nodes.Node, logLevel string, opts Options) ([]byte, er
 	//  6. 代理策略 规则 — custom rules, per-app lines, then final.
 	// Per-app process lists live in hot-reloaded rule-set files (SplitRuleSets),
 	// so adding/removing apps between existing lists needs no core restart.
-	rules := aiGuardHijack(opts) // the AI lock's loopback DNS listener
-	rules = append(rules,
-		M{"action": "sniff"},
-		M{"protocol": "dns", "action": "hijack-dns"},
-	)
+	rules := []M{
+		{"action": "sniff"},
+		{"protocol": "dns", "action": "hijack-dns"},
+	}
 	guarded := opts.AIGuard.active()
 	if !guarded {
 		rules = append(rules, accelRules(opts, clashExp != nil)...)
@@ -898,9 +897,6 @@ func BuildTUNConfig(node *nodes.Node, logLevel string, opts Options) ([]byte, er
 		tunInbounds = append(tunInbounds, M{"type": "mixed", "tag": accelInbound, "listen": "127.0.0.1", "listen_port": opts.AccelPort})
 	}
 	if in := aiProxyInboundFor(opts); in != nil {
-		tunInbounds = append(tunInbounds, in)
-	}
-	if in := aiGuardInbound(opts); in != nil {
 		tunInbounds = append(tunInbounds, in)
 	}
 	outs := append(proxyObs[:1:1], M{"type": "direct", "tag": "direct"})

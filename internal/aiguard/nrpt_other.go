@@ -4,14 +4,17 @@ package aiguard
 
 import "errors"
 
-// DNSServer is the loopback address of the core's AI DNS listener (port 53).
-const DNSServer = "127.0.0.53"
+// Lock servers (see nrpt_windows.go).
+const (
+	LockedServer = "127.0.0.53"
+	TunnelServer = "fdfe:dcba:9876::2"
+)
 
 var errUnsupported = errors.New("AI 锁只支持 Windows")
 
-func Installed() bool         { return false }
+func Installed(string) bool   { return false }
 func Present() bool           { return false }
 func GroupPolicyActive() bool { return false }
-func Install() error          { return errUnsupported }
+func Install(string) error    { return errUnsupported }
 func Remove() error           { return nil }
 func FlushCache()             {}

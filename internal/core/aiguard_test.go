@@ -69,13 +69,13 @@ func TestRoutingMatrixAIGuardRestricted(t *testing.T) {
 
 // TestAIGuardConfig: the generated config passes the real core's check; AI
 // names resolve first through the guard's own line with IPv6-bearing answers
-// blanked (no deprecated DNS `strategy`); the lock's loopback DNS listener is
-// hijacked first; AI QUIC is rejected before the AI route.
+// blanked (no deprecated DNS `strategy`); no loopback DNS listener (strict
+// route blocks it — the lock uses the TUN's IPv6 peer); AI QUIC is rejected
+// before the AI route.
 func TestAIGuardConfig(t *testing.T) {
 	node, _ := nodes.ParseLink(sampleLinks["vless-reality"])
 	extra, _ := nodes.ParseLink(sampleLinks["trojan"])
 	guard := guardFor("node-x")
-	guard.DNSListen = "127.0.0.53"
 	guard.STUNProcesses = []string{"chrome.exe", "msedge.exe"}
 	opts := Options{Split: true, SplitWhitelist: true, RemoteDNS: true, RuleDir: t.TempDir(), GeoDir: filepath.Join("..", "..", "bin"),
 		DirectDomains: []string{"zygskins.cn"},
@@ -125,12 +125,10 @@ func TestAIGuardConfig(t *testing.T) {
 	if aiRoute < 0 || firstAccel < 0 || aiRoute > firstAccel {
 		t.Fatalf("AI route at %d must precede the accelerator rules at %d", aiRoute, firstAccel)
 	}
-	listener := false
 	for _, in := range cfg.Inbounds {
-		listener = listener || (in["tag"] == aiDNSInbound && in["listen"] == "127.0.0.53")
-	}
-	if !listener || cfg.Route.Rules[0]["action"] != "hijack-dns" || cfg.Route.Rules[0]["inbound"] == nil {
-		t.Fatalf("loopback DNS listener / hijack missing: inbounds %v, first rule %v", cfg.Inbounds, cfg.Route.Rules[0])
+		if in["type"] == "direct" {
+			t.Fatalf("no loopback DNS listener expected (strict route never lets queries reach it): %v", in)
+		}
 	}
 	found := false
 	for _, s := range cfg.DNS.Servers {

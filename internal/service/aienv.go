@@ -61,7 +61,7 @@ func lookupAI(ctx context.Context) ([]net.IPAddr, error) {
 // so the check itself never reaches AI from the customer's own IP.
 func (s *Service) AIEnvCheck(ctx context.Context) AIEnvReport {
 	running, line := s.AIGuardLine()
-	protected := running && line != "" && s.AIDNSListening()
+	protected := running && line != "" && aiguard.Installed(aiguard.TunnelServer)
 	var wg sync.WaitGroup
 	traces := make([]traceResult, len(aiServices))
 	for i := range traces {
@@ -145,7 +145,7 @@ func (s *Service) guardItem() AIEnvItem {
 	switch {
 	case !s.AIGuardOn():
 		it.Status, it.Detail = "warn", "劫持已关闭：关掉 ProxySplit 或分应用代理没覆盖 AI 程序时，AI 会走本机网络，有封号风险。建议点上方「开启劫持」"
-	case !aiguard.Installed():
+	case !aiguard.Present():
 		it.Status, it.Detail, it.Fix = "fail", "系统 DNS 锁没加上：ProxySplit 关掉时 AI 可能用本机 IP 直连", "guard"
 	case aiguard.GroupPolicyActive():
 		it.Status, it.Detail = "warn", "这台电脑有域组策略的 DNS 规则，AI 锁可能被它覆盖（公司电脑请联系 IT）"
@@ -153,8 +153,8 @@ func (s *Service) guardItem() AIEnvItem {
 		it.Status, it.Detail, it.Fix = "fail", "代理没在运行：现在 AI 网站打不开（已锁住，不会用本机 IP）", "guard"
 	case line == "":
 		it.Status, it.Detail = "fail", "没有可用的线路：AI 已拦截，请先添加节点或在 POWER云 开通线路"
-	case !s.AIDNSListening():
-		it.Status, it.Detail = "fail", "本机 DNS 端口（127.0.0.53:53）被别的程序占用（多半是其他代理软件），AI 网站打不开：关掉它后点「重新检测」并重启代理"
+	case !aiguard.Installed(aiguard.TunnelServer):
+		it.Status, it.Detail, it.Fix = "fail", "AI 访问锁还没切到隧道，AI 网站暂时打不开：点「修复」重试，失败看「日志」页", "guard"
 	default:
 		it.Status, it.Detail = "ok", "AI 一律走「"+line+"」，不管分应用代理怎么设；ProxySplit 关掉时 AI 打不开（不会用本机 IP）"
 	}

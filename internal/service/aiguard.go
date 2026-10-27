@@ -2,7 +2,6 @@ package service
 
 import (
 	"cmp"
-	"net"
 
 	"proxysplit/internal/aiguard"
 	"proxysplit/internal/core"
@@ -132,69 +131,38 @@ func (s *Service) applyAIGuardLocked(opts *core.Options, activeID string, extra 
 	if official {
 		opts.AccelOutbound = out
 	}
-	// The running core keeps its listener (a hot apply must build the same
-	// config); a fresh start checks the loopback port is free first, so a
-	// taken port 53 leaves AI unresolvable (locked) instead of failing the start.
-	listen := s.aiDNSListen
-	if !s.core.Running() {
-		listen = aiguard.DNSServer
-		err := loopbackDNSFree(listen)
-		if err != nil {
-			s.core.CleanStrays() // an orphaned core of ours may still hold the port
-			err = loopbackDNSFree(listen)
-		}
-		if err != nil {
-			listen = ""
-			s.log("[AI] 本机 DNS 端口被占用（多半是别的代理软件），AI 网站会打不开：" + err.Error())
-		}
-	}
 	opts.AIGuard = &core.AIGuard{DomainSuffixes: aiguard.DomainSuffixes(), Domains: aiguard.Domains(), IPCIDRs: aiguard.IPCIDRs(), STUNProcesses: aiguard.WebRTCProcesses(),
-		Outbound: out, DNSListen: listen}
+		Outbound: out}
 }
 
-// noteAIGuardStartedLocked records what the started core uses for AI and
-// drops DNS failures Windows cached while the core was down.
+// noteAIGuardStartedLocked records what the started core uses for AI, starts
+// the AI lock's warm-up / probe (ailock.go) and drops DNS failures Windows
+// cached while the core was down.
 func (s *Service) noteAIGuardStartedLocked(opts *core.Options) {
 	s.noteAIProxyLocked(opts.AIProxy)
 	g := opts.AIGuard
-	s.aiGuardOut, s.aiDNSListen = "", ""
+	s.aiGuardOut = ""
 	if g == nil {
 		return
 	}
-	s.aiGuardOut, s.aiDNSListen = g.Outbound, g.DNSListen
+	s.aiGuardOut = g.Outbound
 	aiguard.FlushCache()
+	s.startAILockWatchLocked()
 }
 
-// flushAIDNSOnStop empties the Windows DNS cache once the core is gone (stop,
-// restart, crash): AI addresses resolved through the line must not be reused
-// while nothing is tunnelling — the lock only holds for fresh lookups.
+// flushAIDNSOnStop runs once the core is gone (stop, restart, crash): the AI
+// lock goes back to the dead loopback server — synchronously, so quitting the
+// app leaves it locked — and the Windows DNS cache is emptied, since AI
+// addresses resolved through the line must not be reused while nothing is
+// tunnelling (the lock only holds for fresh lookups).
 func (s *Service) flushAIDNSOnStop() {
 	s.mu.Lock()
 	guarded := s.aiGuard || s.aiGuardOut != ""
 	s.noteAIProxyLocked(nil) // the AI proxy is gone with the core
+	s.endAILockWatchLocked()
 	s.mu.Unlock()
 	if guarded {
+		s.SyncAILock()
 		aiguard.FlushCache()
 	}
-}
-
-// AIDNSListening: the running core answers the AI lock's DNS queries.
-func (s *Service) AIDNSListening() bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.aiDNSListen != "" && s.core.Running()
-}
-
-func loopbackDNSFree(ip string) error {
-	addr := net.JoinHostPort(ip, "53")
-	pc, err := net.ListenPacket("udp", addr)
-	if err != nil {
-		return err
-	}
-	pc.Close()
-	l, err := net.Listen("tcp", addr)
-	if err != nil {
-		return err
-	}
-	return l.Close()
 }

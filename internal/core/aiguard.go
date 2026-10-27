@@ -10,10 +10,8 @@ package core
 //   - AI names resolve through Outbound, IPv4 only (AAAA / HTTPS answers
 //     blanked, short TTL), and the TUN gets an IPv6 address so any IPv6 the
 //     app learns elsewhere still enters the tunnel instead of going around it;
-//   - DNSListen is the loopback DNS server the Windows AI lock (NRPT, package
-//     aiguard) sends AI names to. Loopback so a lookup can never leave the
-//     machine: core up = answered here, core down = refused at once (a
-//     non-loopback address was answered by DNS-hijacking routers instead).
+//   - the Windows AI lock (NRPT, package aiguard) sends AI names to the TUN's
+//     IPv6 peer while the core runs; the TUN's DNS hijack answers them here.
 //
 // Outbound "reject" (no line of ours is available) makes AI unreachable rather
 // than direct. The 仅 AI / blocked-list rewrite (restrictEgress) never touches
@@ -23,17 +21,13 @@ type AIGuard struct {
 	Domains        []string
 	IPCIDRs        []string
 	Outbound       string // "proxy", "node-<id>" or "reject"
-	DNSListen      string // e.g. "127.0.0.53" (port 53); "" = no listener
 	// STUNProcesses send their WebRTC STUN through Outbound too, so a page's
 	// ICE candidates show the AI exit instead of the customer's mainland IP
 	// (browsers and the AI desktop apps; other programs' calls are untouched).
 	STUNProcesses []string
 }
 
-const (
-	aiDNSServer  = "dns-ai"
-	aiDNSInbound = "ai-dns-in"
-)
+const aiDNSServer = "dns-ai"
 
 func (g *AIGuard) active() bool {
 	return g != nil && g.Outbound != "" && (len(g.DomainSuffixes)+len(g.Domains)+len(g.IPCIDRs)) > 0
@@ -60,7 +54,8 @@ func (g *AIGuard) match(withIPs bool) M {
 // aiTUN6 gives the TUN an IPv6 address while the guard is on, so IPv6 also
 // enters the tunnel (an AI address learnt outside our DNS — app DoH, hosts
 // file — would otherwise go straight out over IPv6); non-AI IPv6 still
-// follows the normal rules.
+// follows the normal rules. Its peer ::2 is the AI lock's DNS server
+// (aiguard.TunnelServer) while the core runs.
 const aiTUN6 = "fdfe:dcba:9876::1/126"
 
 // tunAddresses is the TUN inbound's address list.
@@ -75,23 +70,6 @@ func tunAddresses(opts Options) []string {
 // cached addresses run out within seconds (the service also flushes the
 // Windows cache on stop); the core keeps its own cache.
 const aiDNSTTL = 10
-
-// aiGuardInbound is the loopback DNS listener (nil when off / no address).
-func aiGuardInbound(opts Options) M {
-	g := opts.AIGuard
-	if !g.active() || g.DNSListen == "" {
-		return nil
-	}
-	return M{"type": "direct", "tag": aiDNSInbound, "listen": g.DNSListen, "listen_port": 53}
-}
-
-// aiGuardHijack answers the listener's queries with our DNS (first rule).
-func aiGuardHijack(opts Options) []M {
-	if aiGuardInbound(opts) == nil {
-		return nil
-	}
-	return []M{{"inbound": []string{aiDNSInbound}, "action": "hijack-dns"}}
-}
 
 // aiGuardRules are the route entries; nil when the guard is off.
 func aiGuardRules(opts Options) []M {

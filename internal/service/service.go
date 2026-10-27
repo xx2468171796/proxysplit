@@ -158,7 +158,7 @@ type Service struct {
 	pv               *powervpn.Client  // POWER云 panel client (nil in tests)
 	aiGuard          bool              // AI 强制走线路（aiguard.go；App 按中转站客户开关）
 	aiGuardOut       string            // 运行中的内核 AI 走的出站（"" = 没开）
-	aiDNSListen      string            // 运行中的内核给 AI 锁应答 DNS 的本机地址（"" = 没有）
+	aiLock           aiLockState       // AI 访问锁的预热 / 检测 / 停止倒计时（ailock.go）
 	aiProxyPort      int               // 给其他程序用的 AI 线路代理端口（本次运行固定；0 = 还没分配）
 	aiProxyUser      string
 	aiProxyPass      string
@@ -1774,6 +1774,7 @@ func (s *Service) splitOptionsLocked(opts *core.Options, node *nodes.Node) split
 func (s *Service) Stop() {
 	s.lifecycleMu.Lock()
 	defer s.lifecycleMu.Unlock()
+	s.lockAIBeforeStop()
 	s.stopLocked()
 }
 

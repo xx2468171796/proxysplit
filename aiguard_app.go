@@ -106,6 +106,8 @@ type AIHijackState struct {
 	On      bool `json:"on"`      // 劫持模式开着
 	Locked  bool `json:"locked"`  // 系统 DNS 锁已加上
 	Visible bool `json:"visible"` // 显示卡片：AI 编程官网客户，或劫持开着 / 恢复过
+	// Lock: 访问锁当前阶段与倒计时（预热 / 放行 / 断线锁住 / 停止前锁住）
+	Lock service.AILockStatus `json:"lock"`
 }
 
 // GetAIHijack reports the switch.
@@ -115,7 +117,8 @@ func (a *App) GetAIHijack() AIHijackState {
 		return AIHijackState{}
 	}
 	on := a.aiGuardWanted()
-	return AIHijackState{On: on, Locked: aiguard.Installed(), Visible: on || readHijack() != "" || a.licenseStatus().Channel == channelAIGW}
+	return AIHijackState{On: on, Locked: a.svc.AILockInstalled(), Visible: on || readHijack() != "" || a.licenseStatus().Channel == channelAIGW,
+		Lock: a.svc.AILockStatus()}
 }
 
 // SetAIHijack is the only way to turn 劫持模式 off (恢复) or back on, and only
@@ -151,14 +154,14 @@ func (a *App) syncAIGuard() {
 		a.svc.LogLine("[AI] 应用 AI 强制走线路时代理重启失败：" + err.Error())
 	}
 	switch {
-	case want && !aiguard.Installed():
+	case want && !a.svc.AILockInstalled():
 		if time.Since(aiLockFailedAt) < aiLockRetryAfter {
 			return
 		}
 		if aiguard.GroupPolicyActive() {
 			a.svc.LogLine("[AI] 这台电脑有域组策略 DNS 规则，AI 锁可能不生效（环境检测里会提示）")
 		}
-		if err := aiguard.Install(); err != nil {
+		if err := a.svc.InstallAILock(); err != nil {
 			aiLockFailedAt = time.Now()
 			a.svc.LogLine("[AI] " + err.Error())
 			return
@@ -166,7 +169,7 @@ func (a *App) syncAIGuard() {
 		aiLockFailedAt = time.Time{}
 		a.svc.LogLine("[AI] 已加 AI 访问锁：ProxySplit 不开时 AI 网站一律打不开，防止用本机 IP 访问")
 	case !want && aiguard.Present():
-		if err := aiguard.Remove(); err != nil {
+		if err := a.svc.RemoveAILock(); err != nil {
 			a.svc.LogLine("[AI] 解除 AI 访问锁失败：" + err.Error())
 			return
 		}
@@ -258,7 +261,7 @@ func (a *App) fixAIEnvItem(id string) error {
 		aiLockFailedAt = time.Time{} // the user asked: try the lock again now
 		aiGuardMu.Unlock()
 		a.syncAIGuard()
-		if !aiguard.Installed() {
+		if !aiguard.Present() {
 			return errors.New("系统 DNS 锁没加上，详情看「日志」页")
 		}
 		if !a.svc.HasNodes() {

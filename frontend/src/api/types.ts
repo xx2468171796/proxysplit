@@ -299,7 +299,14 @@ export type AIEnvReport = {
   exitOurs: boolean;
   checkedAt: string;
 };
-export type AIHijack = { on: boolean; locked: boolean; visible: boolean };
+/** AI 访问锁阶段：locked 代理没开 / warming 预热倒计时 / tunnel 已放行 / down 线路断了锁住 / stopping 停止前倒计时。 */
+export type AILockPhase = "" | "locked" | "warming" | "tunnel" | "down" | "stopping";
+export type AIHijack = {
+  on: boolean;
+  locked: boolean;
+  visible: boolean;
+  lock?: { phase: AILockPhase; seconds: number };
+};
 
 export type BootstrapState = {
   ready?: boolean;

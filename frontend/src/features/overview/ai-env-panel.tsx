@@ -71,6 +71,14 @@ function useAIEnv(always: boolean) {
     };
   }, [always, check, loadHijack, say]);
 
+  // 预热 / 停止倒计时期间每秒刷新，倒计时才走得动。
+  const counting = hijack.lock?.phase === "warming" || hijack.lock?.phase === "stopping";
+  useEffect(() => {
+    if (!counting) return;
+    const timer = setInterval(() => void loadHijack(), 1000);
+    return () => clearInterval(timer);
+  }, [counting, loadHijack]);
+
   const run = async (key: string, action: () => Promise<string>, ok: string) => {
     setFixing(key);
     try {
@@ -85,6 +93,42 @@ function useAIEnv(always: boolean) {
     await check();
   };
   return { report, hijack, checking, fixing, check, run };
+}
+
+/** 劫持开着时 AI 访问锁的当前状态（含倒计时）。 */
+function lockLabel(hijack: AIHijack): string {
+  const lock = hijack.lock;
+  switch (lock?.phase) {
+    case "warming":
+      return `AI 预热中：${lock.seconds} 秒后检测线路，通了就放行 AI`;
+    case "tunnel":
+      return "AI 已放行：经线路访问，每 15 秒检测一次，断了会马上锁住";
+    case "down":
+      return "线路检测不通（断网或节点不可用）：AI 已锁住，恢复后自动放行";
+    case "stopping":
+      return `正在停止：AI 已先锁住，${lock.seconds} 秒后停止代理`;
+    case "locked":
+      return "代理没在运行：AI 已锁住，启动代理后预热 10 秒再放行";
+    default:
+      return "";
+  }
+}
+
+function HijackNote({ hijack }: { hijack: AIHijack }) {
+  if (!hijack.on) return <>已恢复：关掉软件时 AI 会走本机网络，有封号风险。</>;
+  const lock = lockLabel(hijack);
+  return (
+    <>
+      AI 网站只能经我们的线路访问；关掉软件、退出登录、重启电脑都保持劫持，AI
+      不会走本机（大陆）网络。只能在这里「恢复」。
+      {lock ? (
+        <>
+          <br />
+          <strong>{lock}</strong>
+        </>
+      ) : null}
+    </>
+  );
 }
 
 /** 标题栏的出口说明：IP（地区 · 类型）· 是否 POWER云 官方线路。 */
@@ -154,9 +198,7 @@ export function AIEnvPanel({ always = false }: { always?: boolean }) {
           )
         }
       >
-        {hijack.on
-          ? "AI 网站只能经我们的线路访问；关掉软件、退出登录、重启电脑都保持劫持，AI 不会走本机（大陆）网络。只能在这里「恢复」。"
-          : "已恢复：关掉软件时 AI 会走本机网络，有封号风险。"}
+        <HijackNote hijack={hijack} />
       </InlineAlert>
       {report ? (
         <StatusChecklist
