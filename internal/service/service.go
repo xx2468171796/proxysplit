@@ -167,6 +167,19 @@ type Service struct {
 	appMon appid.Monitor // 逐应用连接监测（appmonitor.go）
 	tap    logTap        // 客户端日志上报（telemetry_tap.go）
 	warm   warmState     // 节点保活 + DNS 预热（warm_svc.go）
+
+	quit      chan struct{} // closed by Close: stops the background loops
+	closeOnce sync.Once
+}
+
+// Close stops the background loops started by New (health, app monitor). Safe
+// to call more than once; it does not stop the core (use Stop for that).
+func (s *Service) Close() {
+	s.closeOnce.Do(func() {
+		if s.quit != nil {
+			close(s.quit)
+		}
+	})
 }
 
 // New loads (or initializes) config from dataDir.
@@ -174,7 +187,7 @@ func New(binDir, dataDir string) (*Service, error) {
 	if err := os.MkdirAll(dataDir, 0o755); err != nil {
 		return nil, err
 	}
-	s := &Service{binDir: binDir, dataDir: dataDir, onLog: func(string) {}}
+	s := &Service{binDir: binDir, dataDir: dataDir, onLog: func(string) {}, quit: make(chan struct{})}
 	s.load()
 	s.clashMode = s.cfg.ClashMode // restore last runtime mode (rule|global|direct)
 	s.core = core.NewManager(filepath.Join(binDir, "sing-box.exe"), dataDir, func(line string) { s.log(line) })
