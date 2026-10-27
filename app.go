@@ -25,6 +25,7 @@ import (
 	"proxysplit/internal/powervpn"
 	"proxysplit/internal/proc"
 	"proxysplit/internal/service"
+	"proxysplit/internal/telemetry"
 	"proxysplit/internal/updater"
 )
 
@@ -116,6 +117,7 @@ func (a *App) startup(ctx context.Context) {
 		}
 	}
 	svc.SetDirectDomains(service.DirectDomains(apiHost))
+	a.initTelemetry() // 客户端日志上报（telemetry_app.go），走直连
 	svc.SetStartGuard(a.commercialStartGuard)
 	a.initPowerVPN()
 	svc.SetLogSink(func(line string) {
@@ -285,6 +287,7 @@ func (a *App) shutdown(ctx context.Context) {
 		a.svc.Stop()
 		a.svc.StopProxyPorts()
 	}
+	telemetryExit()
 }
 
 // onSecondInstance fires (on the FIRST/running instance) when the user launches
@@ -360,6 +363,7 @@ type AddResult struct {
 // AddNodes parses share links (one per line) and stores the new ones.
 func (a *App) AddNodes(text string) AddResult {
 	added, skipped := a.svc.AddNodes(text)
+	tmAdd(text, added, skipped)
 	return AddResult{Added: added, Skipped: skipped}
 }
 
@@ -368,36 +372,46 @@ func (a *App) GetNodes() []*nodes.Node { return a.svc.Nodes() }
 
 // AddManualNode adds a node from hand-entered fields (socks/http/...).
 func (a *App) AddManualNode(nodeType, name, server string, port int, username, password string) string {
-	return a.svc.AddManualNode(nodeType, name, server, port, username, password)
+	return tmText(telemetry.NodeAdd, time.Now(), map[string]any{"source": "manual", "protocol": nodeType}, a.svc.AddManualNode(nodeType, name, server, port, username, password))
 }
 
 // RemoveNode deletes a node by id.
-func (a *App) RemoveNode(id string) string { return a.svc.RemoveNode(id) }
+func (a *App) RemoveNode(id string) string {
+	return tmText(telemetry.NodeRemove, time.Now(), a.tmNode(id), a.svc.RemoveNode(id))
+}
 
 // SelectNode sets the active node.
-func (a *App) SelectNode(id string) string { return a.svc.SelectNode(id) }
+func (a *App) SelectNode(id string) string {
+	return tmText(telemetry.NodeSelect, time.Now(), a.tmNode(id), a.svc.SelectNode(id))
+}
 
 // GetApps / SetApps are legacy string-based accessors (kept for compatibility).
 func (a *App) GetApps() []string     { return a.svc.Apps() }
 func (a *App) SetApps(apps []string) { a.svc.SetApps(apps) }
 
 // GetAppRules / SetAppRules manage the app -> line rules.
-func (a *App) GetAppRules() []service.AppRule             { return a.svc.GetAppRules() }
-func (a *App) SetAppRules(rules []service.AppRule) string { return a.svc.SetAppRules(rules) }
+func (a *App) GetAppRules() []service.AppRule { return a.svc.GetAppRules() }
+func (a *App) SetAppRules(rules []service.AppRule) string {
+	return tmText(telemetry.AppRuleChange, time.Now(), appRuleDiff(a.svc.GetAppRules(), rules), a.svc.SetAppRules(rules))
+}
 
 // GetLines / SetLines manage routing lines (builtin + custom; SetLines takes custom).
 func (a *App) GetLines() []service.Line { return a.svc.GetLines() }
 func (a *App) SetLines(lines []service.Line) string {
-	return a.svc.SetLines(lines)
+	return tmText(telemetry.LineChange, time.Now(), map[string]any{"count": len(lines)}, a.svc.SetLines(lines))
 }
 
 // GetRuleMode / SetRuleMode manage blacklist vs whitelist.
-func (a *App) GetRuleMode() string            { return a.svc.GetRuleMode() }
-func (a *App) SetRuleMode(mode string) string { return a.svc.SetRuleMode(mode) }
+func (a *App) GetRuleMode() string { return a.svc.GetRuleMode() }
+func (a *App) SetRuleMode(mode string) string {
+	return tmText(telemetry.ModeChange, time.Now(), map[string]any{"key": "ruleMode", "old": a.svc.GetRuleMode(), "new": mode}, a.svc.SetRuleMode(mode))
+}
 
 // GetDefaultLine / SetDefaultLine: the line for unlisted apps in whitelist mode.
-func (a *App) GetDefaultLine() string          { return a.svc.GetDefaultLine() }
-func (a *App) SetDefaultLine(id string) string { return a.svc.SetDefaultLine(id) }
+func (a *App) GetDefaultLine() string { return a.svc.GetDefaultLine() }
+func (a *App) SetDefaultLine(id string) string {
+	return tmText(telemetry.ModeChange, time.Now(), map[string]any{"key": "defaultLine", "old": a.svc.GetDefaultLine(), "new": id}, a.svc.SetDefaultLine(id))
+}
 
 // ListProcesses returns running executables for the picker.
 func (a *App) ListProcesses() ([]proc.ProcInfo, error) { return a.svc.ListProcesses() }
@@ -406,9 +420,13 @@ func (a *App) ListProcesses() ([]proc.ProcInfo, error) { return a.svc.ListProces
 func (a *App) GetAppIcon(exePath string) string { return a.svc.GetAppIcon(exePath) }
 
 // TestLatency measures one node; TestAllLatency measures every node.
-func (a *App) TestLatency(id string) int { return a.svc.TestLatency(id) }
-func (a *App) TestTCP(id string) int     { return a.svc.TestTCP(id) }
-func (a *App) TestAllLatency()           { a.svc.TestAllLatency() }
+func (a *App) TestLatency(id string) int {
+	return a.tmMs(telemetry.NodeLatency, id, time.Now(), a.svc.TestLatency(id))
+}
+func (a *App) TestTCP(id string) int {
+	return a.tmMs(telemetry.NodeTCP, id, time.Now(), a.svc.TestTCP(id))
+}
+func (a *App) TestAllLatency() { defer a.tmLatencyAll(time.Now()); a.svc.TestAllLatency() }
 
 // GetConnections returns the live per-connection routing trace (进程 → 目标 →
 // 命中规则 → 出口) for the diagnostics view.
@@ -417,18 +435,23 @@ func (a *App) GetConnections() []service.ConnInfo { return a.svc.Connections() }
 // Subscriptions.
 func (a *App) GetSubs() []service.Sub { return a.svc.GetSubs() }
 func (a *App) AddSub(name, url string, autoUpdate bool) string {
-	return errStr(a.svc.AddSub(name, url, autoUpdate))
+	return errStr(tmErr(telemetry.SubAdd, time.Now(), urlHost(url), a.svc.AddSub(name, url, autoUpdate)))
 }
 func (a *App) EditSub(id, name, url string) string {
-	return errStr(a.svc.EditSub(id, name, url))
+	return errStr(tmErr(telemetry.SubEdit, time.Now(), urlHost(url), a.svc.EditSub(id, name, url)))
 }
-func (a *App) UpdateSub(id string) string          { return errStr(a.svc.UpdateSub(id)) }
-func (a *App) RemoveSub(id string)                 { a.svc.RemoveSub(id) }
+func (a *App) UpdateSub(id string) string {
+	return errStr(tmErr(telemetry.SubUpdate, time.Now(), a.tmSub(id), a.svc.UpdateSub(id)))
+}
+func (a *App) RemoveSub(id string) {
+	telemetry.Note(telemetry.SubRemove, a.tmSub(id))
+	a.svc.RemoveSub(id)
+}
 func (a *App) SetSubAutoUpdate(id string, on bool) { a.svc.SetSubAutoUpdate(id, on) }
 
 // Core (sing-box) version + update.
 func (a *App) GetCoreVersion() string { return a.svc.GetCoreVersion() }
-func (a *App) UpdateCore() string     { return a.svc.UpdateCore() }
+func (a *App) UpdateCore() string     { return a.tmCoreUpdate(time.Now(), a.svc.UpdateCore()) }
 
 // Application updates are signed independently from license leases. The UI
 // Updates install automatically (see autoupdate.go); InstallAppUpdate is also
@@ -441,10 +464,11 @@ func (a *App) CheckAppUpdate() updater.Status {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	return a.upd.Check(ctx)
+	return tmUpdate(time.Now(), a.upd.Check(ctx))
 }
 
-func (a *App) InstallAppUpdate(release updater.Release) string {
+func (a *App) InstallAppUpdate(release updater.Release) (msg string) {
+	defer tmInstall(time.Now(), release.Version, &msg)
 	if a.upd == nil {
 		return "自动更新未配置"
 	}
@@ -479,14 +503,16 @@ func (a *App) InstallAppUpdate(release updater.Release) string {
 // Settings.
 func (a *App) GetSettings() service.Settings { return a.svc.GetSettings() }
 func (a *App) SetSettings(s service.Settings) string {
-	msg := a.svc.SetSettings(s)
+	msg := tmText(telemetry.SettingsChange, time.Now(), settingsDiff(a.svc.GetSettings(), s), a.svc.SetSettings(s))
 	a.kickAccel()
 	return msg
 }
 
 // Routing (in-tunnel domain/IP split).
-func (a *App) GetRouting() service.Routing         { return a.svc.GetRouting() }
-func (a *App) SetRouting(r service.Routing) string { return a.svc.SetRouting(r) }
+func (a *App) GetRouting() service.Routing { return a.svc.GetRouting() }
+func (a *App) SetRouting(r service.Routing) string {
+	return tmText(telemetry.ModeChange, time.Now(), map[string]any{"key": "routing", "old": a.svc.GetRouting().Enabled, "new": r.Enabled}, a.svc.SetRouting(r))
+}
 
 // UpdateRuleSets refreshes the geosite/geoip rule-sets (returns "" or an error).
 func (a *App) UpdateRuleSets() string { return a.svc.UpdateRuleSets() }
@@ -494,25 +520,29 @@ func (a *App) UpdateRuleSets() string { return a.svc.UpdateRuleSets() }
 // GetRuleSets returns the state of the routing rule-sets for the 规则 page.
 func (a *App) GetRuleSets() []service.RuleSetInfo { return a.svc.GetRuleSets() }
 func (a *App) SetRuleSetEnabled(name string, enabled bool) string {
-	return a.svc.SetRuleSetEnabled(name, enabled)
+	return tmText(telemetry.RuleSetChange, time.Now(), map[string]any{"name": name, "enabled": enabled}, a.svc.SetRuleSetEnabled(name, enabled))
 }
 
 // Global custom routing rules (域名/IP → 代理/直连/拦截).
 func (a *App) GetCustomRules() []core.RouteRule { return a.svc.GetCustomRules() }
 func (a *App) SetCustomRules(rules []core.RouteRule) string {
-	return a.svc.SetCustomRules(rules)
+	return tmText(telemetry.RuleChange, time.Now(), ruleDiff(a.svc.GetCustomRules(), rules), a.svc.SetCustomRules(rules))
 }
 
 // ResetConfig restores settings/rules/mode to defaults (keeps nodes + subs).
 func (a *App) ResetConfig() { a.svc.ResetConfig() }
 
 // Clash runtime mode toggle (全局/直连/规则 — no restart).
-func (a *App) GetClashMode() string            { return a.svc.GetClashMode() }
-func (a *App) SetClashMode(mode string) string { return errStr(a.svc.SetClashMode(mode)) }
+func (a *App) GetClashMode() string { return a.svc.GetClashMode() }
+func (a *App) SetClashMode(mode string) string {
+	return errStr(tmErr(telemetry.ModeChange, time.Now(), map[string]any{"key": "clashMode", "old": a.svc.GetClashMode(), "new": mode}, a.svc.SetClashMode(mode)))
+}
 
 // System proxy toggle (for legacy apps that only honour the OS proxy).
-func (a *App) GetSystemProxy() bool          { return a.svc.GetSystemProxy() }
-func (a *App) SetSystemProxy(on bool) string { return errStr(a.svc.SetSystemProxy(on)) }
+func (a *App) GetSystemProxy() bool { return a.svc.GetSystemProxy() }
+func (a *App) SetSystemProxy(on bool) string {
+	return errStr(tmErr(telemetry.ModeChange, time.Now(), map[string]any{"key": "systemProxy", "new": on}, a.svc.SetSystemProxy(on)))
+}
 
 // Start-on-login (开机自启) via the Windows Run key.
 func (a *App) GetAutostart() bool          { return a.svc.GetAutostart() }
@@ -609,14 +639,16 @@ type SpeedResult struct {
 
 // SpeedTest measures the active node's download throughput (MB/s) through the core.
 func (a *App) SpeedTest() SpeedResult {
+	t0 := time.Now()
 	mbps, err := a.svc.SpeedTest()
-	return SpeedResult{Mbps: mbps, Err: errStr(err)}
+	return a.tmSpeed(a.svc.Status().SelectedID, t0, SpeedResult{Mbps: mbps, Err: errStr(err)})
 }
 
 // SpeedTestNode measures one specific node's download throughput (MB/s).
 func (a *App) SpeedTestNode(id string) SpeedResult {
+	t0 := time.Now()
 	mbps, err := a.svc.SpeedTestNode(id)
-	return SpeedResult{Mbps: mbps, Err: errStr(err)}
+	return a.tmSpeed(id, t0, SpeedResult{Mbps: mbps, Err: errStr(err)})
 }
 
 // QRResult carries a QR code (PNG data URI) to the UI (payment checkout).
@@ -656,7 +688,7 @@ func (a *App) Start() string {
 // startService delegates to Service.Start, whose internal guard covers every
 // UI, tray, local-control and live-reload restart route.
 func (a *App) startService() error {
-	if err := a.svc.Start(); err != nil {
+	if err := a.tmStart("ui", time.Now(), a.svc.Start()); err != nil {
 		return err
 	}
 	a.watchNetBlocked()
@@ -668,7 +700,7 @@ func (a *App) startService() error {
 // why in the UI.
 func (a *App) watchNetBlocked() {
 	go func() {
-		if msg := a.svc.PostStartCheck(); msg != "" && a.ctx != nil {
+		if msg := tmBlocked(a.svc.PostStartCheck()); msg != "" && a.ctx != nil {
 			runtime.EventsEmit(a.ctx, "net-blocked", msg)
 		}
 	}()
@@ -687,7 +719,7 @@ func (a *App) Login(username, password string) string {
 	if a.lic == nil {
 		return "授权模块尚未初始化"
 	}
-	if err := a.lic.Login(username, password); err != nil {
+	if err := tmErr(telemetry.AccountLogin, time.Now(), map[string]any{"method": "password"}, a.lic.Login(username, password)); err != nil {
 		return err.Error()
 	}
 	a.afterSignIn()
@@ -698,7 +730,7 @@ func (a *App) Register(username, email, password, ref string) string {
 	if a.lic == nil {
 		return "授权模块尚未初始化"
 	}
-	return errStr(a.lic.Register(username, email, password, ref))
+	return errStr(tmErr(telemetry.AccountRegister, time.Now(), map[string]any{"withRef": ref != ""}, a.lic.Register(username, email, password, ref)))
 }
 
 type PlansResult struct {
@@ -857,7 +889,7 @@ func (a *App) RedeemCode(code string) string {
 	if code == "" {
 		return "请输入兑换码"
 	}
-	return errStr(a.lic.Redeem(code))
+	return errStr(tmErr(telemetry.AccountRedeem, time.Now(), nil, a.lic.Redeem(code)))
 }
 
 func (a *App) Logout() string {
@@ -865,15 +897,20 @@ func (a *App) Logout() string {
 		return ""
 	}
 	a.svc.Stop()
+	telemetry.Note(telemetry.AccountLogout, nil)
 	// 劫持模式 stays on after sign-out: only the in-app 恢复 lifts it.
 	return errStr(a.lic.Logout())
 }
 
 // Stop stops everything.
-func (a *App) Stop() { a.svc.Stop() }
+func (a *App) Stop() {
+	telemetry.Note(telemetry.ProxyStop, map[string]any{"trigger": "ui"})
+	a.svc.Stop()
+}
 
 // Restart stops then starts the core (one click to reload after config changes).
 func (a *App) Restart() string {
+	telemetry.Note(telemetry.ProxyRestart, map[string]any{"trigger": "ui"})
 	a.svc.Stop()
 	if err := a.startService(); err != nil {
 		return err.Error()

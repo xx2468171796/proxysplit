@@ -4,14 +4,15 @@ import rateLimit from '@fastify/rate-limit'
 import { Redis } from 'ioredis'
 import { AppError, normalizeUsername } from '@proxysplit/shared'
 import { activateDeviceSchema, powervpnLoginSchema, powervpnSyncSchema, adminGrantSchema, adminPowervpnProvisionSchema, selfPasswordSchema, webRegisterSchema, analyticsQuerySchema, announcementListQuery, announcementUpsertSchema, auditListQuery, deviceListQuery, downloadStatsQuery, leaseSchema, licenseExtendSchema, loginSchema, orderCreateSchema, orderListQuery, orderRefundSchema, planListQuery, planPatchSchema, planUpsertSchema, providerUpsertSchema, redeemCodeCreateSchema, redeemListQuery, redeemSchema, refreshSchema, registerSchema, releaseCreateSchema, releaseListQuery, settingPatchSchema, trackViewSchema, userCreateSchema, userListQuery, userPasswordSchema, userStatusSchema } from '@proxysplit/contracts'
-import { AccelTokens, createCommercialCore, FenxiaoService, hashPassword, PaymentService, type AuthService, type PgStore } from '@proxysplit/core'
+import { AccelTokens, createCommercialCore, FenxiaoService, hashPassword, PaymentService, TelemetryQuery, TelemetryStore, type AuthService, type PgStore } from '@proxysplit/core'
 import type { ApiConfig } from './config.js'
 import { registerFenxiaoRoutes } from './fenxiao-routes.js'
+import { registerTelemetryRoutes, type TelemetryDeps } from './telemetry-routes.js'
 
-type Core={auth:AuthService;store:PgStore;fenxiao?:FenxiaoService;close:()=>Promise<void>}
+type Core={auth:AuthService;store:PgStore;fenxiao?:FenxiaoService;telemetry?:Pick<TelemetryDeps,'store'|'query'>;close:()=>Promise<void>}
 const bearer=(value?:string)=>value?.startsWith('Bearer ')?value.slice(7):''
 export async function buildApp(config:ApiConfig,provided?:Core){
-  const core=provided??await createCommercialCore({databaseUrl:config.DATABASE_URL,auth:{accessSecret:config.ACCESS_TOKEN_SECRET,refreshDays:config.REFRESH_TOKEN_TTL_DAYS,...(config.LICENSE_PRIVATE_KEY_PEM?{licensePrivateKeyPem:config.LICENSE_PRIVATE_KEY_PEM}:{}),...(config.LICENSE_PUBLIC_KEY_PEM?{licensePublicKeyPem:config.LICENSE_PUBLIC_KEY_PEM}:{}),powervpn:{baseUrl:config.POWERVPN_BASE_URL??'https://lxc.5fskins.com'}},...(config.BOOTSTRAP_ADMIN_USERNAME&&config.BOOTSTRAP_ADMIN_PASSWORD?{bootstrapAdmin:{username:config.BOOTSTRAP_ADMIN_USERNAME,password:config.BOOTSTRAP_ADMIN_PASSWORD}}:{})})
+  const core:Core=provided??await createCommercialCore({databaseUrl:config.DATABASE_URL,auth:{accessSecret:config.ACCESS_TOKEN_SECRET,refreshDays:config.REFRESH_TOKEN_TTL_DAYS,...(config.LICENSE_PRIVATE_KEY_PEM?{licensePrivateKeyPem:config.LICENSE_PRIVATE_KEY_PEM}:{}),...(config.LICENSE_PUBLIC_KEY_PEM?{licensePublicKeyPem:config.LICENSE_PUBLIC_KEY_PEM}:{}),powervpn:{baseUrl:config.POWERVPN_BASE_URL??'https://lxc.5fskins.com'}},...(config.BOOTSTRAP_ADMIN_USERNAME&&config.BOOTSTRAP_ADMIN_PASSWORD?{bootstrapAdmin:{username:config.BOOTSTRAP_ADMIN_USERNAME,password:config.BOOTSTRAP_ADMIN_PASSWORD}}:{})})
   // The API port is host-loopback-only and has exactly one Nginx hop. Nginx
   // overwrites (rather than appends) X-Forwarded-For, so client-supplied hops
   // cannot become req.ip even though Docker changes the proxy source address.
@@ -47,6 +48,11 @@ export async function buildApp(config:ApiConfig,provided?:Core){
 
   app.get('/health',async()=>({ok:true,service:'proxysplit-commercial-api'}))
   registerFenxiaoRoutes(app,{service:core.fenxiao??new FenxiaoService(core.store),store:core.store,publicBaseUrl:config.PUBLIC_BASE_URL,auth:req=>auth(req),admin})
+  // 客户端日志上报（telemetry-routes.ts）：令牌可选，没有就按设备 + IP 限流
+  const telemetry=core.telemetry??{store:new TelemetryStore(core.store.pool),query:new TelemetryQuery(core.store.pool)}
+  registerTelemetryRoutes(app,{...telemetry,admin,retentionDays:config.TELEMETRY_RETENTION_DAYS??15,maxGzipBytes:config.TELEMETRY_MAX_GZIP_BYTES??1024*1024,
+    perDevicePerMinute:config.TELEMETRY_PER_DEVICE_PER_MINUTE??30,runRetention:config.NODE_ENV!=='test',log:app.log,
+    optionalUser:async req=>{const token=bearer(req.headers.authorization);if(!token)return null;try{return (await core.auth.verifyAccess(token)).userId}catch{return null}}})
   // 分佣冻结期到了转可提现：每 5 分钟扫一次（查余额时也会给本人补跑）。
   const fenxiaoReleaseTimer=config.NODE_ENV==='test'?undefined:setInterval(()=>{core.store.fx.releaseDue().catch(e=>app.log.warn({err:e},'fenxiao releaseDue failed'))},5*60_000)
   fenxiaoReleaseTimer?.unref()

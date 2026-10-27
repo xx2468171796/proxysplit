@@ -24,6 +24,11 @@ function CoreFacts() {
         { label: "ProxySplit 版本", value: `v${current}`, hint: "升级后自动重启，不会改动节点和规则" },
         { label: "sing-box 版本", value: coreVersion || "—", hint: "POWER云 标准内核" },
         { label: "本地端口", value: running ? port || "—" : "未运行", hint: "混合入站 SOCKS5 + HTTP，自动分配" },
+        {
+          label: "运行日志",
+          value: "自动上传",
+          hint: "为了排查问题，客户端会把运行日志上传到服务器（不含节点密码和账号密钥）",
+        },
       ]}
     />
   );

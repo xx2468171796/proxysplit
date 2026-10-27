@@ -11,7 +11,7 @@ import (
 func (a *App) GetAppCatalog() []appid.App { return a.svc.AppCatalog() }
 
 // SetCustomApps saves the user's own applications.
-func (a *App) SetCustomApps(apps []appid.App) string { return a.svc.SetCustomApps(apps) }
+func (a *App) SetCustomApps(apps []appid.App) string { return tmCustomApps(apps, a.svc.SetCustomApps) }
 
 // GetAppStats returns per-process monitoring summaries for the given names.
 func (a *App) GetAppStats(names []string) []appid.Stat { return a.svc.AppStats(names) }
@@ -26,5 +26,5 @@ func (a *App) ResetAppMonitor(process string) { a.svc.ResetAppMonitor(process) }
 
 // AppRouteTest sends a real request as the given program and reports its route.
 func (a *App) AppRouteTest(process, url string) service.RouteTestResult {
-	return a.svc.RouteTest(process, url)
+	return tmRouteRun(a.svc.RouteTest, process, url)
 }

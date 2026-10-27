@@ -222,7 +222,7 @@ func (a *App) CheckAIEnv() service.AIEnvReport {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	return a.svc.AIEnvCheck(ctx)
+	return tmAIEnv(time.Now(), a.svc.AIEnvCheck(ctx))
 }
 
 // FixAIEnv applies one fix from the check ("all" = every fixable item of a
@@ -233,7 +233,7 @@ func (a *App) FixAIEnv(id string) string {
 		return "程序尚未初始化完成"
 	}
 	if id != "all" {
-		return errStr(a.fixAIEnvItem(id))
+		return tmTextRun(tmAIEnvFix, map[string]any{"id": id}, func() string { return errStr(a.fixAIEnvItem(id)) })
 	}
 	var errs []string
 	for _, it := range a.CheckAIEnv().Items {

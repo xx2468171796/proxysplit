@@ -175,6 +175,7 @@ type Service struct {
 	ports portSet // 端口代理运行状态（proxyports.go）
 
 	appMon appid.Monitor // 逐应用连接监测（appmonitor.go）
+	tap    logTap        // 客户端日志上报（telemetry_tap.go）
 }
 
 // New loads (or initializes) config from dataDir.
@@ -250,6 +251,7 @@ func (s *Service) SetLogSink(fn func(string)) {
 
 func (s *Service) log(line string) {
 	s.logs.add(line)
+	s.tap.send(line) // telemetry spool (telemetry_tap.go)
 	s.appMon.OnLog(line, time.Now())
 	s.mu.Lock()
 	fn := s.onLog

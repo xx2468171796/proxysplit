@@ -140,6 +140,7 @@ func (a *App) resumeAfterUpdate() {
 	if !fresh {
 		return
 	}
+	tmUpdateResult(st.From, st.To, installFailed(st, appVersion))
 	if installFailed(st, appVersion) {
 		f, _ := json.Marshal(failedUpdate{Version: st.To, At: time.Now()})
 		_ = os.WriteFile(failedUpdatePath(), f, 0o600)
