@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"proxysplit/internal/nodes"
+	"proxysplit/internal/procjob"
 )
 
 // ExeName is the sidecar binary, kept next to sing-box.exe.
@@ -242,6 +243,7 @@ func (s *Sidecar) launch(entries []Entry) (*exec.Cmd, chan struct{}, error) {
 		closeFile(logFile)
 		return nil, nil, fmt.Errorf("启动 Xray 内核失败：%w", err)
 	}
+	procjob.Attach(cmd) // dies with us if we crash (Job Object)
 	var wg sync.WaitGroup
 	wg.Add(2)
 	var logMu sync.Mutex

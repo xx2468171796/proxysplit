@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"proxysplit/internal/nodes"
+	"proxysplit/internal/procjob"
 	"proxysplit/internal/xray"
 )
 
@@ -193,6 +194,7 @@ func (m *Manager) StartLines(lines []LineConfig, logLevel string, opts Options) 
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("start sing-box: %w", err)
 	}
+	procjob.Attach(cmd) // dies with us if we crash (Job Object)
 	go m.pump(stdout)
 	go m.pump(stderr)
 
@@ -444,6 +446,7 @@ func (m *Manager) spawn(cfgPath string) error {
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("start sing-box: %w", err)
 	}
+	procjob.Attach(cmd) // dies with us if we crash (Job Object)
 	go m.pump(stdout)
 	go m.pump(stderr)
 

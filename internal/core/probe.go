@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"proxysplit/internal/nodes"
+	"proxysplit/internal/procjob"
 	"proxysplit/internal/xray"
 )
 
@@ -90,6 +91,7 @@ func StartProbe(binPath, tempBase string, node *nodes.Node, startupTimeout time.
 		cleanup()
 		return nil, fmt.Errorf("start probe core: %w", err)
 	}
+	procjob.Attach(cmd) // dies with us if we crash (Job Object)
 
 	p := &Probe{cmd: cmd, dir: dir, addr: fmt.Sprintf("127.0.0.1:%d", port), xray: sc}
 	if err := waitPort(port, startupTimeout); err != nil {

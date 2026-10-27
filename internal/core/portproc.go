@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"proxysplit/internal/nodes"
+	"proxysplit/internal/procjob"
 	"proxysplit/internal/xray"
 )
 
@@ -109,6 +110,7 @@ func (p *PortProcess) Start(cfg []byte, probePort int) error {
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("启动内核失败：%w", err)
 	}
+	procjob.Attach(cmd) // dies with us if we crash (Job Object)
 	go pumpLines(stdout, p.onLog)
 	go pumpLines(stderr, p.onLog)
 	done := make(chan struct{})
