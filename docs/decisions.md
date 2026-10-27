@@ -4,6 +4,12 @@
 > 结论与坑已提炼到 `docs/memory/<主题>.md`；这里是事实存档，按标题取（`node ~/.ankotti/ai-kit/mem.mjs <关键词>`），不要整份读。
 > 约定：sz = 深圳生产机；incoming = sz `/opt/proxysplit/incoming/`；客户端回滚 = 该版本 incoming 目录 `python3 publish-client.py rollback` 并删 releases 表里该版本那行。
 
+## 2026-10-28 默认接管方式改为仅接管选中程序 + 参照 v2rayN 加固 TUN（v1.10.2）
+- 业主：产品核心是只接管选中程序，没加进名单的程序不能经过本软件。Settings.ProcessCapture()：CaptureMode 为空即 process，只有显式 "tun" 才整机虚拟网卡；AI 劫持开着仍用 TUN；WinDivert 驱动未就绪时本次回落 TUN 并后台下载（不报错）。
+- 起因：业主账号设备 bbbc… 一直跑默认 TUN，微信虽判直连但经 TUN，被 IPv6 问题拖慢。
+- 参照 v2rayN（源码 + issue）补三项：自身 TUN 地址 /32、/128 drop（#9897 WebRTC 回环，只丢主机地址，::2 是 DNS）；hijack-dns 改为 port 53 或 protocol dns（#9325）；TUN IPv4 网段按本机接口挑空闲（172.19.0.1/30 → 198.18.0.1/30 → 10.255.254.1/30，#9810 Hyper-V 冲突）。
+- 未采纳：v2rayN 拒绝 UDP 135/137-139/5353 与组播（会伤局域网发现 / 共享）；出站网卡手动指定、strict_route 开关（暂无我方用户报障，先记着）。
+
 ## 2026-10-28 公网 IPv6 改到 sniff 前拒绝、ICMP 直连（v1.10.2）
 - 现象：业主电脑开代理后微信发图失败；客户 WinMTR 设「不走代理」仍像被代理。
 - 根因：① 1.10.0 起 TUN 恒带 IPv6，无 IPv6 出口的电脑上微信（自带 DNS，拿到 240e:… 地址）连 IPv6；sniff 在前，TUN 先完成握手再拒绝 / 直连失败（connectex unreachable network），程序以为连上了，反复重试 IPv6 不退回 IPv4。② ICMP 只能走 direct 出站，默认全走代理时 final=节点，ping 被拒。

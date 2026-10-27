@@ -19,12 +19,12 @@ func TestStreamPresetIsOverridable(t *testing.T) {
 }
 
 func TestPrepareProcessCaptureReusesPorts(t *testing.T) {
-	s := &Service{onLog: func(string) {}}
+	s := &Service{onLog: func(string) {}, wdReady: func() bool { return true }}
 	opts := core.Options{Split: true, SplitWhitelist: true, SplitGroups: []core.SplitGroup{{Key: "a", NodeTag: "proxy"}}}
-	if err := s.prepareProcessCapture(Settings{}, &opts, nil); err != nil || opts.Process != nil {
-		t.Fatal("default capture mode must stay TUN")
+	if err := s.prepareProcessCapture(Settings{CaptureMode: CaptureTUN}, &opts, nil); err != nil || opts.Process != nil {
+		t.Fatal("explicit 整机虚拟网卡 must stay TUN")
 	}
-	if err := s.prepareProcessCapture(Settings{CaptureMode: CaptureProcess}, &opts, nil); err != nil || opts.Process == nil {
+	if err := s.prepareProcessCapture(Settings{}, &opts, nil); err != nil || opts.Process == nil {
 		t.Fatalf("process mode not prepared: %v", err)
 	}
 	first := opts.Process.Ports
@@ -37,5 +37,14 @@ func TestPrepareProcessCaptureReusesPorts(t *testing.T) {
 		if again.Process.Ports[tag] != p {
 			t.Fatalf("hot apply must keep inbound %s on port %d (got %d)", tag, p, again.Process.Ports[tag])
 		}
+	}
+}
+
+// Without the driver the default must still start (TUN this once), never fail.
+func TestProcessCaptureFallsBackWithoutDriver(t *testing.T) {
+	s := &Service{onLog: func(string) {}, wdReady: func() bool { return false }, wdFetch: make(chan struct{})}
+	opts := core.Options{Split: true, SplitWhitelist: true, SplitGroups: []core.SplitGroup{{Key: "a", NodeTag: "proxy"}}}
+	if err := s.prepareProcessCapture(Settings{}, &opts, nil); err != nil || opts.Process != nil {
+		t.Fatalf("missing driver must fall back to TUN: %v", err)
 	}
 }

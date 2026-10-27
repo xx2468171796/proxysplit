@@ -112,7 +112,7 @@ func TestEgressConfigsPassCheck(t *testing.T) {
 func sniffFirst(rules []M) bool {
 	for i, r := range rules {
 		if r["action"] == "sniff" {
-			return i == 0 || i == len(tunPreSniffRules())
+			return i == 0 || i == len(tunPreSniffRules(tunAddr4Pool[0]))
 		}
 	}
 	return false

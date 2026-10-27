@@ -48,7 +48,7 @@ func TestAccelInboundRoutesToClaudeLine(t *testing.T) {
 	if in == nil || in["listen"] != "127.0.0.1" || in["type"] != "mixed" {
 		t.Fatalf("应有只听回环的 accel-in 入口：%v", cfg.Inbounds)
 	}
-	n := len(tunPreSniffRules())
+	n := len(tunPreSniffRules(tunAddr4Pool[0]))
 	r2, r3 := cfg.Route.Rules[n+2], cfg.Route.Rules[n+3]
 	if r2["clash_mode"] != "direct" || r2["outbound"] != "direct" || r3["outbound"] != "node-x" {
 		t.Fatalf("加速入口规则应紧跟 sniff/dns，且直连模式优先：%v %v", r2, r3)

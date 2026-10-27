@@ -389,7 +389,7 @@ func TestSplitKeepsOwnAPIDirectFirst(t *testing.T) {
 	for i, raw := range routeRulesFromConfig(t, cfg) {
 		rule := raw.(map[string]interface{})
 		if d, ok := rule["domain"].([]interface{}); ok && len(d) == 1 && d[0] == "proxysplit.example.cn" && rule["outbound"] == "direct" {
-			if i > 3+len(tunPreSniffRules()) { // only the pre-sniff rules, sniff, DNS hijack and the 拦截 list may precede it
+			if i > 3+len(tunPreSniffRules(tunAddr4Pool[0])) { // only the pre-sniff rules, sniff, DNS hijack and the 拦截 list may precede it
 				t.Fatalf("own-API direct rule at idx %d, want right after sniff/DNS/拦截", i)
 			}
 			return

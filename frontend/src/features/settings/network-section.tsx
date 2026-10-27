@@ -19,7 +19,7 @@ const ITEMS: { key: Key; label: string; hint: string }[] = [
   { key: "excludeSelf", label: "代理程序自身不走代理", hint: "避免流量绕圈 / 死循环。建议开" },
 ];
 
-const asCapture = (v: string | undefined): Capture => (v === "process" ? "process" : "tun");
+const asCapture = (v: string | undefined): Capture => (v === "tun" ? "tun" : "process");
 
 /** 切换代理范围会重启内核：切换中先锁住，避免连点。 */
 function ScopeField() {

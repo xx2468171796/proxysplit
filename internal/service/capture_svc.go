@@ -13,9 +13,14 @@ import (
 
 // Capture modes (Settings.CaptureMode).
 const (
-	CaptureTUN     = "tun"     // 整机虚拟网卡：sing-box TUN 收全部流量（默认）
-	CaptureProcess = "process" // 仅接管选中程序：WinDivert 只接管名单里的程序
+	CaptureTUN     = "tun"     // 整机虚拟网卡：sing-box TUN 收全部流量（须显式选择）
+	CaptureProcess = "process" // 仅接管选中程序：WinDivert 只接管名单里的程序（默认，含未设置）
 )
+
+// ProcessCapture reports 仅接管选中程序, the default (业主 2026-10-28: the
+// product is per-program capture; unlisted programs must not pass through us).
+// Only an explicit "tun" picks 整机虚拟网卡.
+func (st Settings) ProcessCapture() bool { return st.CaptureMode != CaptureTUN }
 
 // streamPreset are live-streaming programs sent direct by default (推流程序默认
 // 直连) unless the user lists them anywhere; upload-heavy pushes must never sit
@@ -43,11 +48,18 @@ func streamPresetApps(targets map[string]string) []string {
 // it. The AI lock needs every program's DNS and traffic, so it keeps the TUN.
 // reuse keeps the running core's ports (hot app-list changes compare configs).
 func (s *Service) prepareProcessCapture(set Settings, opts *core.Options, reuse map[string]int) error {
-	if set.CaptureMode != CaptureProcess {
+	if !set.ProcessCapture() {
 		return nil
 	}
 	if opts.AIGuardActive() {
 		s.log("[capture] AI 强制走线路需要整机虚拟网卡，本次仍用 TUN 接管")
+		return nil
+	}
+	if !s.winDivertReady() {
+		// First start after install / update: never fail it, use the TUN this
+		// once while the driver downloads.
+		s.prefetchWinDivert()
+		s.log("[capture] 「仅接管选中程序」的驱动还在下载，本次先用整机虚拟网卡，下次启动自动切换")
 		return nil
 	}
 	ports := map[string]int{}
@@ -64,6 +76,14 @@ func (s *Service) prepareProcessCapture(set Settings, opts *core.Options, reuse 
 	}
 	opts.Process = &core.ProcessCapture{Ports: ports}
 	return nil
+}
+
+// winDivertReady reports the driver files are in place (tests stub it).
+func (s *Service) winDivertReady() bool {
+	if s.wdReady != nil {
+		return s.wdReady()
+	}
+	return coreupdate.WinDivertReady(s.binDir)
 }
 
 func processPorts(opts core.Options) map[string]int {
@@ -137,9 +157,9 @@ func (s *Service) prefetchWinDivert() <-chan struct{} {
 // mirror may take up to winDivertWait, and start/stop must stay responsive.
 func (s *Service) ensureWinDivertUnlocked() {
 	s.mu.Lock()
-	mode := s.cfg.Settings.CaptureMode
+	proc := s.cfg.Settings.ProcessCapture()
 	s.mu.Unlock()
-	if mode != CaptureProcess || coreupdate.WinDivertReady(s.binDir) {
+	if !proc || coreupdate.WinDivertReady(s.binDir) {
 		return
 	}
 	s.log("[capture] 正在下载「仅接管选中程序」需要的 WinDivert 驱动…")

@@ -69,11 +69,11 @@ func (a *App) tmSnapshot() map[string]any {
 	}
 	st, s := a.svc.Status(), a.svc.GetSettings()
 	// global = whole machine (TunMode); otherwise per-app split captured by the
-	// sing-box TUN (default) or WinDivert for selected programs only.
+	// WinDivert for selected programs only (default) or the sing-box TUN.
 	capture := service.CaptureTUN
 	if s.TunMode {
 		capture = "global"
-	} else if s.CaptureMode == service.CaptureProcess {
+	} else if s.ProcessCapture() {
 		capture = service.CaptureProcess
 	}
 	return map[string]any{

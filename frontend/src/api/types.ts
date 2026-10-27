@@ -128,7 +128,7 @@ export type Settings = {
   autoUpdateCoreOff?: boolean;
   claudeAccelOff?: boolean;
   claudeAccelAutoOff?: boolean;
-  /** 接管方式：tun（默认，整机虚拟网卡）/ process（仅接管选中程序）。 */
+  /** 接管方式：process（默认，含未设置：仅接管选中程序）/ tun（整机虚拟网卡）。 */
   captureMode?: string;
   /** 关掉内置「推流程序默认直连」。 */
   streamDirectOff?: boolean;

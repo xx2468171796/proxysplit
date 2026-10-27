@@ -305,9 +305,9 @@ func TestTUNPreSniffRules(t *testing.T) {
 			t.Fatal(err)
 		}
 		rules := routeRulesFromConfig(t, cfg)
-		r0, r1, r2 := rules[0].(map[string]any), rules[1].(map[string]any), rules[2].(map[string]any)
-		if r0["action"] != "reject" || r0["type"] != "logical" || r2["action"] != "sniff" {
-			t.Fatalf("white=%v: want IPv6 reject, ICMP direct, then sniff: %v %v %v", white, r0, r1, r2)
+		self, r0, r1, r2 := rules[0].(map[string]any), rules[1].(map[string]any), rules[2].(map[string]any), rules[3].(map[string]any)
+		if self["method"] != "drop" || r0["action"] != "reject" || r0["type"] != "logical" || r2["action"] != "sniff" {
+			t.Fatalf("white=%v: want self drop, IPv6 reject, ICMP direct, then sniff: %v %v %v %v", white, self, r0, r1, r2)
 		}
 		if n, _ := r1["network"].([]any); len(n) != 1 || n[0] != "icmp" || r1["outbound"] != "direct" {
 			t.Fatalf("white=%v: ICMP rule = %v", white, r1)

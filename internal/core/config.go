@@ -724,9 +724,12 @@ func buildTUNTree(node *nodes.Node, logLevel string, opts Options) (M, error) {
 	// so adding/removing apps between existing lists needs no core restart.
 	// The Xray sidecar goes direct ahead of hijack-dns (its own DNS lookups
 	// must not be pulled into dns-remote, which runs through Xray itself).
-	rules := append(tunPreSniffRules(), M{"action": "sniff"})
+	a4 := tunAddr4()
+	rules := append(tunPreSniffRules(a4), M{"action": "sniff"})
 	rules = append(rules, xrayRules(opts)...)
-	rules = append(rules, M{"protocol": "dns", "action": "hijack-dns"})
+	// Port 53 OR sniffed DNS: a query sniff could not classify still gets our
+	// answer instead of leaving for the ISP resolver (v2rayN #9325).
+	rules = append(rules, M{"type": "logical", "mode": "or", "rules": []M{{"port": 53}, {"protocol": "dns"}}, "action": "hijack-dns"})
 	guarded := opts.AIGuard.active()
 	if !guarded {
 		rules = append(rules, accelRules(opts, clashExp != nil)...)
@@ -924,7 +927,7 @@ func buildTUNTree(node *nodes.Node, logLevel string, opts Options) (M, error) {
 		{
 			"type":         "tun",
 			"tag":          "tun-in",
-			"address":      tunAddresses(opts),
+			"address":      tunAddresses(a4),
 			"mtu":          1500,
 			"auto_route":   true,
 			"strict_route": true,

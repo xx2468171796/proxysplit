@@ -176,6 +176,7 @@ type Service struct {
 	exits            exitsCache      // AI 页实时出口 IP（exits.go）
 	capEng           *capture.Engine // 仅接管选中程序的抓包引擎（capture_svc.go；nil = TUN）
 	wdFetch          chan struct{}   // in-flight WinDivert download (prefetchWinDivert)
+	wdReady          func() bool     // nil = coreupdate.WinDivertReady (tests stub it)
 
 	followOnce    sync.Once // core follow (corefollow.go)
 	followStart   sync.Once
@@ -1437,7 +1438,7 @@ func (s *Service) SetSettings(st Settings) string {
 	s.cfg.Settings = st
 	s.save()
 	s.mu.Unlock()
-	if st.CaptureMode == CaptureProcess && old.CaptureMode != CaptureProcess {
+	if st.ProcessCapture() && !old.ProcessCapture() {
 		s.ensureWinDivertUnlocked() // fetch the driver before restart takes lifecycleMu
 	}
 	// Switching capture mode (TUN <-> app-split), QUIC policy, LAN sharing or
@@ -1446,7 +1447,7 @@ func (s *Service) SetSettings(st Settings) string {
 		old.LanShare != st.LanShare || old.RemoteDNS != st.RemoteDNS ||
 		old.LanPort != st.LanPort || old.LanType != st.LanType || old.LanUser != st.LanUser || old.LanPass != st.LanPass ||
 		old.PrivateDirect != st.PrivateDirect || old.ExcludeSelf != st.ExcludeSelf ||
-		old.ClaudeAccelOff != st.ClaudeAccelOff || old.CaptureMode != st.CaptureMode || old.StreamDirectOff != st.StreamDirectOff) {
+		old.ClaudeAccelOff != st.ClaudeAccelOff || old.ProcessCapture() != st.ProcessCapture() || old.StreamDirectOff != st.StreamDirectOff) {
 		if err := s.restart(); err != nil {
 			s.log("[service] restart after settings change failed: " + err.Error())
 			return restartMsg(err)
@@ -1805,7 +1806,7 @@ func (s *Service) splitOptionsLocked(opts *core.Options, node *nodes.Node) split
 	}
 	// 推流程序默认直连 only in 仅接管选中程序: in TUN it would silently move
 	// existing users who stream abroad through the proxy (OBS → YouTube) to direct.
-	if s.cfg.Settings.CaptureMode == CaptureProcess && !s.cfg.Settings.StreamDirectOff {
+	if s.cfg.Settings.ProcessCapture() && !s.cfg.Settings.StreamDirectOff {
 		directApps = append(directApps, streamPresetApps(sum.targets)...)
 	}
 	sort.Strings(directApps)

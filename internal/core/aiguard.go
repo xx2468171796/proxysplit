@@ -1,5 +1,7 @@
 package core
 
+import "net/netip"
+
 // AIGuard (AI-site customers) pins AI services to our own line. Its rules sit
 // right after the housekeeping rules (sniff, DNS hijack, 拦截 apps, our API, LAN)
 // and before every app list and 代理策略, so whichever program connects —
@@ -80,11 +82,18 @@ func tunIPv6Rules() []M {
 //     IPv6 instead of falling back; on a PC without an IPv6 uplink WeChat
 //     failed to send images that way (业主 2026-10-28, 240e:… "unreachable
 //     network" in a loop). A refused SYN makes it use IPv4 at once.
+//   - our own TUN address is dropped (loop guard, see below);
 //   - ICMP (ping, WinMTR) goes direct: only the direct outbound can carry it,
 //     so in 默认全走代理 it was refused by the node and the app looked
 //     "proxied though set to 不走代理" (customer, 2026-10-28).
-func tunPreSniffRules() []M {
+func tunPreSniffRules(a4 string) []M {
+	self4 := netip.MustParsePrefix(a4).Addr().String() + "/32"
+	self6 := netip.MustParsePrefix(aiTUN6).Addr().String() + "/128"
 	return []M{
+		// Our own TUN address as a destination (a WebRTC ICE candidate) would
+		// go direct as private and come straight back into the TUN, looping
+		// (v2rayN #9897). Only the host address: the peer (::2) is our DNS.
+		{"ip_cidr": []string{self4, self6}, "action": "reject", "method": "drop"},
 		{"type": "logical", "mode": "and", "rules": []M{
 			{"ip_version": 6},
 			{"ip_is_private": true, "invert": true},
@@ -94,9 +103,10 @@ func tunPreSniffRules() []M {
 	}
 }
 
-// tunAddresses is the TUN inbound's address list: IPv4 and IPv6, always.
-func tunAddresses(Options) []string {
-	return []string{"172.19.0.1/30", aiTUN6}
+// tunAddresses is the TUN inbound's address list: IPv4 (a4, see tunAddr4)
+// and IPv6, always.
+func tunAddresses(a4 string) []string {
+	return []string{a4, aiTUN6}
 }
 
 // aiDNSTTL caps the TTL clients see for AI names, so after the core stops
