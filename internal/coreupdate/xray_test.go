@@ -31,7 +31,7 @@ func TestInstallXrayVerifiesAndKeepsBackup(t *testing.T) {
 	if XrayInstalled(dir, r2) {
 		t.Fatal("v1 reported as v2")
 	}
-	if err := EnsureBundledXray(dir, v2, r2); err != nil || !XrayInstalled(dir, r2) {
+	if err := EnsureBundledXray(dir, func() ([]byte, error) { return v2, nil }, r2); err != nil || !XrayInstalled(dir, r2) {
 		t.Fatalf("upgrade to bundled: %v", err)
 	}
 	if old, _ := os.ReadFile(filepath.Join(dir, XrayExe+".old")); !bytes.Equal(old, v1) {

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"embed"
+	"io/fs"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 
@@ -18,8 +19,18 @@ import (
 var xrayFS embed.FS
 
 // setupXray installs the bundled Xray sidecar into bin and registers the lazy
-// downloader. Failures only affect Xray-only nodes, never startup.
+// downloader in the background, off the UI path; a proxy start that needs
+// Xray waits for it (core.BeginXraySetup). Failures only affect Xray-only
+// nodes, never startup.
 func setupXray(ctx context.Context, bin string) {
+	finish := core.BeginXraySetup()
+	go func() {
+		defer finish()
+		installXray(ctx, bin)
+	}()
+}
+
+func installXray(ctx context.Context, bin string) {
 	raw, err := xrayFS.ReadFile("bin/xray-release.json")
 	if err != nil {
 		return
@@ -29,8 +40,9 @@ func setupXray(ctx context.Context, bin string) {
 		runtime.LogError(ctx, "xray release: "+err.Error())
 		return
 	}
-	if exe, err := xrayFS.ReadFile("bin/" + coreupdate.XrayExe); err == nil {
-		if err := coreupdate.EnsureBundledXray(bin, exe, rel); err != nil {
+	if _, err := fs.Stat(xrayFS, "bin/"+coreupdate.XrayExe); err == nil {
+		load := func() ([]byte, error) { return xrayFS.ReadFile("bin/" + coreupdate.XrayExe) }
+		if err := coreupdate.EnsureBundledXray(bin, load, rel); err != nil {
 			runtime.LogError(ctx, "xray payload: "+err.Error())
 		}
 	}

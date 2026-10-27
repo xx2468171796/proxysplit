@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"proxysplit/internal/nodes"
+	"proxysplit/internal/xray"
 )
 
 // PortConfig describes one standalone proxy port (代理端口): a SOCKS5 / HTTP
@@ -28,8 +29,8 @@ type PortConfig struct {
 	RuleSets      *RuleSetOptions
 	DirectDomains []string
 	RealityHybrid bool
-	// XrayPorts: sidecar ports of Xray-only nodes (PortProcess.PrepareXray).
-	XrayPorts map[string]int
+	// XrayPorts: sidecar endpoints of Xray-only nodes (PortProcess.PrepareXray).
+	XrayPorts map[string]xray.Endpoint
 }
 
 // PortInboundTag is the inbound tag of every proxy-port process.

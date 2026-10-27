@@ -41,12 +41,33 @@ func NewPortProcess(binPath, dataDir, id string, onLog LogFunc, onExit func()) *
 	if onLog == nil {
 		onLog = func(string) {}
 	}
-	return &PortProcess{
+	p := &PortProcess{
 		binPath: binPath,
 		cfgPath: PortConfigPath(dataDir, id),
-		xray:    newSidecar(binPath, filepath.Join(dataDir, PortDirName, "xray-"+id), onLog),
+		xray:    newSidecar(binPath, portXrayDir(dataDir, id), onLog),
 		onLog:   onLog,
 		onExit:  onExit,
+	}
+	p.xray.AutoRestart, p.xray.OnDead = true, p.xrayDead
+	return p
+}
+
+// portXrayDir is the sidecar dir of port id; portXrayPrefix matches all of them.
+func portXrayDir(dataDir, id string) string { return portXrayPrefix(dataDir) + id }
+func portXrayPrefix(dataDir string) string {
+	return filepath.Join(dataDir, PortDirName, "xray-")
+}
+
+// xrayDead: the port's exit node is the Xray one, so a dead sidecar (restart
+// failed) means a dead port. Kill sing-box without Stop so the regular
+// unexpected-exit path (onExit) reports it.
+func (p *PortProcess) xrayDead() {
+	p.mu.Lock()
+	cmd := p.cmd
+	p.mu.Unlock()
+	if cmd != nil && cmd.Process != nil {
+		p.onLog("[xray] Xray 内核重启失败，该代理端口已停止")
+		_ = cmd.Process.Kill()
 	}
 }
 
@@ -136,7 +157,7 @@ func (p *PortProcess) Stop() {
 
 // PrepareXray starts the port's Xray sidecar when node needs it (stops it
 // otherwise) and returns the ports for PortConfig.XrayPorts. Call before Start.
-func (p *PortProcess) PrepareXray(node *nodes.Node) (map[string]int, error) {
+func (p *PortProcess) PrepareXray(node *nodes.Node) (map[string]xray.Endpoint, error) {
 	if node == nil {
 		p.xray.Stop()
 		return nil, nil
@@ -145,8 +166,9 @@ func (p *PortProcess) PrepareXray(node *nodes.Node) (map[string]int, error) {
 }
 
 // KillPortStrays kills proxy-port processes orphaned by a prior crash (sing-box
-// from binPath whose command line points into the proxyports directory).
-func KillPortStrays(binPath string) {
+// from binPath whose command line points into the proxyports directory, and
+// port Xray sidecars whose config lives under dataDir/proxyports/xray-*).
+func KillPortStrays(binPath, dataDir string) {
 	ps := "Get-CimInstance Win32_Process -Filter \"Name='sing-box.exe'\" | " +
 		"Where-Object { $_.ExecutablePath -and ($_.ExecutablePath -ieq $env:PS_SINGBOX_PATH) -and ($_.CommandLine -like '*" + PortDirName + "*') } | " +
 		"ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }"
@@ -156,7 +178,7 @@ func KillPortStrays(binPath string) {
 	cmd.Env = append(os.Environ(), "PS_SINGBOX_PATH="+filepath.Clean(binPath))
 	hideWindow(cmd)
 	_ = cmd.Run()
-	xray.KillStrays(XrayBinPath(binPath), PortDirName)
+	xray.KillStrays(XrayBinPath(binPath), portXrayPrefix(dataDir))
 }
 
 // portFirewallRule is the Windows Firewall rule letting LAN clients reach the

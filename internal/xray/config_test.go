@@ -26,7 +26,7 @@ func entries(t *testing.T) []Entry {
 		if err != nil {
 			t.Fatal(err)
 		}
-		out = append(out, Entry{Key: Key(n), Port: 30001 + i, Node: n})
+		out = append(out, Entry{Key: Key(n), Endpoint: Endpoint{Port: 30001 + i, User: "u", Pass: "p"}, Node: n})
 	}
 	return out
 }
@@ -61,7 +61,7 @@ func TestBuildConfigShape(t *testing.T) {
 		t.Fatalf("counts: %s", raw)
 	}
 	for i, in := range cfg.Inbounds {
-		if in.Listen != "127.0.0.1" || in.Protocol != "socks" || in.Settings["udp"] != true || in.Settings["auth"] != "noauth" {
+		if in.Listen != "127.0.0.1" || in.Protocol != "socks" || in.Settings["udp"] != true || in.Settings["auth"] != "password" {
 			t.Fatalf("inbound %d: %+v", i, in)
 		}
 		r := cfg.Routing.Rules[i]

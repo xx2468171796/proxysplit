@@ -196,10 +196,11 @@ func New(binDir, dataDir string) (*Service, error) {
 	if exe, err := os.Executable(); err == nil {
 		appid.SetProtected(filepath.Dir(exe), binDir) // whole-folder rules may never cover ProxySplit itself
 	}
-	s.core.SetOnExit(s.onCoreExit)                             // clear a dangling system proxy if the core crashes
-	s.core.CleanStrays()                                       // kill orphaned sing-box from a prior crash (else it keeps proxying)
-	core.KillPortStrays(filepath.Join(binDir, "sing-box.exe")) // 端口代理 orphans, before any port can start
-	s.healStaleSystemProxy()                                   // recover from a prior crash that left one dangling
+	s.core.SetOnExit(s.onCoreExit)                                                                 // clear a dangling system proxy if the core crashes
+	s.core.CleanStrays()                                                                           // kill orphaned sing-box from a prior crash (else it keeps proxying)
+	core.KillPortStrays(filepath.Join(binDir, "sing-box.exe"), dataDir)                            // 端口代理 orphans, before any port can start
+	core.CleanProbeStrays(filepath.Join(binDir, "sing-box.exe"), filepath.Join(dataDir, "probes")) // latency-probe Xray orphans + temp dirs
+	s.healStaleSystemProxy()                                                                       // recover from a prior crash that left one dangling
 	s.startScheduler()
 	go s.healthLoop() // live line/node reachability for the status panel
 	go s.appMonitorLoop()

@@ -47,7 +47,7 @@ func StartProbe(binPath, tempBase string, node *nodes.Node, startupTimeout time.
 	if err != nil {
 		return nil, err
 	}
-	dir, err := os.MkdirTemp(tempBase, "node-probe-*")
+	dir, err := os.MkdirTemp(tempBase, probeDirPrefix+"*")
 	if err != nil {
 		return nil, err
 	}

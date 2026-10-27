@@ -40,7 +40,7 @@ func outboundByTag(t *testing.T, cfg []byte, tag string) map[string]any {
 
 func TestXrayNodeBecomesLocalSocks(t *testing.T) {
 	n := parsed(t, xhttpLink)
-	opts := Options{RouteMode: RouteGlobal, XrayPorts: map[string]int{xray.Key(n): 31080}}
+	opts := Options{RouteMode: RouteGlobal, XrayPorts: map[string]xray.Endpoint{xray.Key(n): {Port: 31080}}}
 	cfg, err := BuildTUNConfig(n, "warn", opts)
 	if err != nil {
 		t.Fatal(err)
@@ -95,7 +95,7 @@ func TestNonXrayNodesUnchanged(t *testing.T) {
 		n := parsed(t, link)
 		base := Options{RouteMode: RouteBypassCN}
 		withPorts := base
-		withPorts.XrayPorts = map[string]int{xray.Key(x): 31080}
+		withPorts.XrayPorts = map[string]xray.Endpoint{xray.Key(x): {Port: 31080}}
 		a, err1 := BuildTUNConfig(n, "warn", base)
 		b, err2 := BuildTUNConfig(n, "warn", withPorts)
 		c, err3 := BuildConfig(n, 17890, "warn", base)

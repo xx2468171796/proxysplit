@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"proxysplit/internal/nodes"
+	"proxysplit/internal/xray"
 )
 
 // M is a convenience alias for building JSON objects.
@@ -128,10 +129,10 @@ type Options struct {
 	// PortProcessPath is the core binary the 端口代理 processes run from: their
 	// already-routed traffic must leave the TUN untouched (no second hop).
 	PortProcessPath string
-	// XrayPorts maps xray.Key(node) → the Xray sidecar's SOCKS port for nodes
+	// XrayPorts maps xray.Key(node) → the Xray sidecar SOCKS endpoint for nodes
 	// sing-box cannot carry (see xray.go); XrayPath is xray.exe, kept out of
 	// the TUN like PortProcessPath. Both empty = no sidecar.
-	XrayPorts map[string]int
+	XrayPorts map[string]xray.Endpoint
 	XrayPath  string
 	// BlockQUIC rejects QUIC (UDP 443) headed for the tunnel so browsers fall back
 	// to TCP, where the domain can always be sniffed and routed.
@@ -711,10 +712,10 @@ func buildTUNTree(node *nodes.Node, logLevel string, opts Options) (M, error) {
 	//  6. 代理策略 规则 — custom rules, per-app lines, then final.
 	// Per-app process lists live in hot-reloaded rule-set files (SplitRuleSets),
 	// so adding/removing apps between existing lists needs no core restart.
-	rules := []M{
-		{"action": "sniff"},
-		{"protocol": "dns", "action": "hijack-dns"},
-	}
+	// The Xray sidecar goes direct ahead of hijack-dns (its own DNS lookups
+	// must not be pulled into dns-remote, which runs through Xray itself).
+	rules := append([]M{{"action": "sniff"}}, xrayRules(opts)...)
+	rules = append(rules, M{"protocol": "dns", "action": "hijack-dns"})
 	guarded := opts.AIGuard.active()
 	if !guarded {
 		rules = append(rules, accelRules(opts, clashExp != nil)...)
@@ -748,7 +749,6 @@ func buildTUNTree(node *nodes.Node, logLevel string, opts Options) (M, error) {
 	if opts.PortProcessPath != "" {
 		rules = append(rules, M{"process_path": []string{opts.PortProcessPath}, "outbound": "direct"})
 	}
-	rules = append(rules, xrayRules(opts)...)
 	var scopedProxy []ScopedRule
 	if opts.Split {
 		rules = append(rules, M{"rule_set": []string{appSetDirect}, "outbound": "direct"})
@@ -874,8 +874,9 @@ func buildTUNTree(node *nodes.Node, logLevel string, opts Options) (M, error) {
 	// dependency on the node), foreign domains via dns-remote (through the node).
 	// So a dead/slow node can NEVER break DNS for mainland sites (previously all
 	// DNS went through the node → node down = nothing resolves = "全都打不开").
-	dnsRules := []M{}
-	// AI names first: through the line in every clash mode, IPv4 only.
+	// Xray's own lookups first: always the direct China resolver.
+	dnsRules := xrayDNSRules(opts)
+	// AI names next: through the line in every clash mode, IPv4 only.
 	aiDNSRules, aiDNSSrv := aiGuardDNS(opts)
 	dnsRules = append(dnsRules, aiDNSRules...)
 	if dr := clashDNSRules(opts); dr != nil {

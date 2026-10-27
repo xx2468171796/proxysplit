@@ -34,3 +34,10 @@ sing-box 跑不了的节点（XHTTP/splithttp、mKCP、VLESS encryption）走 Xr
 - 内置：`bin/xray.exe` 在就随客户端打包（xraypayload.go，`//go:embed bin/xray*`），启动时 EnsureBundledXray 按 sha 安装到数据目录 bin，保留 xray.exe.old 可 RollbackXray；不跟随面板自动更新，换版本 = 改 pin + 发客户端。
 - Xray v26 坑：`allowInsecure` 2026-06-01 起直接拒启动（不写）；mKCP 的 header/seed 已删，改写 `finalmask.udp` 的 `mkcp-legacy`；REALITY 公钥字段叫 `password`；freedom 默认拦私网目标（测试服务端要 `finalRules:[{"action":"allow"}]`）。
 - 真内核测试：bin/sing-box.exe + bin/xray.exe 都在时跑 `internal/core/xray_e2e_test.go`（本机 VLESS+XHTTP 服务端，探针 / 端口代理 / 主内核三条链路），缺文件自动跳过。
+- 评审修复（2026-10-27，fix/review-xray）：
+  - TUN + 远程解析：Xray 配置自带 `dns`（223.5.5.5、119.29.29.29 直连）且每个出站 `sockopt.domainStrategy=UseIP`，不走系统解析；sing-box 里 xray.exe 的 process_path 直连规则排在 hijack-dns 之前，DNS 规则首条 xray.exe → dns-direct（测试 TestXrayBypassesDNSHijack 锁顺序）。否则解析节点域名会被劫持进 dns-remote → 走代理 = 走 Xray 自己，永远连不上。
+  - 侧车 SOCKS 入站每次启动随机用户名 / 密码（xray.Endpoint），sing-box 的 socks 出站带上；XrayPorts 的值类型由 int 改为 xray.Endpoint。
+  - 启动不再同步哈希 xray.exe：数据目录 bin 下 `xray.exe.sha.json` 按 大小+mtime 缓存 sha，只在变化时重算；内置 EXE 仅在需要安装时才从 embed 读出；setupXray 在后台 goroutine 跑，需要 Xray 的启动经 core.BeginXraySetup 等它（最多 60 秒）。
+  - 残留清理：KillStrays 先用 Toolhelp 快照看有没有 xray.exe，没有就不起 PowerShell；匹配改为命令行里 `-c <配置路径前缀>`（端口代理用 `proxyports\xray-` 完整路径）；启动时 core.CleanProbeStrays 杀测速探针遗留 Xray 并删 `probes\node-probe-*`。
+  - Xray 意外退出：中文日志 + 2 秒后用同端口同密码重启一次；60 秒内再挂或重启失败 → 主节点需要 Xray 时直接杀 sing-box，走原有意外退出路径（onCoreExit 清系统代理 / 接管），只是附加节点则仅记日志；端口代理同理杀该端口进程触发 onExit。
+  - waitPort 进程一退出就返回；起不来（含端口被抢）换新端口重试一次。
