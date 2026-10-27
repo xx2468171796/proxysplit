@@ -4,6 +4,12 @@
 > 结论与坑已提炼到 `docs/memory/<主题>.md`；这里是事实存档，按标题取（`node ~/.ankotti/ai-kit/mem.mjs <关键词>`），不要整份读。
 > 约定：sz = 深圳生产机；incoming = sz `/opt/proxysplit/incoming/`；客户端回滚 = 该版本 incoming 目录 `python3 publish-client.py rollback` 并删 releases 表里该版本那行。
 
+## v1.10.0（2026-10-28 03:25，全站发布，强制）
+- release id 20261028-031250-94ac7cb-v1.10.0，上一版 releases/20261028-020437-d65f5fb-v1.9.99（另一会话发）；备份 backups/postgres-20261028-031250-94ac7cb-v1.10.0.sql.gz；无新迁移。
+- 内容：双栈电脑打不开部分网站（claude00002 / ippure.com，节点无 IPv6 出口、浏览器经 TUN 连 IPv6 一直重试）→ DNS 一律 ipv4_only + 公网 IPv6 去节点前 reject；无前缀 socks（IP:端口:用户名:密码）导入。
+- 客户端 commit 94ac7cb，SHA256 277183423a0f4e24f68a7a8932cbb9f4d5ffd32ef89e8151aefe8434132c5f64；releases（强制，min 1.9.51）+ audit_logs。版本号进位前已确认 license / updater / 服务端 latest 全是数字比较。
+- 验收：alonehome2 正式包自检 20/20×2、/api/exits 三条通、IPv6 字面地址 0 秒被拒、无前缀 socks 导入成功；飞牛 latest = 1.10.0 mandatory；/health、官网、/admin/ 200；三个下载 sha 一致。
+
 ## v1.9.99（2026-10-28 02:15，全站发布，强制）
 - release id 20261028-020437-d65f5fb-v1.9.99，上一版 releases/20261028-013858-7cc9c3e-v1.9.98；备份 backups/postgres-20261028-020437-d65f5fb-v1.9.99.sql.gz；无新迁移。
 - 内容：域名节点多 DNS 并行预解析选最快 IP、节点保活 + DNS 乐观/持久缓存 + 常用域名预热（AI 劫持开着时不缓存 AI 域名）、「清除与重置」中心（含撤销、诊断接口 / MCP）、设置页重新分组。

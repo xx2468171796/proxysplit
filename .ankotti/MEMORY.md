@@ -2,10 +2,10 @@
 > 最后更新：2026-10-28。细节按下方路由表读 docs/memory/，逐版发布史在 docs/decisions.md（按标题取）。
 
 ## 当前状态
-- 线上：**v1.9.99 stable（强制，min 1.9.51）**，2026-10-28 全站发布（多 DNS 预解析 / 保活预热 / 清除与重置）；服务端 current = releases/20261028-020437-d65f5fb-v1.9.99，上一版 releases/20261028-013858-7cc9c3e-v1.9.98。客户端有新版一律自动升级；规则库由 sz 每天同步、客户端从 /rules/ 自动拉（见 docs/memory/routing.md）。
+- 线上：**v1.10.0 stable（强制，min 1.9.51）**，2026-10-28 全站发布（双栈电脑 IPv6 打不开修复 + 无前缀 socks 导入）；服务端 current = releases/20261028-031250-94ac7cb-v1.10.0，上一版 releases/20261028-020437-d65f5fb-v1.9.99。客户端有新版一律自动升级；规则库由 sz 每天同步、客户端从 /rules/ 自动拉（见 docs/memory/routing.md）。
 - 前端已用 @ankotti/admin-ui 重写（React 19 + Vite 8 + TS 7 + pnpm 12.9.1，替换旧单文件 Svelte），随 v1.9.75 上线（已并入 main）；门禁 `pnpm --dir frontend check`，预览 `pnpm --dir frontend dev`。
 - 技术栈：Go + Wails + React 前端，sing-box 原生 TUN + process_name；服务端 Fastify + 深圳共享 PG（堡垒机数据源 sz-pg-proxysplit）。
-- **下一步**：TLS/REALITY 预握手连接池（relayops 内核补丁，默认只给 POWER云 节点）；IPv6 有真实出口的电脑待实测；1.9.96/97 的 Defender 扫描待 tw-win11 上线补做。发版前用正式下载包跑 alonehome2 自检，并查别的会话未合并的发布分支（见 decisions v1.9.97）。macOS 版：业主准备 Mac 接堡垒机，先不买 Apple 开发者账号（未签名包 + TUN 模式）。
+- **下一步**：日志详细化（net.conn_summary 连接成败汇总，业主 2026-10-28 要求，方便版本迭代排查）；有真实 IPv6 的电脑仍待实测（claude00002 是现成用户）；socks5 链式前置代理待业主决定；macOS 版：业主准备 Mac 接堡垒机，先不买 Apple 开发者账号。发版前用正式下载包跑 alonehome2 自检，查别的会话未合并分支，测试机经 coord 轮流用。
 
 ## 红线（不得做）
 - 不碰腾讯云 110.40.185.27（支付网关），只能以客户端身份调接口。
