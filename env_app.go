@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	"proxysplit/pkg/aienv"
@@ -56,18 +57,39 @@ func (a *App) ApplyEnvConfig(ids []string) string {
 	return errStr(err)
 }
 
-// RestoreEnvConfig puts every setting we changed back to its original value.
-func (a *App) RestoreEnvConfig() string {
+// RestoreEnvConfig puts the given items we changed back to their original
+// values (empty = every item).
+func (a *App) RestoreEnvConfig(ids []string) string {
 	<-a.ready
-	err := a.env().Restore()
+	err := a.env().Restore(ids...)
 	if a.svc != nil {
+		what := "AI 使用环境"
+		if len(ids) > 0 {
+			what = strings.Join(ids, " / ")
+		}
 		if err != nil {
-			a.svc.LogLine("[AI] 环境恢复部分失败：" + err.Error())
+			a.svc.LogLine("[AI] 恢复" + what + "部分失败：" + err.Error())
 		} else {
-			a.svc.LogLine("[AI] 已把 AI 使用环境恢复成配置前的原样")
+			a.svc.LogLine("[AI] 已把" + what + "恢复成配置前的原样")
 		}
 	}
 	return errStr(err)
+}
+
+// RestoreAllAI is 全部恢复: 劫持模式 off (DNS lock and its boot task removed)
+// plus every environment item back to its original value.
+func (a *App) RestoreAllAI() string {
+	<-a.ready
+	var errs []string
+	if a.svc != nil {
+		if msg := a.SetAIHijack(false); msg != "" {
+			errs = append(errs, msg)
+		}
+	}
+	if msg := a.RestoreEnvConfig(nil); msg != "" {
+		errs = append(errs, msg)
+	}
+	return strings.Join(errs, "；")
 }
 
 // applyEnv is one item from the AI check's fix buttons.

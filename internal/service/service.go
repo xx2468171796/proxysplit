@@ -15,6 +15,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"proxysplit/internal/aiguard"
 	"proxysplit/internal/appid"
 	"proxysplit/internal/capture"
 	"proxysplit/internal/core"
@@ -202,6 +203,10 @@ func New(binDir, dataDir string) (*Service, error) {
 	core.KillPortStrays(filepath.Join(binDir, "sing-box.exe"), dataDir)                            // 端口代理 orphans, before any port can start
 	core.CleanProbeStrays(filepath.Join(binDir, "sing-box.exe"), filepath.Join(dataDir, "probes")) // latency-probe Xray orphans + temp dirs
 	s.healStaleSystemProxy()                                                                       // recover from a prior crash that left one dangling
+	s.SyncAILock()                                                                                 // crash / power-off left the AI lock on the tunnel: close it before anything else
+	if err := aiguard.EnsureBootTask(); err != nil {
+		s.log("[AI] " + err.Error())
+	}
 	s.startScheduler()
 	go s.healthLoop() // live line/node reachability for the status panel
 	go s.appMonitorLoop()

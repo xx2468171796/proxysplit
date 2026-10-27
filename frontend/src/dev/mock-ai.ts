@@ -58,6 +58,7 @@ export function createAIMock(showcase: boolean): Record<string, Fn> {
     ],
     ApplyEnvConfig: () => "",
     RestoreEnvConfig: () => "",
+    RestoreAllAI: () => "",
     CheckAIEnv: () => ({
       exitIp: "203.0.113.8",
       exitLoc: "TW Taipei",

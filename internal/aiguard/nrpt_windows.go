@@ -65,10 +65,31 @@ func Present() bool { return lockRule().present() }
 // Install (re)writes our NRPT rule pointing at server and flushes the DNS
 // cache, so names cached before the lock (resolved by the ISP) are not used
 // afterwards.
-func Install(server string) error { return lockRule().install(server) }
+// The boot task (boottask_windows.go) comes with it.
+func Install(server string) error {
+	if err := lockRule().install(server); err != nil {
+		return err
+	}
+	return EnsureBootTask()
+}
 
-// Remove deletes our NRPT rule (other rules untouched) and flushes the cache.
-func Remove() error { return lockRule().remove() }
+// Remove deletes our NRPT rule (other rules untouched), flushes the cache and
+// drops the boot task.
+func Remove() error {
+	if err := lockRule().remove(); err != nil {
+		return err
+	}
+	return removeBootTask()
+}
+
+// EnsureBootTask registers the boot-time relock when our rule exists (locks
+// made by versions before the task existed get it on the next launch).
+func EnsureBootTask() error {
+	if !Present() {
+		return nil
+	}
+	return ensureBootTask()
+}
 
 func (r nrptRule) installed(server string) bool {
 	want := slices.Clone(r.namespaces)

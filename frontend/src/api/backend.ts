@@ -172,7 +172,8 @@ export const api = {
   // Go 返回 nil 切片时是 null。
   envConfig: async (): Promise<EnvItem[]> => ((await W.GetEnvConfig()) as EnvItem[] | null) ?? [],
   applyEnvConfig: (ids: string[]) => W.ApplyEnvConfig(ids),
-  restoreEnvConfig: () => W.RestoreEnvConfig(),
+  restoreEnvConfig: (ids: string[]) => W.RestoreEnvConfig(ids),
+  restoreAllAI: () => W.RestoreAllAI(),
   copyToClipboard: (text: string) => W.CopyToClipboard(text),
   openWebsite: () => W.OpenWebsite(),
   openGitHub: () => W.OpenGitHub(),

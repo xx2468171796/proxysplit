@@ -17,4 +17,5 @@ func Present() bool           { return false }
 func GroupPolicyActive() bool { return false }
 func Install(string) error    { return errUnsupported }
 func Remove() error           { return nil }
+func EnsureBootTask() error   { return nil }
 func FlushCache()             {}

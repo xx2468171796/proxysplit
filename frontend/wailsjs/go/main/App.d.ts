@@ -181,7 +181,9 @@ export function ResetConfig():Promise<void>;
 
 export function Restart():Promise<string>;
 
-export function RestoreEnvConfig():Promise<string>;
+export function RestoreAllAI():Promise<string>;
+
+export function RestoreEnvConfig(arg1:Array<string>):Promise<string>;
 
 export function SaveProxyPort(arg1:service.ProxyPort):Promise<string>;
 

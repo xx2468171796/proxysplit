@@ -342,8 +342,12 @@ export function Restart() {
   return window['go']['main']['App']['Restart']();
 }
 
-export function RestoreEnvConfig() {
-  return window['go']['main']['App']['RestoreEnvConfig']();
+export function RestoreAllAI() {
+  return window['go']['main']['App']['RestoreAllAI']();
+}
+
+export function RestoreEnvConfig(arg1) {
+  return window['go']['main']['App']['RestoreEnvConfig'](arg1);
 }
 
 export function SaveProxyPort(arg1) {

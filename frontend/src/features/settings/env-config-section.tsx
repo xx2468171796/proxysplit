@@ -32,7 +32,7 @@ export function EnvConfigSection() {
   const { say } = useFeedback();
   const [items, setItems] = useState<EnvItem[]>([]);
   const [busy, setBusy] = useState("");
-  const [confirmRestore, setConfirmRestore] = useState(false);
+  const [confirmRestore, setConfirmRestore] = useState<"" | "env" | "all">("");
 
   const load = useCallback(async () => {
     setItems(await api.envConfig().catch(() => []));
@@ -49,6 +49,23 @@ export function EnvConfigSection() {
       setBusy("");
       await load();
     }
+  };
+  // 未配置 → 配置 / 对时；本软件配过的 → 单项恢复
+  const itemAction = (i: EnvItem) => {
+    const label = (text: string) => (busy === i.id ? "处理中…" : text);
+    if (i.target && !i.done)
+      return {
+        label: label(configurable(i) ? "配置" : "立即对时"),
+        disabled: !!busy,
+        onSelect: () => void run(i.id, () => api.applyEnvConfig([i.id]), `已配置：${i.name}`),
+      };
+    if (i.configured && i.restorable)
+      return {
+        label: label("恢复"),
+        disabled: !!busy,
+        onSelect: () => void run(i.id, () => api.restoreEnvConfig([i.id]), `已恢复：${i.name}`),
+      };
+    return null;
   };
   const pending = items.filter((i) => configurable(i) && !i.done).length;
   const configured = items.some((i) => i.configured);
@@ -69,8 +86,11 @@ export function EnvConfigSection() {
           >
             一键配置
           </Button>
-          <Button size="sm" variant="outline" disabled={!!busy || !configured} onClick={() => setConfirmRestore(true)}>
+          <Button size="sm" variant="outline" disabled={!!busy || !configured} onClick={() => setConfirmRestore("env")}>
             一键恢复
+          </Button>
+          <Button size="sm" variant="outline" disabled={!!busy} onClick={() => setConfirmRestore("all")}>
+            全部恢复（含 AI 劫持）
           </Button>
         </>
       }
@@ -84,23 +104,23 @@ export function EnvConfigSection() {
         reason={itemReason}
         status={itemStatus}
         statusLabel={statusText}
-        action={(i) =>
-          i.target && !i.done
-            ? {
-                label: busy === i.id ? "处理中…" : configurable(i) ? "配置" : "立即对时",
-                disabled: !!busy,
-                onSelect: () => void run(i.id, () => api.applyEnvConfig([i.id]), `已配置：${i.name}`),
-              }
-            : null
-        }
+        action={itemAction}
       />
       <ConfirmDialog
-        open={confirmRestore}
+        open={confirmRestore === "env"}
         title="恢复成配置前的样子？"
         confirmLabel="确定恢复"
-        description="会把本软件改过的时区、区域格式、所在地区、浏览器语言、Claude Code 设置逐项改回原来的值。系统时间对时不受影响。"
-        onConfirm={() => run("restore", () => api.restoreEnvConfig(), "已恢复成配置前的样子")}
-        onClose={() => setConfirmRestore(false)}
+        description="会把本软件改过的时区、区域格式、所在地区、浏览器语言、Claude Code 设置逐项改回原来的值。AI 劫持不变，系统时间对时不受影响。"
+        onConfirm={() => run("restore", () => api.restoreEnvConfig([]), "已恢复成配置前的样子")}
+        onClose={() => setConfirmRestore("")}
+      />
+      <ConfirmDialog
+        open={confirmRestore === "all"}
+        title="全部恢复成默认？"
+        confirmLabel="全部恢复"
+        description="关闭 AI 劫持（解除 DNS 锁和开机锁定任务，AI 不再强制走线路），并把本软件改过的环境设置全部改回原来的值。之后关掉软件时 AI 会走本机网络。"
+        onConfirm={() => run("restore-all", () => api.restoreAllAI(), "已全部恢复成默认")}
+        onClose={() => setConfirmRestore("")}
       />
     </Panel>
   );
