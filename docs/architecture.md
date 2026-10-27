@@ -40,7 +40,7 @@ internal/service/     业务编排（一个 Service，按职责分文件）：
   nodes_svc.go apprules_svc.go subs_svc.go settings_svc.go  节点 / 应用规则与线路 / 订阅 / 设置
   capture_svc.go        接管方式（仅接管选中程序默认，驱动未就绪回落 TUN）
   其余 *_svc.go / *.go   各自一项能力（AI 环境、出口 IP、端口代理、测速、诊断…）
-internal/core/        生成 sing-box 配置 + 管内核进程：config.go（整体组装）、outbounds.go（各协议出站）、
+internal/core/        生成 sing-box 配置 + 管内核进程：config.go（整体组装）、multiconfig.go（多线路配置）、outbounds.go（各协议出站）、
                       rules.go（规则片段）、aiguard.go（AI 锁定与 TUN 前置规则）、process_config.go（由 TUN 配置改写）、
                       tunaddr.go（TUN 网段挑选）、manager.go / portproc.go / probe.go（进程）
 internal/capture divert   仅接管选中程序（WinDivert）    internal/xray   Xray 旁路内核

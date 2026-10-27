@@ -165,38 +165,14 @@ func (m *Manager) StartLines(lines []LineConfig, logLevel string, opts Options) 
 		return fmt.Errorf("no lines")
 	}
 
-	lineNodes := make([]*nodes.Node, 0, len(lines))
-	for _, ln := range lines {
-		lineNodes = append(lineNodes, ln.Node)
-	}
-	opts, err := m.withSidecar(lineNodes, opts)
+	cfgPath, err := m.writeLinesConfig(lines, logLevel, opts)
 	if err != nil {
 		return err
 	}
-	cfg, err := BuildMultiConfig(lines, logLevel, opts)
+	cmd, err := m.launchSingBox(cfgPath)
 	if err != nil {
-		m.xray.Stop()
 		return err
 	}
-	if err := os.MkdirAll(m.dataDir, 0o755); err != nil {
-		return err
-	}
-	cfgPath := filepath.Join(m.dataDir, "sing-box.json")
-	if err := os.WriteFile(cfgPath, cfg, 0o600); err != nil {
-		return err
-	}
-
-	cmd := exec.Command(m.binPath, "run", "-c", cfgPath)
-	cmd.Dir = m.dataDir
-	hideWindow(cmd)
-	stdout, _ := cmd.StdoutPipe()
-	stderr, _ := cmd.StderrPipe()
-	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("start sing-box: %w", err)
-	}
-	procjob.Attach(cmd) // dies with us if we crash (Job Object)
-	go m.pump(stdout)
-	go m.pump(stderr)
 
 	primary := lines[0].InboundPort
 	done := make(chan struct{})
@@ -207,8 +183,62 @@ func (m *Manager) StartLines(lines []LineConfig, logLevel string, opts Options) 
 	m.node = lines[0].Node
 	m.done = done
 	m.mu.Unlock()
+	go m.watchLinesExit(cmd, done)
 
-	go func() {
+	if err := waitPort(primary, 5*time.Second); err != nil {
+		_ = m.Stop()
+		return fmt.Errorf("core did not open port %d: %w", primary, err)
+	}
+	m.onLog(fmt.Sprintf("[core] sing-box up (%d line(s), primary 127.0.0.1:%d)", len(lines), primary))
+	return nil
+}
+
+// writeLinesConfig starts any sidecar the lines need, builds the multi-line
+// config and writes it to the data dir, returning its path.
+func (m *Manager) writeLinesConfig(lines []LineConfig, logLevel string, opts Options) (string, error) {
+	lineNodes := make([]*nodes.Node, 0, len(lines))
+	for _, ln := range lines {
+		lineNodes = append(lineNodes, ln.Node)
+	}
+	opts, err := m.withSidecar(lineNodes, opts)
+	if err != nil {
+		return "", err
+	}
+	cfg, err := BuildMultiConfig(lines, logLevel, opts)
+	if err != nil {
+		m.xray.Stop()
+		return "", err
+	}
+	if err := os.MkdirAll(m.dataDir, 0o755); err != nil {
+		return "", err
+	}
+	cfgPath := filepath.Join(m.dataDir, "sing-box.json")
+	if err := os.WriteFile(cfgPath, cfg, 0o600); err != nil {
+		return "", err
+	}
+	return cfgPath, nil
+}
+
+// launchSingBox starts sing-box on cfgPath with its output pumped to the log.
+func (m *Manager) launchSingBox(cfgPath string) (*exec.Cmd, error) {
+	cmd := exec.Command(m.binPath, "run", "-c", cfgPath)
+	cmd.Dir = m.dataDir
+	hideWindow(cmd)
+	stdout, _ := cmd.StdoutPipe()
+	stderr, _ := cmd.StderrPipe()
+	if err := cmd.Start(); err != nil {
+		return nil, fmt.Errorf("start sing-box: %w", err)
+	}
+	procjob.Attach(cmd) // dies with us if we crash (Job Object)
+	go m.pump(stdout)
+	go m.pump(stderr)
+	return cmd, nil
+}
+
+// watchLinesExit waits for cmd to exit, clears state if it is still the
+// active core, and closes done.
+func (m *Manager) watchLinesExit(cmd *exec.Cmd, done chan struct{}) {
+	{
 		_ = cmd.Wait()
 		m.mu.Lock()
 		active := m.cmd == cmd
@@ -227,14 +257,7 @@ func (m *Manager) StartLines(lines []LineConfig, logLevel string, opts Options) 
 		if active && m.onExit != nil {
 			m.onExit()
 		}
-	}()
-
-	if err := waitPort(primary, 5*time.Second); err != nil {
-		_ = m.Stop()
-		return fmt.Errorf("core did not open port %d: %w", primary, err)
 	}
-	m.onLog(fmt.Sprintf("[core] sing-box up (%d line(s), primary 127.0.0.1:%d)", len(lines), primary))
-	return nil
 }
 
 // StartTUN launches sing-box in system-wide TUN mode (wintun) routing all
