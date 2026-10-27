@@ -4,6 +4,11 @@
 > 结论与坑已提炼到 `docs/memory/<主题>.md`；这里是事实存档，按标题取（`node ~/.ankotti/ai-kit/mem.mjs <关键词>`），不要整份读。
 > 约定：sz = 深圳生产机；incoming = sz `/opt/proxysplit/incoming/`；客户端回滚 = 该版本 incoming 目录 `python3 publish-client.py rollback` 并删 releases 表里该版本那行。
 
+## 2026-10-28 公网 IPv6 改到 sniff 前拒绝、ICMP 直连（v1.10.2）
+- 现象：业主电脑开代理后微信发图失败；客户 WinMTR 设「不走代理」仍像被代理。
+- 根因：① 1.10.0 起 TUN 恒带 IPv6，无 IPv6 出口的电脑上微信（自带 DNS，拿到 240e:… 地址）连 IPv6；sniff 在前，TUN 先完成握手再拒绝 / 直连失败（connectex unreachable network），程序以为连上了，反复重试 IPv6 不退回 IPv4。② ICMP 只能走 direct 出站，默认全走代理时 final=节点，ping 被拒。
+- 处理：tunPreSniffRules（internal/core/aiguard.go）放在 sniff 前：公网 IPv6（私网、53 端口除外）reject → SYN 直接被拒，程序立刻改 IPv4；network icmp → direct。alonehome2 实测：修前 IPv6 地址「连接成功」，修后 2 s 被拒；ping / tracert 直连真实跳数；自测 20/20。
+
 ## v1.10.1（2026-10-28 03:40，全站发布，强制）
 - release id 20261028-032339-0607adf-v1.10.1，上一版 releases/20261028-031250-94ac7cb-v1.10.0；备份 backups/postgres-20261028-032339-0607adf-v1.10.1.sql.gz；无新迁移。exe SHA256 0c26eaeceb5d4324767581bfee77ed1888306579272c57cd431bcf0b4bcb47c0。
 - 新增 net.conn_summary（每 5 分钟连接成败汇总）。先部署服务端再测（新事件类型要服务端合同先认），alonehome2 正式包实测：自测 20/20，03:33 汇总事件进 client_events，内容正确；之后才登记 releases。
