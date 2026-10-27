@@ -3,7 +3,7 @@
 版本号以发布构建为准（`scripts/build-commercial.ps1 -Version <x.y.z>`，注入 `main.appVersion`），
 每个发布产物的 SHA256 见 `output/proxysplit-v<版本>.manifest.json`。
 
-## 未发布
+## v1.10.0
 
 - 修复：电脑有 IPv6 网络时，开代理后部分网站（如 ippure.com）打不开、一直转圈。原因是节点大多不支持 IPv6，浏览器却一直用 IPv6 重试。现在软件只给 IPv4 地址，少数自带解析的程序走 IPv6 时会立即改走 IPv4；IPv6 依旧不会绕过代理。
 - 导入节点支持 `IP:端口:用户名:密码` 这种写法（住宅代理商常用），按 socks5 导入；也认 `用户名:密码:IP:端口`、`用户名:密码@IP:端口` 和 `IP:端口`。
