@@ -71,6 +71,8 @@ export const api = {
   lanIP: () => W.GetLanIP(),
   updateNotes: async () => arr((await W.GetUpdateNotes()) as ReleaseNote[]).map((n) => ({ ...n, items: arr(n.items) })),
   markUpdateNotesSeen: () => W.MarkUpdateNotesSeen(),
+  // 客户端日志上报：记一次主界面页面访问（失败无所谓）
+  trackPage: (page: string) => W.TrackPage(page).catch(() => undefined),
 
   // 节点
   nodes: async () => arr((await W.GetNodes()) as Node[]),

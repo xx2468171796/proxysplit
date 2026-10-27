@@ -462,6 +462,10 @@ export function TestTCP(arg1) {
   return window['go']['main']['App']['TestTCP'](arg1);
 }
 
+export function TrackPage(arg1) {
+  return window['go']['main']['App']['TrackPage'](arg1);
+}
+
 export function UnbindMyDevice(arg1) {
   return window['go']['main']['App']['UnbindMyDevice'](arg1);
 }

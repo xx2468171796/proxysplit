@@ -4,6 +4,7 @@ import { AccountMenu, ContentSkeleton, PanelErrorBoundary, SlowLoadingNote, useS
 import { Gauge, LayoutGrid, Logs, type LucideIcon, Plug, Rss, Server, Settings, ShieldCheck } from "lucide-react";
 import { DesktopShell } from "qiantai/desktop";
 import { type ReactNode, useEffect } from "react";
+import { api } from "../api/backend";
 import logo from "../assets/proxysplit-logo.svg";
 import { AccountDialogs } from "../features/account/account-dialogs";
 import { AppsPage } from "../features/apps/apps-page";
@@ -52,6 +53,7 @@ export function MainShell({ netBlocked, onDismissNetBlocked }: Props) {
 
   useEffect(() => {
     document.title = `${PAGES[page].title} · ProxySplit`;
+    void api.trackPage(page);
   }, [page]);
 
   const badges: Partial<Record<PageId, number>> = { nodes: nodeCount, apps: ruleCount };

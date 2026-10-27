@@ -314,6 +314,7 @@ const impl: Record<string, Fn> = {
       ? [{ version: "1.9.77", items: ["新增「端口代理」，专门给指纹浏览器用。", "每次升级完成后先弹出本次更新内容。"] }]
       : [],
   MarkUpdateNotesSeen: () => undefined,
+  TrackPage: () => undefined,
   GetLogLevel: () => "info",
   GetAutostart: () => true,
   ListProcesses: () => [

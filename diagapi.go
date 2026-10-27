@@ -33,7 +33,7 @@ func (a *App) registerDiagAPI(mux *http.ServeMux, auth func(func(http.ResponseWr
 	}))
 	// POST /api/diag/selftest — listed + unlisted programs × mainland / foreign sites.
 	mux.HandleFunc("/api/diag/selftest", auth(func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, 200, a.svc.SelfTest())
+		writeJSON(w, 200, tmSelfTestRun(a.svc.SelfTest))
 	}))
 	// GET /api/ai-hijack — 劫持模式状态（只读：恢复只能在软件界面里点）
 	mux.HandleFunc("/api/ai-hijack", auth(func(w http.ResponseWriter, r *http.Request) {
@@ -202,7 +202,7 @@ func (a *App) diagMCPCall(name string, args json.RawMessage) (string, bool) {
 	case "proxysplit_route_test":
 		return j(a.svc.RouteTest(m.Process, strings.TrimSpace(m.URL))), true
 	case "proxysplit_selftest":
-		return j(a.svc.SelfTest()), true
+		return j(tmSelfTestRun(a.svc.SelfTest)), true
 	case "proxysplit_logs":
 		return strings.Join(a.svc.RecentLogs(m.N, m.Grep), "\n"), true
 	case "proxysplit_set_custom_rules":
