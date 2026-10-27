@@ -4,6 +4,13 @@
 > 结论与坑已提炼到 `docs/memory/<主题>.md`；这里是事实存档，按标题取（`node ~/.ankotti/ai-kit/mem.mjs <关键词>`），不要整份读。
 > 约定：sz = 深圳生产机；incoming = sz `/opt/proxysplit/incoming/`；客户端回滚 = 该版本 incoming 目录 `python3 publish-client.py rollback` 并删 releases 表里该版本那行。
 
+## v1.9.97（2026-10-28 01:22，全站发布，强制，修 1.9.96 事故）
+- release id 20261028-011619-e73c2db-v1.9.97，上一版 releases/20261028-002750-ea7928e-v1.9.96；备份 backups/postgres-20261028-011619-e73c2db-v1.9.97.sql.gz；无新迁移。
+- 事故：1.9.96 没带另一会话 release/1.9.96 分支上的 cea431c（无 IPv6 出口时 DNS 只回 IPv4），无 IPv6 的电脑开代理后直连站（百度 / QQ）全部 TLS 失败。alonehome2 上原先装的是那个会话的测试版（同为 1.9.96，所以没被自动更新替换），发版前自检被它掩盖。教训：发版前用**正式下载的包**跑自检，并先 `git branch -a` / coord_read 看有没有别的会话未合并的发布分支。
+- 内容：合并 release/1.9.96（IPv6 DNS 修复、Xray DNS 走直连、节点内核可选）+ 独立 AI 页（实时三出口）。
+- 客户端 commit e73c2db，SHA256 4114c66f380d99fc1c9f7f97c6fe2d55af85b744b1a9865b6f9677c99532ed2e，101,577,216 字节；releases（强制，min 1.9.51）+ audit_logs。
+- 验收：alonehome2 正式包自检 20/20 ×2、/api/exits 三条全通；飞牛 latest = 1.9.97 mandatory；/health、官网、/admin/ 200；三个下载 sha 一致。
+
 ## v1.9.96（2026-10-28 00:31，全站发布，强制）
 - release id 20261028-002750-ea7928e-v1.9.96，上一版 releases/20261024-234641-50d4859-v1.9.95；备份 backups/postgres-20261028-002750-ea7928e-v1.9.96.sql.gz；迁移 0016_client_telemetry.sql。
 - 内容：Xray 双内核；仅接管选中程序（WinDivert 按需下载）；客户端日志上报；socks/http 远程 DNS 走 TCP；AI 锁启动先锁 + 开机任务 ProxySplit-AILock；环境配置单项恢复 / 全部恢复（含劫持）。
