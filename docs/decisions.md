@@ -4,6 +4,11 @@
 > 结论与坑已提炼到 `docs/memory/<主题>.md`；这里是事实存档，按标题取（`node ~/.ankotti/ai-kit/mem.mjs <关键词>`），不要整份读。
 > 约定：sz = 深圳生产机；incoming = sz `/opt/proxysplit/incoming/`；客户端回滚 = 该版本 incoming 目录 `python3 publish-client.py rollback` 并删 releases 表里该版本那行。
 
+## v1.10.5（2026-10-28 06:40，全站发布，强制）
+- release id 20261028-061415-427ba90-v1.10.5，上一版 releases/20261028-052838-436ff73-v1.10.4；备份 backups/postgres-20261028-061415-427ba90-v1.10.5.sql.gz；无新迁移。exe SHA256 c8e1d6088421f56eeb72e363d81c33168a702131e747ee0330c3d18eb61b44cb。
+- 内容：导入 WireGuard（链接 / .conf，sing-box endpoint，marshalConfig 统一挪 endpoints）；BuildMultiConfig / StartLines 拆小函数、manager.go 拆出 manager_tun.go（golden 逐字一致）。
+- 发布前独立审查：无严重问题，3 条低风险（未转义 base64 密钥、.conf 混贴吞链接）已修（427ba90）。测试：VM153 Defender 0 威胁；alonehome2 仍离线未实测；飞牛验收 latest=1.10.5，两个下载 sha 一致。
+
 ## v1.10.4（2026-10-28 06:25，全站发布，强制）
 - release id 20261028-052838-436ff73-v1.10.4，上一版 releases/20261028-045352-336b1c5-v1.10.3；备份 backups/postgres-20261028-052838-436ff73-v1.10.4.sql.gz；无新迁移。exe SHA256 b7a8b40a14dfe21d632427ee4826d141b793e784b75d90e86f811e73ddddc630。
 - 内容：自动选择（最快，sing-box urltest）、前置代理、测速两次取优 / 并发 8、DNS 与高级（国内外 DNS、hosts、HTTPS/SVCB、MTU、严格路由）、isCoreConfig 只看顶层字段。

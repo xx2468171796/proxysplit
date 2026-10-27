@@ -985,6 +985,10 @@ export namespace nodes {
 	    echForceQuery?: string;
 	    pinnedCert?: string;
 	    core?: string;
+	    wgAddress?: string[];
+	    wgPreShared?: string;
+	    wgReserved?: number[];
+	    wgMtu?: number;
 	    via?: string;
 	    coreInfo?: CoreInfo;
 	    multiplex?: Record<string, any>;
@@ -1042,6 +1046,10 @@ export namespace nodes {
 	        this.echForceQuery = source["echForceQuery"];
 	        this.pinnedCert = source["pinnedCert"];
 	        this.core = source["core"];
+	        this.wgAddress = source["wgAddress"];
+	        this.wgPreShared = source["wgPreShared"];
+	        this.wgReserved = source["wgReserved"];
+	        this.wgMtu = source["wgMtu"];
 	        this.via = source["via"];
 	        this.coreInfo = this.convertValues(source["coreInfo"], CoreInfo);
 	        this.multiplex = source["multiplex"];
