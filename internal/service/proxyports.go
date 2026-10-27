@@ -403,21 +403,27 @@ func (s *Service) launchPort(id string, rt *portRuntime) error {
 		return err
 	}
 	secret := genSecret()
+	name := p.Name
+	proc := core.NewPortProcess(s.singBoxPath(), s.dataDir, id, rt.logs.add, func() {
+		rt.setErr("内核意外退出（看端口日志）")
+		s.log(fmt.Sprintf("[port] %s 内核意外退出", name))
+	})
+	xrayPorts, err := proc.PrepareXray(node)
+	if err != nil {
+		return err
+	}
 	cfg, err := core.BuildPortConfig(core.PortConfig{
 		Listen: listen, Port: p.Port, Protocol: p.Protocol, User: p.User, Pass: p.Pass,
 		Node: node, Mode: p.Mode, LogLevel: level,
 		ClashController: fmt.Sprintf("127.0.0.1:%d", clashPort), ClashSecret: secret,
 		GeoDir: s.binDir, RuleSets: &ruleSets, DirectDomains: direct,
 		RealityHybrid: coreupdate.HasTag(s.binDir, coreupdate.RealityHybridTag),
+		XrayPorts:     xrayPorts,
 	})
 	if err != nil {
+		proc.Stop()
 		return err
 	}
-	name := p.Name
-	proc := core.NewPortProcess(s.singBoxPath(), s.dataDir, id, rt.logs.add, func() {
-		rt.setErr("内核意外退出（看端口日志）")
-		s.log(fmt.Sprintf("[port] %s 内核意外退出", name))
-	})
 	if err := proc.Start(cfg, clashPort); err != nil {
 		return err
 	}

@@ -69,6 +69,9 @@ func Measure(n *nodes.Node, socksAddr string, timeout time.Duration) Result {
 // measureTCP returns the raw TCP 延迟 to the node's edge (with the protocol
 // handshake so stale front doors don't register as reachable), -1 on failure.
 func measureTCP(n *nodes.Node, timeout time.Duration) int {
+	if n.XrayNetwork() == nodes.NetKCP {
+		return 0 // mKCP is UDP: no TCP edge to time (Google 延迟 still applies)
+	}
 	start := time.Now()
 	conn, err := dial(n, timeout)
 	if err != nil {

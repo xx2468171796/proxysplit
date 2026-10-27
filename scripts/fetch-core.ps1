@@ -4,8 +4,12 @@
 #                      Gitea generic package gonggong/sing-box); sha256 = the EXE.
 #                      "urlAuth": "gitea" sends GITEA_TOKEN (env) as the Authorization header.
 #   (default) zip   -> official SagerNet release zip; archiveSha256 + sha256 of the EXE inside.
+#   Also fetches the Xray sidecar pinned in bin/xray-release.json (fetch-xray.ps1;
+#   -RequireXray makes a missing Xray artifact fatal).
+param([switch]$RequireXray)
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
+& (Join-Path $PSScriptRoot 'fetch-xray.ps1') -Require:$RequireXray
 $release = Get-Content -Raw -Encoding UTF8 (Join-Path $root 'bin\core-release.json') | ConvertFrom-Json
 $destination = Join-Path $root 'bin\sing-box.exe'
 if (-not $release.sha256 -or $release.sha256.Length -ne 64) { throw 'bin/core-release.json has no sha256 yet' }

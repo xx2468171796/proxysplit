@@ -26,7 +26,7 @@
 | 架构与生产环境 | docs/memory/deploy-architecture.md | 技术栈、sz 共享 PG/Redis、产品规则、remote |
 | Claude 加速/握手 | docs/memory/accel.md | 编码模式、兜底握手跟中继、暂停行为 |
 | AI 劫持模式 | docs/memory/ai-guard.md | NRPT 锁 127.0.0.53、范围、恢复、待实测 |
-| 内核/多源下载/自动跟随 | docs/memory/core-update.md | relayops 内核版本线、mirror.go、corefollow.go |
+| 内核/多源下载/自动跟随 | docs/memory/core-update.md | relayops 内核版本线、mirror.go、corefollow.go、Xray 双内核（XHTTP/mKCP/VLESS encryption，待上传制品） |
 | POWER云/会员/aigw/支付 | docs/memory/account-membership.md | 接入标准、AI 套餐会员、egress、刷新令牌容错、退款 |
 | 分流规则/TUN 配置 | docs/memory/routing.md | 规则顺序、热加载、占位进程、真内核测试 |
 | AI 控制/MCP/诊断接口 | docs/memory/ai-control.md | 18088 诊断接口、--mcp 桥、DNS 12 秒问题 |

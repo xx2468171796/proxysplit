@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"proxysplit/internal/nodes"
+	"proxysplit/internal/xray"
 )
 
 // Probe is an isolated, short-lived sing-box process used to test one node.
@@ -20,6 +21,7 @@ type Probe struct {
 	cmd  *exec.Cmd
 	dir  string
 	addr string
+	xray *xray.Sidecar // Xray-only node: its sidecar (nil otherwise)
 	once sync.Once
 }
 
@@ -49,9 +51,26 @@ func StartProbe(binPath, tempBase string, node *nodes.Node, startupTimeout time.
 	if err != nil {
 		return nil, err
 	}
-	cleanup := func() { _ = os.RemoveAll(dir) }
+	opts := Options{RouteMode: RouteGlobal}
+	var sc *xray.Sidecar
+	if node.NeedsXray() {
+		// Xray-only node: its own short-lived sidecar inside the probe dir.
+		sc = newSidecar(binPath, filepath.Join(dir, "xray"), nil)
+		ports, err := sc.Ensure([]*nodes.Node{node})
+		if err != nil {
+			_ = os.RemoveAll(dir)
+			return nil, err
+		}
+		opts.XrayPorts = ports
+	}
+	cleanup := func() {
+		if sc != nil {
+			sc.Stop()
+		}
+		_ = os.RemoveAll(dir)
+	}
 
-	cfg, err := BuildConfig(node, port, "error", Options{RouteMode: RouteGlobal})
+	cfg, err := BuildConfig(node, port, "error", opts)
 	if err != nil {
 		cleanup()
 		return nil, err
@@ -72,7 +91,7 @@ func StartProbe(binPath, tempBase string, node *nodes.Node, startupTimeout time.
 		return nil, fmt.Errorf("start probe core: %w", err)
 	}
 
-	p := &Probe{cmd: cmd, dir: dir, addr: fmt.Sprintf("127.0.0.1:%d", port)}
+	p := &Probe{cmd: cmd, dir: dir, addr: fmt.Sprintf("127.0.0.1:%d", port), xray: sc}
 	if err := waitPort(port, startupTimeout); err != nil {
 		_ = p.Close()
 		return nil, fmt.Errorf("probe core did not open port %d: %w", port, err)
@@ -101,6 +120,9 @@ func (p *Probe) Close() error {
 				closeErr = err
 			}
 			_ = p.cmd.Wait()
+		}
+		if p.xray != nil {
+			p.xray.Stop()
 		}
 		if err := os.RemoveAll(p.dir); closeErr == nil && err != nil {
 			closeErr = err
