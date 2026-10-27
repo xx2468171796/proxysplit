@@ -97,9 +97,17 @@ func (e *Engine) decideSYN(pkt []byte, a *divert.Address, v Verdict) {
 			e.data.remove(divert.ProtoTCP, []uint16{sport})
 		}
 		_ = e.probe.Send(pkt, a)
-	case v.Action == Drop || divert.IsIPv6(pkt):
-		// 拦截, or IPv6 from a captured program (relay is IPv4-only): drop so the
-		// app falls back to IPv4 instead of leaking direct.
+	case v.Action == Drop:
+		// 拦截
+	case divert.IsIPv6(pkt):
+		// IPv6 from a captured program (relay is IPv4-only): refuse it so the app
+		// falls back to IPv4 at once (a silent drop left non-browser apps waiting
+		// ~21 s of SYN retries on dual-stack PCs) and never leaks direct.
+		if rst := divert.BuildRSTv6(pkt); rst != nil {
+			back := *a
+			back.SetOutbound(false)
+			_ = e.sender.Send(rst, &back)
+		}
 	default:
 		ifIdx, sub := a.IfIdx()
 		e.ct.put(sport, Flow{LocalIP: divert.SrcIP(pkt), DstIP: divert.DstIP(pkt), DstPort: divert.DstPort(pkt),

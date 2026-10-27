@@ -63,3 +63,31 @@ func TestMalformedPacketsAreSafe(t *testing.T) {
 		t.Fatal("IPv6 detection wrong")
 	}
 }
+
+func TestBuildRSTv6(t *testing.T) {
+	syn := make([]byte, 60)
+	syn[0], syn[6] = 0x60, ProtoTCP
+	src, dst := netip.MustParseAddr("2408::1").As16(), netip.MustParseAddr("240e::42").As16()
+	copy(syn[8:24], src[:])
+	copy(syn[24:40], dst[:])
+	binary.BigEndian.PutUint16(syn[40:], 50000)
+	binary.BigEndian.PutUint16(syn[42:], 443)
+	binary.BigEndian.PutUint32(syn[44:], 1000)
+	syn[53] = tcpSYN
+	r := BuildRSTv6(syn)
+	if r == nil || !IsIPv6(r) || SrcPort(r) != 443 || DstPort(r) != 50000 || r[53] != tcpRST|tcpACK {
+		t.Fatalf("rst = %x", r)
+	}
+	if binary.BigEndian.Uint32(r[48:]) != 1001 || [16]byte(r[8:24]) != dst || [16]byte(r[24:40]) != src {
+		t.Fatalf("ack / addresses wrong: %x", r)
+	}
+	// checksum over pseudo header + segment must fold to zero
+	sum := checksum(0, r[8:40]) + 20 + ProtoTCP
+	if fold(checksum(sum, r[40:])) != 0 {
+		t.Fatal("bad checksum")
+	}
+	syn[53] = tcpSYN | tcpACK
+	if BuildRSTv6(syn) != nil {
+		t.Fatal("SYN-ACK must not be answered")
+	}
+}

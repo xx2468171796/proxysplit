@@ -208,3 +208,30 @@ func BuildUDPv4(src, dst netip.AddrPort, payload []byte) []byte {
 	FixChecksums(b)
 	return b
 }
+
+// BuildRSTv6 answers an IPv6 TCP SYN with RST|ACK (addresses and ports
+// swapped, ack = seq+1, valid checksum), so the app sees "connection refused"
+// at once and falls back to IPv4 instead of waiting out SYN retries. nil when
+// syn is not a plain IPv6 TCP SYN.
+func BuildRSTv6(syn []byte) []byte {
+	if !IsIPv6(syn) || syn[6] != ProtoTCP || len(syn) < 60 || !IsSYN(syn) {
+		return nil
+	}
+	b := make([]byte, 60)
+	b[0] = 0x60
+	binary.BigEndian.PutUint16(b[4:], 20)
+	b[6] = ProtoTCP
+	b[7] = 64
+	copy(b[8:24], syn[24:40])
+	copy(b[24:40], syn[8:24])
+	t, s := b[40:], syn[40:]
+	copy(t[0:2], s[2:4])
+	copy(t[2:4], s[0:2])
+	binary.BigEndian.PutUint32(t[8:], binary.BigEndian.Uint32(s[4:])+1)
+	t[12] = 5 << 4
+	t[13] = tcpRST | tcpACK
+	sum := checksum(0, b[8:40]) // src + dst
+	sum += 20 + ProtoTCP
+	binary.BigEndian.PutUint16(t[16:], fold(checksum(sum, t)))
+	return b
+}
