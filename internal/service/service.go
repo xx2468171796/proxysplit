@@ -170,6 +170,8 @@ type Service struct {
 	aiProxyPass      string
 	aiProxyFile      string // 约定文件（App 设置），见 aiproxy.go
 	aiProxyState     AIProxyInfo
+	exitProbe        core.AIProxy    // AI 页测分应用代理出口的本机入口（TUN 模式，本次运行固定）
+	exits            exitsCache      // AI 页实时出口 IP（exits.go）
 	capEng           *capture.Engine // 仅接管选中程序的抓包引擎（capture_svc.go；nil = TUN）
 	wdFetch          chan struct{}   // in-flight WinDivert download (prefetchWinDivert)
 

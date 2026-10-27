@@ -83,6 +83,8 @@ export function GetDefaultLine():Promise<string>;
 
 export function GetEnvConfig():Promise<Array<aienv.Status>>;
 
+export function GetExits():Promise<service.ExitsReport>;
+
 export function GetFenxiao(arg1:string,arg2:number,arg3:number):Promise<main.FenxiaoResult>;
 
 export function GetHealth():Promise<service.Health>;

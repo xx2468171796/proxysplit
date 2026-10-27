@@ -151,6 +151,8 @@ type Options struct {
 	AIGuard *AIGuard
 	// AIProxy is the loopback AI-line proxy for other programs (nil = none).
 	AIProxy *AIProxy
+	// ExitProbe is the AI page's loopback probe into the selected node (nil = none).
+	ExitProbe *AIProxy
 
 	// Process selects 仅接管选中程序 (BuildProcessConfig): mixed inbounds per app
 	// group fed by internal/capture instead of the TUN. nil = TUN.
@@ -734,7 +736,7 @@ func buildTUNTree(node *nodes.Node, logLevel string, opts Options) (M, error) {
 	// api.anthropic.com), ourselves (the AI environment check probes through
 	// it) and every app list / 代理策略; kept out of restrictEgress below.
 	aiAt := len(rules)
-	aiRules := append(aiProxyRules(opts), aiGuardRules(opts)...)
+	aiRules := append(append(exitProbeRules(opts), aiProxyRules(opts)...), aiGuardRules(opts)...)
 	rules = append(rules, aiRules...)
 	if guarded {
 		rules = append(rules, accelRules(opts, clashExp != nil)...)
@@ -920,6 +922,9 @@ func buildTUNTree(node *nodes.Node, logLevel string, opts Options) (M, error) {
 		tunInbounds = append(tunInbounds, M{"type": "mixed", "tag": accelInbound, "listen": "127.0.0.1", "listen_port": opts.AccelPort})
 	}
 	if in := aiProxyInboundFor(opts); in != nil {
+		tunInbounds = append(tunInbounds, in)
+	}
+	if in := exitProbeInboundFor(opts); in != nil {
 		tunInbounds = append(tunInbounds, in)
 	}
 	outs := append(proxyObs[:1:1], M{"type": "direct", "tag": "direct"})

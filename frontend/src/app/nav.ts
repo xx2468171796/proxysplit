@@ -2,7 +2,7 @@
 import { useEffect } from "react";
 import { createStore, useStore } from "../shared/store";
 
-export type PageId = "overview" | "nodes" | "apps" | "ports" | "rules" | "subs" | "logs" | "settings";
+export type PageId = "overview" | "ai" | "nodes" | "apps" | "ports" | "rules" | "subs" | "logs" | "settings";
 export type Intent = "add-app" | "add-node" | "add-sub";
 
 export const nav = createStore<{ page: PageId; intent: Intent | null }>({ page: "overview", intent: null });

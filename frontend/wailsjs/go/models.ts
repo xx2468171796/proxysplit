@@ -1226,6 +1226,76 @@ export namespace service {
 	        this.start = source["start"];
 	    }
 	}
+	export class ExitInfo {
+	    path: string;
+	    state: string;
+	    via?: string;
+	    ip?: string;
+	    country?: string;
+	    city?: string;
+	    kind?: string;
+	    asn?: string;
+	    ours: boolean;
+	    latencyMs?: number;
+	    detail?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ExitInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.path = source["path"];
+	        this.state = source["state"];
+	        this.via = source["via"];
+	        this.ip = source["ip"];
+	        this.country = source["country"];
+	        this.city = source["city"];
+	        this.kind = source["kind"];
+	        this.asn = source["asn"];
+	        this.ours = source["ours"];
+	        this.latencyMs = source["latencyMs"];
+	        this.detail = source["detail"];
+	    }
+	}
+	export class ExitsReport {
+	    direct: ExitInfo;
+	    proxy: ExitInfo;
+	    ai: ExitInfo;
+	    running: boolean;
+	    checkedAt: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ExitsReport(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.direct = this.convertValues(source["direct"], ExitInfo);
+	        this.proxy = this.convertValues(source["proxy"], ExitInfo);
+	        this.ai = this.convertValues(source["ai"], ExitInfo);
+	        this.running = source["running"];
+	        this.checkedAt = source["checkedAt"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class LineHealth {
 	    id: string;
 	    name: string;

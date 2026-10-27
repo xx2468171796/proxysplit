@@ -149,3 +149,25 @@ func aiProxyRules(opts Options) []M {
 	}
 	return []M{emit(M{"inbound": []string{aiProxyInbound}}, opts.AIProxy.Outbound)}
 }
+
+// ExitProbe (same shape as AIProxy, Outbound "proxy") is the AI page's
+// loopback way into the selected node: TUN mode has no per-line inbound, and
+// ProxySplit's own traffic is never tunnelled, so the live 分应用代理出口 is
+// measured through this.
+const exitProbeInbound = "exit-probe-in"
+
+func exitProbeInboundFor(opts Options) M {
+	p := opts.ExitProbe
+	if p == nil || p.Port <= 0 || p.User == "" {
+		return nil
+	}
+	return M{"type": "mixed", "tag": exitProbeInbound, "listen": "127.0.0.1", "listen_port": p.Port,
+		"users": []M{{"username": p.User, "password": p.Pass}}}
+}
+
+func exitProbeRules(opts Options) []M {
+	if exitProbeInboundFor(opts) == nil {
+		return nil
+	}
+	return []M{emit(M{"inbound": []string{exitProbeInbound}}, "proxy")}
+}

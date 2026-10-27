@@ -202,7 +202,8 @@ func TestAIProxyConfig(t *testing.T) {
 	for _, out := range []string{"proxy", "reject"} {
 		opts := Options{Split: true, SplitWhitelist: true, RemoteDNS: true, RuleDir: t.TempDir(), GeoDir: filepath.Join("..", "..", "bin"),
 			DirectDomains: []string{"zygskins.cn"}, ClashController: "127.0.0.1:1",
-			AIProxy: &AIProxy{Port: 18089, User: "ai", Pass: "secret", Outbound: out}}
+			AIProxy:   &AIProxy{Port: 18089, User: "ai", Pass: "secret", Outbound: out},
+			ExitProbe: &AIProxy{Port: 18090, User: "probe", Pass: "secret2", Outbound: "proxy"}}
 		raw, err := BuildTUNConfig(node, "warn", opts)
 		if err != nil {
 			t.Fatal(err)
@@ -214,11 +215,17 @@ func TestAIProxyConfig(t *testing.T) {
 			} `json:"route"`
 		}
 		json.Unmarshal(raw, &cfg)
-		var in M
+		var in, probe M
 		for _, i := range cfg.Inbounds {
-			if i["tag"] == aiProxyInbound {
+			switch i["tag"] {
+			case aiProxyInbound:
 				in = i
+			case exitProbeInbound:
+				probe = i
 			}
+		}
+		if probe == nil || probe["listen"] != "127.0.0.1" || probe["users"] == nil {
+			t.Fatalf("exit probe inbound missing / open / without credentials: %v", probe)
 		}
 		if in == nil || in["listen"] != "127.0.0.1" || in["users"] == nil {
 			t.Fatalf("AI proxy inbound missing / open / without credentials: %v", in)
@@ -230,6 +237,9 @@ func TestAIProxyConfig(t *testing.T) {
 				if out == "reject" && r["action"] != "reject" || out == "proxy" && r["outbound"] != "proxy" {
 					t.Fatalf("AI proxy rule %v, want %s", r, out)
 				}
+			}
+			if ib, _ := r["inbound"].([]any); len(ib) == 1 && ib[0] == exitProbeInbound && r["outbound"] != "proxy" {
+				t.Fatalf("exit probe must go to the selected node: %v", r)
 			}
 			if r["rule_set"] != nil && firstApp < 0 && r["action"] != "reject" {
 				firstApp = i

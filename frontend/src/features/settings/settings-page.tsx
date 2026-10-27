@@ -1,26 +1,21 @@
 // 设置（T08 设置页）：SideNavLayout 分节，每节一个 Panel；开关改了立即生效，所以不放保存条。
 import { PageBody, PageHeader, SideNavLayout, type SideNavSection } from "@ankotti/admin-ui";
-import { Bot, Cpu, DatabaseBackup, Globe, Monitor, ShieldAlert, Split, UserRound, Zap } from "lucide-react";
+import { Bot, Cpu, DatabaseBackup, Monitor, Split, UserRound, Zap } from "lucide-react";
 import { useEffect } from "react";
 import { useStore } from "../../shared/store";
 import { license } from "../../state/account";
 import { loadSystem } from "../../state/system";
 import { AccountSection } from "../account/account-section";
-import { AIEnvPanel } from "../overview/ai-env-panel";
 import { AccelSection } from "./accel-section";
 import { AIControlSection } from "./ai-control-section";
 import { BackupSection } from "./backup-section";
 import { CoreSection } from "./core-section";
 import { EngineSection } from "./engine-section";
-import { EnvConfigSection } from "./env-config-section";
 import { SystemSection } from "./system-section";
 import "./settings.css";
 
 const SECTIONS: SideNavSection[] = [
-  // AI 劫持对所有人开放（业主 2026-10-23）：不管账号渠道，下载了软件就能在这里劫持 / 恢复。
-  { id: "hijack", label: "AI 劫持", group: "AI 功能", icon: <ShieldAlert />, content: <AIEnvPanel always /> },
-  // 环境配置：Windows 时区 / 区域 / 浏览器语言等一键配置、一键恢复（pkg/aienv），和劫持互相独立。
-  { id: "envcfg", label: "环境配置", group: "AI 功能", icon: <Globe />, content: <EnvConfigSection /> },
+  // AI 劫持、环境配置、实时出口已移到独立的「AI」页（features/ai，业主 2026-10-28）。
   { id: "ai", label: "AI 控制", group: "AI 功能", icon: <Bot />, content: <AIControlSection /> },
   { id: "accel", label: "Claude Code 加速", group: "AI 功能", icon: <Zap />, content: <AccelSection /> },
   { id: "core", label: "内核与更新", group: "代理", icon: <Cpu />, content: <CoreSection /> },

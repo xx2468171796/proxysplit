@@ -146,6 +146,10 @@ export function GetEnvConfig() {
   return window['go']['main']['App']['GetEnvConfig']();
 }
 
+export function GetExits() {
+  return window['go']['main']['App']['GetExits']();
+}
+
 export function GetFenxiao(arg1, arg2, arg3) {
   return window['go']['main']['App']['GetFenxiao'](arg1, arg2, arg3);
 }

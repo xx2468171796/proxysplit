@@ -1,6 +1,46 @@
 // AI 劫持 / 环境配置 / AI 环境检测的假后端（浏览器预览用）。showcase = 官网截图模式（不显示 AI 劫持）。
 type Fn = (...args: unknown[]) => unknown;
 
+const MOCK_EXITS = {
+  running: true,
+  direct: {
+    path: "direct",
+    state: "ok",
+    via: "本机网络",
+    ip: "171.83.42.2",
+    country: "CN",
+    city: "Wuhan",
+    kind: "住宅宽带 IP",
+    asn: "AS4134 Chinanet",
+    ours: false,
+    latencyMs: 38,
+  },
+  proxy: {
+    path: "proxy",
+    state: "ok",
+    via: "香港 01",
+    ip: "203.0.113.20",
+    country: "HK",
+    city: "Hong Kong",
+    kind: "机房 IP",
+    asn: "AS9304 HGC",
+    ours: false,
+    latencyMs: 120,
+  },
+  ai: {
+    path: "ai",
+    state: "ok",
+    via: "POWER云 台湾",
+    ip: "203.0.113.8",
+    country: "TW",
+    city: "Taipei",
+    kind: "住宅宽带 IP",
+    asn: "AS3462 HiNet",
+    ours: true,
+    latencyMs: 210,
+  },
+};
+
 export function createAIMock(showcase: boolean): Record<string, Fn> {
   return {
     GetAIHijack: () => ({ on: true, locked: false, visible: !showcase, lock: { phase: "warming", seconds: 7 } }),
@@ -59,6 +99,7 @@ export function createAIMock(showcase: boolean): Record<string, Fn> {
     ApplyEnvConfig: () => "",
     RestoreEnvConfig: () => "",
     RestoreAllAI: () => "",
+    GetExits: () => ({ ...MOCK_EXITS, checkedAt: new Date().toISOString() }),
     CheckAIEnv: () => ({
       exitIp: "203.0.113.8",
       exitLoc: "TW Taipei",

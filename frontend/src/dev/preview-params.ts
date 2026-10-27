@@ -4,7 +4,7 @@
 import { navigate, type PageId } from "../app/nav";
 import { previewSearch } from "./search";
 
-const PAGE_IDS: readonly PageId[] = ["overview", "nodes", "apps", "ports", "rules", "subs", "logs", "settings"];
+const PAGE_IDS: readonly PageId[] = ["overview", "ai", "nodes", "apps", "ports", "rules", "subs", "logs", "settings"];
 
 /** 每 100ms 找一次目标，找到就点，最多等 limitMs。 */
 function clickWhenReady(find: () => HTMLButtonElement | null | undefined, limitMs: number, then?: () => void): void {

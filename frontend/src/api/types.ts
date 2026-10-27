@@ -442,3 +442,19 @@ export type EnvItem = {
   restorable: boolean;
   note: string;
 };
+
+/** AI 页实时出口（App.GetExits → internal/service/exits.go）。state：ok 测到 / off 这条路没开 / fail 测不通。 */
+export type ExitInfo = {
+  path: "direct" | "proxy" | "ai";
+  state: "ok" | "off" | "fail" | "";
+  via?: string;
+  ip?: string;
+  country?: string;
+  city?: string;
+  kind?: string;
+  asn?: string;
+  ours: boolean;
+  latencyMs?: number;
+  detail?: string;
+};
+export type ExitsReport = { direct: ExitInfo; proxy: ExitInfo; ai: ExitInfo; running: boolean; checkedAt: string };

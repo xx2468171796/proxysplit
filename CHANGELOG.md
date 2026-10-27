@@ -3,6 +3,11 @@
 版本号以发布构建为准（`scripts/build-commercial.ps1 -Version <x.y.z>`，注入 `main.appVersion`），
 每个发布产物的 SHA256 见 `output/proxysplit-v<版本>.manifest.json`。
 
+## v1.9.97
+
+- 新增独立的「AI」页：实时显示三个出口 IP，分别是本机网络、分应用代理和 AI 线路（Claude / ChatGPT 实际看到的 IP），带地区、IP 类型、运营商和延迟，每 3 秒刷新一次。页面上方会直接告诉你 AI 有没有走官方线路。
+- AI 环境检测、劫持开关和环境配置都集中到「AI」页，设置页不再放这两项。
+
 ## v1.9.96
 
 - 新增 Xray 双内核：XHTTP、mKCP、VLESS 加密这类节点现在也能用，软件自动切换，不用手动设置。

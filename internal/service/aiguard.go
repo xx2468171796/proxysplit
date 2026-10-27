@@ -125,6 +125,7 @@ func (s *Service) applyAIGuardLocked(opts *core.Options, activeID string, extra 
 		out = "proxy"
 	}
 	opts.AIProxy = s.aiProxyLocked(out)
+	opts.ExitProbe = s.exitProbeLocked()
 	if !s.aiGuard {
 		return
 	}

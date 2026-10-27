@@ -50,9 +50,14 @@ func fetchTrace(ctx context.Context, url string) traceResult {
 }
 
 func fetchTraceOnce(ctx context.Context, url string) traceResult {
+	return traceWith(ctx, probeClient(), url)
+}
+
+// traceWith is one trace request through client (direct, or via a local proxy).
+func traceWith(ctx context.Context, client *http.Client, url string) traceResult {
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	sent := time.Now()
-	resp, err := probeClient().Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
 		return traceResult{err: err}
 	}
