@@ -64,7 +64,9 @@ func (s *Service) load() {
 				data = bak
 				decoded = candidate
 				s.log("[store] 主配置异常,已从备份恢复节点/规则")
-				_ = os.WriteFile(s.configPath(), bak, 0o600)
+				if werr := os.WriteFile(s.configPath(), bak, 0o600); werr != nil {
+					s.log("[config] 写回从备份恢复的主配置失败: " + werr.Error())
+				}
 				recovered = true
 			}
 		}
@@ -75,7 +77,9 @@ func (s *Service) load() {
 						data = ad
 						decoded = candidate
 						s.log("[store] 从 exe 旁的备份 proxysplit-data.json 恢复节点/规则")
-						_ = os.WriteFile(s.configPath(), ad, 0o600)
+						if werr := os.WriteFile(s.configPath(), ad, 0o600); werr != nil {
+							s.log("[config] 写回从 exe 旁备份恢复的主配置失败: " + werr.Error())
+						}
 						recovered = true
 					}
 				}
@@ -182,40 +186,22 @@ func isPlaceholderEndpoint(server string) bool {
 	return false
 }
 
-// save writes the config atomically: it snapshots the current good file to
-// <config>.bak, writes the new content to <config>.tmp, then renames it over the
-// live file (an atomic op on the same volume). A crash mid-write leaves the old
-// config intact, so data is never lost to a partial write.
+// save writes the config atomically via persistLocked (snapshot the current good
+// file to <config>.bak, write a temp file, rename it over the live file — an
+// atomic op on the same volume). A crash mid-write leaves the old config intact.
+// It is best effort: failures are logged, not returned. Caller holds s.mu.
 func (s *Service) save() {
-	data, err := json.MarshalIndent(&s.cfg, "", "  ")
-	if err != nil {
-		s.log("[store] 序列化配置失败: " + err.Error())
-		return
-	}
-	path := s.configPath()
-	// Snapshot the current valid app-config file as the recovery backup (never a
-	// core-config, so .bak always holds real nodes/rules).
-	if cur, rerr := os.ReadFile(path); rerr == nil && json.Valid(cur) && !isCoreConfig(cur) {
-		_ = os.WriteFile(path+".bak", cur, 0o600)
-	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o600); err != nil {
-		s.log("[store] 写入配置失败: " + err.Error())
-		return
-	}
-	if err := os.Rename(tmp, path); err != nil {
+	if err := s.persistLocked(); err != nil {
 		s.log("[store] 保存配置失败: " + err.Error())
-		_ = os.Remove(tmp)
-	}
-	// Redundant copy next to the exe (best-effort; ignore read-only folders).
-	if alt := s.altConfigPath(); alt != "" {
-		_ = os.WriteFile(alt, data, 0o600)
 	}
 }
 
-// persistLocked is the error-returning variant used by configuration restore.
-// Most legacy mutators use save() as best effort, but an import must never claim
-// success unless the new snapshot is already durable on disk. Caller holds s.mu.
+// persistLocked writes the config and returns any error. save() wraps it as best
+// effort; configuration restore calls it directly, since an import must never
+// claim success unless the new snapshot is already durable on disk. Caller holds
+// s.mu. The current valid app-config file (never a core-config, so .bak always
+// holds real nodes/rules) is snapshotted first; the copy next to the exe is
+// best-effort (read-only folders are ignored).
 func (s *Service) persistLocked() error {
 	data, err := json.MarshalIndent(&s.cfg, "", "  ")
 	if err != nil {
