@@ -4,6 +4,12 @@
 > 结论与坑已提炼到 `docs/memory/<主题>.md`；这里是事实存档，按标题取（`node ~/.ankotti/ai-kit/mem.mjs <关键词>`），不要整份读。
 > 约定：sz = 深圳生产机；incoming = sz `/opt/proxysplit/incoming/`；客户端回滚 = 该版本 incoming 目录 `python3 publish-client.py rollback` 并删 releases 表里该版本那行。
 
+## v1.9.98（2026-10-28 01:46，全站发布，强制）
+- release id 20261028-013858-7cc9c3e-v1.9.98，上一版 releases/20261028-011619-e73c2db-v1.9.97；备份 backups/postgres-20261028-013858-7cc9c3e-v1.9.98.sql.gz；无新迁移。
+- 内容：IPv6 防泄露（TUN 一律带 IPv6；本机 IPv6 出口只在内核停着时检测）。
+- 客户端 commit 7cc9c3e，SHA256 6f4a4cd6f3cfd14e798f84530f317e02b7b34239568df553628be66e05fa8d06；releases（强制，min 1.9.51）+ audit_logs。
+- 验收：alonehome2 正式包自检 20/20×2、/api/exits 三条通、tun0 带 fdfe::1；测试包另测关 IPv6 绑定 20/20。飞牛 latest = 1.9.98 mandatory；/health、官网、/admin/ 200；三个下载 sha 一致。未测：有真实 IPv6 出口的电脑（劫持用户 1.9.71 起即同一路径）。
+
 ## v1.9.97（2026-10-28 01:22，全站发布，强制，修 1.9.96 事故）
 - release id 20261028-011619-e73c2db-v1.9.97，上一版 releases/20261028-002750-ea7928e-v1.9.96；备份 backups/postgres-20261028-011619-e73c2db-v1.9.97.sql.gz；无新迁移。
 - 事故：1.9.96 没带另一会话 release/1.9.96 分支上的 cea431c（无 IPv6 出口时 DNS 只回 IPv4），无 IPv6 的电脑开代理后直连站（百度 / QQ）全部 TLS 失败。alonehome2 上原先装的是那个会话的测试版（同为 1.9.96，所以没被自动更新替换），发版前自检被它掩盖。教训：发版前用**正式下载的包**跑自检，并先 `git branch -a` / coord_read 看有没有别的会话未合并的发布分支。
