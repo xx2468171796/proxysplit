@@ -18,3 +18,14 @@
   gap: var(--aui-space-2);
   margin: var(--aui-space-2) 0;
 }
+
+.ps-node-filters {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.ps-node-filters > :first-child {
+  flex: 1 1 280px;
+}

@@ -1,4 +1,4 @@
-// 节点（T02 资源列表）：搜索 + 节点表；页头按钮：检测全部可用性、测活动节点速度、去添加订阅、添加节点。
+// 节点（T02 资源列表）：搜索 + 排序 + 删除不通的 + 节点表；页头按钮：检测全部可用性、测活动节点速度、去添加订阅、添加节点。
 import { Button, ConfirmDialog, DataTable, PageBody, PageHeader, QueryBar, ResourcePanel } from "@ankotti/admin-ui";
 import { Gauge, Plus, Rss, Stethoscope } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
@@ -12,6 +12,7 @@ import { useNodeColumns } from "./node-columns";
 import { NodeCoreDialog } from "./node-core-dialog";
 import { NodeImportDialog } from "./node-import-dialog";
 import { type NodeShare, NodeShareDialog } from "./node-share-dialog";
+import { type NodeSort, NodeSortControl, RemoveDeadButton, sortNodes } from "./node-tools";
 import "./nodes.css";
 
 const HELP =
@@ -65,6 +66,7 @@ export function NodesPage() {
   const [share, setShare] = useState<NodeShare | null>(null);
   const [coreOf, setCoreOf] = useState<Node | null>(null);
   const [removing, setRemoving] = useState<Node | null>(null);
+  const [sort, setSort] = useState<NodeSort>("default");
 
   const openAdd = useCallback(() => setAdding(true), []);
   useIntent("add-node", openAdd);
@@ -84,7 +86,7 @@ export function NodesPage() {
   );
   const columns = useNodeColumns(handlers);
   const q = query.trim().toLowerCase();
-  const matched = useMemo(() => (q ? nodes.filter((n) => matches(n, q)) : nodes), [nodes, q]);
+  const matched = useMemo(() => sortNodes(q ? nodes.filter((n) => matches(n, q)) : nodes, sort), [nodes, q, sort]);
 
   const confirmRemove = async () => {
     if (!removing) return;
@@ -102,16 +104,20 @@ export function NodesPage() {
           count={matched.length}
           unit="个"
           filters={
-            <QueryBar
-              variant="flush"
-              value={query}
-              onChange={setQuery}
-              onSearch={() => undefined}
-              onReset={() => setQuery("")}
-              canReset={query !== ""}
-              hits={q ? matched.length : null}
-              placeholder="搜索节点名称、地址或类型"
-            />
+            <div className="ps-node-filters">
+              <QueryBar
+                variant="flush"
+                value={query}
+                onChange={setQuery}
+                onSearch={() => undefined}
+                onReset={() => setQuery("")}
+                canReset={query !== ""}
+                hits={q ? matched.length : null}
+                placeholder="搜索节点名称、地址或类型"
+              />
+              <NodeSortControl value={sort} onChange={setSort} />
+              <RemoveDeadButton nodes={nodes} />
+            </div>
           }
         >
           <DataTable
