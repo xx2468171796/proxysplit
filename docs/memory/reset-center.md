@@ -6,7 +6,7 @@
 设置 →「维护 / 清除与重置」是唯一位置；托盘「清除与重置…」发 `open-settings` 事件跳过来；诊断接口 `GET/POST /api/reset {"items":[...],"confirm":"确认重置"}`。
 
 ## 清单（id → 做法）
-- 缓存：core-dns-cache（clash API POST /cache/dns/flush + /cache/fakeip/flush，失败才重启内核；内核没有 cache_file）、noderesolve-cache / dns-prewarm（预留，`service.RegisterResetter` 登记后才可用）、windows-dns-cache（aiguard.FlushCache = dnsapi DnsFlushResolverCache，不动 NRPT）、rulesets（UpdateRuleSets → geoupdate.Update）、log-spool（宿主：telemetry.FlushAndPurge 先上传 20 秒再删 spool）。
+- 缓存：core-dns-cache（有持久缓存 dns-cache.db 时停内核删文件再启动；否则 clash API POST /cache/dns/flush + /cache/fakeip/flush，失败才重启内核）、noderesolve-cache（清 noderesolve 进程内缓存）/ dns-prewarm（清内存里的常用域名表并删 dnswarm.json）——两项由 service.New 里 registerCacheResetters 登记（reset_caches.go）、windows-dns-cache（aiguard.FlushCache = dnsapi DnsFlushResolverCache，不动 NRPT）、rulesets（UpdateRuleSets → geoupdate.Update）、log-spool（宿主：telemetry.FlushAndPurge 先上传 20 秒再删 spool）。
 - 网络修复：sysproxy（clearOSProxy）、strays（停端口与内核 → CleanStrays / KillPortStrays / CleanProbeStrays → 原来在跑的重启）、binaries（宿主：Xray 按 pin 校验，坏了先装内置再下载；WinDivert 只在下载过时 EnsureWinDivert）。
 - 配置重置（先备份 <数据目录>/backups/reset-*.json，保留 5 份，「撤销上次重置」= ImportAll 最新一份并删掉它）：node-cores、routing、app-rules、all-settings（保留节点 / 订阅 / 端口代理 / 自定义应用 / API 令牌）、factory（要输入「确认重置」；先走 Service.Stop 再清空，只留 API 令牌与系统代理标记）。
 

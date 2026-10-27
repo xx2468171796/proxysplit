@@ -295,3 +295,11 @@ func (r *Resolver) queryOne(ctx context.Context, d *net.Dialer, hc *http.Client,
 	}
 	return a
 }
+
+// Clear drops every cached result (清除与重置); in-flight lookups finish but
+// the next Resolve queries again.
+func (r *Resolver) Clear() {
+	r.mu.Lock()
+	r.cache = map[string]cacheEntry{}
+	r.mu.Unlock()
+}

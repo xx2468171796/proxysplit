@@ -167,6 +167,8 @@ func aiGuardSkip(g *core.AIGuard) func(string) bool {
 func (s *Service) dnsWarmLoop(port int, secret string, skip func(string) bool, stop, done chan struct{}) {
 	defer close(done)
 	store := dnswarm.Load(filepath.Join(s.dataDir, dnsWarmFile), time.Now())
+	liveWarm.Store(store)
+	defer liveWarm.CompareAndSwap(store, nil)
 	defer func() { _ = store.Save() }()
 	select {
 	case <-stop:

@@ -115,16 +115,17 @@ func TestRegistryAndReservedItems(t *testing.T) {
 		t.Fatalf("missing %s", id)
 		return false
 	}
-	if avail(ResetNodeResolveCache) || avail(ResetDNSPrewarm) {
-		t.Fatal("reserved items must be unavailable until registered")
+	// New registers the node-resolve cache and DNS prewarm resetters.
+	if !avail(ResetNodeResolveCache) || !avail(ResetDNSPrewarm) {
+		t.Fatal("cache resetters must be registered by New")
 	}
-	if r := result(t, s.RunReset(context.Background(), []string{ResetDNSPrewarm}, ""), ResetDNSPrewarm); r.OK {
-		t.Fatal("unregistered item must fail")
+	if r := result(t, s.RunReset(context.Background(), []string{ResetDNSPrewarm}, ""), ResetDNSPrewarm); !r.OK {
+		t.Fatalf("dns-prewarm reset: %+v", r)
 	}
 	called := false
 	RegisterResetter(ResetNodeResolveCache, func(context.Context) error { called = true; return nil })
 	RegisterResetter("x-test", func(context.Context) error { return errors.New("boom") })
-	defer RegisterResetter(ResetNodeResolveCache, nil)
+	defer s.registerCacheResetters() // put the real one back
 	defer RegisterResetter("x-test", nil)
 	rep := s.RunReset(context.Background(), []string{ResetNodeResolveCache, "x-test"}, "")
 	if !called || !avail(ResetNodeResolveCache) || rep.OK != 1 || rep.Failed != 1 {

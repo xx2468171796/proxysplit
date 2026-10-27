@@ -9,7 +9,7 @@ func resetCatalog() []resetDef {
 	return []resetDef{
 		// --- 缓存 ---
 		{item: ResetItem{ID: "core-dns-cache", Group: ResetGroupCache, Title: "内核 DNS 缓存",
-			Effect: "清掉内核记住的域名解析结果（clash API /cache/dns/flush，失败才重启内核）", Danger: DangerSafe, Restarts: false},
+			Effect: "清掉内核记住的域名解析结果（含持久缓存文件；有持久缓存时会重启内核）", Danger: DangerSafe, Restarts: false},
 			action: (*Service).resetCoreDNS},
 		{item: ResetItem{ID: ResetNodeResolveCache, Group: ResetGroupCache, Title: "节点域名解析缓存",
 			Effect: "重新解析节点服务器域名（节点换 IP 后连不上时用）", Danger: DangerSafe}},

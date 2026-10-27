@@ -206,6 +206,7 @@ func New(binDir, dataDir string) (*Service, error) {
 	s.startScheduler()
 	go s.healthLoop() // live line/node reachability for the status panel
 	go s.appMonitorLoop()
+	s.registerCacheResetters()
 	return s, nil
 }
 

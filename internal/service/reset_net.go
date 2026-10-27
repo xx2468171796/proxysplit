@@ -17,9 +17,18 @@ import (
 // Windows resolver cache (DnsFlushResolverCache); NRPT policy is untouched.
 
 // resetCoreDNS empties sing-box's DNS cache through the clash API
-// (POST /cache/dns/flush, sing-box ≥ 1.12). The core keeps no cache_file, so
-// when the API call fails a restart is the equivalent fallback.
+// (POST /cache/dns/flush, sing-box ≥ 1.12). When the persistent cache_file exists the
+// core restarts without it; otherwise an API failure falls back to a restart.
 func (s *Service) resetCoreDNS(ctx context.Context) (string, error) {
+	// The persistent cache (dns-cache.db, off while AI 劫持 is on) survives an API
+	// flush, so when it exists the core restarts without it.
+	if s.hasDNSCacheFile() {
+		if err := s.restartDroppingDNSCache(); err != nil {
+			return "", fmt.Errorf("清除持久 DNS 缓存失败：%w", err)
+		}
+		s.log("[reset] 内核 DNS 缓存（含持久缓存文件）已清空")
+		return "已清空（含持久缓存，内核已重启）", nil
+	}
 	s.mu.Lock()
 	port, secret := s.clashPort, s.clashSecret
 	s.mu.Unlock()

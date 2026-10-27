@@ -184,3 +184,14 @@ func Prewarm(ctx context.Context, domains []string, conc int, skip func(string) 
 	wg.Wait()
 	return Summary{Count: int(count.Load()), OK: int(ok.Load()), Ms: int(time.Since(start) / time.Millisecond)}
 }
+
+// Clear forgets every learnt domain and removes the file (清除与重置).
+func (s *Store) Clear() error {
+	s.mu.Lock()
+	s.scores = map[string]float64{}
+	s.mu.Unlock()
+	if err := os.Remove(s.path); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
+}
