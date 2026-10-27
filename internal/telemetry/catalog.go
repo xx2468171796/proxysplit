@@ -49,6 +49,7 @@ const (
 	NodeLatencyAll = "node.latency_all" // batch latency test
 	NodeSpeed      = "node.speed"       // protocol, Mbps
 	NodeCoreChange = "node.core"        // per-node core choice: nodeType, transport, from, to
+	NodeResolve    = "node.resolve"     // node domain pre-resolve: resolvers, candidates, chosen_ip
 	SubAdd         = "sub.add"          // subscription host, node count
 	SubUpdate      = "sub.update"       // subscription refresh
 	SubEdit        = "sub.edit"         // subscription edited

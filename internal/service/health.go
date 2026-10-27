@@ -80,7 +80,7 @@ func (s *Service) refreshHealth() {
 				lat, done := nodeLat[node.ID]
 				if !done {
 					snap := *node
-					lat = latency.Measure(&snap, "", 4*time.Second).TCPLatency
+					lat = latency.Measure(s.pinned(&snap), "", 4*time.Second).TCPLatency
 					nodeLat[node.ID] = lat
 				}
 				lh.Latency, lh.OK = lat, lat >= 0

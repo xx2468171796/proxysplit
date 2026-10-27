@@ -60,6 +60,10 @@ type Options struct {
 	// like real Chrome). Never applied to third-party nodes (compat mode).
 	RealityHybrid bool
 
+	// ServerIPs: node server domain → pre-resolved IP (internal/noderesolve).
+	// Outbounds dial the IP and keep the domain as SNI / Host (PinNode).
+	ServerIPs map[string]string
+
 	// RouteMode selects how in-tunnel traffic is split (see Route* constants).
 	RouteMode string
 	// RouteRules are the user rules used when RouteMode == RouteCustom.

@@ -39,6 +39,7 @@
 | node.latency / node.tcp | 单个测速 | protocol, core, ms（-1 失败） | 各协议 / 各内核测速失败率 |
 | node.latency_all | 全部测速 | total{协议:数}, failed{协议:数} | 同上 |
 | node.speed | 下载测速 | protocol, core, mbps | 带宽 |
+| node.resolve | 启动 / 测速前预解析节点域名（每个域名缓存 10 分钟，只记新解析） | host（只有域名）, resolvers[{name, ok, ms, ips（个数）, error_code: timeout / late / nxdomain / empty / bogus / refused / doh / error}], candidates, chosen_ip, probe_ms, best_ms, fallback（全部解析失败或探测都没连上） | 哪家 DNS 在哪类网络上不可靠、域名节点连不上的原因（失败 DNS_FAIL） |
 | node.core | 用户改节点内核（自动 / sing-box / Xray） | nodeType, transport, from, to（前后实际内核）, choice | 哪些协议要强制 Xray、改了是否报错 |
 | sub.add / sub.edit / sub.update / sub.remove | 订阅操作 | host（只留域名）, nodeCount | 订阅拉取失败 |
 | app_rule.change | 应用分流列表变更 | added[程序→线路], removed[], total | 最常添加的应用 |

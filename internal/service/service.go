@@ -658,7 +658,7 @@ func (s *Service) TestTCP(id string) int {
 	if n == nil {
 		return -1
 	}
-	res := latency.Measure(&snap, "", 6*time.Second)
+	res := latency.Measure(s.pinned(&snap), "", 6*time.Second)
 	s.mu.Lock()
 	if current := s.nodeByID(id); current != nil {
 		current.TCPLatency = res.TCPLatency
@@ -1566,6 +1566,7 @@ func (s *Service) startLocked() error {
 			tunOpts.ExtraNodes = append(tunOpts.ExtraNodes, core.ExtraNode{Tag: tag, Node: n})
 		}
 		s.mu.Unlock()
+		tunOpts.ServerIPs = s.serverIPs(startNodes(node, &tunOpts))
 		if err := s.core.StartTUN(node, level, tunRoute, nil, tunOpts); err != nil {
 			return s.withSecurityHint(fmt.Errorf("core(TUN): %w", err))
 		}
@@ -1598,6 +1599,9 @@ func (s *Service) startLocked() error {
 	opts := base
 	sum := s.splitOptionsLocked(&opts, node)
 	s.mu.Unlock()
+	// Kept in base too, so hot app-list reloads rebuild the same outbounds.
+	opts.ServerIPs = s.serverIPs(startNodes(node, &opts))
+	base.ServerIPs = opts.ServerIPs
 	if err := s.prepareProcessCapture(set, &opts, nil); err != nil {
 		return err
 	}

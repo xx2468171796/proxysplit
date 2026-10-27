@@ -17,6 +17,7 @@ func (s *Service) measureNode(node *nodes.Node, timeout time.Duration) latency.R
 	if node == nil {
 		return latency.Result{Latency: -1}
 	}
+	node = s.pinned(node) // dial the pre-resolved IP, like the core will
 
 	s.mu.Lock()
 	selectedID := s.cfg.SelectedID
@@ -45,6 +46,7 @@ func (s *Service) nodeSocks(node *nodes.Node) (addr string, closeFn func(), err 
 	if node == nil {
 		return "", func() {}, fmt.Errorf("没有可测速的活动节点")
 	}
+	node = s.pinned(node)
 
 	s.mu.Lock()
 	selectedID := s.cfg.SelectedID

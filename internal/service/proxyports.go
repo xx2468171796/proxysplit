@@ -408,6 +408,7 @@ func (s *Service) launchPort(id string, rt *portRuntime) error {
 		rt.setErr("内核意外退出（看端口日志）")
 		s.log(fmt.Sprintf("[port] %s 内核意外退出", name))
 	})
+	node = s.pinned(node) // nil-safe; pre-resolved IP, domain kept as SNI / Host
 	xrayPorts, err := proc.PrepareXray(node)
 	if err != nil {
 		return err
