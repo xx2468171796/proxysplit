@@ -37,3 +37,23 @@ SelectNode / RemoveNode / SetRouting / SetSettings / SetLogLevel 返回重启错
 - 主源是深圳镜像 https://proxysplit.zygskins.cn/rules/（manifest.json + 三个 .srs，sz 每天 05:00 由 proxysplit-rules.timer 从 SagerNet 同步）。客户端 geoupdate.Sync 只走镜像、按 sha256 判断要不要下；手动「更新规则库」用 Update，镜像不行再经节点回退上游。
 - 后台同步：service.StartRuleSync（启动 30 秒后、每 6 小时），不需要代理在跑；sing-box 本地 rule_set 文件变化自动重载。
 - 镜像出问题先看 sz `journalctl -u proxysplit-rules`；sz 能直连 GitHub，jsDelivr 是兜底源。
+
+## 仅接管选中程序（captureMode=process，2026-10-27 起，默认仍是 TUN）
+代码 internal/divert（WinDivert 2.2.2 免 cgo 绑定 + 纯 Go 包头 / 校验和）、internal/capture（引擎）、core/process_config.go + process_routes.go、service/capture_svc.go。
+- 目的：TUN 下所有程序的包都进内核再判直连，直播推流偶发卡顿、内核重启断全部直连。此模式只接管名单里的程序，其它程序不经过本软件（无 TUN 路由、无 DNS 劫持）。
+- 抓包设计（WinDivert 能做到的最低开销，WFP 连接重定向要自写内核驱动，不考虑）：
+  - 探测句柄 `outbound and !loopback and (纯 SYN 或 UDP 53)`：没列出的程序每条 TCP 连接只有第一个 SYN 过一次用户态，DNS 查询也过一次；数据包一个不进来。
+  - SOCKET 层 sniff 句柄记录 本地端口 → PID（connect / bind / close 事件），没赶上就查 GetExtendedTcp/UdpTable；PID → exe 路径缓存一分钟，按 capture.Routes 判定（拦截 > 有按目标规则的应用 > 直连 > 分组 > 默认线路）。
+  - 数据句柄的过滤器只列被接管连接的本地端口；加端口时先开新句柄再关旧句柄（ShutdownRecv 排空），SYN 等新过滤器生效后才放行，避免握手后的 ACK 漏到原目标被 RST。超过 120 个端口退回「全部出站 TCP/UDP + 用户态查表」。
+  - TCP：SYN 及后续包改写成 127.0.0.1→127.0.0.1:中转端口（保留源端口作连接表键），中转 accept 后按表查原目标，SOCKS5 CONNECT 原 IP:端口 到该组的 sing-box mixed 入站（sing-box 嗅探出域名再走原规则）；中转回包改回「原目标 → 应用」从原网卡注入。
+  - UDP：按 bind 事件登记端口；数据报用 SOCKS5 UDP ASSOCIATE 交给组入站，回包在 Go 里拼 IPv4/UDP 注入。DNS（53）同样走组入站，由 sing-box 的 sniff + hijack-dns 应答。QUIC 仍由配置里的 quicRules 拒绝（BlockQUIC）。
+  - 被接管程序的 IPv6 SYN / UDP 直接丢，逼它回落 IPv4（中转只做 IPv4），避免 IPv6 漏直连。拦截程序在 WinDivert 直接丢包。
+- sing-box 配置：BuildProcessConfig 先生成 TUN 配置再改写，规则顺序不变：去掉 tun 入站，每个分组一个 mixed 入站 in-<组规则集 tag>；有按目标规则的程序单独一个 in-s-<hash>；默认全走代理多一个 in-default。rule_set 应用组 → inbound；process_name / process_path_regex（按目标规则）→ 该程序入站；自身 / 端口代理的进程规则删掉；应用规则集定义删掉（sing-box 不再查进程）。
+- 热更新：入站集合只随分组 / 按目标程序变化。应用在已有分组之间移动时配置字节不变，ApplySplitLists 返回 true，service 只换引擎里的 Routes；已在中转的旧连接按旧入站跑到关闭（clash 按进程名断旧连接在此模式下无效）。
+- 生命周期：内核起来后才开引擎；停止 / 内核退出（onCoreExit）先关引擎再停内核。句柄关完驱动自动卸载，进程崩溃句柄随进程关闭，不会残留拦截。需要管理员权限（manifest 已是 requireAdministrator）。
+- 限制：AI 强制走线路需要全机 DNS / 流量，开着时自动退回 TUN；只对「按应用分流」生效，整机全局仍是 TUN；UDP 端口登记靠 bind 事件，极少数程序首个非 DNS 数据报可能抢在过滤器更新前直连（毫秒级）；按目标规则的程序必须单独入站，增删这种程序会重启内核。
+- 二进制：scripts/fetch-core.ps1 从官方 basil00/WinDivert v2.2.2 下 zip，校验 zip 与 x64 dll / sys 的 SHA256 后放 bin/（git 忽略），app.go 内嵌并释放到 <数据目录>\bin。Defender 风险见 known-issues.md。
+- 集成测试：管理员 PowerShell 里 `$env:PROXYSPLIT_CAPTURE_IT=1; go test ./internal/capture -run Engine -v`（curl.exe 当被接管程序，需联网）。
+
+## 推流程序默认直连（两种接管方式都生效）
+service.streamPreset：直播伴侣.exe、MediaSDK_Server.exe（抖音直播伴侣）、obs64/obs32.exe、快手直播伴侣.exe、kwailive.exe、livehime.exe（B站直播姬）没出现在任何名单时自动进直连列表（应用规则集热加载，不重启）。用户把它们加进任何名单则按名单；设置「推流程序默认直连」可关（streamDirectOff）。exe 名除 OBS / livehime 外待真机核对。

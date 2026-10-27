@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"embed"
 	"encoding/json"
@@ -30,7 +31,7 @@ import (
 
 // payloadFS bundles sing-box and its rule sets into the portable executable.
 //
-//go:embed bin/sing-box.exe bin/core-release.json bin/geoip-cn.srs bin/geosite-cn.srs bin/geosite-category-ads-all.srs
+//go:embed bin/sing-box.exe bin/core-release.json bin/geoip-cn.srs bin/geosite-cn.srs bin/geosite-category-ads-all.srs bin/WinDivert.dll bin/WinDivert64.sys
 var payloadFS embed.FS
 
 // App is the Wails-bound application object.
@@ -310,11 +311,19 @@ func ensurePayload() (string, error) {
 	// may have been locked while that core was still running).
 	_ = coreupdate.ClearBackup(dir)
 
-	// v1.8.x moved application matching to sing-box TUN process_name rules.
-	// Remove legacy portable WinDivert payloads left by older versions; no
-	// driver is loaded or installed by the current application.
-	_ = os.Remove(filepath.Join(dir, "WinDivert.dll"))
-	_ = os.Remove(filepath.Join(dir, "WinDivert64.sys"))
+	// 仅接管选中程序 (internal/capture) loads WinDivert from this folder. Rewrite
+	// only when the bytes differ: a loaded driver keeps WinDivert64.sys open.
+	for _, name := range []string{"WinDivert.dll", "WinDivert64.sys"} {
+		data, err := payloadFS.ReadFile("bin/" + name)
+		if err != nil {
+			return "", err
+		}
+		dst := filepath.Join(dir, name)
+		if old, err := os.ReadFile(dst); err == nil && bytes.Equal(old, data) {
+			continue
+		}
+		_ = os.WriteFile(dst, data, 0o644) // best effort: TUN mode does not need it
+	}
 
 	metadata, err := payloadFS.ReadFile("bin/core-release.json")
 	if err != nil {

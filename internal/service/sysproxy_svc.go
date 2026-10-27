@@ -96,6 +96,7 @@ func (s *Service) applySystemProxyOnStart() {
 // intent (sysProxyWant) is kept so a manual restart re-applies it.
 func (s *Service) onCoreExit() {
 	s.flushAIDNSOnStop() // core gone: no cached AI address may outlive the tunnel
+	s.stopCapture()      // 仅接管选中程序: captured apps must not keep hitting dead inbounds
 	s.mu.Lock()
 	on := s.sysProxyOn
 	s.mu.Unlock()

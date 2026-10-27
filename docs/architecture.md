@@ -3,7 +3,7 @@
 ## 规模与技术栈
 
 - **规模：small（小工具）**。Windows 单机桌面客户端，单用户，没有多租户 / 权限分级；Go 后端（Wails 2）+ 内嵌网页界面 + sing-box 内核。商业后台（`server/`）是另一套系统，不在本文范围。
-- 后端：Go 1.26 + Wails 2.16，sing-box TUN + `process_name` 分流（详见 `docs/线路设计.md`）。
+- 后端：Go 1.26 + Wails 2.16，sing-box TUN + `process_name` 分流（详见 `docs/线路设计.md`）；可选接管方式「仅接管选中程序」= WinDivert 2.2.2（`internal/divert` 免 cgo 绑定 + `internal/capture` 抓包 / NAT / 中转）+ sing-box 按组 mixed 入站（`core.BuildProcessConfig`），设计见 `docs/memory/routing.md`「仅接管选中程序」。
 - 界面（2026-10-22 起）：React 19.3 + Vite 8.3 + TypeScript 7 + 公司组件库 `@ankotti/admin-ui`（钉 tag，见 `frontend/package.json`），pnpm 安装。替换了原来的 Svelte 3 单文件界面（3735 行 `App.svelte`）。
 
 ## 界面模块与数据归属
@@ -29,6 +29,8 @@ frontend/src/
 依赖方向：`features → state → api → wailsjs`；`shared` 被所有层用、不依赖别人。页面之间不互相 import。
 
 ## 关键规则（不变量）
+
+- 接管方式（`Settings.captureMode`）默认 `tun`；`process` 只在按应用分流下生效，AI 强制走线路开着时自动退回 TUN。两种方式共用同一套规则顺序：`BuildProcessConfig` 由 TUN 配置改写而来（进程条件 → 入站条件），不得各写一套。仅接管模式下应用名单热更新只换 `capture.Routes`，不重启内核；WinDivert 句柄随停止 / 内核退出关闭。
 
 - 节点和应用规则是不可替代的用户数据：重载时两者都读成功才替换屏幕；其余数据单项失败保留旧值（`state/data.ts reloadData`）。
 - Go 的 nil 切片是 `null`：只在 `api/backend.ts` 兜成空数组，界面层不再判空。

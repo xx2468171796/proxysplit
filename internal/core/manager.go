@@ -307,6 +307,10 @@ func (m *Manager) tunConfig(node *nodes.Node, logLevel, routeMode string, routeR
 	if opts.Split && opts.RuleDir == "" {
 		opts.RuleDir = filepath.Join(m.dataDir, "rules")
 	}
+	if opts.Process != nil {
+		cfg, err := BuildProcessConfig(node, logLevel, opts)
+		return cfg, opts, err
+	}
 	cfg, err := BuildTUNConfig(node, logLevel, opts)
 	return cfg, opts, err
 }
@@ -347,7 +351,7 @@ func (m *Manager) ApplySplitLists(node *nodes.Node, logLevel, routeMode string, 
 // (Writing in Go map order made TestHotReloadMoveHasNoGap fail ~1 run in 3.)
 func writeRuleSets(opts Options) error {
 	sets := SplitRuleSets(opts)
-	if len(sets) == 0 {
+	if len(sets) == 0 || opts.Process != nil { // process capture keeps the lists in memory
 		return nil
 	}
 	if err := os.MkdirAll(opts.RuleDir, 0o755); err != nil {

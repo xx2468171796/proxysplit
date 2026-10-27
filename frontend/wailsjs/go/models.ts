@@ -1618,6 +1618,8 @@ export namespace service {
 	    autoUpdateCoreOff?: boolean;
 	    claudeAccelOff?: boolean;
 	    claudeAccelAutoOff?: boolean;
+	    captureMode?: string;
+	    streamDirectOff?: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new Settings(source);
@@ -1644,6 +1646,8 @@ export namespace service {
 	        this.autoUpdateCoreOff = source["autoUpdateCoreOff"];
 	        this.claudeAccelOff = source["claudeAccelOff"];
 	        this.claudeAccelAutoOff = source["claudeAccelAutoOff"];
+	        this.captureMode = source["captureMode"];
+	        this.streamDirectOff = source["streamDirectOff"];
 	    }
 	}
 	export class Stats {
