@@ -43,6 +43,9 @@ type clashProxy struct {
 		ShortID   string `yaml:"short-id"`
 	} `yaml:"reality-opts"`
 
+	XHTTPOpts  clashXHTTP `yaml:"xhttp-opts"`
+	Encryption string     `yaml:"encryption"`
+
 	CongestionController string `yaml:"congestion-controller"`
 
 	Plugin     string         `yaml:"plugin"`
@@ -256,6 +259,9 @@ func clashNode(p clashProxy) (*Node, error) {
 	if n.Network == "grpc" {
 		n.Path = strings.TrimSpace(p.GRPCOpts.ServiceName)
 	}
+	if nodeType == "vless" || nodeType == "vmess" || nodeType == "trojan" {
+		applyClashXray(n, p)
+	}
 
 	switch nodeType {
 	case "vless", "vmess":
@@ -275,7 +281,7 @@ func clashNode(p clashProxy) (*Node, error) {
 		"clash", n.Type, n.Server, strconv.Itoa(n.Port), n.UUID, n.Username,
 		n.Password, n.Method, n.Network, n.Host, n.Path, n.Security, n.SNI,
 		n.Plugin, n.PluginOpts,
-	}, "|"))
+	}, "|") + clashXrayID(n))
 	return n, nil
 }
 

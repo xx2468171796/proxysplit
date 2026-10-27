@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"proxysplit/internal/nodes"
+	"proxysplit/internal/xray"
 )
 
 // LogFunc receives a single line of core output.
@@ -34,6 +35,7 @@ type Manager struct {
 	node    *nodes.Node
 	done    chan struct{} // closed when the current cmd exits (for Stop to await)
 	tunCfg  []byte        // config the running TUN core was started with (for hot updates)
+	xray    *xray.Sidecar // Xray-only nodes (xray.go); started before and stopped after sing-box
 }
 
 // SetOnExit registers a callback fired after the core process exits for any
@@ -47,7 +49,7 @@ func NewManager(binPath, dataDir string, onLog LogFunc) *Manager {
 	if onLog == nil {
 		onLog = func(string) {}
 	}
-	return &Manager{binPath: binPath, dataDir: dataDir, onLog: onLog}
+	return &Manager{binPath: binPath, dataDir: dataDir, onLog: onLog, xray: newSidecar(binPath, filepath.Join(dataDir, "xray"), onLog)}
 }
 
 // Running reports whether the core process is currently up.
@@ -100,6 +102,9 @@ func (m *Manager) Node() *nodes.Node {
 
 // Check validates a generated config using `sing-box check` without starting it.
 func (m *Manager) Check(node *nodes.Node, opts Options) error {
+	if node.NeedsXray() { // sing-box only sees the sidecar's SOCKS outbound
+		opts.XrayPorts = map[string]int{xray.Key(node): deadXrayPort}
+	}
 	cfg, err := BuildConfig(node, 17890, "info", opts)
 	if err != nil {
 		return err
@@ -157,8 +162,17 @@ func (m *Manager) StartLines(lines []LineConfig, logLevel string, opts Options) 
 		return fmt.Errorf("no lines")
 	}
 
+	lineNodes := make([]*nodes.Node, 0, len(lines))
+	for _, ln := range lines {
+		lineNodes = append(lineNodes, ln.Node)
+	}
+	opts, err := m.withSidecar(lineNodes, opts)
+	if err != nil {
+		return err
+	}
 	cfg, err := BuildMultiConfig(lines, logLevel, opts)
 	if err != nil {
+		m.xray.Stop()
 		return err
 	}
 	if err := os.MkdirAll(m.dataDir, 0o755); err != nil {
@@ -233,8 +247,13 @@ func (m *Manager) StartTUN(node *nodes.Node, logLevel, routeMode string, routeRu
 		return fmt.Errorf("sing-box binary not found at %s", m.binPath)
 	}
 
+	opts, err := m.withSidecar([]*nodes.Node{node}, opts)
+	if err != nil {
+		return err
+	}
 	cfg, opts, err := m.tunConfig(node, logLevel, routeMode, routeRules, opts)
 	if err != nil {
+		m.xray.Stop()
 		return err
 	}
 	if err := os.MkdirAll(m.dataDir, 0o755); err != nil {
@@ -277,6 +296,7 @@ func (m *Manager) StartTUN(node *nodes.Node, logLevel, routeMode string, routeRu
 		lastErr = fmt.Errorf("core exited on start (TUN/wintun error — check the log)")
 		m.Stop() // clean up before the next attempt
 	}
+	m.xray.Stop()
 	return lastErr
 }
 
@@ -297,7 +317,12 @@ func (m *Manager) tunConfig(node *nodes.Node, logLevel, routeMode string, routeR
 // files differ, and sing-box reloads those by itself. It returns false when the
 // core is not running a TUN config or the config differs (restart needed).
 func (m *Manager) ApplySplitLists(node *nodes.Node, logLevel, routeMode string, routeRules []RouteRule, opts Options) (bool, error) {
-	cfg, opts, err := m.tunConfig(node, logLevel, routeMode, routeRules, opts)
+	// The running sidecar's ports: a changed Xray node set builds a different
+	// config (or none) and so takes the restart path.
+	cfg, opts, err := m.tunConfig(node, logLevel, routeMode, routeRules, m.xrayOpts(opts, m.xray.Ports()))
+	if isXrayErr(err) {
+		return false, nil
+	}
 	if err != nil {
 		return false, err
 	}
@@ -460,6 +485,7 @@ func (m *Manager) Stop() error {
 	m.port = 0
 	m.mu.Unlock()
 	if cmd == nil || cmd.Process == nil {
+		m.xray.Stop()
 		return nil
 	}
 	_ = cmd.Process.Kill()
@@ -470,13 +496,18 @@ func (m *Manager) Stop() error {
 		}
 	}
 	m.killStrays()                     // nuke any orphaned sing-box (else Stop leaves proxying alive)
+	m.xray.Stop()                      // sidecar after sing-box: nothing dials it any more
 	time.Sleep(300 * time.Millisecond) // grace for the wintun driver to release
 	return nil
 }
 
-// CleanStrays kills orphaned sing-box processes from a prior crash. Call once
-// on startup so a leftover core isn't left proxying after the app restarts.
-func (m *Manager) CleanStrays() { m.killStrays() }
+// CleanStrays kills orphaned sing-box (and Xray sidecar) processes from a
+// prior crash. Call once on startup so a leftover core isn't left proxying
+// after the app restarts.
+func (m *Manager) CleanStrays() {
+	m.killStrays()
+	m.xray.CleanStrays()
+}
 
 // killStrays force-kills every sing-box.exe running from OUR bin path. This
 // catches orphans left by a crash or a botched restart that would otherwise

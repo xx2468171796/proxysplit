@@ -38,6 +38,14 @@ frontend/src/
 - 中转站渠道（`license.channel === "aigw"`）的客户不显示作者联系方式、赞赏码、官网 / GitHub。
 - 金额以「分」存，展示时只做一次除法。
 
+## Xray 双内核（internal/xray）
+
+- sing-box 仍负责 TUN、逐应用分流、规则、DNS；只有 sing-box 跑不了的节点（`Node.NeedsXray()`：XHTTP/splithttp、mKCP、VLESS encryption≠none）交给 Xray 旁路内核。
+- 一个 sing-box 实例配一个 Xray 进程（主内核 / 每个端口代理 / 每次测速探针各一个），每个这类节点一个 127.0.0.1 SOCKS 入站（免认证、开 UDP），按 inboundTag 路由到它的出站；sing-box 里该节点的出站变成同 tag 的 `socks → 127.0.0.1:<端口>`（`core/xray.go viaSidecar`）。其它节点生成的配置逐字节不变。
+- 顺序：先起 Xray（等全部入站端口监听）再起 sing-box，先停 sing-box 再停 Xray；启动时按配置路径清残留。TUN 配置里 xray.exe 的 `process_path` 直连，防止回环。
+- 主节点需要 Xray 而起不来 → 中文报错「该节点需要 Xray 内核…」；分应用线路 / 额外节点起不来只让这条线路连不上（指向死端口），不影响其它节点。
+- 内核分发见 docs/memory/core-update.md「Xray 双内核」。
+
 ## 页面与模板（admin-ui PAGE-TEMPLATES）
 
 | 页面 | 模板 | 说明 |

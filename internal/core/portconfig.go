@@ -28,6 +28,8 @@ type PortConfig struct {
 	RuleSets      *RuleSetOptions
 	DirectDomains []string
 	RealityHybrid bool
+	// XrayPorts: sidecar ports of Xray-only nodes (PortProcess.PrepareXray).
+	XrayPorts map[string]int
 }
 
 // PortInboundTag is the inbound tag of every proxy-port process.
@@ -58,7 +60,7 @@ func BuildPortConfig(pc PortConfig) ([]byte, error) {
 	outs := []M{}
 	proxyTag := "direct"
 	if pc.Node != nil {
-		obs, err := buildOutbounds(pc.Node, "proxy", pc.RealityHybrid)
+		obs, err := buildNodeOutbounds(pc.Node, "proxy", Options{RealityHybrid: pc.RealityHybrid, XrayPorts: pc.XrayPorts}, true)
 		if err != nil {
 			return nil, err
 		}

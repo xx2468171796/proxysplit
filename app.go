@@ -84,6 +84,7 @@ func (a *App) startup(ctx context.Context) {
 		}
 		bin = binDir() // dev fallback: use ./bin
 	}
+	setupXray(ctx, bin)
 	// Before New: it writes config.json even on a fresh install (release_notes.go).
 	if _, err := os.Stat(filepath.Join(dataDir(), "config.json")); err != nil {
 		a.freshInstall = true

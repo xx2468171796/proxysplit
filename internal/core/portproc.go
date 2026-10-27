@@ -12,6 +12,9 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"proxysplit/internal/nodes"
+	"proxysplit/internal/xray"
 )
 
 // PortDirName is the data sub-directory holding the proxy-port configs. Its
@@ -30,6 +33,7 @@ type PortProcess struct {
 	cmd     *exec.Cmd
 	done    chan struct{}
 	stopped bool
+	xray    *xray.Sidecar // Xray-only exit node (PrepareXray); stopped with the port
 }
 
 // NewPortProcess prepares (does not start) the process of port id.
@@ -40,6 +44,7 @@ func NewPortProcess(binPath, dataDir, id string, onLog LogFunc, onExit func()) *
 	return &PortProcess{
 		binPath: binPath,
 		cfgPath: PortConfigPath(dataDir, id),
+		xray:    newSidecar(binPath, filepath.Join(dataDir, PortDirName, "xray-"+id), onLog),
 		onLog:   onLog,
 		onExit:  onExit,
 	}
@@ -117,16 +122,26 @@ func (p *PortProcess) Stop() {
 	p.cmd = nil
 	p.stopped = true
 	p.mu.Unlock()
-	if cmd == nil || cmd.Process == nil {
-		return
-	}
-	_ = cmd.Process.Kill()
-	if done != nil {
-		select {
-		case <-done:
-		case <-time.After(4 * time.Second):
+	if cmd != nil && cmd.Process != nil {
+		_ = cmd.Process.Kill()
+		if done != nil {
+			select {
+			case <-done:
+			case <-time.After(4 * time.Second):
+			}
 		}
 	}
+	p.xray.Stop()
+}
+
+// PrepareXray starts the port's Xray sidecar when node needs it (stops it
+// otherwise) and returns the ports for PortConfig.XrayPorts. Call before Start.
+func (p *PortProcess) PrepareXray(node *nodes.Node) (map[string]int, error) {
+	if node == nil {
+		p.xray.Stop()
+		return nil, nil
+	}
+	return p.xray.Ensure([]*nodes.Node{node})
 }
 
 // KillPortStrays kills proxy-port processes orphaned by a prior crash (sing-box
@@ -141,6 +156,7 @@ func KillPortStrays(binPath string) {
 	cmd.Env = append(os.Environ(), "PS_SINGBOX_PATH="+filepath.Clean(binPath))
 	hideWindow(cmd)
 	_ = cmd.Run()
+	xray.KillStrays(XrayBinPath(binPath), PortDirName)
 }
 
 // portFirewallRule is the Windows Firewall rule letting LAN clients reach the

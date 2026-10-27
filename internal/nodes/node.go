@@ -37,6 +37,16 @@ type Node struct {
 	Path    string `json:"path,omitempty"`    // ws/http path or grpc serviceName
 	Host    string `json:"host,omitempty"`    // ws/http Host header
 
+	// Xray-only extras (see NeedsXray): sing-box has no XHTTP / mKCP / VLESS
+	// encryption, so such nodes run through the Xray sidecar.
+	Mode       string `json:"mode,omitempty"`       // xhttp mode (auto | packet-up | stream-up | stream-one)
+	Extra      string `json:"extra,omitempty"`      // xhttp "extra" JSON object (verbatim)
+	Encryption string `json:"encryption,omitempty"` // vless encryption ("none" or mlkem768x25519plus.…)
+	HeaderType string `json:"headerType,omitempty"` // mKCP header (none | wechat-video | dtls | …)
+	Seed       string `json:"seed,omitempty"`       // mKCP seed
+	SpiderX    string `json:"spiderX,omitempty"`    // reality spiderX
+	PQV        string `json:"pqv,omitempty"`        // reality mldsa65Verify
+
 	// Compat extras (third-party subscriptions). Multiplex is a sing-box
 	// "multiplex" object (from Clash smux / brutal-opts); Plugin/PluginOpts are
 	// the shadowsocks SIP003 plugin in sing-box form (obfs-local / v2ray-plugin).

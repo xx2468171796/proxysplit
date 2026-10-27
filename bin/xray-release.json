@@ -1,0 +1,12 @@
+{
+  "version": "26.6.1",
+  "upstreamTag": "v26.6.1",
+  "upstreamCommit": "94ffd50060f1cfd5d7482ec90a23a92bdefdff68",
+  "go": "1.26.8",
+  "format": "exe",
+  "url": "http://192.168.110.246:3001/api/packages/gonggong/generic/xray/26.6.1/xray-windows-amd64.exe",
+  "urlAuth": "gitea",
+  "sha256": "dee38bbd43be0ef078bcefdcfceac24ae298a5a9f98c416675534c9ba3ba8d6f",
+  "source": "上游 XTLS/Xray-core v26.6.1 用 scripts/build-xray.ps1 自编（-trimpath，参数同上游发布流程）；Gitea generic 包 gonggong/xray；只当 sing-box 跑不了的节点（XHTTP / mKCP / VLESS encryption）的旁路内核",
+  "verifiedAt": ""
+}

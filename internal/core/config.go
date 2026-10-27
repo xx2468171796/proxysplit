@@ -128,6 +128,11 @@ type Options struct {
 	// PortProcessPath is the core binary the 端口代理 processes run from: their
 	// already-routed traffic must leave the TUN untouched (no second hop).
 	PortProcessPath string
+	// XrayPorts maps xray.Key(node) → the Xray sidecar's SOCKS port for nodes
+	// sing-box cannot carry (see xray.go); XrayPath is xray.exe, kept out of
+	// the TUN like PortProcessPath. Both empty = no sidecar.
+	XrayPorts map[string]int
+	XrayPath  string
 	// BlockQUIC rejects QUIC (UDP 443) headed for the tunnel so browsers fall back
 	// to TCP, where the domain can always be sniffed and routed.
 	BlockQUIC bool
@@ -542,7 +547,7 @@ func BuildMultiConfig(lines []LineConfig, logLevel string, opts Options) ([]byte
 		})
 		if _, ok := nodeTag[ln.Node.ID]; !ok {
 			tag := "node-" + ln.Node.ID
-			obs, err := buildOutbounds(ln.Node, tag, opts.RealityHybrid)
+			obs, err := buildNodeOutbounds(ln.Node, tag, opts, true)
 			if err != nil {
 				return nil, err
 			}
@@ -667,7 +672,7 @@ func BuildTUNConfig(node *nodes.Node, logLevel string, opts Options) ([]byte, er
 	if node == nil {
 		return nil, fmt.Errorf("nil node")
 	}
-	proxyObs, err := buildOutbounds(node, "proxy", opts.RealityHybrid)
+	proxyObs, err := buildNodeOutbounds(node, "proxy", opts, true)
 	if err != nil {
 		return nil, err
 	}
@@ -727,6 +732,7 @@ func BuildTUNConfig(node *nodes.Node, logLevel string, opts Options) ([]byte, er
 	if opts.PortProcessPath != "" {
 		rules = append(rules, M{"process_path": []string{opts.PortProcessPath}, "outbound": "direct"})
 	}
+	rules = append(rules, xrayRules(opts)...)
 	var scopedProxy []ScopedRule
 	if opts.Split {
 		rules = append(rules, M{"rule_set": []string{appSetDirect}, "outbound": "direct"})
@@ -905,7 +911,7 @@ func BuildTUNConfig(node *nodes.Node, logLevel string, opts Options) ([]byte, er
 		if en.Node == nil {
 			continue
 		}
-		eobs, oerr := buildOutbounds(en.Node, en.Tag, opts.RealityHybrid)
+		eobs, oerr := buildNodeOutbounds(en.Node, en.Tag, opts, false)
 		if oerr != nil {
 			return nil, oerr
 		}
