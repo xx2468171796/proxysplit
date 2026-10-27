@@ -11,7 +11,8 @@ import (
 
 // owners maps local (protocol, port) -> pid, fed by the SOCKET-layer sniff
 // handle (connect / bind events arrive before the first packet in practice)
-// with the iphlpapi owner tables as a fallback for the race.
+// with the iphlpapi owner tables as a fallback for the race (resolveLoop, never
+// on the probe loop).
 type owners struct {
 	mu    sync.Mutex
 	ports map[uint32]uint32 // proto<<16|port -> pid
@@ -45,22 +46,6 @@ func (o *owners) peek(proto uint8, port uint16) (uint32, bool) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	pid, ok := o.ports[ownerKey(proto, port)]
-	return pid, ok
-}
-
-// pid resolves the owner of a local port: event map, a short wait for a racing
-// event, then the kernel owner table.
-func (o *owners) pid(proto uint8, port uint16) (uint32, bool) {
-	for i := 0; i < 3; i++ {
-		if pid, ok := o.peek(proto, port); ok {
-			return pid, true
-		}
-		time.Sleep(time.Millisecond)
-	}
-	pid, ok := tableOwner(proto, port)
-	if ok {
-		o.set(proto, port, pid)
-	}
 	return pid, ok
 }
 

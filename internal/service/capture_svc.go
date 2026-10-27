@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"proxysplit/internal/capture"
 	"proxysplit/internal/core"
@@ -77,17 +78,23 @@ func (s *Service) startCapture(opts core.Options) error {
 	if opts.Process == nil {
 		return nil
 	}
-	exclude := []string{filepath.Join(s.binDir, "sing-box.exe")}
+	// Every core we run shares these two binaries: the main / 端口代理 / probe
+	// sing-box and every xray sidecar (main, per port, latency probe) run from
+	// binDir, so excluding by image path covers all of them. Capturing them in
+	// 默认全走代理 would loop their upstream traffic back into sing-box.
+	exclude := []string{filepath.Join(s.binDir, "sing-box.exe"), core.XrayBinPath(s.singBoxPath())}
 	if p := s.portProcessPath(); p != "" {
 		exclude = append(exclude, p)
 	}
-	if err := coreupdate.EnsureWinDivert(s.binDir); err != nil {
-		return fmt.Errorf("仅接管选中程序需要的驱动没准备好（可在设置里改回「整机虚拟网卡」）: %w", err)
+	if !coreupdate.WinDivertReady(s.binDir) {
+		// Never download under lifecycleMu: Start / SetSettings fetch it first.
+		s.prefetchWinDivert()
+		return fmt.Errorf("仅接管选中程序需要的驱动还没下载好，正在后台下载，请稍后再启动（或在设置里改回「整机虚拟网卡」）")
 	}
 	eng, err := capture.Start(capture.Options{
 		DLLPath: filepath.Join(s.binDir, "WinDivert.dll"),
 		Exclude: exclude,
-		Log:     s.log,
+		Log:     s.log, // the watchdog's stall message lands in the log as well
 	}, core.ProcessRoutes(opts))
 	if err != nil {
 		return fmt.Errorf("仅接管选中程序启动失败（可在设置里改回「整机虚拟网卡」）: %w", err)
@@ -96,6 +103,51 @@ func (s *Service) startCapture(opts core.Options) error {
 	s.capEng = eng
 	s.mu.Unlock()
 	return nil
+}
+
+// winDivertWait bounds how long Start / SetSettings wait for the driver
+// download before giving up (the download itself keeps going in background).
+const winDivertWait = 60 * time.Second
+
+// prefetchWinDivert starts (at most one) background download of the WinDivert
+// files and returns a channel closed when it ends.
+func (s *Service) prefetchWinDivert() <-chan struct{} {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.wdFetch != nil {
+		return s.wdFetch
+	}
+	done := make(chan struct{})
+	s.wdFetch = done
+	go func() {
+		err := coreupdate.EnsureWinDivert(s.binDir)
+		if err != nil {
+			s.log("[capture] 下载 WinDivert 驱动失败: " + err.Error())
+		}
+		s.mu.Lock()
+		s.wdFetch = nil
+		s.mu.Unlock()
+		close(done)
+	}()
+	return done
+}
+
+// ensureWinDivertUnlocked makes sure the driver files are present before the
+// core starts in 仅接管选中程序 mode. Callers must NOT hold lifecycleMu: a slow
+// mirror may take up to winDivertWait, and start/stop must stay responsive.
+func (s *Service) ensureWinDivertUnlocked() {
+	s.mu.Lock()
+	mode := s.cfg.Settings.CaptureMode
+	s.mu.Unlock()
+	if mode != CaptureProcess || coreupdate.WinDivertReady(s.binDir) {
+		return
+	}
+	s.log("[capture] 正在下载「仅接管选中程序」需要的 WinDivert 驱动…")
+	select {
+	case <-s.prefetchWinDivert():
+	case <-time.After(winDivertWait):
+		s.log("[capture] WinDivert 驱动下载超过 60 秒，继续在后台下载")
+	}
 }
 
 // updateCaptureRoutes applies a hot app-list change to the running engine.

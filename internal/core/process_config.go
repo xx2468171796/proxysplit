@@ -145,7 +145,7 @@ func (rw processRewrite) rule(r M) (M, bool) {
 		}
 	}
 	if _, ok := r["process_path"]; ok {
-		return nil, false // 端口代理 core: never captured
+		return nil, false // 端口代理 core / xray: excluded in ProcessRoutes (processPathDirect)
 	}
 	if matched {
 		if len(inbounds) == 0 {

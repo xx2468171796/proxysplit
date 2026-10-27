@@ -12,6 +12,7 @@ type Options struct {
 	DLLPath string
 	Exclude []string
 	Log     func(string)
+	OnFail  func(msg string)
 }
 
 // Start is unsupported off Windows.

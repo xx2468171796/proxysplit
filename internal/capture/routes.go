@@ -34,6 +34,11 @@ type DirRoute struct {
 // changes. Precedence mirrors the TUN rule order: 拦截 > per-target apps >
 // 直连 > groups > default line (默认全走代理 only).
 type Routes struct {
+	// Exclude holds full exe paths (lower-case, `\`) that are never captured,
+	// whatever the lists say: our own cores (sing-box / xray sidecars) and the
+	// sing-box rules' process_path → direct entries. Capturing them would loop
+	// their upstream traffic back into the core.
+	Exclude    map[string]bool
 	Block      map[string]bool
 	BlockDirs  []string
 	Apps       map[string]int // exe name (lower) -> inbound port
@@ -52,6 +57,11 @@ func NormDir(dir string) string {
 	return d + `\`
 }
 
+// NormExe is the key form of a full exe path for Routes.Exclude.
+func NormExe(p string) string {
+	return strings.ToLower(filepath.Clean(strings.ReplaceAll(p, "/", `\`)))
+}
+
 func underAny(path string, dirs []string) bool {
 	for _, d := range dirs {
 		if d != "" && strings.HasPrefix(path, d) {
@@ -66,7 +76,10 @@ func (r *Routes) Decide(exePath string) Verdict {
 	if r == nil || exePath == "" {
 		return Verdict{}
 	}
-	p := strings.ToLower(strings.ReplaceAll(exePath, "/", `\`))
+	p := NormExe(exePath)
+	if r.Exclude[p] {
+		return Verdict{}
+	}
 	name := filepath.Base(strings.ReplaceAll(p, `\`, "/"))
 	if r.Block[name] || underAny(p, r.BlockDirs) {
 		return Verdict{Action: Drop}
