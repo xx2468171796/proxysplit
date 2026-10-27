@@ -19,6 +19,7 @@ const POLL_MS = 2000;
 function usePortsPolling() {
   useEffect(() => {
     void refreshPorts();
+    // admin-ui-audit-ignore short-poll: 桌面客户端读本机 Go 后端（Wails 绑定）的运行状态，不是服务器业务数据，没有推送通道
     const timer = setInterval(() => void refreshPorts(), POLL_MS);
     return () => clearInterval(timer);
   }, []);

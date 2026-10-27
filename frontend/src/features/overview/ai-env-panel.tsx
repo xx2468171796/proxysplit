@@ -63,6 +63,7 @@ function useAIEnv(always: boolean) {
       visible = always || !!h?.visible;
     };
     void poll();
+    // admin-ui-audit-ignore short-poll: 桌面客户端读本机 Go 后端（Wails 绑定）的运行状态，不是服务器业务数据，没有推送通道
     const timer = setInterval(() => void poll(), 5000);
     const off = onBackendEvent<string>("ai-autostart-failed", (m) => say(`劫持模式自动启动代理失败：${m}`));
     return () => {
@@ -75,6 +76,7 @@ function useAIEnv(always: boolean) {
   const counting = hijack.lock?.phase === "warming" || hijack.lock?.phase === "stopping";
   useEffect(() => {
     if (!counting) return;
+    // admin-ui-audit-ignore short-poll: 桌面客户端读本机 Go 后端（Wails 绑定）的运行状态，不是服务器业务数据，没有推送通道
     const timer = setInterval(() => void loadHijack(), 1000);
     return () => clearInterval(timer);
   }, [counting, loadHijack]);

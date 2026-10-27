@@ -23,6 +23,7 @@ const onVisible = () => {
 
 function startPolling(): void {
   stopPolling();
+  // admin-ui-audit-ignore short-poll: 扫码付款等待中查订单是否到账，只在付款弹窗开着时跑，付完即停；客户端没有服务器推送通道
   pollTimer = setInterval(() => {
     if (!document.hidden) void pollOnce();
   }, 3000);

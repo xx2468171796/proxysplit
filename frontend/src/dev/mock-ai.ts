@@ -3,7 +3,7 @@ type Fn = (...args: unknown[]) => unknown;
 
 export function createAIMock(showcase: boolean): Record<string, Fn> {
   return {
-    GetAIHijack: () => ({ on: true, locked: false, visible: !showcase }),
+    GetAIHijack: () => ({ on: true, locked: false, visible: !showcase, lock: { phase: "warming", seconds: 7 } }),
     GetEnvConfig: () => [
       {
         id: "timezone",

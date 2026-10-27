@@ -16,7 +16,7 @@
     "check": "pnpm typecheck && pnpm lint && pnpm test && pnpm audit:ui && pnpm check:size"
   },
   "dependencies": {
-    "@ankotti/admin-ui": "git+http://s3.alonelife.top:32109/admin/yanzheng.git#adminUI-v9.0.3&path:/packages/adminUI",
+    "@ankotti/admin-ui": "git+http://s3.alonelife.top:32109/admin/yanzheng.git#adminUI-v9.6.1&path:/packages/adminUI",
     "dongxiao": "git+http://s3.alonelife.top:32109/admin/yanzheng.git#dongxiao-v1.8.0&path:/packages/dongxiao",
     "gsap": "^3.15.0",
     "@gsap/react": "^2.1.2",

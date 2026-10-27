@@ -93,11 +93,13 @@ async function onLicenseChanged(say: Say): Promise<void> {
 /** 每秒：运行状态 + 分流健康（日志页再加实时连接）；3 秒：Claude 加速；1 分钟：套餐；1 小时：检查更新（有新版即强制升级）。 */
 function startTimers(isLogsPage: () => boolean): Array<ReturnType<typeof setInterval>> {
   return [
+    // admin-ui-audit-ignore short-poll: 桌面客户端读本机 Go 后端（Wails 绑定）的运行状态，不是服务器业务数据，没有推送通道
     setInterval(() => {
       void refreshStatus();
       void refreshHealth();
       if (isLogsPage()) void refreshConns();
     }, 1000),
+    // admin-ui-audit-ignore short-poll: 桌面客户端读本机 Go 后端（Wails 绑定）的运行状态，不是服务器业务数据，没有推送通道
     setInterval(() => void refreshAccel(), 3000),
     setInterval(() => void loadCommerce(), 60_000),
     setInterval(() => void checkAppUpdate(true), 3600_000),

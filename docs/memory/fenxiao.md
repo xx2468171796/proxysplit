@@ -21,5 +21,5 @@
 - 事务里不要另借连接：getPolicy(db) 收到的是当前 tx。
 - 推广人看到的下级 / 买家用户名服务端打码（maskName）。
 - 真库场景：`apps/api/scripts/fenxiao-scenario.mts`（14 项，只对空测试库跑；本机用 PGlite + pglite-socket 起临时库，要加载 pgcrypto 扩展，迁移才跑得过）。
-- 客户端（frontend）还没显示「审核中」和手续费：改 frontend 要先把 admin-ui 9.0.3 升到最新（换了默认皮肤），单独排期。
+- 客户端（frontend）还没显示「审核中」和手续费（admin-ui 已于 2026-10-27 升到 9.6.1，可以直接做）。
 - 手动确认订单网关单号原来写死 'MANUAL'，撞 orders_provider_order_uq；v1.9.93 改成 'MANUAL-<单号>'。
