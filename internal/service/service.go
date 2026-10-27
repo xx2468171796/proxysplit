@@ -565,6 +565,7 @@ func (s *Service) Nodes() []*nodes.Node {
 	out := make([]*nodes.Node, 0, len(s.cfg.Nodes))
 	for _, n := range s.cfg.Nodes {
 		c := *n
+		c.CoreInfo = c.DescribeCore()
 		out = append(out, &c)
 	}
 	return out
@@ -1217,6 +1218,7 @@ func (s *Service) replaceSubscriptionNodesLocked(id string, list []*nodes.Node) 
 		}
 	}
 	reconcileSubscriptionNodes(oldNodes, list)
+	keepNodeCores(oldNodes, list)
 	kept := s.cfg.Nodes[:0]
 	for _, n := range s.cfg.Nodes {
 		if n.SubID != id {

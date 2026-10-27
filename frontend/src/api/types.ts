@@ -15,6 +15,20 @@ export type Node = {
   speed?: number;
   /** POWER云 官方线路（会员专属，不能分享） */
   official?: boolean;
+  /** 用户选的内核：'' 自动 | 'sing-box' | 'xray' */
+  core?: string;
+  /** Go 端算好的内核信息（实际内核、能选哪些） */
+  coreInfo?: NodeCoreInfo;
+};
+
+export type NodeCore = "" | "sing-box" | "xray";
+
+export type NodeCoreInfo = {
+  effective: "sing-box" | "xray";
+  /** 只能用 Xray（XHTTP / mKCP / VLESS encryption），不能选 sing-box */
+  xrayOnly: boolean;
+  /** Xray 支持该协议，可以强制用 Xray */
+  xraySupported: boolean;
 };
 
 export type Proc = { name: string; desc?: string; path: string; count: number };

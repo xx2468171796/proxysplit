@@ -394,6 +394,10 @@ export function SetLines(arg1) {
   return window['go']['main']['App']['SetLines'](arg1);
 }
 
+export function SetNodeCore(arg1, arg2) {
+  return window['go']['main']['App']['SetNodeCore'](arg1, arg2);
+}
+
 export function SetLogLevel(arg1) {
   return window['go']['main']['App']['SetLogLevel'](arg1);
 }

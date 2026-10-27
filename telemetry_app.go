@@ -82,18 +82,27 @@ func (a *App) tmSnapshot() map[string]any {
 
 // tmNodeType is the protocol of a node ("" if unknown); never its address.
 func (a *App) tmNodeType(id string) string {
+	p, _ := a.tmNodeInfo(id)
+	return p
+}
+
+// tmNodeInfo is a node's protocol and effective core ("" if unknown).
+func (a *App) tmNodeInfo(id string) (protocol, core string) {
 	for _, n := range a.svc.Nodes() {
 		if n.ID == id {
 			if n.Official {
-				return n.Type + "/official"
+				return n.Type + "/official", n.EffectiveCore()
 			}
-			return n.Type
+			return n.Type, n.EffectiveCore()
 		}
 	}
-	return ""
+	return "", ""
 }
 
-func (a *App) tmNode(id string) map[string]any { return map[string]any{"protocol": a.tmNodeType(id)} }
+func (a *App) tmNode(id string) map[string]any {
+	p, c := a.tmNodeInfo(id)
+	return map[string]any{"protocol": p, "core": c}
+}
 
 // tmText records a binding that returns "" or a user-facing error message,
 // and passes the message through.

@@ -46,6 +46,12 @@ type Node struct {
 	Seed       string `json:"seed,omitempty"`       // mKCP seed
 	SpiderX    string `json:"spiderX,omitempty"`    // reality spiderX
 	PQV        string `json:"pqv,omitempty"`        // reality mldsa65Verify
+	// Core is the user's core choice: "" = auto, "sing-box", "xray" (see
+	// EffectiveCore). Kept across subscription refreshes by node ID.
+	Core string `json:"core,omitempty"`
+	// CoreInfo is derived (EffectiveCore / NeedsXray / XraySupports), filled
+	// only on the copies handed to the UI; never set on stored nodes.
+	CoreInfo *CoreInfo `json:"coreInfo,omitempty"`
 
 	// Compat extras (third-party subscriptions). Multiplex is a sing-box
 	// "multiplex" object (from Clash smux / brutal-opts); Plugin/PluginOpts are

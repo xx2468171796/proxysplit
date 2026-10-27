@@ -110,7 +110,7 @@ const deadXrayPort = 1
 // sidecar's per-launch credentials). strict (the primary node) turns a
 // missing sidecar into an error.
 func viaSidecar(n *nodes.Node, eps map[string]xray.Endpoint, strict bool) (*nodes.Node, error) {
-	if !n.NeedsXray() {
+	if !n.UseXray() {
 		return n, nil
 	}
 	ep := eps[xray.Key(n)]
@@ -172,7 +172,7 @@ func (m *Manager) withSidecar(primary []*nodes.Node, opts Options) (Options, err
 	ports, err := m.xray.Ensure(all)
 	if err != nil {
 		for _, n := range primary {
-			if n.NeedsXray() {
+			if n.UseXray() {
 				return opts, fmt.Errorf("节点「%s」：%w", n.Name, err)
 			}
 		}
@@ -202,7 +202,7 @@ func (m *Manager) xrayDead() {
 	m.mu.Lock()
 	cmd, node := m.cmd, m.node
 	m.mu.Unlock()
-	if cmd == nil || cmd.Process == nil || node == nil || !node.NeedsXray() {
+	if cmd == nil || cmd.Process == nil || node == nil || !node.UseXray() {
 		m.onLog("[xray] Xray 内核不可用，依赖它的附加节点将连不上")
 		return
 	}

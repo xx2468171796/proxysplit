@@ -4,6 +4,7 @@
 import { createAIMock } from "./mock-ai";
 import { createAppMonMock } from "./mock-appmon";
 import { mockFenxiao } from "./mock-fenxiao";
+import { mockSetNodeCore } from "./mock-node-core";
 import { createPortsMock } from "./mock-ports";
 import { previewSearch } from "./search";
 
@@ -36,6 +37,8 @@ const nodes = [
     name: "JP | Tokyo - 01",
     type: "vless",
     server: "jp1.example.net",
+    network: "xhttp",
+    coreInfo: { effective: "xray", xrayOnly: true, xraySupported: true },
     port: 443,
     latency: 48,
     tcpLatency: 31,
@@ -45,6 +48,7 @@ const nodes = [
     id: "n2",
     name: "US | Los Angeles - 02",
     type: "hysteria2",
+    coreInfo: { effective: "sing-box", xrayOnly: false, xraySupported: false },
     server: "us2.example.net",
     port: 8443,
     latency: 162,
@@ -55,6 +59,7 @@ const nodes = [
     id: "n3",
     name: "HK | 香港 BGP",
     type: "trojan",
+    coreInfo: { effective: "sing-box", xrayOnly: false, xraySupported: true },
     server: "hk.example.net",
     port: 443,
     latency: 0,
@@ -65,6 +70,8 @@ const nodes = [
     id: "n4",
     name: "SG | Singapore",
     type: "socks",
+    core: "xray",
+    coreInfo: { effective: "xray", xrayOnly: false, xraySupported: true },
     server: "10.0.0.8",
     port: 1080,
     latency: -1,
@@ -442,6 +449,7 @@ const impl: Record<string, Fn> = {
     mockLines = [...lines.filter((l) => l.builtin), ...(custom as unknown[])];
     return "";
   },
+  SetNodeCore: (id, core) => mockSetNodeCore(nodes, id, core),
   SetRuleSetEnabled: (name, on) => {
     const rs = ruleSets.find((r) => r.name === name);
     if (rs) rs.enabled = !!on;

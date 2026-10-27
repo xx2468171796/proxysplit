@@ -41,3 +41,9 @@ sing-box 跑不了的节点（XHTTP/splithttp、mKCP、VLESS encryption）走 Xr
   - 残留清理：KillStrays 先用 Toolhelp 快照看有没有 xray.exe，没有就不起 PowerShell；匹配改为命令行里 `-c <配置路径前缀>`（端口代理用 `proxyports\xray-` 完整路径）；启动时 core.CleanProbeStrays 杀测速探针遗留 Xray 并删 `probes\node-probe-*`。
   - Xray 意外退出：中文日志 + 2 秒后用同端口同密码重启一次；60 秒内再挂或重启失败 → 主节点需要 Xray 时直接杀 sing-box，走原有意外退出路径（onCoreExit 清系统代理 / 接管），只是附加节点则仅记日志；端口代理同理杀该端口进程触发 onExit。
   - waitPort 进程一退出就返回；起不来（含端口被抢）换新端口重试一次。
+- 按节点选内核（2026-10-28，feat/node-core-switch）：节点字段 `core`（"" 自动 / "sing-box" / "xray"），随节点保存；订阅刷新按旧节点 ID 带回（service/nodecore.go keepNodeCores，刷新后不再合法的选择回到自动）。
+  - 唯一判定 `nodes.Node.UseXray()` / `EffectiveCore()`：NeedsXray（XHTTP / mKCP / VLESS encryption）一律 Xray；`core=xray` 且 `XraySupports()` → Xray；其余 sing-box。主内核、附加 / 线路节点、端口代理、测速探针、侧车 Ensure 全部改用 UseXray（NeedsXray 只剩判定本身和 Clash 节点 ID）。
+  - XraySupports：vless / vmess / trojan（raw/ws/grpc/xhttp/kcp）、shadowsocks（无 SIP003 插件）、socks、http（https = streamSettings tls）；raw sing-box 出站（POWER云）不支持。Xray 出站 ss / socks / http 用扁平 settings（address/port + method/password 或 user/pass，依据 xray-docs outbounds/*.md），`xray run -test` 实测通过（internal/xray/plain_test.go）。
+  - 入口：Wails `SetNodeCore(id, core)`；诊断接口 `POST /api/nodes/core {"id","core":"auto|sing-box|xray"}`（返回 {ok} 或 {ok:false,error:中文}）；节点在用（活动节点 / 线路附加节点 / 端口代理出口）且实际内核变了才重启对应内核。/api/diag 节点带 `core`（实际）和 `coreSet`（用户选择）。
+  - 界面：节点列名称旁显示实际内核标签；行操作「内核」弹窗（自动 / sing-box / Xray，不可选项置灰 + 说明）。界面数据来自 Service.Nodes() 副本上的派生字段 `coreInfo`（不落盘）。
+  - 遥测：`node.core`（nodeType, transport, from, to, choice）；node.select / latency / tcp / speed 载荷多了 `core`。

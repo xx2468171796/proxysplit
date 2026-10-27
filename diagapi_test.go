@@ -66,6 +66,17 @@ func TestDiagAPIRemoteControl(t *testing.T) {
 		t.Fatalf("nodes add: %+v", added)
 	}
 
+	nodeID := svc.Nodes()[0].ID
+	call("POST", "/api/nodes/core", `{"id":"`+nodeID+`","core":"xray"}`, &ok)
+	if ok["ok"] != true || svc.Nodes()[0].Core != "xray" {
+		t.Fatalf("nodes core: %v %q", ok, svc.Nodes()[0].Core)
+	}
+	var bad map[string]any
+	call("POST", "/api/nodes/core", `{"id":"`+nodeID+`","core":"v2ray"}`, &bad)
+	if bad["ok"] != false || !strings.Contains(mustJSON(bad), "未知内核") {
+		t.Fatalf("bad core accepted: %v", bad)
+	}
+
 	var acct map[string]any
 	call("GET", "/api/account", "", &acct)
 	if _, has := acct["license"]; !has {
