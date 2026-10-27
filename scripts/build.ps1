@@ -90,10 +90,6 @@ $xrayExe = Join-Path $root 'bin\xray.exe'
 if (Test-Path -LiteralPath $xrayExe) {
     if ((Get-FileHash -LiteralPath $xrayExe -Algorithm SHA256).Hash.ToLowerInvariant() -ne $xrayRelease.sha256) { throw 'bin\xray.exe does not match bin/xray-release.json; run scripts\fetch-core.ps1' }
 } else { Write-Warning 'bin\xray.exe missing: this build will NOT bundle Xray (run scripts\fetch-core.ps1 -RequireXray for releases)' }
-# WinDivert (仅接管选中程序) is embedded too; fetch-core.ps1 pins and verifies it.
-foreach ($wdFile in @('WinDivert.dll', 'WinDivert64.sys')) {
-    if (-not (Test-Path -LiteralPath (Join-Path $root "bin\$wdFile"))) { throw "Missing bin\$wdFile`: run scripts\fetch-core.ps1 first" }
-}
 
 $env:Path = "C:\Program Files\Go\bin;$env:USERPROFILE\go\bin;$env:Path"
 $env:CGO_ENABLED = "0"

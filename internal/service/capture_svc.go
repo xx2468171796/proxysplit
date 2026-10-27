@@ -7,6 +7,7 @@ import (
 
 	"proxysplit/internal/capture"
 	"proxysplit/internal/core"
+	"proxysplit/internal/coreupdate"
 )
 
 // Capture modes (Settings.CaptureMode).
@@ -79,6 +80,9 @@ func (s *Service) startCapture(opts core.Options) error {
 	exclude := []string{filepath.Join(s.binDir, "sing-box.exe")}
 	if p := s.portProcessPath(); p != "" {
 		exclude = append(exclude, p)
+	}
+	if err := coreupdate.EnsureWinDivert(s.binDir); err != nil {
+		return fmt.Errorf("仅接管选中程序需要的驱动没准备好（可在设置里改回「整机虚拟网卡」）: %w", err)
 	}
 	eng, err := capture.Start(capture.Options{
 		DLLPath: filepath.Join(s.binDir, "WinDivert.dll"),

@@ -14,7 +14,7 @@ $root = Split-Path -Parent $PSScriptRoot
 # WinDivert 2.2.2 (仅接管选中程序, internal/capture): official basil00 release,
 # archive and both x64 files pinned by SHA256 (archive hash matches the
 # SourceForge mirror listing; WinDivert64.sys carries a valid Authenticode
-# signature). Embedded into proxysplit.exe by app.go.
+# signature). Not embedded: the client downloads the same pinned files on demand (internal/coreupdate/windivert.go); publish them to the site download/windivert/2.2.2/.
 $wd = @{
     url = 'https://github.com/basil00/WinDivert/releases/download/v2.2.2/WinDivert-2.2.2-A.zip'
     archive = '63cb41763bb4b20f600b6de04e991a9c2be73279e317d4d82f237b150c5f3f15'
