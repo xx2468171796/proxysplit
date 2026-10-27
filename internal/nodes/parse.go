@@ -40,7 +40,11 @@ func ParseLink(link string) (*Node, error) {
 	case strings.HasPrefix(lower, "anytls://"):
 		n, err = parseAnyTLS(link)
 	default:
-		return nil, fmt.Errorf("unsupported scheme in %q", truncate(link, 24))
+		u, ok := bareSocksURL(link)
+		if !ok {
+			return nil, fmt.Errorf("unsupported scheme in %q", truncate(link, 24))
+		}
+		n, err = parseSocks(u)
 	}
 	if err != nil {
 		return nil, err
@@ -334,6 +338,63 @@ func parseSocks(link string) (*Node, error) {
 		return nil, fmt.Errorf("socks: missing server/port")
 	}
 	return n, nil
+}
+
+// bareSocksURL turns the scheme-less forms residential-proxy sellers hand out
+// into a socks5:// link (业主 2026-10-28, a customer's IP:端口:用户名:密码 could
+// not be imported): host:port:user:pass, user:pass:host:port, user:pass@host:port
+// and host:port. The password may itself contain ':' in the host-first form.
+func bareSocksURL(s string) (string, bool) {
+	if strings.ContainsAny(s, " /?#[]") {
+		return "", false
+	}
+	if user, hostport, ok := strings.Cut(s, "@"); ok {
+		p := strings.SplitN(user, ":", 2)
+		if len(p) != 2 {
+			return "", false
+		}
+		return socksURL(hostport, p[0], p[1])
+	}
+	p := strings.Split(s, ":")
+	switch {
+	case len(p) == 2:
+		return socksURL(s, "", "")
+	case len(p) >= 4 && isPort(p[1]):
+		return socksURL(p[0]+":"+p[1], p[2], strings.Join(p[3:], ":"))
+	case len(p) == 4 && isPort(p[3]) && looksLikeHost(p[2]):
+		return socksURL(p[2]+":"+p[3], p[0], p[1])
+	}
+	return "", false
+}
+
+func socksURL(hostport, user, pass string) (string, bool) {
+	host, port, ok := strings.Cut(hostport, ":")
+	if !ok || !looksLikeHost(host) || !isPort(port) {
+		return "", false
+	}
+	u := url.URL{Scheme: "socks5", Host: hostport}
+	if user != "" {
+		u.User = url.UserPassword(user, pass)
+	}
+	return u.String(), true
+}
+
+func isPort(s string) bool {
+	n, err := strconv.Atoi(s)
+	return err == nil && n > 0 && n < 65536
+}
+
+// looksLikeHost: an IPv4 address or a dotted domain name.
+func looksLikeHost(s string) bool {
+	if s == "" || !strings.Contains(s, ".") {
+		return false
+	}
+	for _, r := range s {
+		if !(r == '.' || r == '-' || r >= '0' && r <= '9' || r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z') {
+			return false
+		}
+	}
+	return true
 }
 
 // http://[user:pass@]host:port#name (also https:// with TLS). Guarded: a URL
