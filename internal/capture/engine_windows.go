@@ -27,25 +27,31 @@ type Engine struct {
 	exclude map[string]bool // lower-case exe paths never captured (core, port proxies)
 	selfPID uint32
 
-	own    *owners
-	ct     *conntrack
-	udp    *udpTable
-	relay  *relay
-	data   *dataSet
-	probe  *divert.Handle
-	reply  *divert.Handle
-	sock   *divert.Handle
-	sender *divert.Handle
-	stop   chan struct{}
-	wg     sync.WaitGroup
-	once   sync.Once
+	own     *owners
+	ct      *conntrack
+	udp     *udpTable
+	relay   *relay
+	data    *dataSet
+	probe   *divert.Handle
+	reply   *divert.Handle
+	sock    *divert.Handle
+	sender  *divert.Handle
+	wd      *watchdog
+	pending chan heldPkt
+	onFail  func(string)
+	stop    chan struct{}
+	wg      sync.WaitGroup
+	once    sync.Once
+	shut    sync.Once
 }
 
 // Options configures Start.
 type Options struct {
 	DLLPath string   // absolute path of WinDivert.dll (WinDivert64.sys next to it)
-	Exclude []string // exe paths that must never be captured (sing-box, 端口代理)
+	Exclude []string // exe paths that must never be captured (sing-box, xray, 端口代理)
 	Log     func(string)
+	// OnFail is called (once, async) when the watchdog stops a stuck engine.
+	OnFail func(msg string)
 }
 
 // Start loads the driver, opens the handles and begins capturing. Requires
@@ -61,7 +67,8 @@ func Start(opts Options, routes *Routes) (*Engine, error) {
 		return nil, err
 	}
 	e := &Engine{log: opts.Log, exclude: map[string]bool{}, selfPID: uint32(os.Getpid()),
-		own: newOwners(), ct: newConntrack(), stop: make(chan struct{})}
+		own: newOwners(), ct: newConntrack(), stop: make(chan struct{}), onFail: opts.OnFail,
+		wd: newWatchdog(StallLimit, nil), pending: make(chan heldPkt, pendingCap)}
 	for _, p := range opts.Exclude {
 		if p != "" {
 			e.exclude[normPath(p)] = true
@@ -72,11 +79,14 @@ func Start(opts Options, routes *Routes) (*Engine, error) {
 		e.Stop()
 		return nil, err
 	}
-	e.wg.Add(4)
+	e.wg.Add(6)
 	go e.relay.serve()
 	go e.sockLoop()
 	go e.probeLoop()
 	go e.replyLoop()
+	go e.resolveLoop()
+	go e.watchLoop()
+	go func() { defer e.wg.Done(); e.data.batch.run() }()
 	go e.sweepLoop()
 	e.log(fmt.Sprintf("[capture] 仅接管选中程序已启动（中转 127.0.0.1:%d）", e.relay.port()))
 	return e, nil
@@ -117,14 +127,7 @@ func (e *Engine) Flows() int { return e.ct.count() }
 func (e *Engine) Stop() {
 	e.once.Do(func() {
 		close(e.stop)
-		for _, h := range []*divert.Handle{e.probe, e.reply, e.sock} {
-			if h != nil {
-				h.Shutdown(divert.ShutdownBoth)
-			}
-		}
-		if e.data != nil {
-			e.data.close()
-		}
+		e.shutdownHandles()
 		if e.relay != nil {
 			e.relay.close()
 		}
@@ -139,6 +142,20 @@ func (e *Engine) Stop() {
 	})
 }
 
+// shutdownHandles stops every handle from diverting new packets (fail open).
+func (e *Engine) shutdownHandles() {
+	e.shut.Do(func() {
+		for _, h := range []*divert.Handle{e.probe, e.reply, e.sock} {
+			if h != nil {
+				h.Shutdown(divert.ShutdownBoth)
+			}
+		}
+		if e.data != nil {
+			e.data.close()
+		}
+	})
+}
+
 func (e *Engine) stopped() bool {
 	select {
 	case <-e.stop:
@@ -148,10 +165,9 @@ func (e *Engine) stopped() bool {
 	}
 }
 
-// verdict decides for the owner of a local port.
-func (e *Engine) verdict(proto uint8, port uint16) Verdict {
-	pid, ok := e.own.pid(proto, port)
-	if !ok || pid == e.selfPID || pid <= 4 {
+// verdictPID decides for a process.
+func (e *Engine) verdictPID(pid uint32) Verdict {
+	if pid == e.selfPID || pid <= 4 {
 		return Verdict{}
 	}
 	path := e.own.exe(pid)

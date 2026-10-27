@@ -21,12 +21,13 @@ func TestDataFilter(t *testing.T) {
 	if got != want {
 		t.Fatalf("filter\n got %s\nwant %s", got, want)
 	}
-	many := make([]uint16, MaxFilterPorts+1)
+	many := make([]uint16, 1000)
 	for i := range many {
-		many[i] = uint16(10000 + i)
+		many[i] = uint16(10000 + 3*i) // scattered: no free adjacency
 	}
-	if f := DataFilter(many, nil); strings.Contains(f, "SrcPort") {
-		t.Fatalf("oversize set must fall back to the broad filter: %s", f)
+	f := DataFilter(many, []uint16{7000})
+	if !strings.Contains(f, "SrcPort") || strings.Count(f, "SrcPort") > 2*FilterBudget {
+		t.Fatalf("oversize set must compact into ranges, never a broad filter: %d terms", strings.Count(f, "SrcPort"))
 	}
 	if !strings.Contains(ProbeFilter(), "tcp.Syn and !tcp.Ack") || !strings.Contains(ReplyFilter(1234), "tcp.SrcPort == 1234") {
 		t.Fatal("probe/reply filters changed")

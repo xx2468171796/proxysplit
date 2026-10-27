@@ -41,6 +41,17 @@ func EnsureWinDivert(dir string) error {
 	return nil
 }
 
+// WinDivertReady reports whether dir already holds the pinned files (no
+// network; safe to call under locks).
+func WinDivertReady(dir string) bool {
+	for name, want := range winDivertFiles {
+		if fileSHA256(filepath.Join(dir, name)) != want {
+			return false
+		}
+	}
+	return true
+}
+
 func fileSHA256(path string) string {
 	data, err := os.ReadFile(path)
 	if err != nil {

@@ -170,6 +170,7 @@ type Service struct {
 	aiProxyFile      string // 约定文件（App 设置），见 aiproxy.go
 	aiProxyState     AIProxyInfo
 	capEng           *capture.Engine // 仅接管选中程序的抓包引擎（capture_svc.go；nil = TUN）
+	wdFetch          chan struct{}   // in-flight WinDivert download (prefetchWinDivert)
 
 	followOnce    sync.Once // core follow (corefollow.go)
 	followStart   sync.Once
@@ -1422,6 +1423,9 @@ func (s *Service) SetSettings(st Settings) string {
 	s.cfg.Settings = st
 	s.save()
 	s.mu.Unlock()
+	if st.CaptureMode == CaptureProcess && old.CaptureMode != CaptureProcess {
+		s.ensureWinDivertUnlocked() // fetch the driver before restart takes lifecycleMu
+	}
 	// Switching capture mode (TUN <-> app-split), QUIC policy, LAN sharing or
 	// remote DNS changes the core filter/config, so restart if running.
 	if s.core.Running() && (old.TunMode != st.TunMode || old.BlockQUIC != st.BlockQUIC ||
@@ -1470,6 +1474,7 @@ func (s *Service) SetLogLevel(level string) string {
 // Start resolves the config into per-line inbounds, launches the core, then the
 // redirect engine with one upstream dialer per line.
 func (s *Service) Start() error {
+	s.ensureWinDivertUnlocked() // may download: before lifecycleMu
 	s.lifecycleMu.Lock()
 	defer s.lifecycleMu.Unlock()
 	return s.startLocked()

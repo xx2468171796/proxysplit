@@ -49,7 +49,26 @@ func ProcessRoutes(opts Options) *capture.Routes {
 	if !opts.SplitWhitelist {
 		r.Default = ports[processDefaultInbound]
 	}
+	r.Exclude = map[string]bool{}
+	for _, p := range processPathDirect(opts) {
+		r.Exclude[capture.NormExe(p)] = true
+	}
 	return r
+}
+
+// processPathDirect lists the exe paths the TUN rules send direct by
+// process_path (端口代理 core, xray sidecar). The process config drops those
+// rules (sing-box sees no process there), so the engine must exclude the same
+// paths or 默认全走代理 would loop the cores' upstream traffic into themselves.
+// Keep in sync with the process_path rules in buildTUNTree (guarded by a test).
+func processPathDirect(opts Options) []string {
+	var out []string
+	for _, p := range []string{opts.PortProcessPath, opts.XrayPath} {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 // addName files a list entry as an exe name or (DirPrefix) an install folder.
