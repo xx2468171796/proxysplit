@@ -317,14 +317,23 @@ func tunDNS(node *nodes.Node, opts Options) M {
 	if opts.RemoteDNS {
 		dnsFinal = "dns-remote"
 	}
+	remote := remoteDNSServer(node, "proxy")
+	if opts.DNS.Remote != "" {
+		remote["server"] = opts.DNS.Remote
+	}
 	dnsServers := []M{
 		// Foreign resolver through the node (anti-pollution) with a 2nd fallback.
-		remoteDNSServer(node, "proxy"),
+		remote,
 		// China resolver, DIRECT — reachable even when the node is down.
-		{"type": "udp", "tag": "dns-direct", "server": "223.5.5.5"},
+		{"type": "udp", "tag": "dns-direct", "server": opts.DNS.directServer()},
 	}
 	if aiDNSSrv != nil {
 		dnsServers = append(dnsServers, aiDNSSrv)
+	}
+	pre, hostsSrv := opts.DNS.userRules()
+	dnsRules = append(pre, dnsRules...)
+	if hostsSrv != nil {
+		dnsServers = append(dnsServers, hostsSrv)
 	}
 	return M{
 		"servers": dnsServers,
@@ -343,9 +352,9 @@ func tunInbounds(opts Options, a4 string) []M {
 		"type":         "tun",
 		"tag":          "tun-in",
 		"address":      tunAddresses(a4),
-		"mtu":          1500,
+		"mtu":          tunMTU(opts),
 		"auto_route":   true,
-		"strict_route": true,
+		"strict_route": !opts.StrictRouteOff,
 		"stack":        "system",
 	}}
 	if lan := lanInbound(opts); lan != nil {

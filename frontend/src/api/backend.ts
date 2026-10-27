@@ -24,6 +24,7 @@ import type {
   Line,
   MemberOrder,
   MemberPlan,
+  NetSettings,
   Node,
   PortDetail,
   PortMode,
@@ -157,6 +158,7 @@ export const api = {
   // 设置与系统
   settings: () => W.GetSettings() as Promise<Settings>,
   setSettings: (s: Settings) => W.SetSettings(asArg(s)),
+  setNetSettings: (n: NetSettings) => W.SetNetSettings(asArg(n)),
   autostart: () => W.GetAutostart(),
   setAutostart: (on: boolean) => W.SetAutostart(on),
   logLevel: () => W.GetLogLevel(),

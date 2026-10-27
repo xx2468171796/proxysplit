@@ -418,6 +418,10 @@ export function SetLogLevel(arg1) {
   return window['go']['main']['App']['SetLogLevel'](arg1);
 }
 
+export function SetNetSettings(arg1) {
+  return window['go']['main']['App']['SetNetSettings'](arg1);
+}
+
 export function SetNodeCore(arg1, arg2) {
   return window['go']['main']['App']['SetNodeCore'](arg1, arg2);
 }

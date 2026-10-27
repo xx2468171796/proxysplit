@@ -75,7 +75,7 @@ func (s *Service) SetSettings(st Settings) string {
 		old.LanShare != st.LanShare || old.RemoteDNS != st.RemoteDNS ||
 		old.LanPort != st.LanPort || old.LanType != st.LanType || old.LanUser != st.LanUser || old.LanPass != st.LanPass ||
 		old.PrivateDirect != st.PrivateDirect || old.ExcludeSelf != st.ExcludeSelf ||
-		old.ClaudeAccelOff != st.ClaudeAccelOff || old.ProcessCapture() != st.ProcessCapture() || old.StreamDirectOff != st.StreamDirectOff) {
+		old.ClaudeAccelOff != st.ClaudeAccelOff || old.ProcessCapture() != st.ProcessCapture() || old.StreamDirectOff != st.StreamDirectOff || st.Net.changed(old.Net)) {
 		if err := s.restart(); err != nil {
 			s.log("[service] restart after settings change failed: " + err.Error())
 			return restartMsg(err)

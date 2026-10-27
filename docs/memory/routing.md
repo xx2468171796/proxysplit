@@ -80,3 +80,7 @@ service.streamPreset：直播伴侣.exe、MediaSDK_Server.exe（抖音直播伴�
 ## 节点测试（2026-10-28，参考 v2rayN SpeedtestService）
 - Google 延迟：同一隧道连发两次 204 取最小（首次含握手），任一次成功即算通；首次已用满超时则不再试第二次（latency.bestOf）。TestAllLatency 并发上限 latencyConcurrency=8（forEachBounded，单个 panic 不影响其它，探针由 measureNode defer 关闭；活动节点仍复用主内核）。
 - 「测速全部（先测通）」：TestThenSpeedAll 先全量测延迟，再对 Latency>0 的节点逐个（串行，避免抢带宽）SpeedTestNode，返回 total / passed / speedOk。
+## DNS 与高级网络（v1.10.4 起，设置 → DNS 与高级）
+- Settings.Net（service/settings_net.go）→ core.Options.DNS / TunMTU / StrictRouteOff（core/dnsopts.go）。零值 = 原配置，golden 快照逐字不变。
+- 国内 / 国外 DNS 只收 IP（SetNetSettings 校验）；hosts 生成 `type: hosts` 服务器 dns-hosts + 一条排在最前的 domain 规则；拦截 HTTPS/SVCB = `query_type` + `action: predefined, rcode: NOERROR`，默认关。
+- MTU 只认 1280–9000，其它值按 1500。两种接管方式共用 buildTUNTree，都生效。

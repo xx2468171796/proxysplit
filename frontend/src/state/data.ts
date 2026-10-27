@@ -1,7 +1,17 @@
 // 持久化的用户数据：节点、应用规则、线路、订阅、设置、分流模式。
 // 只有这里写这些数据；页面调用这里的动作，动作返回 Go 端的错误文本（空串 = 成功）。
 import { api } from "../api/backend";
-import type { AppRule, BootstrapState, ClashMode, Line, Node, RuleMode, Settings, Sub } from "../api/types";
+import type {
+  AppRule,
+  BootstrapState,
+  ClashMode,
+  Line,
+  NetSettings,
+  Node,
+  RuleMode,
+  Settings,
+  Sub,
+} from "../api/types";
 import { createStore } from "../shared/store";
 import { license } from "./account";
 import { refreshStatus, runtime } from "./runtime";
@@ -156,6 +166,15 @@ export async function saveSettings(patch: Partial<Settings>): Promise<string> {
   const next = { ...data.get().settings, ...patch };
   data.set({ settings: next });
   const err = await api.setSettings(next);
+  await refreshStatus();
+  return err;
+}
+
+/** 保存 DNS 与高级网络选项（Go 先校验，不合法原样返回原因、不改屏幕）。 */
+export async function saveNetSettings(net: NetSettings): Promise<string> {
+  if (!data.get().loaded) return NOT_LOADED;
+  const err = await api.setNetSettings(net);
+  if (!err) data.set({ settings: { ...data.get().settings, net } });
   await refreshStatus();
   return err;
 }

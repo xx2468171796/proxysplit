@@ -144,6 +144,19 @@ export type Settings = {
   captureMode?: string;
   /** 关掉内置「推流程序默认直连」。 */
   streamDirectOff?: boolean;
+  /** DNS 与高级网络（Go service.NetSettings；空 = 内置默认）。 */
+  net?: NetSettings;
+};
+
+export type NetSettings = {
+  dnsDirect?: string;
+  dnsRemote?: string;
+  /** 每行「域名 IP [IP…]」，# 开头是注释 */
+  hosts?: string;
+  blockHttpsRR?: boolean;
+  /** 0 = 1500 */
+  tunMtu?: number;
+  strictRouteOff?: boolean;
 };
 
 export type LicenseStatus = {

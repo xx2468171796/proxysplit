@@ -515,6 +515,14 @@ func (a *App) InstallAppUpdate(release updater.Release) (msg string) {
 
 // Settings.
 func (a *App) GetSettings() service.Settings { return a.svc.GetSettings() }
+
+// SetNetSettings saves the DNS / TUN advanced options; "" = ok, else the reason.
+func (a *App) SetNetSettings(n service.NetSettings) string {
+	if err := a.svc.SetNetSettings(n); err != nil {
+		return err.Error()
+	}
+	return ""
+}
 func (a *App) SetSettings(s service.Settings) string {
 	msg := tmText(telemetry.SettingsChange, time.Now(), settingsDiff(a.svc.GetSettings(), s), a.svc.SetSettings(s))
 	a.kickAccel()

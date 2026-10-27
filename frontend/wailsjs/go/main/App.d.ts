@@ -219,6 +219,8 @@ export function SetLines(arg1:Array<service.Line>):Promise<string>;
 
 export function SetLogLevel(arg1:string):Promise<string>;
 
+export function SetNetSettings(arg1:service.NetSettings):Promise<string>;
+
 export function SetNodeCore(arg1:string,arg2:string):Promise<string>;
 
 export function SetNodeVia(arg1:string,arg2:string):Promise<string>;

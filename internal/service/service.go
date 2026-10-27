@@ -62,6 +62,8 @@ type Settings struct {
 	CaptureMode string `json:"captureMode,omitempty"`
 	// 关掉内置「推流程序默认直连」（零值 = 开）
 	StreamDirectOff bool `json:"streamDirectOff,omitempty"`
+	// Net holds the DNS and TUN advanced options (settings_net.go).
+	Net NetSettings `json:"net"`
 }
 
 func defaultSettings() Settings {

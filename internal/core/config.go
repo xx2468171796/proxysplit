@@ -45,6 +45,13 @@ type Options struct {
 	// and passes the domain to the node for remote resolution (anti-pollution,
 	// no DNS leak). Requires no DNS interception in our redirect model.
 	RemoteDNS bool
+	// DNS are the user's DNS settings (DNS 设置, v2rayN SimpleDNSItem); the
+	// zero value keeps the built-in resolvers.
+	DNS DNSOptions
+	// TunMTU overrides the TUN MTU (0 = 1500); StrictRouteOff turns sing-box
+	// strict_route off for the rare VM / VPN software it breaks.
+	TunMTU         int
+	StrictRouteOff bool
 
 	// RealityHybrid: the bundled core carries relayops patch 0005, so POWER云
 	// VLESS + Reality outbounds keep the X25519MLKEM768 key share (ClientHello

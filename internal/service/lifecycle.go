@@ -113,7 +113,7 @@ func (s *Service) startLocked() error {
 		if port > 0 {
 			ctl = fmt.Sprintf("127.0.0.1:%d", port)
 		}
-		return core.Options{RemoteDNS: set.RemoteDNS, GeoDir: s.binDir, ClashController: ctl, ClashSecret: clashSecret, ClashMode: wantMode,
+		return core.Options{RemoteDNS: set.RemoteDNS, DNS: set.Net.coreDNS(), TunMTU: set.Net.TunMTU, StrictRouteOff: set.Net.StrictRouteOff, GeoDir: s.binDir, ClashController: ctl, ClashSecret: clashSecret, ClashMode: wantMode,
 			LanShare: set.LanShare, LanPort: set.LanPort, LanType: set.LanType, LanUser: set.LanUser, LanPass: set.LanPass,
 			CustomRules: custom, RuleSets: &ruleSets, DirectDomains: s.directDomains(),
 			ProxyPrivate: !set.PrivateDirect, BlockQUIC: set.BlockQUIC, SelfProcess: selfProcess(set.ExcludeSelf), PortProcessPath: s.portProcessPath(),
