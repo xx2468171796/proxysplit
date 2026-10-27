@@ -206,6 +206,10 @@ export function GetProxyPorts() {
   return window['go']['main']['App']['GetProxyPorts']();
 }
 
+export function GetResetCenter() {
+  return window['go']['main']['App']['GetResetCenter']();
+}
+
 export function GetRouting() {
   return window['go']['main']['App']['GetRouting']();
 }
@@ -346,6 +350,10 @@ export function RestoreEnvConfig() {
   return window['go']['main']['App']['RestoreEnvConfig']();
 }
 
+export function RunReset(arg1, arg2) {
+  return window['go']['main']['App']['RunReset'](arg1, arg2);
+}
+
 export function SaveProxyPort(arg1) {
   return window['go']['main']['App']['SaveProxyPort'](arg1);
 }
@@ -472,6 +480,10 @@ export function TrackPage(arg1) {
 
 export function UnbindMyDevice(arg1) {
   return window['go']['main']['App']['UnbindMyDevice'](arg1);
+}
+
+export function UndoReset() {
+  return window['go']['main']['App']['UndoReset']();
 }
 
 export function UpdateCore() {

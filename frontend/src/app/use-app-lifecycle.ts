@@ -16,6 +16,7 @@ import {
   receiveAutoUpdateFailed,
   receiveUpdateInfo,
 } from "../state/update";
+import { openSettings } from "./nav";
 
 type Say = (text: string | undefined) => void;
 const BOOTSTRAP_EVENT = "proxysplit:bootstrap";
@@ -73,6 +74,7 @@ function subscribeEvents(say: Say): Array<() => void> {
     onBackendEvent<AppUpdateStatus>("app-update", receiveUpdateInfo),
     onBackendEvent<AppUpdateStatus>("app-update-auto", (v) => say(receiveAutoUpdate(v))),
     onBackendEvent<string>("app-update-failed", (m) => say(receiveAutoUpdateFailed(m))),
+    onBackendEvent<string>("open-settings", (id) => openSettings(id === "reset" ? "reset" : "general")), // 托盘「清除与重置…」
     onBackendEvent<string>("license-expired", (message) => {
       say(`会员授权已停止：${message}`);
       void Promise.all([refreshLicense(), refreshStatus()]).then(loadCommerce);

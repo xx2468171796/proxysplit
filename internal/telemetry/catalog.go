@@ -81,6 +81,9 @@ const (
 	EnvOtherVPN = "env.other_vpn" // other VPN / proxy adapters
 	EnvDefender = "env.defender"  // Defender detection history
 	ProxyPort   = "proxy_port.change"
+
+	ResetRun  = "reset.run"  // 清除与重置: items, ok, failed, ms
+	ResetUndo = "reset.undo" // 撤销上一次重置: backup
 )
 
 // Normalised error codes. Raw error text is always kept next to the code.

@@ -86,6 +86,7 @@ func (a *App) startup(ctx context.Context) {
 		bin = binDir() // dev fallback: use ./bin
 	}
 	setupXray(ctx, bin)
+	registerResetters(bin) // 清除与重置中心的宿主项（app_reset.go）
 	// Before New: it writes config.json even on a fresh install (release_notes.go).
 	if _, err := os.Stat(filepath.Join(dataDir(), "config.json")); err != nil {
 		a.freshInstall = true
@@ -525,7 +526,7 @@ func (a *App) SetCustomRules(rules []core.RouteRule) string {
 }
 
 // ResetConfig restores settings/rules/mode to defaults (keeps nodes + subs).
-func (a *App) ResetConfig() { a.svc.ResetConfig() }
+func (a *App) ResetConfig() { a.RunReset([]string{"all-settings"}, "") }
 
 // Clash runtime mode toggle (全局/直连/规则 — no restart).
 func (a *App) GetClashMode() string { return a.svc.GetClashMode() }

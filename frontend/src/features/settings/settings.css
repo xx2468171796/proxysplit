@@ -19,3 +19,27 @@
 .ps-set-gap {
   margin-top: var(--aui-space-4);
 }
+
+/* 清除与重置 */
+.ps-reset-group {
+  margin-top: var(--aui-space-5);
+}
+
+.ps-reset-actions {
+  justify-content: flex-end;
+}
+
+.ps-reset-undo {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--aui-space-3);
+  margin-top: var(--aui-space-4);
+}
+
+.ps-reset-icon {
+  width: 14px;
+  height: 14px;
+  margin-right: var(--aui-space-1);
+  vertical-align: -2px;
+}

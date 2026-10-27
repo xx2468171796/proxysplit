@@ -113,6 +113,8 @@ export function GetProxyPortDetail(arg1:string,arg2:string):Promise<service.Port
 
 export function GetProxyPorts():Promise<Array<service.ProxyPortStatus>>;
 
+export function GetResetCenter():Promise<main.ResetCenter>;
+
 export function GetRouting():Promise<service.Routing>;
 
 export function GetRuleMode():Promise<string>;
@@ -183,6 +185,8 @@ export function Restart():Promise<string>;
 
 export function RestoreEnvConfig():Promise<string>;
 
+export function RunReset(arg1:Array<string>,arg2:string):Promise<service.ResetReport>;
+
 export function SaveProxyPort(arg1:service.ProxyPort):Promise<string>;
 
 export function SelectNode(arg1:string):Promise<string>;
@@ -246,6 +250,8 @@ export function TestTCP(arg1:string):Promise<number>;
 export function TrackPage(arg1:string):Promise<void>;
 
 export function UnbindMyDevice(arg1:string):Promise<string>;
+
+export function UndoReset():Promise<string>;
 
 export function UpdateCore():Promise<string>;
 

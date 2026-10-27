@@ -57,6 +57,8 @@
 | env.security | 启动时 | products[] | 安全软件分布 |
 | env.other_vpn | 启动时 | adapters[], ipv6 | 冲突 VPN |
 | env.defender | 启动 30 秒后 | status, detections[{threatId, when, files(仅文件名)}], threats | Defender 误报 |
+| reset.run | 清除与重置中心执行（界面 / POST /api/reset） | items[]（项 id）, ok, failed, ms, backup（是否做了自动备份）；失败时 errorText = 「id: 原因; …」 | 哪些清除项常用、哪些失败 |
+| reset.undo | 撤销上一次重置 | backup（备份文件名） | 误操作频率 |
 
 ## 错误码（errorCode）
 CORE_START_FAIL, CORE_EXIT, TUN_CREATE_FAIL, CORE_BLOCKED_AV, DNS_FAIL, NODE_TIMEOUT, NODE_AUTH_FAIL, NODE_UNREACHABLE, TLS_FAIL, PARSE_FAIL, SUB_FETCH_FAIL, NO_NODE, PORT_IN_USE, PERMISSION_DENIED, CONFIG_INVALID, LICENSE_DENIED, NETWORK_FAIL, UPDATE_DOWNLOAD_FAIL, UPDATE_VERIFY_FAIL, PANIC, UNKNOWN。
