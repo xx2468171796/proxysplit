@@ -58,5 +58,6 @@ SelectNode / RemoveNode / SetRouting / SetSettings / SetLogLevel 返回重启错
 - 二进制：scripts/fetch-core.ps1 从官方 basil00/WinDivert v2.2.2 下 zip，校验 zip 与 x64 dll / sys 的 SHA256 后放 bin/（git 忽略），仅供开发 / 测试；客户端不内嵌，运行时由 internal/coreupdate/windivert.go 按需从自家下载站拉取（同一组 SHA256）。下载只在拿 lifecycleMu 之前做：SetSettings 切到该模式时、Start 开头（ensureWinDivertUnlocked，最多等 60 秒，超时后台继续）；startCapture 在锁内只做 WinDivertReady 本地校验，没好就报「正在后台下载」并启动后台下载，不会因镜像慢卡住启停。Defender 风险见 known-issues.md。
 - 集成测试：管理员 PowerShell 里 `$env:PROXYSPLIT_CAPTURE_IT=1; go test ./internal/capture -run Engine -v`（curl.exe 当被接管程序，需联网）。
 
+- **系统 DNS 被污染（2026-10-27 alonehome2 实测）**：curl / Git / 游戏等走 Windows DNS 客户端的程序，查询由 svchost 发出、不被接管，墙内拿到假 IP（www.google.com → 31.13.92.37）；Edge / Chrome 自带 DNS 不受影响。sing-box 1.14 已无「用嗅探域名覆盖目标」，故中转 internal/capture/sniff.go 先读首包（≤300 ms、≤8 KB），有 TLS SNI / HTTP Host 就按域名 SOCKS CONNECT，让节点解析；服务器先发话的协议超时后照旧按 IP。
 ## 推流程序默认直连（只在「仅接管选中程序」下生效）
 service.streamPreset：直播伴侣.exe、MediaSDK_Server.exe（抖音直播伴侣）、obs64/obs32.exe、快手直播伴侣.exe、kwailive.exe、livehime.exe（B站直播姬）没出现在任何名单时自动进直连列表（应用规则集热加载，不重启）。用户把它们加进任何名单则按名单；设置「推流程序默认直连」可关（streamDirectOff）。exe 名除 OBS / livehime 外待真机核对。 TUN 下不生效：会把老用户经代理推海外（OBS → YouTube）的流悄悄改直连（2026-10-27 审查）。

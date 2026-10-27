@@ -13,7 +13,8 @@ import (
 )
 
 // relay accepts the NAT-redirected TCP connections and forwards each one via
-// SOCKS5 CONNECT (original destination IP:port) to the flow's sing-box inbound,
+// SOCKS5 CONNECT to the flow's sing-box inbound — by the sniffed SNI / Host
+// when there is one (see sniff.go), else the original destination IP:port —
 // where sniffing recovers the domain and the group's rules pick the outbound.
 type relay struct {
 	ln     net.Listener
@@ -67,11 +68,21 @@ func (r *relay) handle(c net.Conn) {
 		r.log("[capture] 中转收到未登记连接，端口 " + strconv.Itoa(int(ap.Port())))
 		return
 	}
-	up, err := r.dialer(f.Inbound).Dial("tcp", netip.AddrPortFrom(f.DstIP, f.DstPort).String())
+	first, host := peekHost(c)
+	target := netip.AddrPortFrom(f.DstIP, f.DstPort).String()
+	if host != "" { // the IP may be poisoned (system resolver): let the node resolve the name
+		target = net.JoinHostPort(host, strconv.Itoa(int(f.DstPort)))
+	}
+	up, err := r.dialer(f.Inbound).Dial("tcp", target)
 	if err != nil {
 		return // sing-box rejected (拦截规则) or unreachable: the app sees a reset
 	}
 	defer up.Close()
+	if len(first) > 0 {
+		if _, err := up.Write(first); err != nil {
+			return
+		}
+	}
 	r.total.Add(1)
 	r.active.Add(1)
 	defer r.active.Add(-1)
