@@ -275,12 +275,12 @@ export default function SettingsPage() {
             <Smartphone className="h-4 w-4 text-muted-foreground" />
             授权与设备策略
           </CardTitle>
-          <CardDescription>默认设备名额、授权租约时长与离线宽限期。</CardDescription>
+          <CardDescription>免费设备数、授权租约时长与离线宽限期。</CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
           <SettingRow
-            label="默认设备上限"
-            hint="套餐未单独指定时，单个会员可同时绑定的设备数量（范围 1–100）。"
+            label="免费设备数（会员在此基础上叠加套餐设备数）"
+            hint="没开会员的账号可同时绑定的设备数；会员上限 = 这个数 + 套餐设备数（范围 1–100）。"
             htmlFor="defaultDeviceLimit"
           >
             <Input

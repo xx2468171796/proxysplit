@@ -165,7 +165,7 @@ export default function UsersPage() {
           <div className="min-w-0">
             <div className="font-medium">{row.original.username}</div>
             <div className="truncate text-xs text-muted-foreground" title={row.original.email || undefined}>
-              {row.original.email || '未填写邮箱'}
+              {[row.original.phone, row.original.email].filter(Boolean).join(' · ') || '未绑手机 / 邮箱'}
             </div>
           </div>
         ),
@@ -309,7 +309,7 @@ export default function UsersPage() {
             ...query.filters,
           })
         }
-        searchPlaceholder="搜索用户名 / 邮箱 / 备注…"
+        searchPlaceholder="搜索用户名 / 手机号 / 邮箱 / 备注…"
         refreshSignal={refresh}
         extraParams={extraParams}
         initialSort={{ sort: 'created_at', order: 'desc' }}
@@ -846,7 +846,7 @@ function UserDetailDialog({ id, onOpenChange }: { id: string | null; onOpenChang
         <DialogHeader>
           <DialogTitle>{u ? `用户档案 · ${u.username}` : '用户档案'}</DialogTitle>
           <DialogDescription>
-            {u ? `${u.id} · 注册于 ${dt(u.createdAt)}` : '加载中…'}
+            {u ? `${u.id} · 手机 ${u.phone || '未绑定'} · 注册于 ${dt(u.createdAt)}` : '加载中…'}
           </DialogDescription>
         </DialogHeader>
 

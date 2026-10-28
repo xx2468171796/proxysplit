@@ -33,6 +33,12 @@ AI 编程官网（aigw）客户不显示作者联系方式（QQ 群 / 微信 / �
 - 起因 cpcc00004：刷新 200 后客户端没接住，下一分钟旧令牌 → REFRESH_REPLAY，一上午被踢 5 次，付了款还显示「暂无有效会员」。
 - 客户端配套：刷新 401 清在线会话回登录页（只进 main，随后续发版）。
 
+## 免费档 / 手机号 / 云同步（服务端，迁移 0019）
+- 权益只认 core `entitlement.ts` 的 `effective()`：无会员 = 免费版（tier free、设备数 = default_device_limit，现为 1），会员 = 1 + 套餐 max_devices，管理员不限。免费也签租约。
+- `/v1/accel/token` 仍只认真实会员（加速是会员功能），不走 effective。`/v1/me` 的 membership 仍是原始会员（老客户端看它），新增 license / user.phoneBound。
+- 手机号存 users.phone（11 位）；登录框纯 11 位 1 开头先按手机号查、查不到当用户名。老客户端只发邮箱注册仍接受。
+- 云同步 / 云端配置 / 分享导入在 core config-sync.ts / config-profiles.ts，路由 api sync-routes.ts；份数免费 0 / 普通（含试用）1 / 超级 5。
+
 ## 授权与租约
 Ed25519 离线租约绑定账号 / 设备 / 硬件 / 期限；minimumVersion 会进租约 minVersion，别随手调高。
 - 离线授权防调早时钟：lease iat + LastSeenAt 高水位，容差 10 分钟。
