@@ -1,4 +1,11 @@
 import { z } from 'zod'
+import { phoneSchema, smsCodeSchema } from './phone-sync.js'
+
+// 注册：有手机号必须带验证码；没手机号（老客户端）必须有邮箱。
+const phoneOrEmail=(v:{email?:string|undefined;phone?:string|undefined;code?:string|undefined},ctx:z.RefinementCtx)=>{
+  if(v.phone&&!v.code)ctx.addIssue({code:'custom',path:['code'],message:'请填写短信验证码'})
+  if(!v.phone&&!v.email)ctx.addIssue({code:'custom',path:['phone'],message:'请填写手机号'})
+}
 
 export const deviceSchema = z.object({
   fingerprint: z.string().min(32).max(128),
@@ -11,20 +18,25 @@ export const loginSchema = z.object({ username: z.string().trim().min(3).max(64)
 export const registerSchema = z.object({
   // 用户名是登录凭据；邮箱单独保存，当前不验证，后续可平滑开启验证。
   username: z.string().trim().min(3).max(32).refine(value=>!/[\s@]/u.test(value),'用户名不能包含空格或 @'),
-  email: z.string().trim().email().max(254),
+  // 新客户端：手机号 + 短信验证码（邮箱可选）；已发版老客户端只带邮箱，仍接受。
+  email: z.string().trim().email().max(254).optional(),
+  phone: phoneSchema.optional(),
+  code: smsCodeSchema.optional(),
   password: z.string().min(8).max(256),
   device: deviceSchema,
   // 邀请码（可选）：带了就在建号事务里绑上级（多级分销，坏码不挡注册）。
   ref: z.string().trim().max(16).optional(),
-})
+}).superRefine(phoneOrEmail)
 // 官网注册：没有设备指纹，按 IP 限制注册数；试用在首次用客户端登录时按硬件发放。
 export const webRegisterSchema = z.object({
   username: z.string().trim().min(3).max(32).refine(value=>!/[\s@]/u.test(value),'用户名不能包含空格或 @'),
-  email: z.string().trim().email().max(254),
+  email: z.string().trim().email().max(254).optional(),
+  phone: phoneSchema.optional(),
+  code: smsCodeSchema.optional(),
   password: z.string().min(8).max(256),
   // 邀请码（可选）：带了就在建号事务里绑上级（多级分销，坏码不挡注册）。
   ref: z.string().trim().max(16).optional(),
-})
+}).superRefine(phoneOrEmail)
 // 用户自助修改密码：需验证原密码。
 export const selfPasswordSchema = z.object({
   // POWER云 建的账号没有密码：首次设密码时 currentPassword 可为空。
@@ -277,3 +289,4 @@ export type DownloadStatsQuery = z.infer<typeof downloadStatsQuery>
 export * from './fenxiao.js'
 export * from './telemetry.js'
 export * from './client-nodes.js'
+export * from './phone-sync.js'
