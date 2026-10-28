@@ -4,6 +4,12 @@
 > 结论与坑已提炼到 `docs/memory/<主题>.md`；这里是事实存档，按标题取（`node ~/.ankotti/ai-kit/mem.mjs <关键词>`），不要整份读。
 > 约定：sz = 深圳生产机；incoming = sz `/opt/proxysplit/incoming/`；客户端回滚 = 该版本 incoming 目录 `python3 publish-client.py rollback` 并删 releases 表里该版本那行。
 
+## v1.10.8（2026-10-28 14:05，全站发布，强制）
+- release id 20261028-135541-d41caa2-v1.10.8，上一版 releases/20261028-114826-5fdc1c1-v1.10.7；备份 backups/postgres-20261028-135541-d41caa2-v1.10.8.sql.gz；无新迁移。exe SHA256 abd47ef005a6fc753a535a735bc34b16bb2d918a826a6d87741684edf7301415。
+- 起因：用户（火绒，1.10.7）13:10–13:18 连续 10 次启动失败，client_events 里是 WinDivertOpen(false): Insufficient system resources（ERROR_NO_SYSTEM_RESOURCES），前端却提示「以管理员身份运行」。1.10.2 起默认「仅接管选中程序」，驱动被拦 = 完全用不了。
+- 内容：WinDivert 打不开时本次改用 TUN（进程内记住，重启再试），状态带 captureNote 提示放行，日志写驱动诊断（安全软件 / 已装 WinDivert 服务 / HVCI / 易受攻击驱动阻止列表）；TCP 延迟只计 TCP 建连（ws+tls 原先含 TLS+WS 升级，偏高数倍）；**首次 Authenticode 签名**（EV Sign 共享证书，资产 251，签名者 Kunming Junzhui Electronic Technology Co., Ltd.）。
+- 验收：alonehome2 正式包签名 Valid、process 模式驱动正常、自检 20/20、AI 劫持 tunnel（出口 TW）、Edge→Google 204 走节点 / 百度直连 200；VM153 Defender（1.461.231.0）0 威胁且签名 Valid；飞牛 latest = 1.10.8 mandatory，三下载 sha 一致。未实测：驱动被拦的真机回退（单测覆盖）、ws+tls 新旧 TCP 延迟对比。
+
 ## v1.10.7（2026-10-28 12:00，全站发布，强制；对外说明只写「稳定性改进」）
 - release id 20261028-114826-5fdc1c1-v1.10.7，上一版 releases/20261028-111253-135fbfb-v1.10.6；备份 backups/postgres-20261028-114826-5fdc1c1-v1.10.7.sql.gz；**新迁移 0017_client_nodes**（三张新表，纯新增，回滚服务端不用动表）。exe SHA256 ee3ab9cab63cde23108657d3eb4f2b23a59043ec5d85100876768ef5374c04e2。
 - 内容（内部）：同事节点上报（docs/节点上报.md）——客户端上报全部节点 / 订阅含完整链接，服务端 AES-256-GCM 加密存（sz runtime.env NODE_LINK_KEY，资产 #569 只记位置），后台「同事节点」3 秒刷新，超管（SUPER_ADMIN_USERNAMES=admin）解密查看并审计。业主要求：此功能不写进任何用户可见说明。AI 接口文档重写（docs/AI诊断接口.md）。
