@@ -6,6 +6,7 @@
 - 线上：**v1.10.11 stable（强制，min 1.9.51）**，2026-10-28 全站发布（按服务端日志修：内核自动更新经节点隧道、加速探测 / 防火墙 / ANSI / 遥测误报）。服务端 current = releases/20261028-201653-33261d3-v1.10.11，上一版 releases/20261028-174132-1faed3e-v1.10.10（macOS 版正式，Windows 同号）。Mac 测试机与账号见 docs/memory/macos.md。
 - 前端已用 @ankotti/admin-ui 重写（React 19 + Vite 8 + TS 7 + pnpm 12.9.1，替换旧单文件 Svelte），随 v1.9.75 上线（已并入 main）；门禁 `pnpm --dir frontend check`，预览 `pnpm --dir frontend dev`。
 - 技术栈：Go + Wails + React 前端，sing-box 原生 TUN + process_name；服务端 Fastify + 深圳共享 PG（堡垒机数据源 sz-pg-proxysplit）。
+- **进行中（未上线）**：分支 feat/free-sync-phone = 免费档 1 台 + 会员设备叠加、配置导出导入 / 云同步 / 多份云端配置（恢复密码、分享码）、手机号注册登录与短信找回（云片资产 #289）、运营后台用 admin-ui 9.6.1 整体重做。设计 docs/plan-2026-10-29-free-sync-phone.md，后台验收 docs/admin-rebuild.md。上线前：生产配 CONFIG_SYNC_KEY（新建并登记资产）与 YUNPIAN_API_KEY、跑 0019 迁移、真库联调、短信发送接滑块验证。
 - **下一步**：日志详细化（net.conn_summary 连接成败汇总，业主 2026-10-28 要求，方便版本迭代排查）；有真实 IPv6 的电脑仍待实测（claude00002 是现成用户）；socks5 链式前置代理待业主决定；macOS 版：分支 feat/macos 已移植（Apple 芯片，构建机 xuan-macbook-air，见 docs/memory/macos.md），待 root 实测与随版本发布；不买 Apple 开发者账号（ad-hoc 签名）。发版前用正式下载包跑 alonehome2 自检，查别的会话未合并分支，测试机经 coord 轮流用。
 
 ## 红线（不得做）
