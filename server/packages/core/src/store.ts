@@ -1,7 +1,7 @@
 import { createHash, randomBytes } from 'node:crypto'
 import { createDatabase } from '@proxysplit/db'
 import type { AnnouncementListQuery, AnnouncementUpsertInput, AuditListQuery, DeviceListQuery, OrderListQuery, PlanListQuery, PlanPatchInput, PlanUpsertInput, ProviderUpsertInput, RedeemListQuery, ReleaseListQuery, UserListQuery } from '@proxysplit/contracts'
-import { AppError } from '@proxysplit/shared'
+import { AppError, maskPhone } from '@proxysplit/shared'
 import { planSplit } from './split.js'
 import { createProxysplitFenxiao, type ProxysplitFenxiao } from './fenxiao.js'
 
@@ -11,6 +11,8 @@ export type UserRecord = {
   failedLoginCount:number; lockoutLevel:number; lockedUntil:Date|null
   /** 来源渠道：'' 自有；'aigw' 中转站客户（客户端隐藏作者联系方式） */
   channel:UserChannel
+  /** 11 位大陆手机号；老账号可能没绑 */
+  phone?:string|null
 }
 export type UserChannel=''|'aigw'
 /** POWER云 /api/client/me 的 sources → 渠道：经 AI 编程官网登录过的就是中转站客户。 */
@@ -144,7 +146,7 @@ const settingMap:Record<keyof CommerceSettings,string>={
 }
 const settingsDefaults:CommerceSettings={
   registrationEnabled:true,trialDays:3,trialPlanCode:'trial',
-  defaultDeviceLimit:3,licenseLeaseMinutes:60,offlineGraceHours:6,
+  defaultDeviceLimit:1,licenseLeaseMinutes:60,offlineGraceHours:6,
   activePaymentProvider:'zhongzhuan-prod',paymentMethods:['alipay'],maxAccountsPerDevice:3,maxAccountsPerIp:3,
 }
 
@@ -170,11 +172,15 @@ export class PgStore {
   async close(){ await this.pool.end() }
 
   async findUser(username:string):Promise<UserRecord|null>{
-    const r=await this.pool.query('SELECT id,username,password_hash AS "passwordHash",role,status,created_at AS "createdAt",failed_login_count AS "failedLoginCount",lockout_level AS "lockoutLevel",locked_until AS "lockedUntil",channel FROM users WHERE username=$1',[username])
+    const r=await this.pool.query('SELECT id,username,password_hash AS "passwordHash",role,status,created_at AS "createdAt",failed_login_count AS "failedLoginCount",lockout_level AS "lockoutLevel",locked_until AS "lockedUntil",channel,phone FROM users WHERE username=$1',[username])
+    return r.rows[0]??null
+  }
+  async findUserByPhone(phone:string):Promise<UserRecord|null>{
+    const r=await this.pool.query('SELECT id,username,password_hash AS "passwordHash",role,status,created_at AS "createdAt",failed_login_count AS "failedLoginCount",lockout_level AS "lockoutLevel",locked_until AS "lockedUntil",channel,phone FROM users WHERE phone=$1',[phone])
     return r.rows[0]??null
   }
   async findUserById(id:string):Promise<UserRecord|null>{
-    const r=await this.pool.query('SELECT id,username,password_hash AS "passwordHash",role,status,created_at AS "createdAt",failed_login_count AS "failedLoginCount",lockout_level AS "lockoutLevel",locked_until AS "lockedUntil",channel FROM users WHERE id=$1',[id])
+    const r=await this.pool.query('SELECT id,username,password_hash AS "passwordHash",role,status,created_at AS "createdAt",failed_login_count AS "failedLoginCount",lockout_level AS "lockoutLevel",locked_until AS "lockedUntil",channel,phone FROM users WHERE id=$1',[id])
     return r.rows[0]??null
   }
   async entitlement(userId:string):Promise<Entitlement|null>{
@@ -210,7 +216,7 @@ export class PgStore {
     return this.getCommerceSettings()
   }
 
-  async registerTrialUser(input:{username:string;email:string;passwordHash:string;hardwareHash:string;ip:string;ref?:string}){
+  async registerTrialUser(input:{username:string;email:string|null;phone?:string|null;passwordHash:string;hardwareHash:string;ip:string;ref?:string}){
     const client=await this.pool.connect()
     try{
       await client.query('BEGIN')
@@ -233,9 +239,9 @@ export class PgStore {
         :null
       const grantTrial=trialDays>0&&!claimed?.rowCount
       const now=new Date(),trialEnds=new Date(now.getTime()+trialDays*86400000)
-      const user=await client.query(`INSERT INTO users(username,email,password_hash,role,status,trial_started_at,trial_ends_at,registration_ip_hash,registration_hardware_hash)
-        VALUES($1,$2,$3,'user','active',$4,$5,$6,$7) RETURNING id,username,email,role,status`,
-        [input.username,input.email,input.passwordHash,grantTrial?now:null,grantTrial?trialEnds:null,sha256('proxysplit-ip-v1:'+input.ip),input.hardwareHash||''])
+      const user=await client.query(`INSERT INTO users(username,email,password_hash,role,status,trial_started_at,trial_ends_at,registration_ip_hash,registration_hardware_hash,phone)
+        VALUES($1,$2,$3,'user','active',$4,$5,$6,$7,$8) RETURNING id,username,email,role,status`,
+        [input.username,input.email,input.passwordHash,grantTrial?now:null,grantTrial?trialEnds:null,sha256('proxysplit-ip-v1:'+input.ip),input.hardwareHash||'',input.phone??null])
       if(grantTrial){
         const plan=await client.query('SELECT id FROM plans WHERE code=$1 AND active=true',[trialPlanCode])
         if(!plan.rows[0])throw new Error('TRIAL_PLAN_NOT_FOUND')
@@ -252,7 +258,7 @@ export class PgStore {
 
   // 官网注册：没有设备指纹，因此按注册来源 IP 限制账号数；不发放试用，
   // 试用留到首次用客户端登录时按硬件发放（见 claimTrialOnLogin）。
-  async registerWebUser(input:{username:string;email:string;passwordHash:string;ip:string;ref?:string}){
+  async registerWebUser(input:{username:string;email:string|null;phone?:string|null;passwordHash:string;ip:string;ref?:string}){
     const ipHash=sha256('proxysplit-ip-v1:'+input.ip)
     const client=await this.pool.connect()
     try{
@@ -266,9 +272,9 @@ export class PgStore {
         const cnt=await client.query('SELECT count(*)::int AS n FROM users WHERE registration_ip_hash=$1',[ipHash])
         if(cnt.rows[0].n>=maxPerIp)throw new Error('IP_ACCOUNT_LIMIT')
       }
-      const user=await client.query(`INSERT INTO users(username,email,password_hash,role,status,registration_ip_hash,registration_hardware_hash)
-        VALUES($1,$2,$3,'user','active',$4,'') RETURNING id,username,email,role,status`,
-        [input.username,input.email,input.passwordHash,ipHash])
+      const user=await client.query(`INSERT INTO users(username,email,password_hash,role,status,registration_ip_hash,registration_hardware_hash,phone)
+        VALUES($1,$2,$3,'user','active',$4,'',$5) RETURNING id,username,email,role,status`,
+        [input.username,input.email,input.passwordHash,ipHash,input.phone??null])
       await this.bindReferrerInTx(client,user.rows[0].id,input.ref)
       await client.query('COMMIT')
       return user.rows[0]
@@ -548,7 +554,7 @@ export class PgStore {
   }
   async listUsers(params:Partial<UserListQuery>={}):Promise<ListResult<any>>{
     const conds:string[]=[];const vals:unknown[]=[];let i=1
-    if(params.q){vals.push(`%${params.q}%`);conds.push(`(u.username ILIKE $${i} OR u.email ILIKE $${i} OR u.note ILIKE $${i})`);i++}
+    if(params.q){vals.push(`%${params.q}%`);conds.push(`(u.username ILIKE $${i} OR u.email ILIKE $${i} OR u.note ILIKE $${i} OR u.phone LIKE $${i})`);i++}
     if(params.status){vals.push(params.status);conds.push(`u.status::text=$${i}`);i++}
     if(params.role){vals.push(params.role);conds.push(`u.role::text=$${i}`);i++}
     if(params.tier){vals.push(params.tier);conds.push(`p.tier=${i}`);i++}
@@ -563,7 +569,7 @@ export class PgStore {
     const orderBy=orderClause(params.sort,params.order,{createdAt:'u.created_at',username:'u.username',email:'u.email',status:'u.status',role:'u.role',expiresAt:'l.expires_at'},'u.created_at DESC')
     const limit=pageLimit(params.limit),offset=pageOffset(params.offset)
     vals.push(limit,offset)
-    const r=await this.pool.query(`SELECT u.id,u.username,u.email,u.role,u.status,u.note,u.created_at AS "createdAt",
+    const r=await this.pool.query(`SELECT u.id,u.username,u.email,u.phone,u.role,u.status,u.note,u.created_at AS "createdAt",
       l.expires_at AS "expiresAt",l.lifetime,p.name AS "planName",p.tier,
       (SELECT count(*)::int FROM devices d WHERE d.user_id=u.id AND d.revoked=false) AS devices,
       (u.password_hash IS NOT NULL) AS "hasPassword",
@@ -577,13 +583,13 @@ export class PgStore {
       LEFT JOIN fx_members fm ON fm.user_id=u.id::text LEFT JOIN users pu ON pu.id::text=fm.parent_user_id
       ${where} ORDER BY ${orderBy} LIMIT $${i} OFFSET $${i+1}`,vals)
     const total=r.rows[0]?Number(r.rows[0].totalCount):0
-    const items=r.rows.map(({totalCount,...rest}:{totalCount:number})=>rest)
+    const items=r.rows.map(({totalCount,phone,...rest}:{totalCount:number;phone:string|null})=>({...rest,phone:maskPhone(phone)}))
     return {items,total,limit,offset}
   }
   // 管理后台专用聚合视图：只返回运营必要信息，绝不返回密码、令牌、原始硬件序列号或指纹哈希。
   async getUserDetail(userId:string){
     const [user,licenses,devices,orders,activity,stats]=await Promise.all([
-      this.pool.query(`SELECT id,username,email,role,status,note,created_at AS "createdAt",updated_at AS "updatedAt",
+      this.pool.query(`SELECT id,username,email,phone,role,status,note,created_at AS "createdAt",updated_at AS "updatedAt",
         trial_started_at AS "trialStartedAt",trial_ends_at AS "trialEndsAt" FROM users WHERE id=$1`,[userId]),
       this.pool.query(`SELECT l.id,l.status,l.starts_at AS "startsAt",l.expires_at AS "expiresAt",l.created_at AS "createdAt",
         l.source,l.lifetime,p.code AS "planCode",p.name AS "planName",p.tier,p.max_devices AS "maxDevices",p.features
@@ -602,7 +608,7 @@ export class PgStore {
         (SELECT coalesce(sum(amount_cents),0)::int FROM orders WHERE user_id=$1 AND status='paid') AS "paidAmountCents"`,[userId]),
     ])
     if(!user.rows[0])return null
-    return {user:user.rows[0],licenses:licenses.rows,devices:devices.rows,orders:orders.rows,activity:activity.rows,stats:stats.rows[0],fenxiao:await this.fenxiaoSummary(userId)}
+    return {user:{...user.rows[0],phone:maskPhone(user.rows[0].phone)},licenses:licenses.rows,devices:devices.rows,orders:orders.rows,activity:activity.rows,stats:stats.rows[0],fenxiao:await this.fenxiaoSummary(userId)}
   }
   // 用户档案里的分销一栏：上级、身份、邀请码、团队、佣金余额（金额是分）。没进过分销体系的返回 null。
   private async fenxiaoSummary(userId:string){

@@ -1,10 +1,12 @@
 import { createHash, createPublicKey, randomUUID } from 'node:crypto'
 import { argon2id, hash, verify } from 'argon2'
 import { exportSPKI, generateKeyPair, importPKCS8, jwtVerify, SignJWT } from 'jose'
-import { AppError, normalizeUsername } from '@proxysplit/shared'
-import type { ActivateDeviceInput, DeviceInput, LoginInput, PowervpnLoginInput, RefreshInput, RegisterInput, SelfPasswordInput, WebRegisterInput } from '@proxysplit/contracts'
+import { AppError, looksLikePhone, normalizeUsername } from '@proxysplit/shared'
+import type { ActivateDeviceInput, DeviceInput, LoginInput, PasswordResetInput, PowervpnLoginInput, RefreshInput, RegisterInput, SelfPasswordInput, WebRegisterInput } from '@proxysplit/contracts'
 import { powervpnMeSchema } from '@proxysplit/contracts'
 import { channelOfSources, type PgStore, type UserChannel, type UserRecord } from './store.js'
+import { effective, licenseView } from './entitlement.js'
+import { PhoneAuth, yunpianSender } from './phone-auth.js'
 
 const encoder=new TextEncoder()
 const sha256=(value:string)=>createHash('sha256').update(value).digest('hex')
@@ -14,7 +16,12 @@ export const hashPassword=(value:string)=>hash(value,{type:argon2id,memoryCost:6
 export type PowervpnIdentity={id:string;username:string;email:string|null;displayName:string;sources:string[];aiPlanExpiresAt?:string|null|undefined}
 // 面板 GET /api/client/me 核实令牌；令牌只放请求头，绝不写日志。
 export type PowervpnConfig={baseUrl:string;timeoutMs?:number;fetch?:typeof fetch}
-export type AuthConfig={accessSecret:string;refreshDays:number;licensePrivateKeyPem?:string;licensePublicKeyPem?:string;powervpn?:PowervpnConfig}
+// 短信：配了 apiKey 走云片；没配时开发环境把验证码打到日志，生产返回 503 SMS_UNAVAILABLE。
+export type SmsConfig={apiKey?:string|undefined;tplId:string;production:boolean;log?:(msg:string)=>void;fetch?:typeof fetch}
+export type AuthConfig={accessSecret:string;refreshDays:number;licensePrivateKeyPem?:string;licensePublicKeyPem?:string;powervpn?:PowervpnConfig;sms?:SmsConfig}
+const userView=(user:UserRecord)=>({id:user.id,username:user.username,role:user.role,channel:user.channel??'',phoneBound:!!user.phone})
+const takenError=(error:unknown)=>(error as {constraint?:string}).constraint==='users_phone_uq'
+  ?new AppError('PHONE_TAKEN','该手机号已被其他账号使用',409):new AppError('IDENTITY_TAKEN','用户名或邮箱已被使用',409)
 export async function fetchPowervpnIdentity(cfg:PowervpnConfig,accessToken:string):Promise<PowervpnIdentity>{
   const doFetch=cfg.fetch??fetch
   let res:Response
@@ -30,7 +37,11 @@ export async function fetchPowervpnIdentity(cfg:PowervpnConfig,accessToken:strin
 // 用户名 pv_<面板 id 前 8 位>（只保留字母数字）
 export const powervpnUsernameBase=(externalId:string)=>'pv_'+(externalId.toLowerCase().replace(/[^a-z0-9]/g,'').slice(0,8)||'user')
 export class AuthService{
-  private constructor(private store:PgStore,private cfg:AuthConfig,private privateKey:CryptoKey,readonly publicKeyPem:string){}
+  readonly phone:PhoneAuth
+  private constructor(private store:PgStore,private cfg:AuthConfig,private privateKey:CryptoKey,readonly publicKeyPem:string){
+    const sms=cfg.sms
+    this.phone=new PhoneAuth(store.pool,{sender:sms?.apiKey?yunpianSender({apiKey:sms.apiKey,tplId:sms.tplId,...(sms.fetch?{fetch:sms.fetch}:{})}):null,production:sms?.production??false,...(sms?.log?{log:sms.log}:{})})
+  }
   static async create(store:PgStore,cfg:AuthConfig){
     let privateKey:CryptoKey, publicKeyPem=cfg.licensePublicKeyPem
     if(cfg.licensePrivateKeyPem){
@@ -47,43 +58,49 @@ export class AuthService{
   private async issue(user:UserRecord,deviceId:string,familyId:string=randomUUID()){
     const jti=randomUUID(), refreshToken=await this.refresh(user.id,deviceId,familyId,jti), expiresAt=new Date(Date.now()+this.cfg.refreshDays*86400000)
     await this.store.createSession({userId:user.id,deviceId,familyId,jti,tokenHash:sha256(refreshToken),expiresAt})
-    return {accessToken:await this.access(user,deviceId),refreshToken,expiresIn:900,deviceId,user:{id:user.id,username:user.username,role:user.role,channel:user.channel??''}}
+    return {accessToken:await this.access(user,deviceId),refreshToken,expiresIn:900,deviceId,user:userView(user)}
   }
-  private license(ent:Awaited<ReturnType<PgStore['entitlement']>>|null,user:UserRecord){
-    const value=ent??(user.role==='admin'?{licenseId:'admin',planId:'admin',planCode:'admin',planName:'Administrator',tier:'premium' as const,maxDevices:10,features:['admin'],expiresAt:new Date('2999-12-31'),lifetime:true,status:'active'}:null)
-    return value?{plan:value.planName,planCode:value.planCode,tier:value.tier,expiresAt:value.expiresAt,features:value.features,maxDevices:value.maxDevices,lifetime:value.lifetime}:null
+  /** 实际权益（免费档 / 会员叠加设备数），见 entitlement.ts。 */
+  private async effectiveOf(user:UserRecord){return effective(user,await this.store.entitlement(user.id),await this.store.getCommerceSettings())}
+  async effectiveFor(userId:string){
+    const user=await this.store.findUserById(userId);if(!user||user.status!=='active')throw new AppError('ACCOUNT_UNAVAILABLE','Account is unavailable',403)
+    return this.effectiveOf(user)
   }
   async register(input:RegisterInput,ip=''){
+    const codeId=input.phone&&input.code?await this.phone.verify(input.phone,'register',input.code):null
     const passwordHash=await hashPassword(input.password)
     try{
       await this.store.registerTrialUser({
-        username:normalizeUsername(input.username),email:input.email.trim().toLowerCase(),passwordHash,
+        username:normalizeUsername(input.username),email:input.email?.trim().toLowerCase()||null,phone:input.phone??null,passwordHash,
         hardwareHash:hashFingerprint(input.device.hardwareHash??input.device.fingerprint),ip,...(input.ref?{ref:input.ref}:{}),
       })
     }catch(error){
       const code=(error as {code?:string}).code
       const message=(error as Error).message
-      if(code==='23505')throw new AppError('IDENTITY_TAKEN','用户名或邮箱已被使用',409)
+      if(code==='23505')throw takenError(error)
       if(message==='REGISTRATION_DISABLED')throw new AppError('REGISTRATION_DISABLED','当前暂停开放注册',403)
       if(message==='DEVICE_ACCOUNT_LIMIT')throw new AppError('DEVICE_ACCOUNT_LIMIT','该设备注册的账号已达上限，请使用已有账号登录',429)
       if(message==='TRIAL_PLAN_NOT_FOUND')throw new AppError('TRIAL_UNAVAILABLE','试用套餐暂不可用',503)
       throw error
     }
+    if(codeId)await this.phone.consume(codeId)
     return this.login(input,ip)
   }
   // 官网注册：只建账号，不绑定设备、不发试用（试用在首次客户端登录时发放）。
   async registerWeb(input:WebRegisterInput,ip=''){
+    const codeId=input.phone&&input.code?await this.phone.verify(input.phone,'register',input.code):null
     const passwordHash=await hashPassword(input.password)
     try{
       const user=await this.store.registerWebUser({
-        username:normalizeUsername(input.username),email:input.email.trim().toLowerCase(),passwordHash,ip,...(input.ref?{ref:input.ref}:{}),
+        username:normalizeUsername(input.username),email:input.email?.trim().toLowerCase()||null,phone:input.phone??null,passwordHash,ip,...(input.ref?{ref:input.ref}:{}),
       })
+      if(codeId)await this.phone.consume(codeId)
       await this.store.audit(user.id,'auth.register.web','user',user.id,ip,'success')
       return {ok:true,username:user.username}
     }catch(error){
       const code=(error as {code?:string}).code
       const message=(error as Error).message
-      if(code==='23505')throw new AppError('IDENTITY_TAKEN','用户名或邮箱已被使用',409)
+      if(code==='23505')throw takenError(error)
       if(message==='REGISTRATION_DISABLED')throw new AppError('REGISTRATION_DISABLED','当前暂停开放注册',403)
       if(message==='IP_ACCOUNT_LIMIT')throw new AppError('IP_ACCOUNT_LIMIT','当前网络注册的账号已达上限，请直接登录或联系客服',429)
       throw error
@@ -104,8 +121,19 @@ export class AuthService{
     await this.store.audit(userId,'user.password','user',userId,ip,'success')
     return {ok:true}
   }
+  // 短信找回密码：每号每北京日 1 次，改密同时吊销全部会话（phone-auth.ts）。
+  async resetPasswordByPhone(input:PasswordResetInput,ip=''){
+    const r=await this.phone.resetPassword(input.phone,input.code,await hashPassword(input.password))
+    await this.store.audit(r.userId,'auth.password.reset','user',r.userId,ip,'success')
+    return {ok:true}
+  }
+  // 登录框接受用户名或手机号：纯 11 位 1 开头先按手机号查，查不到再当用户名（兼容数字用户名）。
+  private async findLoginUser(name:string){
+    const byPhone=looksLikePhone(name)?await this.store.findUserByPhone(name.trim()):null
+    return byPhone??this.store.findUser(normalizeUsername(name))
+  }
   async login(input:LoginInput,ip=''){
-    const user=await this.store.findUser(normalizeUsername(input.username))
+    const user=await this.findLoginUser(input.username)
     const lockedUntil=user?.lockedUntil?new Date(user.lockedUntil):null
     if(user&&lockedUntil&&lockedUntil.getTime()>Date.now()){
       const remainingMinutes=Math.max(1,Math.ceil((lockedUntil.getTime()-Date.now())/60000))
@@ -162,7 +190,7 @@ export class AuthService{
     if(await this.store.markUserChannel(userId,channel))await this.store.audit(userId,'auth.channel','user',userId,ip,'success',{channel})
     const r=await this.syncAigwMembership(userId,identity,ip)
     const user=await this.store.findUserById(userId)
-    const license=user?this.license(await this.store.entitlement(userId),user):null
+    const license=user?licenseView(await this.effectiveOf(user)):null
     return {channel:user?.channel??'',aiPlanExpiresAt:r?.expiresAt?.toISOString()??null,license}
   }
   // POWER云 账号登录：面板核实令牌 → 找 / 建用户 → 与 login() 相同的会话 + 设备数逻辑。不送授权。
@@ -186,18 +214,13 @@ export class AuthService{
     // 官网注册的账号在这里补发试用：注册时没有设备信息，首次客户端登录才知道硬件。
     // 内部已做「一机一次 / 一号一次 / 已有权益不发」判断，失败不阻断登录。
     try{await this.store.claimTrialOnLogin(user.id,hashFingerprint(inputDevice.hardwareHash??inputDevice.fingerprint),ip)}catch{/* 发放试用失败绝不能挡住登录 */}
-    const entitlement=await this.store.entitlement(user.id)
-    const license=this.license(entitlement,user)
-    const settings=await this.store.getCommerceSettings()
-    // Admins run the operator console AND release automation from one account, so
-    // their device slots (default 3) fill up and lock them out. Admins are exempt
-    // from the per-account device limit; regular accounts stay capped.
-    const deviceLimit=user.role==='admin'?Number.MAX_SAFE_INTEGER:(license?.maxDevices??settings.defaultDeviceLimit)
+    // 设备上限 = 免费名额 + 套餐设备数；管理员不限（控制台和发版自动化共用一个号）。
+    const eff=await this.effectiveOf(user),license=licenseView(eff),deviceLimit=eff.deviceLimit
     let device;try{device=await this.store.bindDevice(user.id,hashFingerprint(inputDevice.fingerprint),hashFingerprint(inputDevice.hardwareHash??inputDevice.fingerprint),inputDevice.name,inputDevice.platform,inputDevice.appVersion,deviceLimit)}catch(e){
       if((e as Error).message==='DEVICE_LIMIT'){
         // 不签发租约和刷新令牌：此令牌仅能在 15 分钟内查看/解绑本账号设备，不能启动代理。
         await this.store.audit(user.id,'auth.login.device_limit','device','pending',ip,'success')
-        return {accessToken:await this.access(user,'pending'),refreshToken:'',expiresIn:900,deviceId:'',deviceLimitReached:true,license,user:{id:user.id,username:user.username,role:user.role,channel:user.channel??''}}
+        return {accessToken:await this.access(user,'pending'),refreshToken:'',expiresIn:900,deviceId:'',deviceLimitReached:true,license,user:userView(user)}
       }
       throw e
     }
@@ -206,8 +229,7 @@ export class AuthService{
   }
   async activateDevice(userId:string,device:ActivateDeviceInput['device'],ip=''){
     const user=await this.store.findUserById(userId);if(!user||user.status!=='active')throw new AppError('ACCOUNT_UNAVAILABLE','Account is unavailable',403)
-    const entitlement=await this.store.entitlement(userId),license=this.license(entitlement,user),settings=await this.store.getCommerceSettings()
-    const deviceLimit=user.role==='admin'?Number.MAX_SAFE_INTEGER:(license?.maxDevices??settings.defaultDeviceLimit)
+    const eff=await this.effectiveOf(user),license=licenseView(eff),deviceLimit=eff.deviceLimit
     try{
       const bound=await this.store.bindDevice(userId,hashFingerprint(device.fingerprint),hashFingerprint(device.hardwareHash??device.fingerprint),device.name,device.platform,device.appVersion,deviceLimit)
       await this.store.audit(userId,'auth.device.activate','device',bound.id,ip,'success')
@@ -235,7 +257,7 @@ export class AuthService{
     // Rotation is already committed; an audit sink failure must not hide the
     // newly issued one-time token and strand the client with a consumed token.
     await this.store.audit(user.id,'auth.refresh','session',String(payload.jti),ip,'success').catch(()=>{})
-    return {accessToken:await this.access(user,rotated.deviceId),refreshToken,expiresIn:900,deviceId:rotated.deviceId,user:{id:user.id,username:user.username,role:user.role,channel:user.channel??''}}
+    return {accessToken:await this.access(user,rotated.deviceId),refreshToken,expiresIn:900,deviceId:rotated.deviceId,user:userView(user)}
   }
   async logout(input:RefreshInput,ip=''){
     try{
@@ -268,9 +290,10 @@ export class AuthService{
   }
   async lease(userId:string,deviceId:string,deviceFingerprint:string,appVersion:string){
     const user=await this.store.findUserById(userId);if(!user||user.status!=='active')throw new AppError('ACCOUNT_UNAVAILABLE','Account is unavailable',403)
-    const ent=await this.store.entitlement(userId);if(!ent)throw new AppError('LICENSE_INACTIVE','License is missing or expired',403)
+    // 免费用户也签租约（tier='free'）；只有超出设备名额才拒绝。
+    const eff=await this.effectiveOf(user),ent=eff.ent
     const device=await this.store.findDevice(deviceId);if(!device||device.userId!==userId||device.revoked||device.fingerprintHash!==hashFingerprint(deviceFingerprint))throw new AppError('DEVICE_MISMATCH','Device verification failed',401)
-    if(!await this.store.isDeviceWithinLimit(userId,deviceId,ent.maxDevices))throw new AppError('DEVICE_LIMIT','当前套餐设备名额已减少，请先解绑超额设备',409)
+    if(!await this.store.isDeviceWithinLimit(userId,deviceId,eff.deviceLimit))throw new AppError('DEVICE_LIMIT','当前套餐设备名额已减少，请先解绑超额设备',409)
     const settings=await this.store.getCommerceSettings()
     await this.store.touchDevice(deviceId,appVersion);const release=await this.store.latestRelease();const expires=Math.min(Date.now()+settings.licenseLeaseMinutes*60000,ent.expiresAt.getTime())
     const token=await new SignJWT({typ:'license-lease',lid:ent.licenseId,did:deviceId,fph:device.fingerprintHash,plan:ent.planName,planCode:ent.planCode,tier:ent.tier,maxDevices:ent.maxDevices,features:ent.features,minVersion:release?.minimumVersion??'1.7.2',grace:settings.offlineGraceHours,entitlementExp:Math.floor(ent.expiresAt.getTime()/1000)}).setProtectedHeader({alg:'EdDSA',kid:'proxysplit-license-v1'}).setSubject(userId).setIssuedAt().setExpirationTime(Math.floor(expires/1000)).sign(this.privateKey)

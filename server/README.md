@@ -13,7 +13,9 @@ packages/shared   错误与纯工具
 
 ## 已具备
 
-- 用户名密码登录，Argon2id（64 MiB、3 次迭代）。
+- 用户名或手机号 + 密码登录，Argon2id（64 MiB、3 次迭代）；手机号注册 / 短信找回（每号每北京日 1 次）/ 补绑走云片（`YUNPIAN_API_KEY`）。
+- 免费档：无会员也能用（设备数 = 后台「免费设备数」），会员设备数 = 免费数 + 套餐数（core `entitlement.ts`）。
+- 配置云同步 + 云端命名配置（会员专属，AES-256-GCM，`CONFIG_SYNC_KEY`）、分享码导入（任何已登录用户）。合同见 `docs/plan-2026-10-29-free-sync-phone.md`。
 - 15 分钟 access token、refresh token 单次轮换、重放后整族吊销。
 - 设备指纹仅保存加盐用途隔离后的 SHA256 摘要；事务锁保证设备上限不被并发绕过。
 - 有效授权、套餐功能和设备绑定检查。
