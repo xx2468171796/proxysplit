@@ -48,7 +48,7 @@ export function DownloadSlot({ version }: { version: string | null }) {
             Windows 版下载{version ? ` v${version}` : ""}
           </a>
           <a className="q-btn ghost ps-download-btn" href={MAC_DOWNLOAD}>
-            macOS 版下载
+            macOS 版下载（测试版）
           </a>
           <span className="q-muted ps-mac-tip">Mac 首次打开：右键 → 打开</span>
         </div>
