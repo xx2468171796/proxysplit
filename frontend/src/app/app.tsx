@@ -16,7 +16,8 @@ import { useFeedback } from "./use-feedback";
 import "./app.css";
 
 // 每秒定时器里判断「是否在日志页」（日志页才拉实时连接）。
-const isLogsPage = () => nav.get().page === "logs";
+const isLogsPage = () => ["logs", "flows", "overview"].includes(nav.get().page);
+const isOverview = () => nav.get().page === "overview";
 
 export function App() {
   const mode = asMode(useStore(data, (s) => s.settings.theme));
@@ -48,7 +49,7 @@ function Root() {
   // 开代理后连不上网（多半被安全软件拦截）：常驻到用户点「知道了」。
   const [netBlocked, setNetBlocked] = useState("");
   const dismissNetBlocked = useCallback(() => setNetBlocked(""), []);
-  useAppLifecycle(say, isLogsPage, setNetBlocked);
+  useAppLifecycle(say, isLogsPage, setNetBlocked, isOverview);
 
   const status = useStore(license, (s) => s.status);
   const gated = status.enabled && !status.authenticated;

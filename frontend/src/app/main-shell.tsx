@@ -1,7 +1,7 @@
 // 主界面外壳：qiantai 桌面外壳 DesktopShell（标题栏 + 左侧导航 + 内容区 + 「外观」面板 + 背景层）。
 // 标题栏中间是活动节点 / 代理策略 / 速率，右侧启动 / 停止 + 自绘窗口按钮（Wails 无边框，见 window-controls.ts）；导航底部是账号菜单。
 import { AccountMenu, ContentSkeleton, PanelErrorBoundary, SlowLoadingNote, useSlowLoading } from "@ankotti/admin-ui";
-import { Bot, Gauge, LayoutGrid, Logs, type LucideIcon, Server, Settings, ShieldCheck } from "lucide-react";
+import { Bot, Gauge, LayoutGrid, Logs, type LucideIcon, Network, Server, Settings, ShieldCheck } from "lucide-react";
 import { DesktopShell } from "qiantai/desktop";
 import { type ReactNode, useEffect } from "react";
 import { api } from "../api/backend";
@@ -9,6 +9,7 @@ import logo from "../assets/proxysplit-logo.svg";
 import { AccountDialogs } from "../features/account/account-dialogs";
 import { AIPage } from "../features/ai/ai-page";
 import { RoutingPage } from "../features/apps/routing-page";
+import { FlowsPage } from "../features/flows/flows-page";
 import { LogsPage } from "../features/logs/logs-page";
 import { NodesHubPage } from "../features/nodes/nodes-hub-page";
 import { OverviewPage } from "../features/overview/overview-page";
@@ -27,6 +28,7 @@ import { useWindowControls } from "./window-controls";
 
 const PAGES: Record<PageId, { title: string; icon: LucideIcon; render: () => ReactNode }> = {
   overview: { title: "概览", icon: Gauge, render: () => <OverviewPage /> },
+  flows: { title: "连接", icon: Network, render: () => <FlowsPage /> },
   ai: { title: "AI", icon: Bot, render: () => <AIPage /> },
   nodes: { title: "节点", icon: Server, render: () => <NodesHubPage /> },
   apps: { title: "分流", icon: LayoutGrid, render: () => <RoutingPage /> },
@@ -34,7 +36,7 @@ const PAGES: Record<PageId, { title: string; icon: LucideIcon; render: () => Rea
   logs: { title: "日志与诊断", icon: Logs, render: () => <LogsPage /> },
   settings: { title: "设置", icon: Settings, render: () => <SettingsPage /> },
 };
-const ORDER: PageId[] = ["overview", "ai", "nodes", "apps", "rules", "logs", "settings"];
+const ORDER: PageId[] = ["overview", "flows", "ai", "nodes", "apps", "rules", "logs", "settings"];
 
 seedDefaultAppearance();
 

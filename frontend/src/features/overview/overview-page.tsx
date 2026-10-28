@@ -1,4 +1,4 @@
-// 概览（给普通用户看的首页）：连接面板（大开关 / 节点 / 速率 / 分流方式）→ AI 环境（有资格才显示）→ 常用操作 →
+// 概览（给普通用户看的首页）：连接面板（大开关 / 节点 / 速率 / 分流方式）→ 当前链路（出口 IP / Google 延迟 / Ping）→ 流量去向图 → 常用操作 →
 // 节点健康 + 应用分流摘要 → 最新日志。
 import { PageBody, Panel, QuickLinks } from "@ankotti/admin-ui";
 import { LayoutGrid, Plus, RefreshCw, Stethoscope } from "lucide-react";
@@ -6,8 +6,9 @@ import { navigate } from "../../app/nav";
 import { useFeedback } from "../../app/use-feedback";
 import { useStore } from "../../shared/store";
 import { nodeTests, testAllLatency } from "../../state/nodes";
-import { AIEnvPanel } from "./ai-env-panel";
 import { ConnectHero } from "./hero";
+import { LinkPanel } from "./link-panel";
+import { MiniFlow } from "./mini-flow";
 import { AppSplitSummary, NodeHealth, RecentLogs } from "./overview-lists";
 
 function QuickActions() {
@@ -38,7 +39,8 @@ export function OverviewPage() {
     <PageBody>
       <div className="ps-stack">
         <ConnectHero />
-        <AIEnvPanel />
+        <LinkPanel />
+        <MiniFlow />
         <QuickActions />
         <div className="ps-overview-grid">
           <NodeHealth />

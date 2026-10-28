@@ -373,3 +373,28 @@ body,
   cursor: pointer;
   white-space: nowrap;
 }
+
+.ps-link-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  white-space: nowrap;
+  opacity: 0.85;
+}
+
+.ps-link-chip > i {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--aui-note);
+}
+
+.ps-link-chip[data-running="true"] > i {
+  background: var(--aui-success);
+  box-shadow: 0 0 0 3px var(--aui-soft);
+}
+
+.ps-link-chip[data-bad="true"] > i {
+  background: var(--aui-danger);
+}

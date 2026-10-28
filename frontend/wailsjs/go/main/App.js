@@ -166,6 +166,10 @@ export function GetLines() {
   return window['go']['main']['App']['GetLines']();
 }
 
+export function GetLinkStatus() {
+  return window['go']['main']['App']['GetLinkStatus']();
+}
+
 export function GetLogLevel() {
   return window['go']['main']['App']['GetLogLevel']();
 }

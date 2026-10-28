@@ -1,0 +1,158 @@
+/* 连接图：三列节点 + 流动连线。颜色：代理 = 主色，直连 = 绿，拦截 = 红。 */
+.ps-flows {
+  display: grid;
+  grid-template-rows: minmax(420px, 1fr) auto;
+  gap: 16px;
+}
+
+.ps-flow-canvas {
+  position: relative;
+  height: 62vh;
+  min-height: 420px;
+  overflow: hidden;
+  border-radius: 10px;
+  cursor: grab;
+  background-color: var(--aui-surface-subtle);
+  background-image: radial-gradient(circle, var(--aui-line) 1px, transparent 1px);
+  background-size: 20px 20px;
+  touch-action: none;
+}
+
+.ps-flow-canvas[data-dragging="true"] {
+  cursor: grabbing;
+}
+
+.ps-flow-tools {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ps-flow-zoom {
+  min-width: 44px;
+  font-size: 12px;
+  text-align: right;
+  opacity: 0.7;
+}
+
+.ps-mini-flow svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: 420px;
+}
+
+.ps-flow-hint {
+  margin: 8px 0;
+  font-size: 13px;
+  opacity: 0.7;
+}
+
+.ps-flow {
+  --flow-proxy: var(--aui-info);
+  --flow-direct: var(--aui-success);
+  --flow-block: var(--aui-danger);
+}
+
+.ps-flow-lane {
+  font-size: 12px;
+  font-weight: 600;
+  fill: currentColor;
+  opacity: 0.55;
+}
+
+.ps-flow-edge {
+  --c: var(--flow-proxy);
+}
+
+.ps-flow-edge[data-kind="direct"] {
+  --c: var(--flow-direct);
+}
+
+.ps-flow-edge[data-kind="block"] {
+  --c: var(--flow-block);
+}
+
+.ps-flow-edge-base {
+  fill: none;
+  stroke: var(--c);
+  stroke-opacity: 0.18;
+  stroke-linecap: round;
+}
+
+.ps-flow-edge-dash {
+  fill: none;
+  stroke: var(--c);
+  stroke-opacity: 0.85;
+  stroke-linecap: round;
+  stroke-dasharray: 4 14;
+  animation: ps-flow-move 1.2s linear infinite;
+}
+
+.ps-flow-edge[data-kind="block"] .ps-flow-edge-dash {
+  animation: none;
+  stroke-dasharray: 2 6;
+}
+
+.ps-flow-edge[data-hot="true"] .ps-flow-edge-base {
+  stroke-opacity: 0.45;
+}
+
+@keyframes ps-flow-move {
+  to {
+    stroke-dashoffset: -18;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ps-flow-edge-dash {
+    animation: none;
+  }
+}
+
+.ps-flow-node {
+  cursor: pointer;
+  outline: none;
+}
+
+.ps-flow-node rect {
+  fill: var(--aui-surface);
+  stroke: var(--aui-line);
+  stroke-width: 1;
+  transition: stroke 0.15s;
+}
+
+.ps-flow-node[data-lane="route"] rect {
+  stroke: var(--flow-proxy);
+  stroke-width: 1.5;
+}
+
+.ps-flow-node[data-kind="direct"] rect {
+  stroke: var(--flow-direct);
+}
+
+.ps-flow-node[data-kind="block"] rect {
+  stroke: var(--flow-block);
+}
+
+.ps-flow-node:hover rect,
+.ps-flow-node:focus-visible rect,
+.ps-flow-node[data-selected="true"] rect {
+  stroke: var(--flow-proxy);
+  stroke-width: 2.5;
+}
+
+.ps-flow-label {
+  font-size: 13px;
+  font-weight: 600;
+  fill: currentColor;
+}
+
+.ps-flow-sub {
+  font-size: 11px;
+  fill: currentColor;
+  opacity: 0.6;
+}
