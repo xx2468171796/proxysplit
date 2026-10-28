@@ -270,3 +270,4 @@ export type TrackViewInput = z.infer<typeof trackViewSchema>
 export type DownloadStatsQuery = z.infer<typeof downloadStatsQuery>
 export * from './fenxiao.js'
 export * from './telemetry.js'
+export * from './client-nodes.js'
