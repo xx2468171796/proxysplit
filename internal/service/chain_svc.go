@@ -76,3 +76,19 @@ func (s *Service) isFrontLocked(id string) bool {
 	}
 	return false
 }
+
+// expandNodes lists each node plus its front node (前置代理), for server
+// pre-resolution, keep-warm and "does the running core use this node".
+func expandNodes(list []*nodes.Node) []*nodes.Node {
+	var out []*nodes.Node
+	for _, n := range list {
+		if n == nil {
+			continue
+		}
+		out = append(out, n)
+		if n.ViaNode != nil {
+			out = append(out, n.ViaNode)
+		}
+	}
+	return out
+}

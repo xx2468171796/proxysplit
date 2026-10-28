@@ -186,3 +186,20 @@ func TestLoadFallsBackWhenMainConfigHasWrongFieldTypes(t *testing.T) {
 		t.Fatalf("backup not restored: %+v", got)
 	}
 }
+
+// v1.10.4 could store SelectedID "auto" (自动选择, removed in v1.10.6 at the
+// owner's call): on load it falls back to the first real node.
+func TestLegacyAutoSelectionFallsBack(t *testing.T) {
+	dir := t.TempDir()
+	cfg := `{"selectedId":"auto","settings":{"theme":"light"},"nodes":[{"id":"n1","name":"A","type":"socks","server":"127.0.0.1","port":1080}]}`
+	if err := os.WriteFile(filepath.Join(dir, "config.json"), []byte(cfg), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s, err := New(t.TempDir(), dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := s.Status().SelectedID; got != "n1" {
+		t.Fatalf("selected = %q, want n1", got)
+	}
+}

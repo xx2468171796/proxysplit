@@ -223,7 +223,7 @@ func (s *Service) healDanglingNodeRefsLocked() bool {
 		}
 	}
 	changed := false
-	if s.cfg.SelectedID != "" && s.cfg.SelectedID != AutoNodeID && !nodeIDs[s.cfg.SelectedID] {
+	if s.cfg.SelectedID != "" && !nodeIDs[s.cfg.SelectedID] {
 		s.cfg.SelectedID = ""
 		if len(s.cfg.Nodes) > 0 && s.cfg.Nodes[0] != nil {
 			s.cfg.SelectedID = s.cfg.Nodes[0].ID

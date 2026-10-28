@@ -372,7 +372,7 @@ func firstNonEmpty(vals ...string) string {
 // Those nodes get DNS over TCP instead.
 func remoteDNSServer(n *nodes.Node, detour string) M {
 	typ := "udp"
-	if n != nil && (n.Type == "socks" || n.Type == "http" || n.Type == nodes.TypeURLTest) {
+	if n != nil && (n.Type == "socks" || n.Type == "http") {
 		typ = "tcp"
 	}
 	return M{"type": typ, "tag": "dns-remote", "server": "8.8.8.8", "detour": detour}

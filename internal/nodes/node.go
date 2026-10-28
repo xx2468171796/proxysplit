@@ -68,9 +68,6 @@ type Node struct {
 
 	Via     string `json:"via,omitempty"`
 	ViaNode *Node  `json:"-"`
-	// Members are the nodes of the synthetic "自动选择（最快）" node (Type
-	// TypeURLTest), built by the service for the core; never stored.
-	Members []*Node `json:"-"`
 	// CoreInfo is derived (EffectiveCore / NeedsXray / XraySupports), filled
 	// only on the copies handed to the UI; never set on stored nodes.
 	CoreInfo *CoreInfo `json:"coreInfo,omitempty"`
@@ -148,6 +145,3 @@ func (e *Egress) Restricted() bool { return e != nil && e.Mode == "ai_only" }
 // Active reports whether the routing has to change at all for this node.
 func (e *Egress) Active() bool { return e != nil && (e.Restricted() || !e.Deny.Empty()) }
 
-// TypeURLTest is the Type of the synthetic "自动选择（最快）" node: a sing-box
-// urltest group over Members (never stored, never parsed from a link).
-const TypeURLTest = "urltest"

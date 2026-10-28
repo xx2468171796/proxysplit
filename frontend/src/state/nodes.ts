@@ -27,12 +27,7 @@ export const nodeTests = createStore<NodeTestState>({
 const markNodes = (match: (n: Node) => boolean, patch: Partial<Node>) =>
   data.set((s) => ({ nodes: s.nodes.map((n) => (match(n) ? { ...n, ...patch } : n)) }));
 
-/** 活动节点的特殊值：内核用 urltest 组在普通节点里按延迟自动挑、挂了自动切。 */
-export const AUTO_NODE_ID = "auto";
-export const AUTO_NODE_LABEL = "自动选择（最快）";
-
 export function nodeName(id: string, nodes: Node[]): string {
-  if (id === AUTO_NODE_ID) return AUTO_NODE_LABEL;
   return nodes.find((n) => n.id === id)?.name || id;
 }
 

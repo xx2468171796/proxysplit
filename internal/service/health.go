@@ -83,9 +83,6 @@ func (s *Service) refreshHealth() {
 			} else {
 				lh.Node = node.Name
 				lat, done := nodeLat[node.ID]
-				if node.Type == nodes.TypeURLTest {
-					lat, done = 0, true // the group fails over by itself; no single server to dial
-				}
 				if !done {
 					snap := *node
 					lat = latency.Measure(s.pinned(&snap), "", 4*time.Second).TCPLatency

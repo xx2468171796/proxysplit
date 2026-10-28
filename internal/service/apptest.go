@@ -83,7 +83,7 @@ func (s *Service) validateImportedConfigLocked(cfg *Config) error {
 		}
 		seenNodes[n.ID] = true
 	}
-	if cfg.SelectedID != "" && cfg.SelectedID != AutoNodeID && !seenNodes[cfg.SelectedID] {
+	if cfg.SelectedID != "" && !seenNodes[cfg.SelectedID] {
 		cfg.SelectedID = ""
 	}
 	if cfg.SelectedID == "" && len(cfg.Nodes) > 0 {

@@ -73,7 +73,6 @@ internal/telemetry    日志与事件上报                   internal/aiguard  
 - 强制升级覆盖一切界面（含登录 / 会员闸门），不可关闭。
 - 中转站渠道（`license.channel === "aigw"`）的客户不显示作者联系方式、赞赏码、官网 / GitHub。
 - 金额以「分」存，展示时只做一次除法。
-- 活动节点 `SelectedID == "auto"`（`service.AutoNodeID`）= 自动选择（最快）：`selectedNode()` 现造一个 `Type: "urltest"` 的合成节点（`Members` 只在内存），内核出 sing-box urltest 组；任何「找不到选中节点就重置」的地方都要放过 `auto`。
 
 ## Xray 双内核（internal/xray）
 

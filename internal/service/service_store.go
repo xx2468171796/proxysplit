@@ -175,7 +175,7 @@ func (s *Service) dropPlaceholderNodesLocked() bool {
 		}
 	}
 	s.cfg.Nodes = kept
-	if !selectedStillPresent && s.cfg.SelectedID != AutoNodeID {
+	if !selectedStillPresent {
 		s.cfg.SelectedID = ""
 		if len(kept) > 0 {
 			s.cfg.SelectedID = kept[0].ID
