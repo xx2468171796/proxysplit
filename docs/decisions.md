@@ -326,3 +326,8 @@
 - 业主要求：sing-box 和 Xray 两个内核都必须打进安装包（用户可能没网），Xray 跟上游最新正式版；build.ps1 缺 xray.exe 直接失败。Xray 26.10.21 是上游紧急安全更新（Go 1.27.3）。
 - macOS 无苹果开发者账号：root 走 sudoers + root 专属目录 /Library/PrivilegedHelperTools/proxysplit 里的 psctl；root 只跑授权时复制的内核副本，配置复制后由 JXA 校验（字段名按 Go 大小写不敏感规则比较，拒绝会写文件的选项）。两轮独立审计的问题均已修复。
 - 业主指示「审计好直接发」：Mac 以「测试版」上线，需 root 的功能待真机补测。
+
+## 2026-10-28 v1.10.10：macOS 真机测试后的修复
+- macOS 的 DNS 由 mDNSResponder 按网卡发出、不进 TUN：运行时把系统 DNS 指向 TUN（psctl），退出 / 停止 / 程序启动 / 开机（LaunchDaemon）都会恢复。审计指出重启会卡 DNS，加开机任务后真机强杀验证。
+- 客户不依赖 Tailscale（业主 2026-10-28）：Tailscale 接管 DNS 时的冲突只写说明，不在产品里处理。
+- 教训：在同事电脑上做改网络的测试，恢复保险必须 nohup 独立运行（堡垒机任务在 Mac 上会随 SSH 断开被杀），且 TUN 运行时不碰 Tailscale 设置。
