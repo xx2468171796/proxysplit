@@ -110,7 +110,9 @@ CHECK
 put sing-box 755 < '%[4]s'
 t=$(mktemp /etc/sudoers.d/.proxysplit.XXXXXX)
 printf '%%s ALL=(root) NOPASSWD: %%s\n' '%[5]s' "$D/psctl" > "$t"
-chmod 440 "$t" && visudo -cf "$t" >/dev/null && mv -f "$t" %[6]s
+chmod 440 "$t"
+visudo -cf "$t" >/dev/null || { rm -f "$t"; echo "sudoers invalid" >&2; exit 1; }
+mv -f "$t" %[6]s
 [ -L %[7]s ] || rm -f %[7]s
 `, Dir, ctlScript, checkJS, core, username, sudoersFile, legacyCtl), nil
 }
@@ -121,22 +123,15 @@ const ctlScript = `#!/bin/sh
 # ProxySplit 特权控制脚本（root 所有；ProxySplit 装的，别手改）。
 # 只做：用 root 跑授权时复制进来的 sing-box（TUN 要 root）、停掉它、开关系统代理。
 PATH=/usr/bin:/bin:/usr/sbin:/sbin
+HOME=/var/root
+export PATH HOME
 D=` + Dir + `
+CWD=$PWD
+cd "$D" || exit 1
 services() { networksetup -listallnetworkservices | tail -n +2 | grep -v '^\*'; }
-case "$1" in
-ping) echo "ok $(shasum -a 256 "$D/sing-box" | cut -d' ' -f1)" ;;
-run)
-  case "$2" in /*.json) ;; *) echo "bad config" >&2; exit 2 ;; esac
-  [ -f "$2" ] && [ ! -L "$2" ] || { echo "bad config" >&2; exit 2; }
-  [ "$(stat -f %u "$2")" = "$SUDO_UID" ] || { echo "config not owned by caller" >&2; exit 2; }
-  umask 077
-  cat "$2" > "$D/run.json"
-  osascript -l JavaScript "$D/check.js" "$D/run.json" "$D/cache.db" >/dev/null || { echo "config rejected" >&2; exit 2; }
-  echo $$ > "$D/core.pid"
-  exec "$D/sing-box" run -c "$D/run.json" ;;
-stop)
+stopcore() {
   P=$(cat "$D/core.pid" 2>/dev/null)
-  case "$P" in ''|*[!0-9]*) exit 0 ;; esac
+  case "$P" in ''|*[!0-9]*) return 0 ;; esac
   case "$(ps -p "$P" -o command= 2>/dev/null)" in
   "$D/sing-box run"*)
     kill -TERM "$P" 2>/dev/null
@@ -144,6 +139,26 @@ stop)
     kill -KILL "$P" 2>/dev/null ;;
   esac
   rm -f "$D/core.pid"
+}
+case "$1" in
+ping) echo "ok $(shasum -a 256 "$D/sing-box" | cut -d' ' -f1)" ;;
+run)
+  case "$2" in /*.json) ;; *) echo "bad config" >&2; exit 2 ;; esac
+  # open once, then check the opened file (no swap between check and copy)
+  exec 3< "$2" || exit 2
+  [ ! -L "$2" ] && [ -f /dev/fd/3 ] || { echo "bad config" >&2; exit 2; }
+  [ "$(stat -f %u /dev/fd/3)" = "$SUDO_UID" ] || { echo "config not owned by caller" >&2; exit 2; }
+  stopcore
+  umask 077
+  cat <&3 > "$D/run.json"
+  exec 3<&-
+  osascript -l JavaScript "$D/check.js" "$D/run.json" "$D/cache.db" >/dev/null || { echo "config rejected" >&2; exit 2; }
+  echo $$ > "$D/core.pid"
+  # relative rule-set paths resolve against the caller's data dir (read only)
+  cd "$CWD" || exit 1
+  exec "$D/sing-box" run -c "$D/run.json" ;;
+stop)
+  stopcore
   exit 0 ;;
 proxy)
   if [ "$2" = on ]; then
@@ -166,11 +181,13 @@ esac`
 // checkJS (JavaScript for Automation, always present on macOS) rejects config
 // options that make sing-box write files and forces the DNS cache into Dir.
 const checkJS = `ObjC.import('Foundation');
-var BAD = {output: 1, external_ui: 1, external_ui_download_url: 1, data_directory: 1, state_directory: 1, cache_path: 1, config_path: 1, acme: 1, services: 1};
+// sing-box (Go encoding/json) matches keys case-insensitively, folding ſ to s and the Kelvin sign to k.
+var BAD = {output: 1, external_ui: 1, external_ui_download_url: 1, data_directory: 1, state_directory: 1, cache_path: 1, config_path: 1, acme: 1, services: 1, write_to_system: 1};
+function norm(k) { return k.toLowerCase().replace(/ſ/g, "s").replace(/K/g, "k"); }
 function walk(v, at) {
   if (v === null || typeof v !== 'object') return;
   for (var k in v) {
-    if (BAD[k]) throw new Error('forbidden option ' + at + k);
+    if (BAD[norm(k)]) throw new Error('forbidden option ' + at + k);
     walk(v[k], at + k + '.');
   }
 }

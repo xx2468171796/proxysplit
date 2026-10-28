@@ -2,6 +2,7 @@ package macpriv
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -56,9 +57,58 @@ func TestCheckJS(t *testing.T) {
 		`{"experimental":{"clash_api":{"external_ui":"/etc"}}}`,
 		`{"endpoints":[{"type":"tailscale","state_directory":"/etc"}]}`,
 		`{"services":[]}`,
+		`{"log":{"Output":"/etc/x"}}`,
+		`{"ſervices":[]}`,
+		`{"log":{"OUTPUT":"/etc/x"}}`,
+		`{"ntp":{"enabled":true,"write_to_system":true}}`,
 	} {
 		if _, err := check(bad); err == nil {
 			t.Fatalf("accepted %s", bad)
 		}
+	}
+}
+
+// TestCtlRun runs psctl (relocated into a temp dir, fake core) as the caller:
+// the config is copied, checked, the cache path rewritten and the core runs in
+// the caller's directory; symlinked and rejected configs never reach the core.
+func TestCtlRun(t *testing.T) {
+	d := t.TempDir()
+	ctl := filepath.Join(d, "psctl")
+	must := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	must(os.WriteFile(ctl, []byte(strings.ReplaceAll(ctlScript, Dir, d)), 0o755))
+	must(os.WriteFile(filepath.Join(d, "check.js"), []byte(checkJS), 0o644))
+	must(os.WriteFile(filepath.Join(d, "sing-box"), []byte("#!/bin/sh\necho \"core $* in $PWD\"\n"), 0o755))
+	work := t.TempDir()
+	run := func(cfg string) (string, error) {
+		cmd := exec.Command(ctl, "run", cfg)
+		cmd.Dir = work
+		cmd.Env = append(os.Environ(), fmt.Sprintf("SUDO_UID=%d", os.Getuid()))
+		out, err := cmd.CombinedOutput()
+		return string(out), err
+	}
+	good := filepath.Join(work, "good.json")
+	must(os.WriteFile(good, []byte(`{"experimental":{"cache_file":{"path":"x.db"}}}`), 0o600))
+	out, err := run(good)
+	if err != nil || !strings.Contains(out, "core run -c "+d+"/run.json in ") || !strings.HasSuffix(strings.TrimSpace(out), filepath.Base(work)) {
+		t.Fatalf("good config: %v %q", err, out)
+	}
+	raw, _ := os.ReadFile(filepath.Join(d, "run.json"))
+	if !strings.Contains(string(raw), d+"/cache.db") {
+		t.Fatalf("cache path not rewritten: %s", raw)
+	}
+	bad := filepath.Join(work, "bad.json")
+	must(os.WriteFile(bad, []byte(`{"log":{"Output":"/tmp/x"}}`), 0o600))
+	if out, err := run(bad); err == nil || strings.Contains(out, "core run") {
+		t.Fatalf("bad config ran: %q", out)
+	}
+	link := filepath.Join(work, "link.json")
+	must(os.Symlink(good, link))
+	if out, err := run(link); err == nil || strings.Contains(out, "core run") {
+		t.Fatalf("symlink config ran: %q", out)
 	}
 }
