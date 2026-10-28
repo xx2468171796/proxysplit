@@ -15,17 +15,28 @@ export class SyncCipher {
   }
   get enabled() { return this.key !== null }
   private need() { if (!this.key) throw new AppError('SYNC_UNAVAILABLE', '云同步暂不可用', 503); return this.key }
-  seal(text: string): Sealed {
+  /**
+   * 存库格式：ciphertext 第 1 字节是密钥版本（当前 1），其余是 AES-256-GCM 密文；
+   * AAD 绑定归属（config_sync 用 `user:<id>`，config_profiles 用 `profile:<id>`），整行挪到别的用户 / 配置下解不开。
+   */
+  seal(text: string, aad: string): Sealed {
     const iv = randomBytes(12), c = createCipheriv('aes-256-gcm', this.need(), iv)
-    const ciphertext = Buffer.concat([c.update(text, 'utf8'), c.final()])
+    c.setAAD(Buffer.from(aad, 'utf8'))
+    const ciphertext = Buffer.concat([Buffer.from([SYNC_KEY_VERSION]), c.update(text, 'utf8'), c.final()])
     return { ciphertext, iv, tag: c.getAuthTag() }
   }
-  open(s: Sealed): string {
+  open(s: Sealed, aad: string): string {
+    if (s.ciphertext[0] !== SYNC_KEY_VERSION) throw new AppError('SYNC_KEY_VERSION', '云端配置的加密版本不受支持', 500)
     const d = createDecipheriv('aes-256-gcm', this.need(), s.iv)
+    d.setAAD(Buffer.from(aad, 'utf8'))
     d.setAuthTag(s.tag)
-    return Buffer.concat([d.update(s.ciphertext), d.final()]).toString('utf8')
+    return Buffer.concat([d.update(s.ciphertext.subarray(1)), d.final()]).toString('utf8')
   }
 }
+/** 密文首字节的密钥版本；换 CONFIG_SYNC_KEY 时加新版本号并保留旧钥解密。 */
+export const SYNC_KEY_VERSION = 1
+export const syncAad = (userId: string) => `user:${userId}`
+export const profileAad = (profileId: string) => `profile:${profileId}`
 
 /** 乐观锁：云端没有时 baseVersion 必须是 0；有时必须等于当前 version。 */
 export function syncDecision(current: number | null, baseVersion: number): 'insert' | 'update' | 'conflict' {
@@ -49,11 +60,11 @@ export class ConfigSyncStore {
     const r = await this.db.query(`SELECT ${META},ciphertext,iv,tag FROM config_sync WHERE user_id=$1`, [userId])
     const row = r.rows[0]
     if (!row) return EMPTY
-    return { ...toMeta(row), payload: this.cipher.open({ ciphertext: row.ciphertext as Buffer, iv: row.iv as Buffer, tag: row.tag as Buffer }) }
+    return { ...toMeta(row), payload: this.cipher.open({ ciphertext: row.ciphertext as Buffer, iv: row.iv as Buffer, tag: row.tag as Buffer }, syncAad(userId)) }
   }
   /** 成功 version+1；版本对不上返回 conflict + 云端当前元数据。 */
   async put(userId: string, payload: string, baseVersion: number, deviceName: string): Promise<{ ok: true; meta: SyncMeta } | { ok: false; current: SyncMeta }> {
-    const s = this.cipher.seal(payload), size = Buffer.byteLength(payload, 'utf8')
+    const s = this.cipher.seal(payload, syncAad(userId)), size = Buffer.byteLength(payload, 'utf8')
     const c = await this.db.connect()
     let row: Row | undefined
     try {

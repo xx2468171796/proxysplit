@@ -16,8 +16,8 @@
 - 表 config_profiles(id uuid PK, user_id, name text ≤40, ciphertext/iv/tag, size, device_name, share_code text UNIQUE NULL（8 位大写字母数字，去掉易混字符）, share_password_hash text NULL（argon2id，同现有密码哈希）, created_at, updated_at)；每用户最多 20 份。
 - `GET /v1/me/config-profiles` → `{items:[{id,name,deviceName,size,updatedAt,shared:boolean,shareCode?}]}`（不含 payload）。
 - `POST /v1/me/config-profiles {name, payload}`、`PUT /v1/me/config-profiles/:id {name?, payload?}`、`GET /v1/me/config-profiles/:id`（含 payload）、`DELETE /v1/me/config-profiles/:id` —— 会员专属（403 SYNC_MEMBER_ONLY）。
-- `POST /v1/me/config-profiles/:id/share {password}`（4–64 位）→ `{shareCode}`；`DELETE /v1/me/config-profiles/:id/share` 取消分享。会员专属。
-- `POST /v1/config-share/import {shareCode, password}`（需登录，任何档位）→ `{name, payload}`；码不存在或密码错同一个 404 SHARE_INVALID；每用户 10 次/10 分钟、每码 20 次/小时失败锁。
+- `POST /v1/me/config-profiles/:id/share {password, restorePassword?}`（分享密码 6–64 位）→ `{shareCode}`；`DELETE /v1/me/config-profiles/:id/share` 取消分享。会员专属。设了恢复密码的配置见下文「加固」。
+- `POST /v1/config-share/import {shareCode, password}`（需登录，任何档位）→ `{name, payload}`；码不存在或密码错同一个 404 SHARE_INVALID；每用户 10 次/10 分钟、每 (码, IP) 10 次失败/小时、每码全局 100 次失败/小时（计数与记账同一事务 + 咨询锁，原子）。
 - 客户端：「配置与同步」分节加「我的云端配置」列表（另存为、恢复、改名、删除、分享/取消分享、复制分享码）和「导入别人分享的配置」（分享码 + 密码 → 预览 → 确认导入，同样先自动备份）。分享出去的配置一律剔除 POWER云官方线路和账号信息。
 
 9. （再补充，覆盖第 8 条的数量）云端配置份数：免费 0、普通会员 1 份、超级会员 5 份（服务端按 tier 判断，超出 403 PROFILE_QUOTA「当前会员最多保存 N 份配置」）。
@@ -29,15 +29,17 @@
 - `GET /v1/me/config-profiles/:id` 若 locked 须带头 `x-restore-password` 或改用 `POST /v1/me/config-profiles/:id/restore {password?}` → `{name,payload}`（推荐后者）；密码错 403 RESTORE_PASSWORD_WRONG，每份 10 次/10 分钟失败锁。
 - `PUT /v1/me/config-profiles/:id/restore-password {password|null, currentPassword?}`：改 / 清除恢复密码须先给旧密码。
 - 服务端返回 profile 配额：列表响应带 `{quota, used}`。
+- 加固（2026-10-29 复审）：设了恢复密码的配置，改名 / 覆盖（`PUT {…, password}`）、分享（`POST /share {password, restorePassword}`）、取消分享与删除（DELETE 带头 `x-restore-password`）、改恢复密码（`currentPassword`）都要先给对恢复密码，同一套 10 分钟 10 次失败锁（计数 + 记账在事务 + 咨询锁里）；客户端在这些弹框里要求输入。
+- 加密存储格式：`ciphertext` 首字节 = 密钥版本（当前 1），其余为 AES-256-GCM 密文；AAD 绑定归属（config_sync 用 `user:<用户 id>`，config_profiles 用 `profile:<配置 id>`），行被挪到别的用户 / 配置下解不开。数据是新的，无需迁移旧行；将来换 CONFIG_SYNC_KEY 时加新版本号并保留旧钥解密。
 
 ## 服务端合同（server/）
 ### 免费档
-- 新迁移 0019：`UPDATE system_settings SET value='1' WHERE key='default_device_limit'`（无行则插入），settingsDefaults.defaultDeviceLimit 改 1；后台设置页标签改「免费设备数（会员在此基础上叠加套餐设备数）」。
+- 新迁移 0019：`default_device_limit` 无行则插入 1；有行且仍是旧默认值 `3`（jsonb）才改成 1，管理员改过的值保留；settingsDefaults.defaultDeviceLimit 改 1；后台设置页标签改「免费设备数（会员在此基础上叠加套餐设备数）」。
 - AuthService 统一一个 `effective(user, ent, settings)`：
   - admin：保持现状（不限）。
   - 有会员 ent：返回 ent，maxDevices = settings.defaultDeviceLimit + ent.maxDevices。
   - 无会员：免费权益 `{licenseId:'free', planCode:'free', planName:'免费版', tier:'free', maxDevices:defaultDeviceLimit, features:['free'], expiresAt:2999-12-31, lifetime:true}`。
-- completeLogin / activateDevice / lease / /v1/me / license() 全部用 effective；lease 不再因无会员 403，免费也签租约（tier='free'）。DEVICE_LIMIT 409 照旧。
+- completeLogin / activateDevice / lease / /v1/me / license() 全部用 effective；lease 不再因无会员 403，免费也签租约（tier='free'）。本机已绑定但名额减少后排在名额外（isDeviceWithinLimit=false）：登录回与名额已满相同的待解绑响应（deviceLimitReached:true、pending 访问令牌、无刷新令牌和租约），activateDevice 回 409 DEVICE_LIMIT——老客户端（v1.10.x）也能进解绑页；租约 409 DEVICE_LIMIT 保留作兜底。
 - app.ts:85 那处 `entitlement` 闸门（看清用于什么接口）：若是加速等会员功能保持会员专属则保留，否则改为 effective；在汇报中说明。
 - /v1/me 与登录响应 license 增加 `member:boolean`、`freeDevices:number`、`planDevices:number`。
 
@@ -50,12 +52,13 @@
 
 ### 手机号
 - 迁移 0019 同时：users.phone text UNIQUE NULL（存 E.164 去 +86 的 11 位大陆号），表 sms_codes(phone, purpose 'register'|'reset', code_hash, expires_at, attempts, created_at)，表 password_reset_daily(phone, day date, PRIMARY KEY(phone,day))。
-- `POST /v1/auth/sms/send {phone, purpose}`：同号 60 秒 1 条、每号每天 10 条、每 IP 每小时 20 条；register 用途号已注册 → 409 PHONE_TAKEN；reset 用途号未注册时也返回成功（不泄露）但不发；reset 当天已成功重置 → 429 RESET_DAILY_LIMIT。验证码 6 位、5 分钟、最多试 5 次。
+- `POST /v1/auth/sms/send {phone, purpose}` → `{ok, cooldownSeconds}`（客户端按它倒计时）：同号 60 秒 1 条、每小时 5 条、每天 10 条、每 IP 每小时 20 条；register 用途号已被占用（别人的手机号或用户名）→ 同样回成功但不发（不泄露），随后注册接口回 409 PHONE_TAKEN；bind 用途要已激活设备的会话；未登录用途接滑块人机验证是后续工作（TODO）；reset 用途号未注册时也返回成功（不泄露）但不发；reset 当天已成功重置 → 429 RESET_DAILY_LIMIT。验证码 6 位、5 分钟、最多试 5 次。
 - 云片发送：POST https://sms.yunpian.com/v2/sms/tpl_single_send.json（apikey、mobile、tpl_id、tpl_value=urlencode("#code#=123456")），配置 env YUNPIAN_API_KEY / YUNPIAN_TPL_ID（默认 6437354）；未配置时开发模式把码打到日志（NODE_ENV!=='production'），生产未配置 → 503 SMS_UNAVAILABLE。
 - `POST /v1/auth/register` 新合同：`{phone, code, username, password, device, ref?}`（email 变可选）；旧客户端发 email 无 phone 的请求：仍接受（兼容已发版客户端），后台不强制。web 注册同理加 phone/code。
-- 登录：loginSchema.username 字段接受用户名或 11 位手机号；纯 11 位数字且以 1 开头按手机号查。
+- 登录：loginSchema.username 字段接受用户名或手机号（含 +86 / 86 前缀，归一化在 shared normalizePhone）；像手机号先按手机号查，密码不对再试同一串当用户名；都查不到也对假哈希跑一次 argon2（等时）。注册时手机号不能等于别人的手机号或用户名，像手机号的用户名不能等于别人的手机号。
 - `POST /v1/auth/password/reset {phone, code, password}`：验码 → 写 password_reset_daily（冲突 → 429 RESET_DAILY_LIMIT）→ 改密 + 吊销该用户所有会话，同一事务。
-- 已登录用户绑定手机：`POST /v1/me/phone {phone, code}`（purpose 'bind'，同发码规则），老账号据此补绑。
+- 已登录用户绑定手机：`POST /v1/me/phone {phone, code, currentPassword?}`（purpose 'bind'，同发码规则），老账号据此补绑；账号已有手机号（换绑）必须带当前登录密码（POWER云 建的无密码账号除外）；待解绑（pending）令牌不能绑；号码不能是别人的手机号或用户名（409 PHONE_TAKEN）。
+- 验码：一条原子 `UPDATE … SET attempts=attempts+1 WHERE id=(最新未消费未过期) AND attempts<5 RETURNING` 再常量时间比较；消费 `UPDATE … WHERE consumed_at IS NULL RETURNING`，只有第一个成功。开发模式日志手机号打码，验证码只在 NODE_ENV 恰好是 development 时打出。
 - 后台用户列表/详情显示手机号（中间 4 位打码），可搜手机号。
 
 ## 客户端合同（Go + frontend/）
@@ -63,6 +66,7 @@
 - MemberGate 只在 deviceLimitReached 时出现；无会员不再拦。
 - 导出：App.ExportConfig() → 选保存路径，写 `proxysplit-config-YYYYMMDD.json`（含 schema 版本、节点、订阅、规则、设置；不含 license.dat、登录令牌、设备指纹、内核缓存）。导入：App.ImportConfig() → 选文件 → 预览（节点数/规则数）→ 确认后覆盖并自动备份当前配置（可撤销一次）。POWER云官方线路（Node.Official）不导出。
 - 云同步：会员登录后默认开（设置里可关）；启动时 GET 元数据，云端较新（version > 本地记录的 lastSyncedVersion 且本地自上次同步无改动）→ 自动拉取应用；本地有改动 → 防抖 10 秒上传；冲突 → 弹窗「用云端 / 用本机」。设置页「配置与同步」分节：导出、导入、立即同步、上次同步时间。
+- 云同步细则（加固）：同步状态记账号（用户名），与当前登录账号不同就先 Forget 再对账（不登出直接换号也不会串号）；选中节点 selectedId 每台机器各自的，不进自动同步包、也不被拉取覆盖，只有手动导入文件 / 云端配置 / 分享时才应用；导入时规则 / 线路 / 端口代理指向 POWER云 官方 / 账号节点（包里没有）的引用保留本机原值，本机原值也失效才回默认；自动拉取的备份是 `config-before-sync.json`（只留最近一次），不覆盖手动导入的撤销备份 `config-before-import.json`；「用云端」解决冲突是用户操作，走手动导入备份（可撤销）；冲突后读云端元数据失败时报错，不显示版本 0 的假冲突。
 - 会员页：侧栏「会员」（非会员）/「我的权益」（会员）；免费用户首次登录后弹一次会员介绍（本地标记 member-intro-seen）。
 - 登录页：注册改手机号 + 发送验证码 + 用户名 + 密码；登录框提示「用户名或手机号」；「忘记密码」走手机号短信，提示「每天只能找回一次」；账号区可补绑手机号。
 

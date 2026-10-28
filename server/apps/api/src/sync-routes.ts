@@ -23,6 +23,12 @@ const profileId = (req: FastifyRequest) => {
   return r.data.id
 }
 
+/** 设了恢复密码的配置：GET / DELETE 用请求头 x-restore-password 带恢复密码。 */
+const restoreHeader = (req: FastifyRequest) => {
+  const h = req.headers['x-restore-password']
+  return typeof h === 'string' && h ? h : undefined
+}
+
 export function registerSyncRoutes(app: FastifyInstance, d: SyncDeps) {
   const member = async (req: FastifyRequest) => {
     const p = await d.user(req), e = await d.effective(p.userId)
@@ -50,10 +56,10 @@ export function registerSyncRoutes(app: FastifyInstance, d: SyncDeps) {
     const p = await member(req)
     return d.profiles.create(p.userId, configProfileCreateSchema.parse(req.body), await d.deviceName(p.deviceId), profileQuota(p.e))
   })
-  // 设了恢复密码的配置要带 x-restore-password（推荐改用 POST /:id/restore）。
+  // 设了恢复密码的配置要带 x-restore-password（推荐改用 POST /:id/restore）；PUT 带 body.password，分享带 body.restorePassword。
   app.get('/v1/me/config-profiles/:id', { config: limit }, async (req) => {
-    const p = await member(req), header = req.headers['x-restore-password']
-    return d.profiles.restore(p.userId, profileId(req), typeof header === 'string' && header ? header : undefined)
+    const p = await member(req)
+    return d.profiles.restore(p.userId, profileId(req), restoreHeader(req))
   })
   app.post('/v1/me/config-profiles/:id/restore', { config: limit }, async (req) => {
     const p = await member(req)
@@ -67,15 +73,16 @@ export function registerSyncRoutes(app: FastifyInstance, d: SyncDeps) {
     const p = await member(req)
     return d.profiles.setRestorePassword(p.userId, profileId(req), configRestorePasswordSchema.parse(req.body))
   })
-  app.delete('/v1/me/config-profiles/:id', { config: limit }, async (req) => d.profiles.remove((await member(req)).userId, profileId(req)))
+  app.delete('/v1/me/config-profiles/:id', { config: limit }, async (req) => d.profiles.remove((await member(req)).userId, profileId(req), restoreHeader(req)))
   app.post('/v1/me/config-profiles/:id/share', { config: limit }, async (req) => {
     const p = await member(req)
-    return d.profiles.share(p.userId, profileId(req), configShareSchema.parse(req.body).password)
+    const input = configShareSchema.parse(req.body)
+    return d.profiles.share(p.userId, profileId(req), input.password, input.restorePassword)
   })
-  app.delete('/v1/me/config-profiles/:id/share', { config: limit }, async (req) => d.profiles.unshare((await member(req)).userId, profileId(req)))
-  // 导入别人分享的配置：任何档位，只要已登录；每用户 10 次 / 10 分钟、每码 20 次失败 / 小时（core 里按库判断）。
+  app.delete('/v1/me/config-profiles/:id/share', { config: limit }, async (req) => d.profiles.unshare((await member(req)).userId, profileId(req), restoreHeader(req)))
+  // 导入别人分享的配置：任何档位，只要已登录；每用户 10 次 / 10 分钟、每 (码, IP) 10 次失败 / 小时、每码 100 次失败 / 小时（core 里按库判断）。
   app.post('/v1/config-share/import', { config: limit }, async (req) => {
     const p = await d.user(req), input = configShareImportSchema.parse(req.body)
-    return d.profiles.importShare(p.userId, input.shareCode, input.password)
+    return d.profiles.importShare(p.userId, input.shareCode, input.password, req.ip)
   })
 }

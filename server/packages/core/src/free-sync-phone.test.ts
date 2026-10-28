@@ -1,10 +1,10 @@
 import { randomBytes } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
-import { phoneSchema, registerSchema } from '@proxysplit/contracts'
-import { looksLikePhone, maskPhone } from '@proxysplit/shared'
+import { configShareSchema, phoneSchema, registerSchema } from '@proxysplit/contracts'
+import { looksLikePhone, maskPhone, normalizePhone } from '@proxysplit/shared'
 import { effective, licenseView, profileQuota } from './entitlement.js'
-import { beijingDay, checkSmsCode, hashSmsCode, PhoneAuth, SMS_MAX_ATTEMPTS, smsSendDecision } from './phone-auth.js'
-import { ConfigSyncStore, SyncCipher, syncDecision } from './config-sync.js'
+import { beijingDay, checkSmsCode, devSmsLog, hashSmsCode, PhoneAuth, sameHash, SMS_HOURLY_MAX, SMS_MAX_ATTEMPTS, smsSendDecision } from './phone-auth.js'
+import { ConfigSyncStore, profileAad, SYNC_KEY_VERSION, SyncCipher, syncAad, syncDecision } from './config-sync.js'
 import { ConfigProfilesStore, genShareCode, SHARE_ALPHABET } from './config-profiles.js'
 import type { Entitlement } from './store.js'
 import type { Db, QueryResult } from './telemetry-store.js'
@@ -112,9 +112,15 @@ describe('config sync', () => {
     expect(syncDecision(4, 3)).toBe('conflict')
   })
   it('round-trips encryption and rejects a bad key', () => {
-    expect(cipher.open(cipher.seal('{"a":1}'))).toBe('{"a":1}')
+    const sealed = cipher.seal('{"a":1}', syncAad('u1'))
+    expect(sealed.ciphertext[0]).toBe(SYNC_KEY_VERSION)
+    expect(cipher.open(sealed, syncAad('u1'))).toBe('{"a":1}')
+    // AAD 绑定归属：搬到别的用户 / 配置下解不开
+    expect(() => cipher.open(sealed, syncAad('u2'))).toThrow()
+    expect(() => cipher.open(sealed, profileAad('u1'))).toThrow()
+    expect(() => cipher.open({ ...sealed, ciphertext: Buffer.concat([Buffer.from([9]), sealed.ciphertext.subarray(1)]) }, syncAad('u1'))).toThrow(/加密版本/)
     expect(() => new SyncCipher(randomBytes(16).toString('base64'))).toThrow()
-    expect(() => new SyncCipher(undefined).seal('x')).toThrow(/云同步/)
+    expect(() => new SyncCipher(undefined).seal('x', syncAad('u1'))).toThrow(/云同步/)
   })
   it('returns the current metadata on a version conflict', async () => {
     const { db, calls } = fakeDb(sql => sql.startsWith('SELECT version') || sql.startsWith('SELECT version,updated_at')
@@ -135,19 +141,110 @@ describe('config profiles', () => {
     const { db } = fakeDb(sql => sql.startsWith('SELECT count(*)::int AS n FROM config_profiles') ? { rows: [{ n: 1 }], rowCount: 1 } : undefined)
     await expect(new ConfigProfilesStore(db, cipher).create('u1', { name: 'a', payload: '{}' }, 'pc', 1)).rejects.toMatchObject({ code: 'PROFILE_QUOTA', status: 403 })
   })
-  it('answers an unknown share code with the uniform 404 and records the failure', async () => {
-    const { db, calls } = fakeDb(sql => sql.startsWith('SELECT count(*)') ? { rows: [{ n: 0 }], rowCount: 1 } : sql.startsWith('SELECT name') ? { rows: [], rowCount: 0 } : undefined)
-    await expect(new ConfigProfilesStore(db, cipher).importShare('u1', 'ABCDEFGH', 'pw')).rejects.toMatchObject({ code: 'SHARE_INVALID', status: 404 })
-    expect(calls.filter(c => c.sql.startsWith('INSERT INTO config_attempts')).map(c => c.params[0])).toEqual(['share_user', 'share_code'])
+  it('answers an unknown share code with the uniform 404 and records the failure atomically', async () => {
+    const { db, calls } = fakeDb(sql => sql.startsWith('SELECT count(*)') ? { rows: [{ n: 0 }], rowCount: 1 } : sql.startsWith('SELECT id,name') ? { rows: [], rowCount: 0 } : undefined)
+    await expect(new ConfigProfilesStore(db, cipher).importShare('u1', 'ABCDEFGH', 'pw', '1.2.3.4')).rejects.toMatchObject({ code: 'SHARE_INVALID', status: 404 })
+    expect(calls.filter(c => c.sql.startsWith('INSERT INTO config_attempts')).map(c => [c.params[0], c.params[1]]))
+      .toEqual([['share_user', 'u1'], ['share_code_ip', 'ABCDEFGH|1.2.3.4'], ['share_code', 'ABCDEFGH']])
+    const sqls = calls.map(c => c.sql)
+    expect(sqls[0]).toBe('BEGIN')
+    expect(calls.filter(c => c.sql.includes('pg_advisory_xact_lock')).map(c => c.params[0])).toEqual(['share_user|u1', 'share_code_ip|ABCDEFGH|1.2.3.4', 'share_code|ABCDEFGH'])
+    const lastInsert = sqls.map(s => s.startsWith('INSERT INTO config_attempts')).lastIndexOf(true)
+    expect(sqls.indexOf('COMMIT')).toBeGreaterThan(lastInsert)
+  })
+  it('locks a share code per IP after 10 failures but globally only after 100', async () => {
+    const counts: Record<string, number> = { share_user: 0, share_code_ip: 10, share_code: 10 }
+    const make = () => fakeDb((sql, p) => sql.startsWith('SELECT count(*)') ? { rows: [{ n: counts[String(p[0])] ?? 0 }], rowCount: 1 } : sql.startsWith('SELECT id,name') ? { rows: [], rowCount: 0 } : undefined)
+    await expect(new ConfigProfilesStore(make().db, cipher).importShare('u1', 'ABCDEFGH', 'pw', 'ip1')).rejects.toMatchObject({ code: 'SHARE_LOCKED', status: 429 })
+    counts.share_code_ip = 0
+    await expect(new ConfigProfilesStore(make().db, cipher).importShare('u1', 'ABCDEFGH', 'pw', 'ip2')).rejects.toMatchObject({ code: 'SHARE_INVALID' })
+    counts.share_code = 100
+    await expect(new ConfigProfilesStore(make().db, cipher).importShare('u1', 'ABCDEFGH', 'pw', 'ip3')).rejects.toMatchObject({ code: 'SHARE_LOCKED' })
   })
   it('locks a user after 10 import attempts in 10 minutes', async () => {
     const { db } = fakeDb(sql => sql.startsWith('SELECT count(*)') ? { rows: [{ n: 10 }], rowCount: 1 } : undefined)
-    await expect(new ConfigProfilesStore(db, cipher).importShare('u1', 'ABCDEFGH', 'pw')).rejects.toMatchObject({ status: 429 })
+    await expect(new ConfigProfilesStore(db, cipher).importShare('u1', 'ABCDEFGH', 'pw')).rejects.toMatchObject({ code: 'RATE_LIMITED', status: 429 })
   })
-  it('requires the restore password on a locked profile', async () => {
-    const sealed = cipher.seal('{}')
-    const { db } = fakeDb(sql => sql.startsWith('SELECT count(*)') ? { rows: [{ n: 0 }], rowCount: 1 }
+  it('requires the restore password for every change to a locked profile', async () => {
+    const sealed = cipher.seal('{}', profileAad('p1'))
+    const { db, calls } = fakeDb(sql => sql.startsWith('SELECT count(*)') ? { rows: [{ n: 0 }], rowCount: 1 }
       : sql.startsWith('SELECT id,name') ? { rows: [{ id: 'p1', name: 'a', size: 2, updatedAt: new Date(), restoreHash: '$argon2id$bad', ...sealed }], rowCount: 1 } : undefined)
-    await expect(new ConfigProfilesStore(db, cipher).restore('u1', 'p1', undefined)).rejects.toMatchObject({ code: 'RESTORE_PASSWORD_WRONG', status: 403 })
+    const s = new ConfigProfilesStore(db, cipher), wrong = { code: 'RESTORE_PASSWORD_WRONG', status: 403 }
+    await expect(s.restore('u1', 'p1', undefined)).rejects.toMatchObject(wrong)
+    await expect(s.update('u1', 'p1', { name: 'b' }, 'pc')).rejects.toMatchObject(wrong)
+    await expect(s.update('u1', 'p1', { name: 'b', password: 'nope' }, 'pc')).rejects.toMatchObject(wrong)
+    await expect(s.share('u1', 'p1', 'secret1')).rejects.toMatchObject(wrong)
+    await expect(s.unshare('u1', 'p1')).rejects.toMatchObject(wrong)
+    await expect(s.remove('u1', 'p1')).rejects.toMatchObject(wrong)
+    await expect(s.setRestorePassword('u1', 'p1', { password: null })).rejects.toMatchObject(wrong)
+    expect(calls.some(c => /^(UPDATE|DELETE) config_profiles/.test(c.sql))).toBe(false)
+    expect(calls.filter(c => c.sql.startsWith('INSERT INTO config_attempts')).every(c => c.params[0] === 'restore')).toBe(true)
+  })
+  it('stops checking after the restore lockout', async () => {
+    const sealed = cipher.seal('{}', profileAad('p1'))
+    const { db } = fakeDb(sql => sql.startsWith('SELECT count(*)') ? { rows: [{ n: 10 }], rowCount: 1 }
+      : sql.startsWith('SELECT id,name') ? { rows: [{ id: 'p1', name: 'a', size: 2, updatedAt: new Date(), restoreHash: '$argon2id$bad', ...sealed }], rowCount: 1 } : undefined)
+    await expect(new ConfigProfilesStore(db, cipher).remove('u1', 'p1', 'x')).rejects.toMatchObject({ code: 'RESTORE_LOCKED', status: 429 })
+  })
+  it('requires a 6+ character share password', () => {
+    expect(configShareSchema.safeParse({ password: '12345' }).success).toBe(false)
+    expect(configShareSchema.safeParse({ password: '123456', restorePassword: 'r' }).success).toBe(true)
+  })
+})
+
+describe('sms hardening', () => {
+  const phone = '13800138000'
+  it('verifies with one atomic UPDATE and a constant-time compare', async () => {
+    const { db, calls } = fakeDb(sql => sql.startsWith('UPDATE sms_codes SET attempts') ? { rows: [{ id: '7', codeHash: hashSmsCode(phone, 'bind', '123456') }], rowCount: 1 } : undefined)
+    await expect(new PhoneAuth(db, { sender: null, production: false }).verify(phone, 'bind', '123456')).resolves.toBe('7')
+    expect(calls).toHaveLength(1)
+    expect(calls[0]!.sql).toMatch(/attempts<\$3 RETURNING id/)
+    expect(calls[0]!.sql).toMatch(/consumed_at IS NULL AND expires_at>now\(\)/)
+    expect(sameHash('abc', 'abc')).toBe(true)
+    expect(sameHash('abc', 'abd')).toBe(false)
+    expect(sameHash('abc', 'abcd')).toBe(false)
+  })
+  it('rejects when no usable code is left (exhausted / expired / consumed)', async () => {
+    const { db } = fakeDb(sql => sql.startsWith('UPDATE sms_codes SET attempts') ? { rows: [], rowCount: 0 } : undefined)
+    await expect(new PhoneAuth(db, { sender: null, production: false }).verify(phone, 'bind', '123456')).rejects.toMatchObject({ code: 'SMS_CODE_INVALID' })
+  })
+  it('consumes atomically', async () => {
+    let n = 0
+    const { db, calls } = fakeDb(sql => sql.startsWith('UPDATE sms_codes SET consumed_at') ? { rows: n++ === 0 ? [{ id: '7' }] : [], rowCount: 0 } : undefined)
+    const pa = new PhoneAuth(db, { sender: null, production: false })
+    expect(await pa.consume('7')).toBe(true)
+    expect(await pa.consume('7')).toBe(false)
+    expect(calls[0]!.sql).toMatch(/consumed_at IS NULL RETURNING id/)
+  })
+  it('answers a register send for a taken number like a real send but sends nothing', async () => {
+    const sent: string[] = []
+    const { db, calls } = fakeDb(sql => sql.startsWith('SELECT 1 FROM users') ? { rows: [{ x: 1 }], rowCount: 1 }
+      : sql.startsWith('SELECT max(created_at)') ? { rows: [{ lastAt: null, today: 0, hour: 0 }], rowCount: 1 } : undefined)
+    const pa = new PhoneAuth(db, { sender: async p => { sent.push(p) }, production: true })
+    await expect(pa.send(phone, 'register', null)).resolves.toEqual({ ok: true, cooldownSeconds: 60 })
+    expect(sent).toEqual([])
+    const ins = calls.find(c => c.sql.startsWith('INSERT INTO sms_codes'))
+    expect(ins?.params[2]).toBe('silent')
+    expect(ins?.params[4]).toBeInstanceOf(Date)
+  })
+  it('refuses to bind a number that is another account\'s phone or username', async () => {
+    const { db } = fakeDb(sql => sql.startsWith('SELECT 1 FROM users') ? { rows: [{ x: 1 }], rowCount: 1 } : undefined)
+    await expect(new PhoneAuth(db, { sender: null, production: false }).bindPhone('11111111-1111-4111-8111-111111111111', phone, '123456')).rejects.toMatchObject({ code: 'PHONE_TAKEN', status: 409 })
+  })
+  it('caps sends per hour', () => {
+    const now = new Date('2026-10-29T10:00:00Z')
+    expect(smsSendDecision({ lastAt: new Date(now.getTime() - 120_000), hourCount: SMS_HOURLY_MAX, todayCount: 5 }, now)).toBe('hourly')
+    expect(smsSendDecision({ lastAt: new Date(now.getTime() - 120_000), hourCount: SMS_HOURLY_MAX - 1, todayCount: 5 }, now)).toBe('ok')
+  })
+  it('masks the phone in dev logs and shows the code only in development', () => {
+    expect(devSmsLog('register', phone, '123456', false)).toBe('[dev] sms code register 138****8000: ******')
+    expect(devSmsLog('register', phone, '123456', true)).toContain('123456')
+    expect(devSmsLog('register', phone, '123456', true)).not.toContain(phone)
+  })
+  it('treats +86 / 86 prefixed numbers as phones in the login box', () => {
+    expect(looksLikePhone('+86 138 0013 8000')).toBe(true)
+    expect(looksLikePhone('8613800138000')).toBe(true)
+    expect(normalizePhone('+8613800138000')).toBe(phone)
+    expect(looksLikePhone('12800138000')).toBe(false)
   })
 })

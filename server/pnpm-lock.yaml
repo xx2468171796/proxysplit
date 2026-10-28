@@ -148,6 +148,9 @@ importers:
 
   packages/contracts:
     dependencies:
+      '@proxysplit/shared':
+        specifier: workspace:*
+        version: link:../shared
       zod:
         specifier: ^3.25.76
         version: 3.25.76

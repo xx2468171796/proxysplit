@@ -1,7 +1,8 @@
 -- 免费档 / 配置云同步 / 云端配置 / 手机号注册（2026-10-29，docs/plan-2026-10-29-free-sync-phone.md）
 -- 免费用户能用全部功能、只绑 1 台；会员设备数 = 这个免费名额 + 套餐 max_devices。
 INSERT INTO system_settings(key,value,description) VALUES('default_device_limit','1','免费设备数（会员在此基础上叠加套餐设备数）')
-ON CONFLICT(key) DO UPDATE SET value='1',description=excluded.description,updated_at=now();
+ON CONFLICT(key) DO UPDATE SET value='1'::jsonb,description=excluded.description,updated_at=now()
+  WHERE system_settings.value = '3'::jsonb; -- 只改仍是旧默认值的，管理员改过的保留
 
 -- 手机号：存 11 位大陆号（去 +86）；老账号可为空，登录后补绑。
 ALTER TABLE users ADD COLUMN IF NOT EXISTS phone text;

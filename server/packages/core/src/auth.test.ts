@@ -79,7 +79,10 @@ class FakeStore {
     this.user = { ...this.user, channel }
     return true
   }
-  async isDeviceWithinLimit() { return true }
+  withinLimit = true
+  async isDeviceWithinLimit() { return this.withinLimit }
+  phoneUser: UserRecord | null = null
+  async findUserByPhone(phone: string) { return this.phoneUser?.phone === phone ? this.phoneUser : null }
   async audit() {}
   async findDevice(id: string) { return id === this.device.id ? this.device : null }
   async touchDevice() {}
@@ -277,6 +280,41 @@ describe('commercial auth', () => {
     me = { id: 'FFFFFFFF-0000', username: 'other', sources: [], aiPlanExpiresAt: '2030-01-01T00:00:00Z' }
     await expect(auth.syncPowervpn(store.user.id, 'panel-access-token-123')).rejects.toMatchObject({ code: 'IDENTITY_MISMATCH' })
     expect(store.aigwSyncs).toHaveLength(2)
+  })
+})
+
+describe('free tier and phone login', () => {
+  it('answers a bound device outside the reduced limit like a full limit (old clients reach the unbind screen)', async () => {
+    const { store, auth, device } = await fixture()
+    store.withinLimit = false
+    const login = await auth.login({ username: 'alice', password: 'correct horse battery staple', device })
+    expect(login).toMatchObject({ deviceLimitReached: true, refreshToken: '', deviceId: '' })
+    expect(store.sessions.size).toBe(0)
+    expect((await auth.verifyAccess(login.accessToken)).deviceId).toBe('pending')
+    await expect(auth.activateDevice(store.user.id, device)).rejects.toMatchObject({ code: 'DEVICE_LIMIT', status: 409 })
+    expect(store.sessions.size).toBe(0)
+    store.withinLimit = true
+    expect((await auth.activateDevice(store.user.id, device)).refreshToken).not.toBe('')
+  })
+  it('falls back to the username when a phone-shaped name matches a phone owner with another password', async () => {
+    const { store, auth, device } = await fixture()
+    store.user = { ...store.user, username: '13800138000' }
+    store.phoneUser = { ...store.user, id: '55555555-5555-4555-8555-555555555555', username: 'bob', phone: '13800138000', passwordHash: await hashPassword('bob password 123') }
+    const asUsername = await auth.login({ username: '13800138000', password: 'correct horse battery staple', device })
+    expect(asUsername.user.username).toBe('13800138000')
+    const asPhone = await auth.login({ username: '+86 138 0013 8000', password: 'bob password 123', device })
+    expect(asPhone.user.username).toBe('bob')
+    await expect(auth.login({ username: '13800138000', password: 'nobody', device })).rejects.toMatchObject({ code: 'AUTH_INVALID' })
+  })
+  it('still spends a password hash on an unknown account', async () => {
+    const { auth, device } = await fixture()
+    await expect(auth.login({ username: 'ghost', password: 'whatever pw', device })).rejects.toMatchObject({ code: 'AUTH_INVALID' })
+  })
+  it('requires the current password to change an already bound phone', async () => {
+    const { store, auth } = await fixture()
+    store.user = { ...store.user, phone: '13900139000' }
+    await expect(auth.bindPhone(store.user.id, { phone: '13800138000', code: '123456' })).rejects.toMatchObject({ code: 'PASSWORD_INVALID', status: 401 })
+    await expect(auth.bindPhone(store.user.id, { phone: '13800138000', code: '123456', currentPassword: 'wrong' })).rejects.toMatchObject({ code: 'PASSWORD_INVALID' })
   })
 })
 

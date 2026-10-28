@@ -17,7 +17,7 @@ type Core={auth:AuthService;store:PgStore;fenxiao?:FenxiaoService;telemetry?:Pic
 const bearer=(value?:string)=>value?.startsWith('Bearer ')?value.slice(7):''
 export async function buildApp(config:ApiConfig,provided?:Core){
   const core:Core=provided??await createCommercialCore({databaseUrl:config.DATABASE_URL,auth:{accessSecret:config.ACCESS_TOKEN_SECRET,refreshDays:config.REFRESH_TOKEN_TTL_DAYS,...(config.LICENSE_PRIVATE_KEY_PEM?{licensePrivateKeyPem:config.LICENSE_PRIVATE_KEY_PEM}:{}),...(config.LICENSE_PUBLIC_KEY_PEM?{licensePublicKeyPem:config.LICENSE_PUBLIC_KEY_PEM}:{}),powervpn:{baseUrl:config.POWERVPN_BASE_URL??'https://lxc.5fskins.com'},
-    sms:{apiKey:config.YUNPIAN_API_KEY||undefined,tplId:config.YUNPIAN_TPL_ID??'6437354',production:config.NODE_ENV==='production',log:msg=>console.info(msg)}},...(config.BOOTSTRAP_ADMIN_USERNAME&&config.BOOTSTRAP_ADMIN_PASSWORD?{bootstrapAdmin:{username:config.BOOTSTRAP_ADMIN_USERNAME,password:config.BOOTSTRAP_ADMIN_PASSWORD}}:{})})
+    sms:{apiKey:config.YUNPIAN_API_KEY||undefined,tplId:config.YUNPIAN_TPL_ID??'6437354',production:config.NODE_ENV==='production',showDevCode:config.NODE_ENV==='development',log:msg=>console.info(msg)}},...(config.BOOTSTRAP_ADMIN_USERNAME&&config.BOOTSTRAP_ADMIN_PASSWORD?{bootstrapAdmin:{username:config.BOOTSTRAP_ADMIN_USERNAME,password:config.BOOTSTRAP_ADMIN_PASSWORD}}:{})})
   // The API port is host-loopback-only and has exactly one Nginx hop. Nginx
   // overwrites (rather than appends) X-Forwarded-For, so client-supplied hops
   // cannot become req.ip even though Docker changes the proxy source address.
@@ -70,7 +70,7 @@ export async function buildApp(config:ApiConfig,provided?:Core){
   const fenxiaoReleaseTimer=config.NODE_ENV==='test'?undefined:setInterval(()=>{core.store.fx.releaseDue().catch(e=>app.log.warn({err:e},'fenxiao releaseDue failed'))},5*60_000)
   fenxiaoReleaseTimer?.unref()
   // 手机号注册 / 短信找回 / 补绑（phone-routes.ts）；配置云同步 + 云端配置 + 分享导入（sync-routes.ts）
-  registerPhoneRoutes(app,{auth:core.auth,user:req=>auth(req,true),optionalUser,audit:(actor,action,type,id,ip,result,meta)=>core.store.audit(actor,action,type,id,ip,result,meta)})
+  registerPhoneRoutes(app,{auth:core.auth,user:req=>auth(req),audit:(actor,action,type,id,ip,result,meta)=>core.store.audit(actor,action,type,id,ip,result,meta)})
   const syncCipher=new SyncCipher(config.CONFIG_SYNC_KEY)
   registerSyncRoutes(app,{user:req=>auth(req),effective:id=>core.auth.effectiveFor(id),deviceName:async id=>(await core.store.findDevice(id))?.name??'',
     sync:new ConfigSyncStore(core.store.pool,syncCipher),profiles:new ConfigProfilesStore(core.store.pool,syncCipher)})
