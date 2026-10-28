@@ -82,17 +82,6 @@ func (a *App) registerDiagAPI(mux *http.ServeMux, auth func(func(http.ResponseWr
 		}
 		writeJSON(w, 200, okOr(a.SetNodeCore(b.ID, b.Core)))
 	}))
-	// POST /api/nodes/select {"id"} — switch the active node (manual only).
-	mux.HandleFunc("/api/nodes/select", auth(func(w http.ResponseWriter, r *http.Request) {
-		var b struct {
-			ID string `json:"id"`
-		}
-		if r.Method != http.MethodPost || json.NewDecoder(r.Body).Decode(&b) != nil || b.ID == "" {
-			writeJSON(w, 400, map[string]string{"error": "POST {\"id\":\"<节点 id>\"}"})
-			return
-		}
-		writeJSON(w, 200, okOr(a.SelectNode(b.ID)))
-	}))
 	// POST /api/nodes/via {"id","via"} — 前置代理: dial node id through via ("" = off).
 	mux.HandleFunc("/api/nodes/via", auth(func(w http.ResponseWriter, r *http.Request) {
 		var b struct {
@@ -251,6 +240,13 @@ func diagMCPTools() []map[string]any {
 			"items":   map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
 			"confirm": str("只有 factory（恢复出厂）需要：确认重置"),
 		}}},
+		{"name": "proxysplit_set_node_via", "description": "前置代理：节点 id 经由前置节点 via 连接（via 为空 = 关闭）。只支持一层；官方线路、Xray 节点、整组导入的配置不支持。", "inputSchema": map[string]any{"type": "object", "properties": map[string]any{
+			"id":  str("节点 id"),
+			"via": str("前置节点 id，空 = 关闭"),
+		}, "required": []string{"id"}}},
+		{"name": "proxysplit_set_dns", "description": "DNS 与高级网络：dnsDirect / dnsRemote（只收 IP）、hosts（每行「域名 IP」）、blockHttpsRR、tunMtu（0 或 1280–9000）、strictRouteOff。整体替换，传 {} 恢复默认；不合法会返回原因。", "inputSchema": map[string]any{"type": "object", "properties": map[string]any{
+			"net": map[string]any{"type": "object"},
+		}, "required": []string{"net"}}},
 		{"name": "proxysplit_reset_undo", "description": "撤销上次配置重置：恢复最近一份重置前自动备份。", "inputSchema": empty},
 	}
 }
@@ -302,6 +298,21 @@ func (a *App) diagMCPCall(name string, args json.RawMessage) (string, bool) {
 			return j(a.GetResetCenter()), true
 		}
 		return j(a.RunReset(r.Items, r.Confirm)), true
+	case "proxysplit_set_node_via":
+		var v struct {
+			ID  string `json:"id"`
+			Via string `json:"via"`
+		}
+		_ = json.Unmarshal(args, &v)
+		return j(okOr(a.SetNodeVia(v.ID, v.Via))), true
+	case "proxysplit_set_dns":
+		var v struct {
+			Net service.NetSettings `json:"net"`
+		}
+		if err := json.Unmarshal(args, &v); err != nil {
+			return "错误: net 必须是对象", true
+		}
+		return j(okOr(a.SetNetSettings(v.Net))), true
 	case "proxysplit_reset_undo":
 		return j(okOr(a.UndoReset())), true
 	}

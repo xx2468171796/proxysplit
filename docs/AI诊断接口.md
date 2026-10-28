@@ -4,34 +4,84 @@ ProxySplit 内置一组诊断接口，让 AI（或工程师）在任何一台装
 
 ## 怎么连
 
-- 地址：`http://127.0.0.1:18088`，只监听本机。
-- 鉴权：请求头 `Authorization: Bearer <token>`。token 在软件「设置 → AI 控制」里能复制，也在 `%APPDATA%\proxysplit\config.json` 的 `apiToken` 字段。
-- 远程机器：通过堡垒机 `run_command` 在那台机器上执行 PowerShell / curl 调用即可。
-- MCP：同名工具也挂在 `/mcp` 和 `proxysplit.exe --mcp` 上（见下表）。
+- 地址：`http://127.0.0.1:18088`，只监听本机（远程机器经堡垒机 `run_command` 在那台机器上调用）。
+- 鉴权：请求头 `Authorization: Bearer <token>`，或网址加 `?token=<token>`。token 在「设置 → AI 控制」可复制，也在 `%APPDATA%\proxysplit\config.json` 的 `apiToken`。
+- 测试机上有现成脚本 `C:\ProgramData\ps-diagrun\psapi.ps1`：`& psapi.ps1 GET /api/diag`、`& psapi.ps1 POST /api/nodes/via '{"id":"…","via":"…"}'`（自己读 token；含密码的请求体用 `-Stdin`）。
+- MCP：同样的能力挂在 `POST /mcp`（JSON-RPC 2.0）和 `proxysplit.exe --mcp`，工具名见下表。
 
-## 接口
+## 返回约定
 
-| 接口 | MCP 工具 | 作用 |
-|---|---|---|
-| `GET /api/diag` | `proxysplit_diagnose` | 诊断快照：版本、是否运行、代理策略、分流模式、整机全局、应用规则、自定义规则、自定义线路、规则库状态、节点（不含密码）、当前生效的内核配置（密钥已脱敏）、各应用名单文件、常见问题提示 |
-| `POST /api/diag/route-test` `{"process":"chrome.exe","url":"https://www.baidu.com"}` | `proxysplit_route_test` | 以该程序名真实访问网址，返回 HTTP 状态、耗时、命中的规则、出口（direct / node / reject）、相关内核日志 |
-| `POST /api/diag/selftest` | `proxysplit_selftest` | 一键自检：每个列出的应用（最多 6 个）和一个未列出的程序，分别访问百度 / QQ / Google / YouTube，与当前设置「应该」的结果对比，`FAIL` 即不符合预期；附 DNS 解析结果。约 1 分钟 |
-| `GET /api/diag/logs?n=300&grep=baidu` | `proxysplit_logs` | 最近日志（含内核日志），可过滤 |
-| `GET/POST /api/custom-rules` `{"rules":[{"type":"suffix","value":"x.com","action":"proxy"}]}` | `proxysplit_set_custom_rules` | 读取 / 整体替换自定义规则 |
-| `POST /api/split-mode` `{"mode":"whitelist"}` | `proxysplit_set_split_mode` | 分流模式：whitelist = 只代理列出的，blacklist = 默认全走代理 |
-| `GET /api/reset`；`POST /api/reset` `{"items":["core-dns-cache",...],"confirm":"确认重置"}` | `proxysplit_reset`（不传 items = 列清单） | 清除与重置中心：缓存 / 网络修复 / 配置重置；恢复出厂要 confirm；任何一项都不解除 AI 劫持 |
-| `POST /api/reset/undo` | `proxysplit_reset_undo` | 撤销上次配置重置（恢复最近一份重置前备份） |
-| `POST /api/log-level` `{"level":"info"}` | — | 日志级别；路由测试读日志需要 info 或 debug |
-| `GET /api/account` | `proxysplit_account` | 登录与会员状态（ProxySplit 账号、POWER云） |
-| `POST /api/account/login` `{"username","password"}` | — | 用 ProxySplit 账号登录（密码经标准输入传给 curl，别写进命令行） |
-| `GET/POST /api/settings`（POST 只传要改的字段，如 `{"tunMode":true}`） | `proxysplit_set_settings` | 读取 / 修改设置：整机全局、阻止 QUIC、远程解析、内网直连等 |
-| `POST /api/nodes/add` `{"text":"链接
-链接"}`；`POST /api/nodes/remove` `{"id"}` | `proxysplit_add_nodes` | 导入 / 删除节点 |
-| `POST /api/nodes/select` `{"id"}` | — | 手动切换活动节点 |
-| `POST /api/nodes/via` `{"id","via"}` | — | 前置代理：id 经由 via 连接（via 为空 = 关闭） |
-| `GET/POST /api/settings/net` | — | DNS 与高级（国内 / 国外 DNS、hosts、拦截 HTTPS/SVCB、MTU、严格路由），保存前校验 |
+- 写操作成功 `{"ok":true}`；业务上失败 `{"ok":false,"error":"中文原因"}`（HTTP 仍是 200）。
+- 请求体不对 400 `{"error":"…"}`；token 不对 401；内核启动失败等 500 `{"error":"…"}`。
+- 改设置 / 节点 / 规则后，代理在运行时会自动重启内核（几秒），不用再调 restart。
 
-原有接口（状态、节点、应用、代理策略、启动 / 停止）不变。装好并启动软件后，AI 经堡垒机 `run_command` 调这些接口就能从登录到测试全程远程操作，不用点界面。
+## 接口一览
+
+### 状态与启停
+| 方法 路径 | 请求体 | 返回 | MCP 工具 |
+|---|---|---|---|
+| `GET /api/status` | — | `{running, node, nodeId, mode(rule/global/direct), apps[]}` | `proxysplit_status` |
+| `POST /api/start` / `POST /api/stop` / `POST /api/restart` | — | `{ok}` | `proxysplit_start` / `proxysplit_stop` |
+| `POST /api/mode` | `{"clash":"rule\|global\|direct"}` | `{ok, mode}`；代理策略，切换不重启 | `proxysplit_set_mode` |
+| `POST /api/split-mode` | `{"mode":"whitelist\|blacklist"}` | `{ok}`；whitelist = 只代理列出的应用，blacklist = 默认全走代理 | `proxysplit_set_split_mode` |
+
+### 节点
+| 方法 路径 | 请求体 | 返回 | MCP 工具 |
+|---|---|---|---|
+| `GET /api/nodes` | — | `[{id, name, type, server}]`（更全的看 `/api/diag` 的 nodes） | `proxysplit_list_nodes` |
+| `POST /api/nodes/add` | `{"text":"每行一个分享链接，或整份 WireGuard .conf"}` | `{added, skipped, …}` | `proxysplit_add_nodes` |
+| `POST /api/nodes/remove` | `{"id"}` | `{ok}` | — |
+| `POST /api/node/select` | `{"id"}` | `{ok}`；手动切换活动节点（没有自动选择） | `proxysplit_select_node` |
+| `POST /api/nodes/core` | `{"id","core":"auto\|sing-box\|xray"}` | `{ok}`；指定节点内核 | — |
+| `POST /api/nodes/via` | `{"id","via":"<前置节点 id，空 = 关闭>"}` | `{ok}`；前置代理：先连 via 再连 id，出口 IP 仍是 id。只支持一层；官方线路 / Xray / 整组导入的不支持 | `proxysplit_set_node_via` |
+
+### 应用分流与规则
+| 方法 路径 | 请求体 | 返回 | MCP 工具 |
+|---|---|---|---|
+| `GET /api/apps` | — | 应用规则列表 | `proxysplit_status` |
+| `POST /api/apps` | `{"match":"chrome.exe","path":"","line":"rule\|global\|direct\|block\|<线路 id>","node":"","enabled":true}` | `{ok, apps[]}`；有则改、无则加 | `proxysplit_set_app` |
+| `POST /api/apps/remove` | `{"match"}` | `{ok, apps[]}` | `proxysplit_remove_app` |
+| `GET / POST /api/custom-rules` | `{"rules":[{"type":"suffix\|domain\|keyword\|ip","value":"x.com","action":"proxy\|direct\|block"}]}` | 整体替换 | `proxysplit_set_custom_rules` |
+
+### 设置
+| 方法 路径 | 请求体 | 返回 | MCP 工具 |
+|---|---|---|---|
+| `GET / POST /api/settings` | 只传要改的字段，如 `{"captureMode":"process"}`、`{"tunMode":true}`、`{"blockQUIC":false}` | `{ok}`；GET 时局域网密码打码 | `proxysplit_set_settings` |
+| `GET / POST /api/settings/net` | `{"dnsDirect":"223.5.5.5","dnsRemote":"8.8.8.8","hosts":"nas.home 192.168.1.10","blockHttpsRR":false,"tunMtu":0,"strictRouteOff":false}`（整体替换，`{}` = 全部默认） | `{ok}` 或 `{ok:false,error:"DNS 服务器要填 IP 地址：…"}`；DNS 只收 IP，MTU 0 或 1280–9000 | `proxysplit_set_dns` |
+| `POST /api/log-level` | `{"level":"info\|debug\|warn"}` | `{ok}`；路由测试要 info 或 debug | — |
+
+### 诊断
+| 方法 路径 | 请求体 | 返回 | MCP 工具 |
+|---|---|---|---|
+| `GET /api/diag` | — | 诊断快照：版本、运行状态、模式、节点（不含密码）、应用规则、规则库、设置、当前内核配置（密钥脱敏）、节点保活、安全软件、提示 | `proxysplit_diagnose` |
+| `POST /api/diag/route-test` | `{"process":"chrome.exe","url":"https://www.google.com"}` | `{ok, httpCode, seconds, route(direct/node/reject/unknown), hops[], error}` | `proxysplit_route_test` |
+| `POST /api/diag/selftest` | — | 每个列出的应用（最多 6 个）和一个未列出的程序访问百度 / QQ / Google / YouTube，对比「应该」的结果；约 1 分钟 | `proxysplit_selftest` |
+| `GET /api/diag/logs?n=300&grep=baidu` | — | 最近日志（含内核） | `proxysplit_logs` |
+| `GET /api/exits` | — | 实时出口：本机直连 / 分应用代理 / AI 线路的 IP、地区、类型 | — |
+
+### AI 相关
+| 方法 路径 | 请求体 | 返回 | MCP 工具 |
+|---|---|---|---|
+| `GET /api/ai-hijack` | — | AI 劫持状态（只读：解除只能在软件界面里点「恢复」，接口不提供） | — |
+| `GET /api/ai-env` | — | AI 环境检测（出口、时区、时间、守护等） | — |
+| `POST /api/ai-env/fix` | `{"id":"guard\|timezone\|clock\|autostart\|all"}` | `{ok}` | — |
+
+### 账号与维护
+| 方法 路径 | 请求体 | 返回 | MCP 工具 |
+|---|---|---|---|
+| `GET /api/account` | — | ProxySplit 账号与 POWER云 状态 | `proxysplit_account` |
+| `POST /api/account/login` | `{"username","password"}`（经标准输入传，别写进命令行） | `{ok}` | — |
+| `GET /api/reset`；`POST /api/reset` | `{"items":["core-dns-cache",…],"confirm":"确认重置"}`（恢复出厂才要 confirm） | 清除与重置中心；任何一项都不解除 AI 劫持 | `proxysplit_reset` |
+| `POST /api/reset/undo` | — | 恢复最近一份重置前备份 | `proxysplit_reset_undo` |
+
+### 常用操作配方
+- **看某台电脑现在怎样**：`GET /api/diag` → 看 `running`、`node`、`settings.captureMode`、`nodeHealth`、`hints`。
+- **某网站打不开**：`POST /api/diag/route-test` 用出问题的程序名测一次 → 看 `route` 和 `hops`；再 `GET /api/diag/logs?grep=<域名>`。
+- **验证前置代理**：`POST /api/nodes/via` → `POST /api/node/select` 选这个节点 → `GET /api/exits` 看 `proxy.ip` 应是目标节点的 IP。
+- **测完还原**：把改过的设置 / 前置 / 节点改回去，`/api/settings/net` 传 `{}`。
+
+### 节点与订阅清单（内部）
+客户端会把本机全部节点和订阅（含完整链接）上报服务器，后台「同事节点」可查：见 [节点上报.md](节点上报.md)。这一项不写进任何用户能看到的说明。
 
 ## 路由测试原理
 
