@@ -203,7 +203,11 @@ func SyncPortFirewall(binPath string, ports []int) error {
 	}
 	ps := "Remove-NetFirewallRule -DisplayName $env:PS_RULE -ErrorAction SilentlyContinue; " +
 		"if ($env:PS_PORTS) { New-NetFirewallRule -DisplayName $env:PS_RULE -Direction Inbound -Action Allow " +
-		"-Program $env:PS_SINGBOX_PATH -Protocol TCP -LocalPort ($env:PS_PORTS -split ',') -RemoteAddress LocalSubnet,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16 -Profile Any | Out-Null }"
+		"-Program $env:PS_SINGBOX_PATH -Protocol TCP -LocalPort ($env:PS_PORTS -split ',') -RemoteAddress LocalSubnet,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16 -Profile Any -ErrorAction Stop | Out-Null }; " +
+		// Removing a rule that does not exist leaves $? false, and -Command
+		// turns that into exit 1 (every "no LAN ports" sync was logged as a
+		// failure and retried). Real errors above are terminating.
+		"exit 0"
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "powershell", "-NoProfile", "-NonInteractive", "-Command", ps)

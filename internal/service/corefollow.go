@@ -269,7 +269,25 @@ func (s *Service) latestCore(ctx context.Context) (coreupdate.Release, error) {
 	defer cancel()
 	info, err := pv.Core(cctx, runtime.GOOS, runtime.GOARCH)
 	if err != nil {
-		return coreupdate.Release{}, err
+		// The panel is abroad: from mainland networks the direct query mostly
+		// fails (EOF / reset / TLS timeout on every client in the logs). Retry
+		// through our own proxy, like installCore already downloads.
+		s.mu.Lock()
+		via := s.proxyViaLocked()
+		s.mu.Unlock()
+		if via == "" {
+			return coreupdate.Release{}, err
+		}
+		hc, herr := coreupdate.HTTPClient(via)
+		if herr != nil {
+			return coreupdate.Release{}, err
+		}
+		hc.Timeout = 30 * time.Second
+		pctx, pcancel := context.WithTimeout(ctx, 30*time.Second)
+		defer pcancel()
+		if info, err = pv.CoreVia(pctx, hc, runtime.GOOS, runtime.GOARCH); err != nil {
+			return coreupdate.Release{}, err
+		}
 	}
 	return coreupdate.Release{Version: info.FullVersion(), URL: info.URL, URLs: info.URLs, SHA256: info.SHA256}, nil
 }

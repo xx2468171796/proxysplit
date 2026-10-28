@@ -366,6 +366,11 @@ func (e *StatusError) Error() string { return e.Message }
 // do performs a request and returns status, headers and the (bounded) body.
 // Tokens only ever travel in the Authorization header and are never logged.
 func (c *Client) do(ctx context.Context, method, path string, body any, bearer string) (int, http.Header, []byte, error) {
+	return c.doWith(ctx, c.http, method, path, body, bearer)
+}
+
+// doWith is do over hc (CoreVia retries the core query through our proxy).
+func (c *Client) doWith(ctx context.Context, hc *http.Client, method, path string, body any, bearer string) (int, http.Header, []byte, error) {
 	var rd io.Reader
 	if body != nil {
 		raw, err := json.Marshal(body)
@@ -388,7 +393,7 @@ func (c *Client) do(ctx context.Context, method, path string, body any, bearer s
 	if bearer != "" {
 		req.Header.Set("Authorization", "Bearer "+bearer)
 	}
-	resp, err := c.http.Do(req)
+	resp, err := hc.Do(req)
 	if err != nil {
 		var ue *url.Error
 		if errors.As(err, &ue) {
@@ -753,8 +758,17 @@ func (ci CoreInfo) FullVersion() string {
 // Core returns the platform-built sing-box for os/arch, signature-verified;
 // URL is resolved against the panel base.
 func (c *Client) Core(ctx context.Context, goos, arch string) (*CoreInfo, error) {
+	return c.CoreVia(ctx, nil, goos, arch)
+}
+
+// CoreVia is Core over hc (nil = the client's own). The answer is signature
+// checked either way, so routing it through our own proxy is safe.
+func (c *Client) CoreVia(ctx context.Context, hc *http.Client, goos, arch string) (*CoreInfo, error) {
+	if hc == nil {
+		hc = c.http
+	}
 	q := url.Values{"os": {goos}, "arch": {arch}}
-	status, h, raw, err := c.do(ctx, http.MethodGet, "/api/client/core?"+q.Encode(), nil, "")
+	status, h, raw, err := c.doWith(ctx, hc, http.MethodGet, "/api/client/core?"+q.Encode(), nil, "")
 	if err != nil {
 		return nil, err
 	}

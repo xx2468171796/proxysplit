@@ -225,7 +225,7 @@ func (a *App) CheckAIEnv() service.AIEnvReport {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	return tmAIEnv(time.Now(), a.svc.AIEnvCheck(ctx))
+	return tmAIEnv(time.Now(), a.svc.AIEnvCheck(ctx), a.svc.CoreRunning())
 }
 
 // FixAIEnv applies one fix from the check ("all" = every fixable item of a

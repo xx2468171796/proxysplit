@@ -480,15 +480,15 @@ func (a *App) CheckAppUpdate() updater.Status {
 }
 
 func (a *App) InstallAppUpdate(release updater.Release) (msg string) {
+	if a.upd != nil && !a.installing.CompareAndSwap(false, true) {
+		return "正在安装更新，请稍候" // a repeat click while installing: not an install attempt
+	}
 	defer tmInstall(time.Now(), release.Version, &msg)
 	if a.upd == nil {
 		return "自动更新未配置"
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
-	if !a.installing.CompareAndSwap(false, true) {
-		return "正在安装更新，请稍候"
-	}
 	path, err := a.upd.Download(ctx, release)
 	if err != nil {
 		a.installing.Store(false)

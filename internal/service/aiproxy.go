@@ -123,3 +123,7 @@ func randomHex(n int) string {
 	_, _ = rand.Read(b)
 	return hex.EncodeToString(b)
 }
+
+// CoreRunning reports whether the proxy core is up (telemetry tells the
+// normal "stopped, AI locked" state apart from real failures).
+func (s *Service) CoreRunning() bool { return s.coreRunning() }

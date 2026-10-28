@@ -102,6 +102,9 @@ func Log(line string) {
 	if r == nil {
 		return
 	}
+	if strings.Contains(line, "\x1b[") {
+		line = reANSI.ReplaceAllString(line, "") // sing-box console colours: bytes + breaks log analysis
+	}
 	select {
 	case r.logs <- record{K: "l", T: time.Now().UnixMilli(), S: line}:
 	default:

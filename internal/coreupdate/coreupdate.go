@@ -163,3 +163,7 @@ func extractExe(zipBytes []byte) ([]byte, error) {
 	}
 	return nil, fmt.Errorf("sing-box.exe not found in release zip")
 }
+
+// HTTPClient is newClient for callers outside the package (e.g. the panel
+// core query retried through our proxy).
+func HTTPClient(viaProxy string) (*http.Client, error) { return newClient(viaProxy) }

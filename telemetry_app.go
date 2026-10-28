@@ -275,7 +275,9 @@ func tmRoute(start time.Time, r service.RouteTestResult) service.RouteTestResult
 	return r
 }
 
-func tmAIEnv(start time.Time, r service.AIEnvReport) service.AIEnvReport {
+// running=false: guard / dns "fail" is the normal locked state while the proxy
+// is off, so the check is recorded without an error (it was 90% of all fails).
+func tmAIEnv(start time.Time, r service.AIEnvReport, running bool) service.AIEnvReport {
 	items, bad := make([]any, 0, len(r.Items)), 0
 	for _, it := range r.Items {
 		items = append(items, map[string]any{"id": it.ID, "status": it.Status, "detail": it.Detail})
@@ -284,7 +286,7 @@ func tmAIEnv(start time.Time, r service.AIEnvReport) service.AIEnvReport {
 		}
 	}
 	var err error
-	if bad > 0 {
+	if bad > 0 && running {
 		err = telemetry.Errorf("%d AI environment item(s) failed", bad)
 	}
 	telemetry.Op(telemetry.AIEnvCheck, start, err, map[string]any{"items": items, "exitKind": r.ExitKind, "exitLoc": r.ExitLoc, "exitOurs": r.ExitOurs})

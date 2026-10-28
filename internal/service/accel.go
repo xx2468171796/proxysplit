@@ -50,7 +50,9 @@ func (s *Service) accelPortLocked() int {
 func (s *Service) AccelSocks() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.cfg.Settings.ClaudeAccelOff || s.accelPort == 0 || !s.core.Running() {
+	// A direct line never reaches a relay (accel.powervpn.internal only
+	// resolves behind our landing nodes): no probe, Claude Code stays official.
+	if s.cfg.Settings.ClaudeAccelOff || s.accelPort == 0 || !s.core.Running() || s.accelOut == "" || s.accelOut == "direct" {
 		return ""
 	}
 	return fmt.Sprintf("127.0.0.1:%d", s.accelPort)

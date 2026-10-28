@@ -164,7 +164,7 @@ func TestSwitcherOffOrProxyDownMeansOfficial(t *testing.T) {
 	sw.tick()
 	fe.socks.Store("")
 	sw.tick()
-	if st := sw.State(); st.Mode != ModeOfficial || st.Reason != "代理未开启" {
+	if st := sw.State(); st.Mode != ModeOfficial || st.Reason != "代理未开启或 Claude Code 走直连" {
 		t.Fatalf("代理关了应回官方默认：%+v", st)
 	}
 	fe.socks.Store("127.0.0.1:1")

@@ -156,7 +156,7 @@ func (s *Switcher) tick() {
 		s.toOfficial("加速功能已关闭", "", 0)
 		return
 	case socks == "":
-		s.toOfficial("代理未开启", "", 0)
+		s.toOfficial("代理未开启或 Claude Code 走直连", "", 0)
 		return
 	case manual == ModeOfficial:
 		s.toOfficial("已手动恢复官方默认", "", 0)
