@@ -186,8 +186,15 @@ func (s *Service) startLocked() error {
 		return s.withSecurityHint(fmt.Errorf("core(应用分流 TUN): %w", err))
 	}
 	if err := s.startCapture(opts); err != nil {
+		// The driver will not open (security software, a clashing WinDivert,
+		// no kernel resources): never fail the start, run this one on the TUN.
 		_ = s.core.Stop()
-		return s.withSecurityHint(err)
+		s.wdBroken.Store(true)
+		s.log("[capture] " + err.Error() + "；本次改用整机虚拟网卡，重启软件后再试「仅接管选中程序」")
+		opts.Process = nil
+		if err := s.core.StartTUN(node, level, tunRoute, nil, opts); err != nil {
+			return s.withSecurityHint(fmt.Errorf("core(应用分流 TUN): %w", err))
+		}
 	}
 
 	s.mu.Lock()

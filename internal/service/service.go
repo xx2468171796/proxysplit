@@ -163,6 +163,7 @@ type Service struct {
 	capEng           *capture.Engine // 仅接管选中程序的抓包引擎（capture_svc.go；nil = TUN）
 	wdFetch          chan struct{}   // in-flight WinDivert download (prefetchWinDivert)
 	wdReady          func() bool     // nil = coreupdate.WinDivertReady (tests stub it)
+	wdBroken         atomic.Bool     // WinDivert failed to open this run: use the TUN until restart
 
 	followOnce    sync.Once // core follow (corefollow.go)
 	followStart   sync.Once

@@ -55,6 +55,10 @@ func (s *Service) prepareProcessCapture(set Settings, opts *core.Options, reuse 
 		s.log("[capture] AI 强制走线路需要整机虚拟网卡，本次仍用 TUN 接管")
 		return nil
 	}
+	if s.wdBroken.Load() {
+		s.log("[capture] 「仅接管选中程序」的驱动本次打不开，继续用整机虚拟网卡")
+		return nil
+	}
 	if !s.winDivertReady() {
 		// First start after install / update: never fail it, use the TUN this
 		// once while the driver downloads.

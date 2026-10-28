@@ -120,7 +120,10 @@ export async function toggleRun(): Promise<string> {
     const err = await api.start();
     if (!err) return "";
     pushLog(`[error] ${err}`);
-    return /admin|管理员|tun|wintun/i.test(err) ? "启动失败：请关闭后「右键 → 以管理员身份运行」" : `启动失败：${err}`;
+    // WinDivert errors mention 管理员 too, but rights are rarely the cause there.
+    return /admin|管理员|tun|wintun/i.test(err) && !/WinDivert/i.test(err)
+      ? "启动失败：请关闭后「右键 → 以管理员身份运行」"
+      : `启动失败：${err}`;
   } catch (e) {
     return `操作失败：${String(e)}`;
   } finally {

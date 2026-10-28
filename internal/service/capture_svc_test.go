@@ -48,3 +48,13 @@ func TestProcessCaptureFallsBackWithoutDriver(t *testing.T) {
 		t.Fatalf("missing driver must fall back to TUN: %v", err)
 	}
 }
+
+// A driver that failed to open keeps later starts on the TUN until restart.
+func TestProcessCaptureFallsBackWhenDriverBroken(t *testing.T) {
+	s := &Service{onLog: func(string) {}, wdReady: func() bool { return true }}
+	s.wdBroken.Store(true)
+	opts := core.Options{Split: true, SplitWhitelist: true, SplitGroups: []core.SplitGroup{{Key: "a", NodeTag: "proxy"}}}
+	if err := s.prepareProcessCapture(Settings{}, &opts, nil); err != nil || opts.Process != nil {
+		t.Fatalf("broken driver must fall back to TUN: %v", err)
+	}
+}

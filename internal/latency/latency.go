@@ -98,14 +98,26 @@ func measureTCP(n *nodes.Node, timeout time.Duration) int {
 	if n.XrayNetwork() == nodes.NetKCP {
 		return 0 // mKCP is UDP: no TCP edge to time (Google 延迟 still applies)
 	}
-	start := time.Now()
-	conn, err := dial(n, timeout)
+	conn, elapsed, err := dialTimed(n, timeout)
 	if err != nil {
 		return -1
 	}
-	elapsed := time.Since(start)
 	conn.Close()
 	return int(elapsed.Round(time.Millisecond) / time.Millisecond)
+}
+
+// dialTimed is dial, reporting only the TCP connect time: like v2rayN's
+// TCPing, one round trip. The TLS / WebSocket handshakes must still succeed
+// but are not timed (ws+tls behind a CDN adds 2–3 round trips to the origin).
+func dialTimed(n *nodes.Node, timeout time.Duration) (net.Conn, time.Duration, error) {
+	var connect time.Duration
+	conn, err := dialWith(n, timeout, func(addr string) (net.Conn, error) {
+		start := time.Now()
+		c, err := net.DialTimeout("tcp", addr, timeout)
+		connect = time.Since(start)
+		return c, err
+	})
+	return conn, connect, err
 }
 
 // dial opens a connection either through the core's SOCKS5 inbound or directly
@@ -113,8 +125,12 @@ func measureTCP(n *nodes.Node, timeout time.Duration) int {
 // merely opening the edge TCP port creates false positives for stale/disabled
 // subscriptions whose front door still accepts TCP but never serves WebSocket.
 func dial(n *nodes.Node, timeout time.Duration) (net.Conn, error) {
+	return dialWith(n, timeout, func(addr string) (net.Conn, error) { return net.DialTimeout("tcp", addr, timeout) })
+}
+
+func dialWith(n *nodes.Node, timeout time.Duration, dialTCP func(addr string) (net.Conn, error)) (net.Conn, error) {
 	addr := net.JoinHostPort(n.Server, strconv.Itoa(n.Port))
-	conn, err := net.DialTimeout("tcp", addr, timeout)
+	conn, err := dialTCP(addr)
 	if err != nil {
 		return nil, err
 	}
