@@ -20,6 +20,7 @@ export const PROTOCOLS = [
 /** 按钮 / 导航文字（actions 的键） */
 export const LABEL = {
   download: "下载 Windows 版",
+  downloadMac: "下载 macOS 版",
   navDownload: "下载",
   tour: "看看怎么用",
   features: "功能",
@@ -37,7 +38,7 @@ const SITE: NonNullable<SiteRecipe["site"]> = {
   note: "Windows / macOS 上按程序分流的网络工具。仅供学习与合法的软件调试使用，请遵守中华人民共和国法律法规。",
   footer: [
     ["产品", [LABEL.features, LABEL.pricing, LABEL.faq, LABEL.notice]],
-    ["下载", [LABEL.download]],
+    ["下载", [LABEL.download, LABEL.downloadMac]],
     ["联系我们", [LABEL.qq, LABEL.wechat]],
   ],
 };
@@ -51,7 +52,7 @@ const hero = (version: string | null): Blocks[number] => ({
   title: "每个程序，走自己的网络。",
   sub: "浏览器走代理、微信直连、某个工具单独走一条线路 —— 在一张列表里设好，马上生效。节点、规则和配置都保存在你自己的电脑上。",
   cta: LABEL.download,
-  cta2: LABEL.tour,
+  cta2: LABEL.downloadMac,
   trust: ["新用户免费试用 3 天", "Windows 单个 exe，不用安装", "Mac 版同步更新", "更新包签名校验"],
 });
 
