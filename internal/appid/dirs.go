@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 )
 
@@ -27,6 +28,13 @@ func SetProtected(dirs ...string) {
 
 // sharedRoots are folders that hold many unrelated programs.
 func sharedRoots() []string {
+	if runtime.GOOS == "darwin" {
+		out := []string{"/Applications/", "/System/Applications/", "/Users/", "/usr/local/", "/opt/homebrew/"}
+		if h, err := os.UserHomeDir(); err == nil {
+			out = append(out, NormDir(h), NormDir(filepath.Join(h, "Applications")))
+		}
+		return out
+	}
 	var out []string
 	for _, k := range []string{"ProgramFiles", "ProgramFiles(x86)", "ProgramW6432", "ProgramData",
 		"APPDATA", "LOCALAPPDATA", "USERPROFILE", "PUBLIC", "SystemDrive"} {
@@ -41,6 +49,9 @@ func sharedRoots() []string {
 }
 
 func systemRoot() string {
+	if runtime.GOOS == "darwin" {
+		return "/System/"
+	}
 	if v := os.Getenv("SystemRoot"); v != "" {
 		return NormDir(v)
 	}
@@ -55,8 +66,9 @@ func CheckDir(dir string) (string, error) {
 	if !filepath.IsAbs(n) || len(n) <= 4 || strings.ContainsAny(n, "*?<>|\"") {
 		return "", fmt.Errorf("程序目录无效（要完整路径，且不能是整个磁盘）：%s", raw)
 	}
-	if underDir(n, systemRoot()) || strings.EqualFold(n, systemRoot()) {
-		return "", fmt.Errorf("不能把 Windows 系统目录当成一个应用：%s", raw)
+	bundle := runtime.GOOS == "darwin" && strings.HasSuffix(n, ".app/") // e.g. /System/Applications/Mail.app
+	if !bundle && (underDir(n, systemRoot()) || strings.EqualFold(n, systemRoot())) {
+		return "", fmt.Errorf("不能把系统目录当成一个应用：%s", raw)
 	}
 	for _, r := range sharedRoots() {
 		if strings.EqualFold(n, r) {

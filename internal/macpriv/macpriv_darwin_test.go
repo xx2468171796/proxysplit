@@ -112,3 +112,25 @@ func TestCtlRun(t *testing.T) {
 		t.Fatalf("symlink config ran: %q", out)
 	}
 }
+
+// checkJS reports the TUN address and the DNS address psctl points the system at.
+func TestCheckJSTunDNS(t *testing.T) {
+	dir := t.TempDir()
+	js := filepath.Join(dir, "check.js")
+	if err := os.WriteFile(js, []byte(checkJS), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for cfg, want := range map[string]string{
+		`{"inbounds":[{"type":"mixed"},{"type":"tun","address":["fdfe:dcba:9876::1/126","172.19.0.1/30"]}]}`: "172.19.0.1 172.19.0.2",
+		`{"inbounds":[{"type":"mixed"}]}`: "",
+	} {
+		p := filepath.Join(dir, "run.json")
+		if err := os.WriteFile(p, []byte(cfg), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		out, err := exec.Command("osascript", "-l", "JavaScript", js, p, "/x/cache.db").Output()
+		if err != nil || strings.TrimSpace(string(out)) != want {
+			t.Fatalf("%s: got %q (%v), want %q", cfg, out, err, want)
+		}
+	}
+}
