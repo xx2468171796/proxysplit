@@ -75,13 +75,12 @@ describe('client node inventory replace', () => {
     expect(diffInventory('node', 'node_id', ['name'], [{ ...row, latency: -1 }], [{ ...row, removed_at: null }])).toEqual([])
   })
 
-  it('refuses to replace a device bound to another account', async () => {
+  it('keeps accepting a bound device after sign-out (review 2026-10-28), never clearing the account', async () => {
     const { db, calls } = fakeDb({ nodes: [{ node_id: 'n1', account_id: 'owner', removed_at: null }] })
     const store = new ClientNodesStore(db, new LinkCipher(KEY))
-    expect(await store.ingest(report(), { accountId: 'intruder' })).toMatchObject({ ignored: true, nodes: 0 })
-    expect(await store.ingest(report(), { accountId: null })).toMatchObject({ ignored: true })
-    expect(calls.some(c => c.sql.startsWith('UPDATE') || c.sql.includes('INSERT'))).toBe(false)
-    expect((await store.ingest(report(), { accountId: 'owner' })).ignored).toBe(false)
+    expect(await store.ingest(report(), { accountId: null })).toMatchObject({ ignored: false, nodes: 2 })
+    const upsert = calls.find(c => c.sql.includes('INSERT INTO client_nodes'))
+    expect(upsert?.sql).toContain('coalesce(EXCLUDED.account_id,client_nodes.account_id)')
   })
 
   it('encrypts links (never stores plaintext) and decrypts on reveal', async () => {
@@ -119,7 +118,8 @@ describe('client node inventory replace', () => {
     const query = async (sql: string, params: unknown[] = []) => { calls.push({ sql, params }); return { rows: [], rowCount: counts.shift() ?? 0 } }
     const res = await new ClientNodesStore({ query, connect: async () => ({ query, release: () => {} }) }, new LinkCipher(KEY))
       .purge(90, { batchSize: 5, now: new Date('2026-10-28T00:00:00Z') })
-    expect(res).toEqual({ changes: 7 })
+    expect(res).toEqual({ changes: 7, clearedLinks: 0 })
+    expect(calls.some(c => c.sql.includes("SET link_enc=NULL WHERE removed_at<"))).toBe(true)
     expect(calls[0]!.params[0]).toBe('2026-07-30T00:00:00.000Z')
   })
 

@@ -90,9 +90,8 @@ export class ClientNodesStore {
       await client.query('BEGIN')
       const prevNodes = await client.query(`SELECT node_id,account_id,removed_at,${NODE_FIELDS.join(',')} FROM client_nodes WHERE device_id=$1 FOR UPDATE`, [report.deviceId])
       const prevSubs = await client.query(`SELECT sub_id,removed_at,${SUB_FIELDS.join(',')} FROM client_subs WHERE device_id=$1 FOR UPDATE`, [report.deviceId])
-      // 同日志上报：设备已绑账号时，只有同一账号的令牌才能替换它的清单（防拿别人的设备号清空数据）。
-      const bound = prevNodes.rows.map(r => r.account_id).find((v): v is string => typeof v === 'string') ?? null
-      if (bound && bound !== ctx.accountId) { await client.query('ROLLBACK'); return { nodes: 0, subs: 0, changes: 0, ignored: true } }
+      // 用户都是同事、设备号是 64 位不可猜的指纹：清单照收（退出登录 / 换人登录后也要继续实时）。
+      // 账号只在带了有效令牌时更新，匿名上报不会清掉已绑的账号（coalesce）。
       const changes = [
         ...diffInventory('node', 'node_id', NODE_FIELDS, nodes, prevNodes.rows),
         ...diffInventory('sub', 'sub_id', SUB_FIELDS, subs, prevSubs.rows),
@@ -151,6 +150,9 @@ export class ClientNodesStore {
       changes += r.rowCount ?? 0
       if ((r.rowCount ?? 0) < batchSize) break
     }
-    return { changes }
+    // 删掉超过保留期的节点 / 订阅：只清加密链接，行留着做历史统计。
+    const n = await this.db.query('UPDATE client_nodes SET link_enc=NULL WHERE removed_at<$1 AND link_enc IS NOT NULL', [cutoff])
+    const s = await this.db.query('UPDATE client_subs SET url_enc=NULL WHERE removed_at<$1 AND url_enc IS NOT NULL', [cutoff])
+    return { changes, clearedLinks: (n.rowCount ?? 0) + (s.rowCount ?? 0) }
   }
 }

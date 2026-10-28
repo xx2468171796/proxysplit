@@ -58,7 +58,10 @@ export function registerClientNodesRoutes(app: FastifyInstance, d: ClientNodesDe
   app.post('/v1/admin/client-nodes/reveal', async (req) => {
     const p = await superAdmin(req)
     const input = clientNodeRevealSchema.parse(req.body)
-    const res = await d.query.revealNode(input.deviceId, input.nodeId)
+    const res = await d.query.revealNode(input.deviceId, input.nodeId).catch(async (e: unknown) => {
+      await d.audit(p.userId, 'admin.client_node.reveal', 'client-node', `${input.deviceId}:${input.nodeId}`, req.ip, 'error', { deviceId: input.deviceId, nodeId: input.nodeId })
+      throw e
+    })
     await d.audit(p.userId, 'admin.client_node.reveal', 'client-node', `${input.deviceId}:${input.nodeId}`, req.ip, res.found ? (res.link ? 'success' : 'empty') : 'not_found', { deviceId: input.deviceId, nodeId: input.nodeId })
     if (!res.found) throw new AppError('NOT_FOUND', '节点不存在', 404)
     return { link: res.link }
@@ -66,7 +69,10 @@ export function registerClientNodesRoutes(app: FastifyInstance, d: ClientNodesDe
   app.post('/v1/admin/client-subs/reveal', async (req) => {
     const p = await superAdmin(req)
     const input = clientSubRevealSchema.parse(req.body)
-    const res = await d.query.revealSub(input.deviceId, input.subId)
+    const res = await d.query.revealSub(input.deviceId, input.subId).catch(async (e: unknown) => {
+      await d.audit(p.userId, 'admin.client_sub.reveal', 'client-sub', `${input.deviceId}:${input.subId}`, req.ip, 'error', { deviceId: input.deviceId, subId: input.subId })
+      throw e
+    })
     await d.audit(p.userId, 'admin.client_sub.reveal', 'client-sub', `${input.deviceId}:${input.subId}`, req.ip, res.found ? (res.link ? 'success' : 'empty') : 'not_found', { deviceId: input.deviceId, subId: input.subId })
     if (!res.found) throw new AppError('NOT_FOUND', '订阅不存在', 404)
     return { url: res.link }

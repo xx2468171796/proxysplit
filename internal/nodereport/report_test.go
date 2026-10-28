@@ -46,6 +46,10 @@ func TestStepSendsOnStartChangeAndKeepAlive(t *testing.T) {
 	if !r.Step(ctx, now.Add(2*time.Minute)) || got[1].Reason != "change" {
 		t.Fatalf("change: %+v", got)
 	}
+	inv.Nodes[0].Latency = 80 // a test result alone: not before MeasureEvery
+	if r.Step(ctx, now.Add(3*time.Minute)) {
+		t.Fatal("a latency change alone must wait for MeasureEvery")
+	}
 	if !r.Step(ctx, now.Add(7*time.Hour)) || got[2].Reason != "periodic" {
 		t.Fatalf("keep-alive: %+v", got)
 	}

@@ -81,8 +81,11 @@ type Reporter struct {
 	FirstDelay time.Duration // default 20 s
 	Tick       time.Duration // default 30 s
 	KeepAlive  time.Duration // default 6 h
+	// MeasureEvery: test results alone are uploaded at most this often (10 min).
+	MeasureEvery time.Duration
 
 	lastFP   string
+	lastMeas string
 	lastSent time.Time
 	fails    int
 	nextTry  time.Time
@@ -97,6 +100,9 @@ func (r *Reporter) defaults() {
 	}
 	if r.KeepAlive <= 0 {
 		r.KeepAlive = 6 * time.Hour
+	}
+	if r.MeasureEvery <= 0 {
+		r.MeasureEvery = 10 * time.Minute
 	}
 }
 
@@ -116,9 +122,21 @@ func (r *Reporter) Run(ctx context.Context) {
 	}
 }
 
-// Fingerprint of the inventory (the service keeps the order stable).
+// Fingerprint of the inventory without the test results (latency / speed
+// change with every test run; they ride along with the next real change, or
+// go up on their own at most every MeasureEvery).
 func Fingerprint(inv Inventory) string {
-	b, _ := json.Marshal(inv)
+	c := inv
+	c.Nodes = make([]Node, len(inv.Nodes))
+	for i, n := range inv.Nodes {
+		n.Latency, n.TCPLatency, n.Speed = 0, 0, 0
+		c.Nodes[i] = n
+	}
+	return hashJSON(c)
+}
+
+func hashJSON(v any) string {
+	b, _ := json.Marshal(v)
 	return fmt.Sprintf("%x", sha256.Sum256(b))
 }
 
@@ -131,14 +149,15 @@ func (r *Reporter) Step(ctx context.Context, now time.Time) bool {
 		return false
 	}
 	inv := r.Source()
-	fp := Fingerprint(inv)
+	fp, meas := Fingerprint(inv), hashJSON(inv)
 	var reason string
 	switch {
 	case r.lastSent.IsZero():
 		reason = "start"
 	case fp != r.lastFP:
 		reason = "change"
-	case now.Sub(r.lastSent) >= r.KeepAlive:
+	case now.Sub(r.lastSent) >= r.KeepAlive,
+		meas != r.lastMeas && now.Sub(r.lastSent) >= r.MeasureEvery:
 		reason = "periodic"
 	default:
 		return false
@@ -150,7 +169,7 @@ func (r *Reporter) Step(ctx context.Context, now time.Time) bool {
 		return true
 	}
 	r.fails, r.nextTry = 0, time.Time{}
-	r.lastFP, r.lastSent = fp, now
+	r.lastFP, r.lastMeas, r.lastSent = fp, meas, now
 	return true
 }
 

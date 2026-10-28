@@ -25,7 +25,7 @@ export class ClientNodesQuery {
     if (p.status === 'removed') conds.push('n.removed_at IS NOT NULL')
     if (p.dead) conds.push('n.latency<0')
     if (p.type) add('n.type=$?', p.type)
-    if (p.deviceId) add('n.device_id LIKE $?', `${likeEscape(p.deviceId)}%`)
+    if (p.deviceId) add('n.device_id = $?', p.deviceId)
     if (p.accountId) add('n.account_id=$?', p.accountId)
     if (p.q) add('(n.name ILIKE $? OR n.server ILIKE $? OR u.username ILIKE $? OR d.account_hint ILIKE $?)', `%${likeEscape(p.q)}%`)
     const where = conds.length ? `WHERE ${conds.join(' AND ')}` : ''
@@ -42,7 +42,7 @@ export class ClientNodesQuery {
   async listSubs(p: ClientSubListQuery): Promise<NodePage> {
     const conds: string[] = [], vals: unknown[] = []
     const add = (sql: string, v: unknown) => { vals.push(v); conds.push(sql.replaceAll('$?', `$${vals.length}`)) }
-    if (p.deviceId) add('s.device_id LIKE $?', `${likeEscape(p.deviceId)}%`)
+    if (p.deviceId) add('s.device_id = $?', p.deviceId)
     if (p.q) add('(s.name ILIKE $? OR s.host ILIKE $? OR u.username ILIKE $?)', `%${likeEscape(p.q)}%`)
     const where = conds.length ? `WHERE ${conds.join(' AND ')}` : ''
     vals.push(p.pageSize, (p.page - 1) * p.pageSize)
@@ -57,7 +57,7 @@ export class ClientNodesQuery {
   async changes(p: ClientNodeChangesQuery) {
     const vals: unknown[] = []
     let where = ''
-    if (p.deviceId) { vals.push(`${likeEscape(p.deviceId)}%`); where = 'WHERE c.device_id LIKE $1' }
+    if (p.deviceId) { vals.push(p.deviceId); where = 'WHERE c.device_id = $1' }
     vals.push(p.limit)
     const r = await this.db.query(`SELECT c.id::text,c.device_id AS "deviceId",c.account_id AS "accountId",u.username,c.kind,c.item_id AS "itemId",c.name,c.action,c.fields,c.at
       FROM client_node_changes c LEFT JOIN users u ON u.id=c.account_id ${where} ORDER BY c.at DESC,c.id DESC LIMIT $${vals.length}`, vals)

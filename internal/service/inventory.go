@@ -11,15 +11,21 @@ import (
 // NodeInventory is every node and subscription with full links, for the
 // internal node report (internal/nodereport, docs/节点上报.md).
 func (s *Service) NodeInventory() nodereport.Inventory {
+	// Copy under the lock; links are built after it (review 2026-10-28).
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	inv := nodereport.Inventory{SelectedID: s.cfg.SelectedID}
+	list := make([]nodes.Node, 0, len(s.cfg.Nodes))
 	for _, n := range s.cfg.Nodes {
 		if n != nil {
-			inv.Nodes = append(inv.Nodes, reportNode(n))
+			list = append(list, *n)
 		}
 	}
-	for _, sub := range s.cfg.Subs {
+	subs := append([]Sub(nil), s.cfg.Subs...)
+	s.mu.Unlock()
+	for i := range list {
+		inv.Nodes = append(inv.Nodes, reportNode(&list[i]))
+	}
+	for _, sub := range subs {
 		host := ""
 		if u, err := url.Parse(sub.URL); err == nil {
 			host = u.Hostname()
