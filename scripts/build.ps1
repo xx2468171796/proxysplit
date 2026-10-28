@@ -161,6 +161,10 @@ if ($SigningThumbprint) {
     & $SignToolPath verify /pa $versionedExe
     if ($LASTEXITCODE -ne 0) { throw 'Authenticode verification failed' }
 }
+elseif ($env:EVSIGN_KEY) {
+    & (Join-Path $root 'scripts\evsign.ps1') -File $versionedExe
+}
+$authenticodeSigned = (Get-AuthenticodeSignature -LiteralPath $versionedExe).Status -eq 'Valid'
 
 Copy-Item -LiteralPath $versionedExe -Destination (Join-Path $out 'proxysplit.exe') -Force
 Copy-Item -LiteralPath (Join-Path $root 'scripts\dist-readme.txt') -Destination (Join-Path $out 'README.txt') -Force
@@ -180,7 +184,7 @@ $manifest = [ordered]@{
     sha256 = $hash; size = (Get-Item -LiteralPath $versionedExe).Length
     url = $downloadURL; signature = $releaseSignature
     commercial = $commercialEnabled; obfuscated = $obfuscateEnabled
-    authenticodeSigned = -not [string]::IsNullOrWhiteSpace($SigningThumbprint)
+    authenticodeSigned = $authenticodeSigned
     windowsProductVersion = $Version
     coreVersion = $coreRelease.version
     coreSha256 = $coreHash

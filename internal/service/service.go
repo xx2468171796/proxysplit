@@ -164,6 +164,7 @@ type Service struct {
 	wdFetch          chan struct{}   // in-flight WinDivert download (prefetchWinDivert)
 	wdReady          func() bool     // nil = coreupdate.WinDivertReady (tests stub it)
 	wdBroken         atomic.Bool     // WinDivert failed to open this run: use the TUN until restart
+	wdNote           atomic.Value    // string: captureFallbackNote, computed once at the fallback
 
 	followOnce    sync.Once // core follow (corefollow.go)
 	followStart   sync.Once

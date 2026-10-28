@@ -118,7 +118,12 @@ export async function toggleRun(): Promise<string> {
       return "";
     }
     const err = await api.start();
-    if (!err) return "";
+    if (!err) {
+      await refreshStatus();
+      // 仅接管选中程序的驱动被拦、本次改用整机虚拟网卡时，Go 在状态里带一句说明。
+      const st = runtime.get().status as (Status & { captureNote?: string }) | null;
+      return st?.captureNote ?? "";
+    }
     pushLog(`[error] ${err}`);
     // WinDivert errors mention 管理员 too, but rights are rarely the cause there.
     return /admin|管理员|tun|wintun/i.test(err) && !/WinDivert/i.test(err)

@@ -22,6 +22,8 @@ type Status struct {
 	RuleMode      string `json:"ruleMode"`
 	UptimeSec     int64  `json:"uptimeSec"`
 	Stats         Stats  `json:"stats"`
+	// CaptureNote: 仅接管选中程序 could not load its driver, so the TUN is in use.
+	CaptureNote string `json:"captureNote,omitempty"`
 }
 
 // applyLive re-applies a rule/line change to the running core. In the
@@ -190,7 +192,9 @@ func (s *Service) startLocked() error {
 		// no kernel resources): never fail the start, run this one on the TUN.
 		_ = s.core.Stop()
 		s.wdBroken.Store(true)
+		s.wdNote.Store(s.captureFallbackNote())
 		s.log("[capture] " + err.Error() + "；本次改用整机虚拟网卡，重启软件后再试「仅接管选中程序」")
+		s.log("[capture] 驱动诊断：" + s.captureDiag())
 		opts.Process = nil
 		if err := s.core.StartTUN(node, level, tunRoute, nil, opts); err != nil {
 			return s.withSecurityHint(fmt.Errorf("core(应用分流 TUN): %w", err))
@@ -450,6 +454,9 @@ func (s *Service) Status() Status {
 		SelectedID:    sel,
 		RuleMode:      mode,
 		EngineRunning: running,
+	}
+	if note, _ := s.wdNote.Load().(string); running && note != "" {
+		st.CaptureNote = note
 	}
 	if running {
 		if fresh, err := clashTraffic(clashPort, clashSecret); err == nil {

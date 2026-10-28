@@ -19,6 +19,7 @@
 - 发布签名私钥在堡垒机资产 id 116：打包前写回 `server/secrets/shenzhen-release-private.pem`（LF 换行，SHA256 与 build/release-kit/profile.json 对得上），打完立刻删；该文件被 Git 忽略，禁止打印或提交。
 - minimumVersion 会进授权租约 minVersion，别随手调高，否则老客户端被拒（当前一直是 1.9.51）。
 - 换签名密钥必须先发带新公钥的客户端。
+- Authenticode（v1.10.8 起）：构建时设环境变量 `EVSIGN_KEY`（堡垒机资产 251 的许可证，只放环境变量）即由 `scripts/evsign.ps1` 交 EV Sign 共享证书签名，在算 SHA256 / Ed25519 签名之前做；`proxysplit.exe` 已在 EV Sign 审核名单里。签名者是共享证书的公司（会换），**禁止把签名文件提交 360 白名单**（会拉黑证书）；火绒 / 腾讯可以提交。
 
 ## 构建坑
 - 正式构建 `scripts/build-commercial.ps1 -Version <版本>`，要求干净工作区；商业构建默认不混淆、不加壳，保留 Ed25519 验签和授权。
