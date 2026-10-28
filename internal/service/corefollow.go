@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"proxysplit/internal/coreupdate"
+	"proxysplit/internal/nodes"
 )
 
 // Core follow (公司规定：面板发布新的标准内核后，所有装好的客户端自动跟上).
@@ -271,10 +272,9 @@ func (s *Service) latestCore(ctx context.Context) (coreupdate.Release, error) {
 	if err != nil {
 		// The panel is abroad: from mainland networks the direct query mostly
 		// fails (EOF / reset / TLS timeout on every client in the logs). Retry
-		// through our own proxy, like installCore already downloads.
-		s.mu.Lock()
-		via := s.proxyViaLocked()
-		s.mu.Unlock()
+		// through the selected node (the answer is signature checked).
+		via, closeVia := s.panelVia()
+		defer closeVia()
 		if via == "" {
 			return coreupdate.Release{}, err
 		}
@@ -293,11 +293,37 @@ func (s *Service) latestCore(ctx context.Context) (coreupdate.Release, error) {
 }
 
 func (s *Service) installCore(r coreupdate.Release) error {
-	s.mu.Lock()
-	via := s.proxyViaLocked()
-	s.mu.Unlock()
+	via, closeVia := s.panelVia() // fallback only: direct is tried first, SHA256 checked
+	defer closeVia()
 	_, err := coreupdate.InstallRelease(s.binDir, s.GetCoreVersion(), r, via)
 	return err
+}
+
+// panelVia returns a SOCKS address through the selected node for reaching the
+// POWER云 panel ("" = none). The running core's mixed port when it has one;
+// TUN / process capture have none, so a throwaway tunnel like the speed test.
+// closeFn is always safe to call.
+func (s *Service) panelVia() (string, func()) {
+	s.mu.Lock()
+	via := s.proxyViaLocked()
+	var snap *nodes.Node
+	if n := s.selectedNode(); n != nil {
+		c := *n
+		snap = &c
+	}
+	s.mu.Unlock()
+	if via != "" {
+		return via, func() {}
+	}
+	if snap == nil {
+		return "", func() {}
+	}
+	addr, closeFn, err := s.nodeSocks(snap)
+	if err != nil {
+		s.log("[core] 经节点连 POWER云 失败：" + err.Error())
+		return "", closeFn
+	}
+	return addr, closeFn
 }
 
 // applyInstalledCore restarts a running proxy so a just-installed core takes
