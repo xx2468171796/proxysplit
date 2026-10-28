@@ -4,6 +4,12 @@
 > 结论与坑已提炼到 `docs/memory/<主题>.md`；这里是事实存档，按标题取（`node ~/.ankotti/ai-kit/mem.mjs <关键词>`），不要整份读。
 > 约定：sz = 深圳生产机；incoming = sz `/opt/proxysplit/incoming/`；客户端回滚 = 该版本 incoming 目录 `python3 publish-client.py rollback` 并删 releases 表里该版本那行。
 
+## v1.10.11（2026-10-28 20:28，全站发布，强制）
+- release id 20261028-201653-33261d3-v1.10.11，上一版 releases/20261028-174132-1faed3e-v1.10.10；备份 backups/postgres-20261028-201653-33261d3-v1.10.11.sql.gz；无新迁移。exe SHA256 ab19547b09596a73da6d06ccb528b49b972c5c676528b93d04447eb2278ee7f8（EV Sign 签名）。
+- 起因：分析服务端遥测 / 日志（9 台设备）。内核自动更新 8 台全部每小时失败（直连 lxc.5fskins.com TLS 被断）；直连线路下加速探测 accel.powervpn.internal NXDOMAIN 刷屏；端口防火墙删不存在的规则 exit 1 误报；日志带 ANSI；ai_env / 重复安装误报失败。
+- 坑：第一版只在 proxyViaLocked 非空时经代理重试，但整机虚拟网卡 / 仅接管选中程序下 core.Port()=0，重试从未发生（alonehome2 实测仍 EOF）。改为 panelVia：没有本机代理端口时起节点临时隧道（同测速），查询和下载内核都用它。
+- 验收：alonehome2 签名 Valid、内核检查不再报错、加速 NXDOMAIN / ANSI / 防火墙误报 0、自检 20/20、AI 劫持 tunnel 出口 TW、Edge Google 204 走节点 / 百度直连；VM153 Defender 0 威胁；飞牛 latest = 1.10.11 mandatory，三下载 sha 一致。
+
 ## v1.10.8（2026-10-28 14:05，全站发布，强制）
 - release id 20261028-135541-d41caa2-v1.10.8，上一版 releases/20261028-114826-5fdc1c1-v1.10.7；备份 backups/postgres-20261028-135541-d41caa2-v1.10.8.sql.gz；无新迁移。exe SHA256 abd47ef005a6fc753a535a735bc34b16bb2d918a826a6d87741684edf7301415。
 - 起因：用户（火绒，1.10.7）13:10–13:18 连续 10 次启动失败，client_events 里是 WinDivertOpen(false): Insufficient system resources（ERROR_NO_SYSTEM_RESOURCES），前端却提示「以管理员身份运行」。1.10.2 起默认「仅接管选中程序」，驱动被拦 = 完全用不了。
