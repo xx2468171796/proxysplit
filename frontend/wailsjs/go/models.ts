@@ -2020,6 +2020,7 @@ export namespace service {
 	    ruleMode: string;
 	    uptimeSec: number;
 	    stats: Stats;
+	    captureNote?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new Status(source);
@@ -2035,6 +2036,7 @@ export namespace service {
 	        this.ruleMode = source["ruleMode"];
 	        this.uptimeSec = source["uptimeSec"];
 	        this.stats = this.convertValues(source["stats"], Stats);
+	        this.captureNote = source["captureNote"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
