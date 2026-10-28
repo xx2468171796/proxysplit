@@ -20,10 +20,10 @@ const (
 // pickFilter is the file type the 从文件夹选择 dialog offers.
 var pickFilter = runtime.FileFilter{DisplayName: "应用程序 (*.app)", Pattern: "*.app"}
 
-// xrayFS carries bin/darwin/xray-release.json; the sidecar itself is
-// downloaded on first need from the pin's public URLs (as on Windows).
+// xrayFS carries bin/darwin/xray-release.json and bin/darwin/xray (both
+// cores are always bundled; scripts/fetch-core-darwin.sh).
 //
-//go:embed bin/darwin/xray*
+//go:embed bin/darwin/xray bin/darwin/xray-release.json
 var xrayFS embed.FS
 
 const xrayDir = "bin/darwin/"

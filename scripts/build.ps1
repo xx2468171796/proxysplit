@@ -83,13 +83,12 @@ $coreExe = Join-Path $root 'bin\sing-box.exe'
 if (-not (Test-Path -LiteralPath $coreExe)) { throw 'Missing core: run scripts\fetch-core.ps1 first' }
 $coreHash = (Get-FileHash -LiteralPath $coreExe -Algorithm SHA256).Hash.ToLowerInvariant()
 if ($coreHash -ne $coreRelease.sha256) { throw 'Bundled core does not match bin/core-release.json; run scripts\fetch-core.ps1' }
-# Xray sidecar (XHTTP / mKCP / VLESS encryption nodes): bundled when present;
-# a wrong file is fatal, a missing one only means lazy download on first need.
+# Xray sidecar: always bundled (users may have no network to fetch it later);
+# missing or wrong file is fatal.
 $xrayRelease = Get-Content -Raw -Encoding UTF8 (Join-Path $root 'bin\xray-release.json') | ConvertFrom-Json
 $xrayExe = Join-Path $root 'bin\xray.exe'
-if (Test-Path -LiteralPath $xrayExe) {
-    if ((Get-FileHash -LiteralPath $xrayExe -Algorithm SHA256).Hash.ToLowerInvariant() -ne $xrayRelease.sha256) { throw 'bin\xray.exe does not match bin/xray-release.json; run scripts\fetch-core.ps1' }
-} else { Write-Warning 'bin\xray.exe missing: this build will NOT bundle Xray (run scripts\fetch-core.ps1 -RequireXray for releases)' }
+if (-not (Test-Path -LiteralPath $xrayExe)) { throw 'bin\xray.exe missing: run scripts\fetch-core.ps1 -RequireXray (both cores must be bundled)' }
+if ((Get-FileHash -LiteralPath $xrayExe -Algorithm SHA256).Hash.ToLowerInvariant() -ne $xrayRelease.sha256) { throw 'bin\xray.exe does not match bin/xray-release.json; run scripts\fetch-core.ps1' }
 
 $env:Path = "C:\Program Files\Go\bin;$env:USERPROFILE\go\bin;$env:Path"
 $env:CGO_ENABLED = "0"

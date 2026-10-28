@@ -5,7 +5,7 @@
 ## 和 Windows 不一样的地方
 | 方面 | macOS 做法 | 代码 |
 |---|---|---|
-| 内核 | 自编 sing-box 1.14.3-relayops.1 darwin/arm64（与 windows 同补丁同标签，见 bin/darwin/core-release.json）；`scripts/fetch-core-darwin.sh` 取到 bin/darwin/sing-box 再嵌进 app | payload_darwin.go |
+| 内核 | 两个内核都内置：Xray 26.10.21（bin/darwin/xray-release.json，scripts/build-xray-darwin.sh）+ 自编 sing-box 1.14.3-relayops.1 darwin/arm64（与 windows 同补丁同标签，见 bin/darwin/core-release.json）；`scripts/fetch-core-darwin.sh` 取到 bin/darwin/sing-box 再嵌进 app | payload_darwin.go |
 | root | TUN 要 root。首次连接弹一次系统密码框，装 `/usr/local/libexec/proxysplit-psctl`（root 所有）+ `/etc/sudoers.d/proxysplit`（本用户只能免密跑这个脚本）。脚本只做：跑本用户 `~/Library/Application Support/proxysplit/bin/sing-box run -c *.json`、停内核、开关系统代理 | internal/macpriv |
 | 停内核 | TUN 内核在 sudo 下：先 SIGTERM（sudo 会转给 sing-box），再 `psctl stop` 兜底；不能 SIGKILL sudo（会留下 root 孤儿） | internal/core/tuncmd_darwin.go |
 | 抓流量 | 没有 WinDivert：默认模式在 macOS 就是 TUN + 按应用规则（`Settings.ProcessCapture()` 非 Windows 恒 false） | capture_svc.go |

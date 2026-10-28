@@ -1,13 +1,13 @@
 {
-  "version": "26.6.1",
-  "upstreamTag": "v26.6.1",
-  "upstreamCommit": "94ffd50060f1cfd5d7482ec90a23a92bdefdff68",
-  "go": "1.26.8",
+  "version": "26.10.21",
+  "upstreamTag": "v26.10.21",
+  "upstreamCommit": "1b1647cd9ddf0abc34b981d4611fc03bcac1ca74",
+  "go": "1.27.3",
   "format": "exe",
-  "url": "http://192.168.110.246:3001/api/packages/gonggong/generic/xray/26.6.1/xray-darwin-arm64",
+  "url": "http://192.168.110.246:3001/api/packages/gonggong/generic/xray/26.10.21/xray-darwin-arm64",
   "urlAuth": "gitea",
-  "sha256": "086a4185ac73058bd5c0a295561936c4d566c4800ac95f0ca88b692de9b1e689",
-  "source": "上游 XTLS/Xray-core v26.6.1（goproxy.cn 模块包，提交 94ffd50）在 xuan-macbook-air 上 GOOS=darwin GOARCH=arm64 CGO 关、-trimpath -ldflags '-s -w -buildid='（参数同上游发布流程）自编；只当 sing-box 跑不了的节点（XHTTP / mKCP / VLESS encryption）的旁路内核",
-  "urls": ["https://proxysplit.zygskins.cn/download/xray/26.6.1/xray-darwin-arm64"],
+  "sha256": "94a9bfc0df6a0462552d535861f8a1580a0a6c94f7b0d30fe312daa0024ede2e",
+  "source": "上游 XTLS/Xray-core v26.10.21（goproxy.cn 模块包，提交 1b1647c）在 xuan-macbook-air 上 GOOS=darwin GOARCH=arm64 CGO 关、-trimpath -ldflags '-s -w -buildid='（参数同上游发布流程）自编；只当 sing-box 跑不了的节点（XHTTP / mKCP / VLESS encryption）的旁路内核",
+  "urls": ["https://proxysplit.zygskins.cn/download/xray/26.10.21/xray-darwin-arm64"],
   "verifiedAt": "2026-10-28"
 }

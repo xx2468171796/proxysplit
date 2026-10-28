@@ -141,7 +141,7 @@ func TestXrayPortProxyEndToEnd(t *testing.T) {
 	listen, _ := freePort()
 	clash, _ := freePort()
 	cfg, err := BuildPortConfig(PortConfig{Listen: "127.0.0.1", Port: listen, Protocol: "mixed", Node: n, Mode: "global",
-		ClashController: fmt.Sprintf("127.0.0.1:%d", clash), GeoDir: filepath.Dir(singBox), XrayPorts: ports})
+		ClashController: fmt.Sprintf("127.0.0.1:%d", clash), GeoDir: mustAbs(t, filepath.Join("..", "..", "bin")), XrayPorts: ports})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -151,4 +151,14 @@ func TestXrayPortProxyEndToEnd(t *testing.T) {
 	if got := getVia(t, fmt.Sprintf("127.0.0.1:%d", listen), target); got != "xray-ok" {
 		t.Fatalf("body = %q", got)
 	}
+}
+
+// mustAbs: rule sets live in <repo>/bin on every OS (the macOS core is in bin/darwin).
+func mustAbs(t *testing.T, p string) string {
+	t.Helper()
+	a, err := filepath.Abs(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return a
 }

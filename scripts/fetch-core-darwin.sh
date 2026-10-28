@@ -8,9 +8,21 @@ want=$(sed -n 's/.*"sha256": *"\([0-9a-f]*\)".*/\1/p' "$meta")
 url=$(sed -n 's/.*"url": *"\([^"]*\)".*/\1/p' "$meta")
 dst="$root/bin/darwin/sing-box"
 have() { [ -f "$1" ] && [ "$(shasum -a 256 "$1" | cut -d' ' -f1)" = "$want" ]; }
-if have "$dst"; then echo "core ok"; exit 0; fi
+if have "$dst"; then echo "core ok"; else
 tmp="$dst.tmp"
 if [ -n "${CORE_SRC:-}" ]; then cp "$CORE_SRC" "$tmp"
 else curl -fsSL --max-time 300 -H "Authorization: token ${GITEA_TOKEN:?GITEA_TOKEN or CORE_SRC}" "$url" -o "$tmp"; fi
 have "$tmp" || { rm -f "$tmp"; echo "core sha256 mismatch" >&2; exit 1; }
-chmod 755 "$tmp" && mv -f "$tmp" "$dst" && echo "core fetched"
+chmod 755 "$tmp" && mv -f "$tmp" "$dst" && echo "core fetched"; fi
+
+# Xray 旁路内核：两个内核都要打进安装包（bin/darwin/xray-release.json 固定版本）
+xmeta="$root/bin/darwin/xray-release.json"
+want=$(sed -n 's/.*"sha256": *"\([0-9a-f]*\)".*/\1/p' "$xmeta")
+url=$(sed -n 's/.*"url": *"\([^"]*\)".*/\1/p' "$xmeta")
+dst="$root/bin/darwin/xray"
+if have "$dst"; then echo "xray ok"; exit 0; fi
+tmp="$dst.tmp"
+if [ -n "${XRAY_SRC:-}" ]; then cp "$XRAY_SRC" "$tmp"
+else curl -fsSL --max-time 300 -H "Authorization: token ${GITEA_TOKEN:?GITEA_TOKEN or XRAY_SRC}" "$url" -o "$tmp"; fi
+have "$tmp" || { rm -f "$tmp"; echo "xray sha256 mismatch" >&2; exit 1; }
+chmod 755 "$tmp" && mv -f "$tmp" "$dst" && echo "xray fetched"
