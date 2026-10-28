@@ -4,6 +4,11 @@
 > 结论与坑已提炼到 `docs/memory/<主题>.md`；这里是事实存档，按标题取（`node ~/.ankotti/ai-kit/mem.mjs <关键词>`），不要整份读。
 > 约定：sz = 深圳生产机；incoming = sz `/opt/proxysplit/incoming/`；客户端回滚 = 该版本 incoming 目录 `python3 publish-client.py rollback` 并删 releases 表里该版本那行。
 
+## v1.10.7（2026-10-28 12:00，全站发布，强制；对外说明只写「稳定性改进」）
+- release id 20261028-114826-5fdc1c1-v1.10.7，上一版 releases/20261028-111253-135fbfb-v1.10.6；备份 backups/postgres-20261028-114826-5fdc1c1-v1.10.7.sql.gz；**新迁移 0017_client_nodes**（三张新表，纯新增，回滚服务端不用动表）。exe SHA256 ee3ab9cab63cde23108657d3eb4f2b23a59043ec5d85100876768ef5374c04e2。
+- 内容（内部）：同事节点上报（docs/节点上报.md）——客户端上报全部节点 / 订阅含完整链接，服务端 AES-256-GCM 加密存（sz runtime.env NODE_LINK_KEY，资产 #569 只记位置），后台「同事节点」3 秒刷新，超管（SUPER_ADMIN_USERNAMES=admin）解密查看并审计。业主要求：此功能不写进任何用户可见说明。AI 接口文档重写（docs/AI诊断接口.md）。
+- 验证：alonehome2 装 1.10.7，启动 20 秒内 3 个节点入库（链接密文、账号已绑），新增测试节点 30 秒内出现在变化时间线，删除后标记 removed；后台页面截图正常，超管查看成功并写 audit_logs admin.client_node.reveal；VM153 Defender 0 威胁。
+
 ## v1.10.6（2026-10-28 11:35，全站发布，强制）
 - release id 20261028-111253-135fbfb-v1.10.6，上一版 releases/20261028-061415-427ba90-v1.10.5；备份 backups/postgres-20261028-111253-135fbfb-v1.10.6.sql.gz；无新迁移。exe SHA256 350ecc8667366f9524fd39721bfd418529b43c0c6284a69175b14f0a35024d31。
 - 业主定：去掉「自动选择（最快）」只手动切换；前置代理保留，改为默认关的开关 + 用途说明 + 链路示意图。AI 接口新增 /api/nodes/select、/api/nodes/via、/api/settings/net。
