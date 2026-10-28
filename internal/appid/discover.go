@@ -76,7 +76,7 @@ func NormDir(d string) string {
 	if d == "" {
 		return ""
 	}
-	return strings.TrimRight(filepath.Clean(d), `\/`) + `\`
+	return strings.TrimRight(filepath.Clean(d), `\/`) + string(filepath.Separator)
 }
 
 func covered(dirs []string, path string) bool {

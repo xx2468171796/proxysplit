@@ -239,8 +239,12 @@ func (s *Service) coreFollow() *coreFollower {
 	return s.follower
 }
 
-// StartCoreFollow starts the background core-follow loop (once).
+// StartCoreFollow starts the background core-follow loop (once). The panel
+// only publishes Windows cores; on macOS the core ships inside the app.
 func (s *Service) StartCoreFollow() {
+	if runtime.GOOS == "darwin" {
+		return
+	}
 	f := s.coreFollow()
 	s.followStart.Do(func() {
 		go f.loop(nil, s.followTrigger, func() bool { return !s.GetSettings().AutoUpdateCoreOff }, coreFollowFirstDelay, coreFollowInterval)

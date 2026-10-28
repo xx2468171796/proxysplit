@@ -36,6 +36,9 @@ const (
 	Ctl         = Dir + "/psctl"
 	sudoersFile = "/etc/sudoers.d/proxysplit"
 	legacyCtl   = "/usr/local/libexec/proxysplit-psctl" // test builds before 2026-10-29
+	// ctlVersion changes whenever ctlScript / checkJS change, so an upgraded
+	// app re-installs them (one password prompt) instead of running old ones.
+	ctlVersion = "2"
 )
 
 // Command runs the control script as root without a prompt (sudo -n).
@@ -67,7 +70,7 @@ func Installed(core string) bool {
 		return false
 	}
 	out, err := Command("ping").Output()
-	return err == nil && strings.TrimSpace(string(out)) == "ok "+sum
+	return err == nil && strings.TrimSpace(string(out)) == "ok "+sum+" v"+ctlVersion
 }
 
 func fileSHA(path string) (string, error) {
@@ -121,7 +124,7 @@ mv -f "$t" %[6]s
 // sudoers line allows any.
 const ctlScript = `#!/bin/sh
 # ProxySplit 特权控制脚本（root 所有；ProxySplit 装的，别手改）。
-# 只做：用 root 跑授权时复制进来的 sing-box（TUN 要 root）、停掉它、开关系统代理。
+# 只做：用 root 跑授权时复制进来的 sing-box（TUN 要 root；运行期间系统 DNS 指向 TUN）、停掉它、开关系统代理。
 PATH=/usr/bin:/bin:/usr/sbin:/sbin
 HOME=/var/root
 export PATH HOME
@@ -140,8 +143,30 @@ stopcore() {
   esac
   rm -f "$D/core.pid"
 }
+# macOS resolves through mDNSResponder with interface-scoped sockets, which
+# bypass the TUN's DNS hijack; while the core runs, every network service's DNS
+# points into the TUN. The original servers are kept in dns.bak (never
+# overwritten, so a crash leaves the real originals) and restored when the core
+# exits, on stop, and when the app starts (it calls stop).
+flushdns() { dscacheutil -flushcache; killall -HUP mDNSResponder 2>/dev/null; }
+dnson() {
+  [ -f "$D/dns.bak" ] || services | while IFS= read -r s; do
+    printf '%s\t%s\n' "$s" "$(networksetup -getdnsservers "$s" | tr '\n' ' ')"
+  done > "$D/dns.bak"
+  services | while IFS= read -r s; do networksetup -setdnsservers "$s" "$1"; done
+  flushdns
+}
+dnsoff() {
+  [ -f "$D/dns.bak" ] || return 0
+  T=$(printf '\t')
+  while IFS="$T" read -r s v; do
+    case "$v" in *"aren't any"*|' '|'') networksetup -setdnsservers "$s" empty ;; *) networksetup -setdnsservers "$s" $v ;; esac
+  done < "$D/dns.bak"
+  rm -f "$D/dns.bak"
+  flushdns
+}
 case "$1" in
-ping) echo "ok $(shasum -a 256 "$D/sing-box" | cut -d' ' -f1)" ;;
+ping) echo "ok $(shasum -a 256 "$D/sing-box" | cut -d' ' -f1) v` + ctlVersion + `" ;;
 run)
   case "$2" in /*.json) ;; *) echo "bad config" >&2; exit 2 ;; esac
   # open once, then check the opened file (no swap between check and copy)
@@ -152,13 +177,29 @@ run)
   umask 077
   cat <&3 > "$D/run.json"
   exec 3<&-
-  osascript -l JavaScript "$D/check.js" "$D/run.json" "$D/cache.db" >/dev/null || { echo "config rejected" >&2; exit 2; }
-  echo $$ > "$D/core.pid"
+  # check.js prints "<tun address> <dns address>" (empty when there is no TUN)
+  A=$(osascript -l JavaScript "$D/check.js" "$D/run.json" "$D/cache.db") || { echo "config rejected" >&2; exit 2; }
+  set -- $A
+  TUNIP=$1 DNSIP=$2
   # relative rule-set paths resolve against the caller's data dir (read only)
   cd "$CWD" || exit 1
-  exec "$D/sing-box" run -c "$D/run.json" ;;
+  "$D/sing-box" run -c "$D/run.json" &
+  C=$!
+  echo $C > "$D/core.pid"
+  # sudo relays SIGTERM here; pass it on and still restore DNS afterwards
+  trap 'kill -TERM $C 2>/dev/null' TERM INT HUP
+  if [ -n "$DNSIP" ]; then
+    i=0; until ifconfig | grep -q "inet $TUNIP " || ! kill -0 $C 2>/dev/null || [ $i -ge 50 ]; do sleep 0.1; i=$((i+1)); done
+    kill -0 $C 2>/dev/null && dnson "$DNSIP"
+  fi
+  wait $C; rc=$?
+  while kill -0 $C 2>/dev/null; do wait $C; rc=$?; done
+  dnsoff
+  rm -f "$D/core.pid"
+  exit $rc ;;
 stop)
   stopcore
+  dnsoff
   exit 0 ;;
 proxy)
   if [ "$2" = on ]; then
@@ -198,7 +239,11 @@ function run(argv) {
   walk(c, '');
   if (c.experimental && c.experimental.cache_file) c.experimental.cache_file.path = argv[1];
   if (!$(JSON.stringify(c)).writeToFileAtomicallyEncodingError(argv[0], true, $.NSUTF8StringEncoding, null)) throw new Error('write');
-  return 'ok';
+  // The TUN's IPv4 address and the next one (system DNS while the core runs).
+  var tun = (c.inbounds || []).filter(function (i) { return i.type === 'tun'; })[0];
+  var m = tun && (tun.address || []).map(function (a) { return /^(\d+)\.(\d+)\.(\d+)\.(\d+)\/(\d+)$/.exec(a); }).filter(Boolean)[0];
+  if (!m || +m[5] > 30 || +m[4] >= 254) return '';
+  return m.slice(1, 5).join('.') + ' ' + [m[1], m[2], m[3], +m[4] + 1].join('.');
 }`
 
 // Install asks for the administrator password once (system dialog) and sets

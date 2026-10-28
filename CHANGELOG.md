@@ -3,6 +3,11 @@
 版本号以发布构建为准（`scripts/build-commercial.ps1 -Version <x.y.z>`，注入 `main.appVersion`），
 每个发布产物的 SHA256 见 `output/proxysplit-v<版本>.manifest.json`。
 
+## v1.10.10
+
+- macOS 版修复：被代理的网站在部分网络下打不开（系统 DNS 没被接管，拿到错误地址）；选择整个应用（如 Chrome）时规则不生效。
+- macOS 版：首次使用新版本时会再请求一次电脑密码。
+
 ## v1.10.9
 
 - 新增 macOS 版（Apple 芯片，macOS 11 以上，测试版）：按应用分流、系统代理、开机自启、自动更新；首次连接时输入一次电脑密码。
