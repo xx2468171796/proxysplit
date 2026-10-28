@@ -70,7 +70,7 @@ export async function fetchPlans(): Promise<Plan[]> {
   return Array.isArray(body.items) ? body.items : [];
 }
 
-export type RegisterInput = { username: string; email: string; password: string; ref?: string };
+export type RegisterInput = { phone: string; code: string; username: string; password: string; ref?: string };
 
 // 推广链接 ?ref=CODE：落地时记 30 天（新码覆盖旧码），注册时带上，服务端在建号事务里绑上级（多级分销）。
 const REF_KEY = "proxysplit:ref";
@@ -95,25 +95,72 @@ export function readReferralCode(): string {
   }
 }
 
-/** 网页注册只建账号；试用在第一次用客户端登录时按硬件发放。返回空串 = 成功。 */
-export async function registerWeb(input: RegisterInput): Promise<string> {
+/** 服务端错误码 → 中文提示。没认出的码用服务端自带的 message，再没有就用兜底文案。 */
+const ERROR_TEXT: Record<string, string> = {
+  PHONE_TAKEN: "这个手机号已经注册过了，请直接下载软件登录。",
+  SMS_COOLDOWN: "验证码发送太频繁，请 60 秒后再试。",
+  SMS_DAILY_LIMIT: "这个手机号今天获取验证码的次数已达上限，请明天再试。",
+  SMS_UNAVAILABLE: "短信服务暂时不可用，请稍后再试。",
+  SMS_SEND_FAILED: "短信发送失败，请稍后再试。",
+  SMS_CODE_INVALID: "验证码不对或已过期，请重新获取。",
+  IDENTITY_TAKEN: "这个用户名已经被注册了，换一个试试。",
+  REGISTRATION_DISABLED: "当前暂停开放注册，请稍后再来。",
+  IP_ACCOUNT_LIMIT: "当前网络注册的账号已达上限，请直接登录或联系客服。",
+  DEVICE_ACCOUNT_LIMIT: "该设备注册的账号已达上限，请使用已有账号登录。",
+  VALIDATION_ERROR: "填写的内容格式不对，请检查手机号、验证码、用户名和密码。",
+  RATE_LIMITED: "操作太频繁了，请稍后再试。",
+};
+
+type PostResult = { ok: true; data: unknown } | { ok: false; code: string; message: string };
+
+async function postJson(path: string, body: unknown): Promise<PostResult> {
   try {
-    const res = await fetch("/v1/auth/register/web", {
+    const res = await fetch(path, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify(input),
+      body: JSON.stringify(body),
     });
-    if (res.ok) return "";
-    const body = (await res.json().catch(() => ({}))) as { error?: { message?: string } };
-    return body.error?.message || "注册失败，请稍后重试。";
+    const data: unknown = await res.json().catch(() => ({}));
+    if (res.ok) return { ok: true, data };
+    const err = (data as { error?: { code?: string; message?: string } }).error;
+    const code = err?.code ?? "";
+    return { ok: false, code, message: ERROR_TEXT[code] || err?.message || "请求失败，请稍后重试。" };
   } catch {
-    return "网络异常，请稍后重试。";
+    return { ok: false, code: "NETWORK", message: "网络异常，请稍后重试。" };
   }
 }
 
+export const SMS_COOLDOWN_FALLBACK = 60;
+
+/** 发注册验证码。成功返回冷却秒数；限频报错时也返回要等的秒数，页面照样倒计时。 */
+export async function sendRegisterCode(phone: string): Promise<{ cooldown: number; error: string }> {
+  const r = await postJson("/v1/auth/sms/send", { phone, purpose: "register" });
+  if (!r.ok) return { cooldown: r.code === "SMS_COOLDOWN" ? SMS_COOLDOWN_FALLBACK : 0, error: r.message };
+  const s = (r.data as { cooldownSeconds?: unknown }).cooldownSeconds;
+  return { cooldown: typeof s === "number" && s > 0 ? Math.ceil(s) : SMS_COOLDOWN_FALLBACK, error: "" };
+}
+
+/** 网页注册只建账号；试用在第一次用客户端登录时按硬件发放。返回空串 = 成功。 */
+export async function registerWeb(input: RegisterInput): Promise<string> {
+  const r = await postJson("/v1/auth/register/web", input);
+  return r.ok ? "" : r.message || "注册失败，请稍后重试。";
+}
+
+/** 去掉空格 / 横线和 +86 前缀，和服务端的手机号规则一致。 */
+export function normalizePhone(raw: string): string {
+  const s = raw.replace(/[\s\-()]/g, "");
+  if (s.startsWith("+86")) return s.slice(3);
+  if (s.startsWith("0086")) return s.slice(4);
+  if (s.length === 13 && s.startsWith("86")) return s.slice(2);
+  return s;
+}
+
+export const isPhone = (phone: string) => /^1[3-9]\d{9}$/.test(phone);
+
 export function validateRegister(input: RegisterInput): string {
+  if (!isPhone(input.phone)) return "请输入正确的 11 位手机号。";
+  if (!/^\d{6}$/.test(input.code)) return "请输入 6 位数字验证码。";
   if (input.username.length < 3 || /[\s@]/.test(input.username)) return "用户名至少 3 位，不能有空格和 @。";
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(input.email)) return "邮箱格式不对。";
   if (input.password.length < 8) return "密码至少 8 位。";
   return "";
 }

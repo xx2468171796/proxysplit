@@ -146,9 +146,23 @@ body {
 }
 .ps-register form {
   display: grid;
-  grid-template-columns: 1.3fr 1fr 1fr 1fr auto;
+  grid-template-columns: repeat(3, 1fr);
   gap: 12px;
   align-items: center;
+}
+.ps-register-copy {
+  grid-column: 1 / -1;
+}
+.ps-register-phone {
+  display: flex;
+  gap: 8px;
+}
+.ps-register-phone .q-input {
+  flex: 1;
+  min-width: 0;
+}
+.ps-register-phone .q-btn {
+  white-space: nowrap;
 }
 .ps-register h3 {
   font-size: 17px;

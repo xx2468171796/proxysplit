@@ -11,8 +11,8 @@
 |---|---|
 | `src/recipe.ts` | **配方**：`siteRecipe(version, dark)`。行业 `saas`、设计语言 `clean-modern`、主色浅色 `#1c1f24` / 深色 `#6b7584`（和客户端一致）、动效方案 `calm` + 强度 `normal`（首屏线波是 Canvas 2D，不建 WebGL）。全部文案和区块顺序都在这里 |
 | `src/app.tsx` | `parseRecipe` 校验后交给 `SiteView`；`ACTIONS`（按钮 / 导航 / 页脚文字 → 去哪）；`slots`（实时内容） |
-| `src/slots/` | 插槽内容：`shot.tsx`（截图圆角卡片，不画系统窗口框 + 首屏下大图 `preview`）、`tour.tsx`（`features`：文字 + 真截图）、`pricing.tsx` / `plan-card.tsx`（`pricing`：套餐 + 网页注册）、`download.tsx`（`download`：最新版本 + 联系方式） |
-| `src/api.ts` / `src/use-site-data.ts` | 和 `/v1` 的全部往来：访客 ID、`trackView`、`fetchLatestVersion`、`fetchPlans`、`registerWeb`，`LATEST_DOWNLOAD`（带访客统计的下载地址） |
+| `src/slots/` | 插槽内容：`shot.tsx`（截图圆角卡片，不画系统窗口框 + 首屏下大图 `preview`）、`tour.tsx`（`features`：文字 + 真截图）、`pricing.tsx` / `plan-card.tsx` / `register-form.tsx`（`pricing`：套餐 + 手机号网页注册；官网没有登录区，忘记密码流程在客户端）、`download.tsx`（`download`：最新版本 + 联系方式） |
+| `src/api.ts` / `src/use-site-data.ts` | 和 `/v1` 的全部往来：访客 ID、`trackView`、`fetchLatestVersion`、`fetchPlans`、`sendRegisterCode`（短信验证码）、`registerWeb`（手机号 + 验证码注册，错误码 → 中文提示），`LATEST_DOWNLOAD`（带访客统计的下载地址） |
 | `src/site.css` | 插槽样式，只读 `--q-*`（0.6.0 时的几处样式补丁已在 qiantai 0.8.0 里从源头修掉、删除） |
 | `src/dev/mock-api.ts` | 假接口，只在开发预览和评审包里装（见下） |
 | `public/shots/` | 客户端无边框新界面截图（自带我们自己的标题栏和最小化 / 最大化 / 关闭按钮，业主 2026-10-23 定：不出现系统标题栏）：`<名字>.webp`（1x）+ `@2x.webp`，名字和尺寸登记在 `src/slots/shot.tsx` 的 `SHOTS` |
@@ -28,7 +28,7 @@
 
 ## 本地预览与假接口
 
-- `pnpm dev`（5288）：`/v1/*` 默认由假接口接住。地址参数切状态：`?plans=loading|error|empty`、`?register=fail`、`?version=none`、`?theme=dark`；
+- `pnpm dev`（5288）：`/v1/*` 默认由假接口接住。地址参数切状态：`?plans=loading|error|empty`、`?register=fail`、`?sms=taken|cooldown|daily|down`、`?version=none`、`?theme=dark`；
   `?mock=0` 改走 vite 代理的线上接口。访问统计在开发环境不上报。
 - 正式构建（`pnpm build` / `check:bundle`）里假接口那一支被常量折叠掉，产物里没有假数据。
 

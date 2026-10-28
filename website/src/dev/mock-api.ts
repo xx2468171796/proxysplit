@@ -1,5 +1,5 @@
 // 假接口（只在开发预览和评审包里装，见 main.tsx）：拦下 /v1/*，本地没有 API 也能看全各种状态。
-// 地址参数切状态：?plans=loading|error|empty、?register=fail、?version=none；开发时 ?mock=0 改走 vite 代理的真接口。
+// 地址参数切状态：?plans=loading|error|empty、?register=fail、?sms=taken|cooldown|daily|down、?version=none；开发时 ?mock=0 改走 vite 代理的真接口。
 // 套餐是演示数据，不代表线上价格。
 import type { Plan } from "../api";
 import { siteQuery } from "../query";
@@ -34,6 +34,18 @@ const PLANS: Plan[] = [
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 
+const SMS_FAILS: Record<string, [string, number]> = {
+  taken: ["PHONE_TAKEN", 409],
+  cooldown: ["SMS_COOLDOWN", 429],
+  daily: ["SMS_DAILY_LIMIT", 429],
+  down: ["SMS_UNAVAILABLE", 503],
+};
+
+function respondSms(mode: string | null): Response {
+  const fail = mode ? SMS_FAILS[mode] : undefined;
+  return fail ? json({ error: { code: fail[0], message: "mock" } }, fail[1]) : json({ ok: true, cooldownSeconds: 60 });
+}
+
 function respond(path: string, q: URLSearchParams): Promise<Response> | Response {
   if (path === "/v1/releases/latest")
     return q.get("version") === "none" ? json({}, 404) : json({ release: { version: "1.9.80" } });
@@ -43,13 +55,14 @@ function respond(path: string, q: URLSearchParams): Promise<Response> | Response
     if (mode === "error") return json({ error: { message: "mock" } }, 503);
     return json({ items: mode === "empty" ? [] : PLANS });
   }
+  if (path === "/v1/auth/sms/send") return respondSms(q.get("sms"));
   if (path === "/v1/auth/register/web")
     return new Promise((resolve) =>
       setTimeout(
         () =>
           resolve(
             q.get("register") === "fail"
-              ? json({ error: { message: "这个用户名已经被注册了。" } }, 409)
+              ? json({ error: { code: "IDENTITY_TAKEN", message: "mock" } }, 409)
               : json({ ok: true }),
           ),
         600,
