@@ -3,6 +3,10 @@
 版本号以发布构建为准（`scripts/build-commercial.ps1 -Version <x.y.z>`，注入 `main.appVersion`），
 每个发布产物的 SHA256 见 `output/proxysplit-v<版本>.manifest.json`。
 
+## v1.10.7
+
+- 稳定性改进。
+
 ## v1.10.6
 
 - 去掉「自动选择（最快）」，节点只手动切换；之前选了自动选择的会自动改为第一个节点。
