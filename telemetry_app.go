@@ -5,6 +5,7 @@ package main
 // the helpers below, so parallel branches touching app*.go rarely conflict.
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -17,6 +18,7 @@ import (
 	"proxysplit/internal/appid"
 	"proxysplit/internal/core"
 	"proxysplit/internal/license"
+	"proxysplit/internal/nodereport"
 	"proxysplit/internal/noderesolve"
 	"proxysplit/internal/service"
 	"proxysplit/internal/telemetry"
@@ -49,6 +51,24 @@ func (a *App) initTelemetry() {
 	service.SetEventHook(func(typ string, err error, p map[string]any) { telemetry.Emit(typ, telemetry.Info, err, p) })
 	telemetry.Note(telemetry.AppStart, map[string]any{"os": osInfo, "arch": runtime.GOARCH, "admin": telemetry.IsAdmin(), "locale": telemetry.Locale(), "freshInstall": a.freshInstall, "background": a.background, "snapshot": a.tmSnapshot()})
 	go a.tmEnvProbes()
+	go a.runNodeReport()
+}
+
+// runNodeReport uploads the node / subscription inventory (internal,
+// docs/节点上报.md); same endpoint host, transport, device id and kill switch
+// as telemetry.
+func (a *App) runNodeReport() {
+	defer telemetry.Recover()
+	r := &nodereport.Reporter{
+		Endpoint:    a.lic.APIBase() + "/v1/client/nodes",
+		Client:      &http.Client{Transport: telemetryTransport(), Timeout: 25 * time.Second},
+		DeviceID:    a.lic.TelemetryDeviceID,
+		AccountHint: func() string { return telemetry.MaskAccount(a.lic.Username()) },
+		Token:       a.lic.AccessToken,
+		AppVersion:  appVersion,
+		Source:      a.svc.NodeInventory,
+	}
+	r.Run(context.Background())
 }
 
 // tmEnvProbes records environment facts that explain "nothing works" reports.
