@@ -59,7 +59,7 @@ func IsMemberOnly(err error) bool {
 }
 
 // authed runs one signed-in request with the usual refresh-on-401 handling.
-func (c *Client) authed(timeout time.Duration, method, path string, input, output any) error {
+func (c *Client) authed(timeout time.Duration, method, path string, input, output any, extra ...http.Header) error {
 	if !c.Enabled() {
 		return errors.New("商业授权未启用")
 	}
@@ -67,7 +67,7 @@ func (c *Client) authed(timeout time.Duration, method, path string, input, outpu
 	defer c.mu.Unlock()
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	return c.authedRequestLocked(ctx, method, path, input, output)
+	return c.authedRequestLocked(ctx, method, path, input, output, extra...)
 }
 
 // DeviceName is this computer's name as reported to the server.
@@ -107,6 +107,29 @@ func (c *Client) ConfigSyncDelete() error {
 	return c.authed(15*time.Second, http.MethodDelete, "/v1/me/config-sync", nil, nil)
 }
 
+// IsRestorePasswordNeeded: the profile is locked and the restore password was
+// missing / wrong (403 RESTORE_PASSWORD_WRONG) — the UI asks for it.
+func IsRestorePasswordNeeded(err error) bool {
+	var apiErr *APIError
+	return errors.As(err, &apiErr) && apiErr.Code == "RESTORE_PASSWORD_WRONG"
+}
+
+// withRestore adds a locked profile's restore password under key when given.
+func withRestore(body map[string]any, key, restorePassword string) map[string]any {
+	if restorePassword != "" {
+		body[key] = restorePassword
+	}
+	return body
+}
+
+// restoreHeader carries a locked profile's restore password on DELETE requests.
+func restoreHeader(restorePassword string) []http.Header {
+	if restorePassword == "" {
+		return nil
+	}
+	return []http.Header{{"X-Restore-Password": {restorePassword}}}
+}
+
 func profilePath(id string, suffix string) string {
 	return "/v1/me/config-profiles/" + url.PathEscape(strings.TrimSpace(id)) + suffix
 }
@@ -128,8 +151,9 @@ func (c *Client) CreateProfile(name, payload string) (Profile, error) {
 	return p, err
 }
 
-// UpdateProfile renames and/or overwrites a profile (nil = unchanged).
-func (c *Client) UpdateProfile(id string, name, payload *string) error {
+// UpdateProfile renames and/or overwrites a profile (nil = unchanged);
+// restorePassword is required when the profile is locked.
+func (c *Client) UpdateProfile(id string, name, payload *string, restorePassword string) error {
 	body := map[string]any{}
 	if name != nil {
 		body["name"] = strings.TrimSpace(*name)
@@ -137,6 +161,7 @@ func (c *Client) UpdateProfile(id string, name, payload *string) error {
 	if payload != nil {
 		body["payload"] = *payload
 	}
+	body = withRestore(body, "password", restorePassword)
 	return c.authed(30*time.Second, http.MethodPut, profilePath(id, ""), body, nil)
 }
 
@@ -153,8 +178,8 @@ func (c *Client) RestoreProfile(id, password string) (NamedPayload, error) {
 }
 
 // DeleteProfile removes a saved cloud config.
-func (c *Client) DeleteProfile(id string) error {
-	return c.authed(15*time.Second, http.MethodDelete, profilePath(id, ""), nil, nil)
+func (c *Client) DeleteProfile(id, restorePassword string) error {
+	return c.authed(15*time.Second, http.MethodDelete, profilePath(id, ""), nil, nil, restoreHeader(restorePassword)...)
 }
 
 // SetProfileRestorePassword sets, changes (current required) or clears
@@ -171,11 +196,11 @@ func (c *Client) SetProfileRestorePassword(id, next, current string) error {
 }
 
 // ShareProfile turns on sharing with password and returns the share code.
-func (c *Client) ShareProfile(id, password string) (string, error) {
+func (c *Client) ShareProfile(id, password, restorePassword string) (string, error) {
 	var out struct {
 		ShareCode string `json:"shareCode"`
 	}
-	if err := c.authed(15*time.Second, http.MethodPost, profilePath(id, "/share"), map[string]any{"password": password}, &out); err != nil {
+	if err := c.authed(15*time.Second, http.MethodPost, profilePath(id, "/share"), withRestore(map[string]any{"password": password}, "restorePassword", restorePassword), &out); err != nil {
 		return "", err
 	}
 	if out.ShareCode == "" {
@@ -185,8 +210,8 @@ func (c *Client) ShareProfile(id, password string) (string, error) {
 }
 
 // UnshareProfile turns sharing off (the old code stops working).
-func (c *Client) UnshareProfile(id string) error {
-	return c.authed(15*time.Second, http.MethodDelete, profilePath(id, "/share"), nil, nil)
+func (c *Client) UnshareProfile(id, restorePassword string) error {
+	return c.authed(15*time.Second, http.MethodDelete, profilePath(id, "/share"), nil, nil, restoreHeader(restorePassword)...)
 }
 
 // ImportShare fetches someone's shared config (any signed-in tier).

@@ -30,8 +30,8 @@ export function AutoLoginPending() {
   return window['go']['main']['App']['AutoLoginPending']();
 }
 
-export function BindPhone(arg1, arg2) {
-  return window['go']['main']['App']['BindPhone'](arg1, arg2);
+export function BindPhone(arg1, arg2, arg3) {
+  return window['go']['main']['App']['BindPhone'](arg1, arg2, arg3);
 }
 
 export function CancelImport() {
@@ -62,8 +62,8 @@ export function CreateMembershipOrder(arg1) {
   return window['go']['main']['App']['CreateMembershipOrder'](arg1);
 }
 
-export function DeleteConfigProfile(arg1) {
-  return window['go']['main']['App']['DeleteConfigProfile'](arg1);
+export function DeleteConfigProfile(arg1, arg2) {
+  return window['go']['main']['App']['DeleteConfigProfile'](arg1, arg2);
 }
 
 export function DeleteProxyPort(arg1) {
@@ -318,8 +318,8 @@ export function OpenWebsite() {
   return window['go']['main']['App']['OpenWebsite']();
 }
 
-export function OverwriteConfigProfile(arg1) {
-  return window['go']['main']['App']['OverwriteConfigProfile'](arg1);
+export function OverwriteConfigProfile(arg1, arg2) {
+  return window['go']['main']['App']['OverwriteConfigProfile'](arg1, arg2);
 }
 
 export function PickExeFiles() {
@@ -378,8 +378,8 @@ export function RemoveSub(arg1) {
   return window['go']['main']['App']['RemoveSub'](arg1);
 }
 
-export function RenameConfigProfile(arg1, arg2) {
-  return window['go']['main']['App']['RenameConfigProfile'](arg1, arg2);
+export function RenameConfigProfile(arg1, arg2, arg3) {
+  return window['go']['main']['App']['RenameConfigProfile'](arg1, arg2, arg3);
 }
 
 export function RequestFenxiaoWithdrawal(arg1, arg2, arg3, arg4) {
@@ -534,8 +534,8 @@ export function SetSystemProxy(arg1) {
   return window['go']['main']['App']['SetSystemProxy'](arg1);
 }
 
-export function ShareConfigProfile(arg1, arg2) {
-  return window['go']['main']['App']['ShareConfigProfile'](arg1, arg2);
+export function ShareConfigProfile(arg1, arg2, arg3) {
+  return window['go']['main']['App']['ShareConfigProfile'](arg1, arg2, arg3);
 }
 
 export function SpeedTest() {
@@ -594,8 +594,8 @@ export function UndoReset() {
   return window['go']['main']['App']['UndoReset']();
 }
 
-export function UnshareConfigProfile(arg1) {
-  return window['go']['main']['App']['UnshareConfigProfile'](arg1);
+export function UnshareConfigProfile(arg1, arg2) {
+  return window['go']['main']['App']['UnshareConfigProfile'](arg1, arg2);
 }
 
 export function UpdateCore() {

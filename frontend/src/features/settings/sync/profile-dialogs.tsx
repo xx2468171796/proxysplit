@@ -5,6 +5,7 @@ import { syncApi } from "../../../api/sync";
 import type { ConfigProfile } from "../../../api/types-account";
 import { useFeedback } from "../../../app/use-feedback";
 import { previewProfile, profileAction } from "../../../state/configsync";
+import { needRestore, RestoreField } from "./restore-field";
 import { ShareDialog } from "./share-dialog";
 
 export type ProfileDialog =
@@ -20,6 +21,7 @@ const fail = (err: string) => {
 function NameDialog({ p, onClose }: { p?: ConfigProfile; onClose: () => void }) {
   const { say } = useFeedback();
   const [name, setName] = useState(p?.name ?? "");
+  const [restore, setRestore] = useState("");
   return (
     <FormDialog
       open
@@ -32,13 +34,15 @@ function NameDialog({ p, onClose }: { p?: ConfigProfile; onClose: () => void }) 
       dirty={name.trim() !== "" && name !== p?.name}
       onClose={onClose}
       onSubmit={async () => {
-        fail(await profileAction(() => (p ? syncApi.renameProfile(p.id, name) : syncApi.saveProfile(name))));
+        if (p) needRestore(p, restore);
+        fail(await profileAction(() => (p ? syncApi.renameProfile(p.id, name, restore) : syncApi.saveProfile(name))));
         say(p ? "已改名" : "已存到云端", "success");
       }}
     >
       <FormField label="名称" htmlFor="profile-name" hint="最多 40 个字">
         <Input id="profile-name" value={name} onChange={(e) => setName(e.target.value)} maxLength={40} autoFocus />
       </FormField>
+      {p ? <RestoreField p={p} value={restore} onChange={setRestore} /> : null}
     </FormDialog>
   );
 }
@@ -131,6 +135,27 @@ function ConfirmProfile({ kind, p, onClose }: { kind: keyof typeof CONFIRMS; p: 
   const call = { overwrite: syncApi.overwriteProfile, delete: syncApi.deleteProfile, unshare: syncApi.unshareProfile }[
     kind
   ];
+  const [restore, setRestore] = useState("");
+  if (p.locked) {
+    return (
+      <FormDialog
+        open
+        size="sm"
+        title={`${c.title}「${p.name}」？`}
+        description={c.text}
+        submitLabel={c.label}
+        dirty
+        onClose={onClose}
+        onSubmit={async () => {
+          needRestore(p, restore);
+          fail(await profileAction(() => call(p.id, restore)));
+          say("已完成", "success");
+        }}
+      >
+        <RestoreField p={p} value={restore} onChange={setRestore} />
+      </FormDialog>
+    );
+  }
   return (
     <ConfirmDialog
       open

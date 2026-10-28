@@ -77,7 +77,7 @@ const profiles = [
 const quota = params.get("profiles") === "full" ? 2 : 5;
 
 export const mockSync: Record<string, Fn> = {
-  SendSMSCode: () => "",
+  SendSMSCode: () => ({ cooldownSeconds: 60 }),
   RegisterPhone: () => "",
   ResetPassword: () => "",
   BindPhone: () => "",

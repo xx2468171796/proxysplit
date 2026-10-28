@@ -50,25 +50,40 @@ func validCode(code string) (string, error) {
 	return c, nil
 }
 
+// DefaultSMSCooldown is used when the server does not say how long to wait.
+const DefaultSMSCooldown = 60
+
 // SendSMSCode asks the server to text a 6-digit code for purpose
-// (register / reset / bind). "bind" needs a signed-in session.
-func (c *Client) SendSMSCode(phone, purpose string) error {
+// (register / reset / bind) and returns the server's resend cooldown in
+// seconds. "bind" needs a signed-in session.
+func (c *Client) SendSMSCode(phone, purpose string) (int, error) {
 	p, err := NormalizePhone(phone)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	if purpose != SMSRegister && purpose != SMSReset && purpose != SMSBind {
-		return errors.New("验证码用途无效")
+		return 0, errors.New("验证码用途无效")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	body := map[string]any{"phone": p, "purpose": purpose}
+	var out struct {
+		CooldownSeconds int `json:"cooldownSeconds"`
+	}
 	if purpose == SMSBind {
 		c.mu.Lock()
-		defer c.mu.Unlock()
-		return c.authedRequestLocked(ctx, http.MethodPost, "/v1/auth/sms/send", body, nil)
+		err = c.authedRequestLocked(ctx, http.MethodPost, "/v1/auth/sms/send", body, &out)
+		c.mu.Unlock()
+	} else {
+		err = c.request(ctx, http.MethodPost, "/v1/auth/sms/send", body, &out, "")
 	}
-	return c.request(ctx, http.MethodPost, "/v1/auth/sms/send", body, nil, "")
+	if err != nil {
+		return 0, err
+	}
+	if out.CooldownSeconds <= 0 || out.CooldownSeconds > 3600 {
+		out.CooldownSeconds = DefaultSMSCooldown
+	}
+	return out.CooldownSeconds, nil
 }
 
 // RegisterPhone creates a phone account and signs this device in.
@@ -105,7 +120,8 @@ func (c *Client) ResetPassword(phone, code, password string) error {
 }
 
 // BindPhone attaches a phone number to the signed-in (older) account.
-func (c *Client) BindPhone(phone, code string) error {
+// Changing an already bound phone needs the current login password.
+func (c *Client) BindPhone(phone, code, currentPassword string) error {
 	p, err := NormalizePhone(phone)
 	if err != nil {
 		return err
@@ -118,7 +134,11 @@ func (c *Client) BindPhone(phone, code string) error {
 	defer c.mu.Unlock()
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
-	if err := c.authedRequestLocked(ctx, http.MethodPost, "/v1/me/phone", map[string]any{"phone": p, "code": sms}, nil); err != nil {
+	body := map[string]any{"phone": p, "code": sms}
+	if currentPassword != "" {
+		body["currentPassword"] = currentPassword
+	}
+	if err := c.authedRequestLocked(ctx, http.MethodPost, "/v1/me/phone", body, nil); err != nil {
 		return err
 	}
 	bound := true

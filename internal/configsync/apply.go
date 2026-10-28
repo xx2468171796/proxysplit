@@ -3,14 +3,33 @@ package configsync
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"time"
 )
 
-// BackupFile holds the config as it was before the last import / restore so
-// it can be undone once. It lives in the user data dir next to config.json.
+// BackupFile holds the config as it was before the last manual import /
+// restore so it can be undone once. It lives in the user data dir next to
+// config.json.
 const BackupFile = "config-before-import.json"
+
+// SyncBackupFile holds the config as it was before the last automatic cloud
+// pull (only the latest one is kept). Auto-sync never touches BackupFile, so
+// a background pull cannot wipe the undo of a manual import.
+const SyncBackupFile = "config-before-sync.json"
+
+// mergeMode tells Merge where the bundle comes from.
+type mergeMode int
+
+const (
+	// modeImport: manual file / cloud-profile / share import. The bundle's
+	// selected node is applied when it exists on this machine.
+	modeImport mergeMode = iota
+	// modeSync: automatic cloud sync. The selected node is per machine and
+	// never synced: this machine's selection always stays.
+	modeSync
+)
 
 // Preview summarises a bundle for the confirm dialog.
 type Preview struct {
@@ -69,10 +88,15 @@ func wanted(sections []string, b Bundle) map[string]bool {
 // it. POWER云 lines and the POWER云 subscription of this machine are always
 // kept; references to nodes that no longer exist fall back to defaults.
 func Merge(current string, b Bundle, sections []string) (string, error) {
+	return merge(current, b, sections, modeImport)
+}
+
+func merge(current string, b Bundle, sections []string, mode mergeMode) (string, error) {
 	cfg, err := decodeConfig(current)
 	if err != nil {
 		return "", err
 	}
+	prev, _ := decodeConfig(current) // untouched copy: this machine's references
 	want := wanted(sections, b)
 	if len(want) == 0 {
 		return "", errors.New("请至少选择一项要恢复的内容")
@@ -81,7 +105,7 @@ func Merge(current string, b Bundle, sections []string) (string, error) {
 	if want[SecNodes] {
 		in := section(b, SecNodes)
 		manual = list(in["nodes"])
-		if sel, ok := in["selectedId"].(string); ok && sel != "" {
+		if sel, ok := in["selectedId"].(string); ok && sel != "" && mode == modeImport {
 			cfg["selectedId"] = sel
 		}
 	}
@@ -110,9 +134,20 @@ func Merge(current string, b Bundle, sections []string) (string, error) {
 		}
 	}
 	cfg["nodes"] = toAny(dedupe(append(append(manual, subNodes...), account...)))
-	fixReferences(cfg)
+	fixReferences(cfg, prev)
 	raw, err := json.MarshalIndent(cfg, "", "  ")
 	return string(raw), err
+}
+
+// refKey identifies the same line / rule / proxy port across machines.
+func refKey(kind string, i int, m obj) string {
+	if id := str(m, "id"); id != "" {
+		return kind + "#" + id
+	}
+	if match := str(m, "match"); match != "" {
+		return kind + "@" + match
+	}
+	return fmt.Sprintf("%s[%d]", kind, i)
 }
 
 func dedupe(nodes []obj) []obj {
@@ -129,47 +164,77 @@ func dedupe(nodes []obj) []obj {
 	return out
 }
 
-// fixReferences resets pointers to nodes that are not in this config (for
-// example a POWER云 line of another account) instead of failing the import.
-func fixReferences(cfg obj) {
+// fixReferences repairs pointers to nodes that are not in this config. The
+// usual cause is a POWER云 official / account line of the exporting machine
+// (those never travel in a bundle): the same line / rule / proxy port then
+// keeps the value it had on this machine (prev) when that still points at an
+// existing node — typically this machine's own POWER云 line — and only
+// otherwise falls back to the default instead of failing the import.
+func fixReferences(cfg, prev obj) {
 	ids := map[string]bool{}
 	for _, n := range list(cfg["nodes"]) {
 		ids[str(n, "id")] = true
 	}
+	local := map[string]string{}
+	for _, key := range []string{"lines", "rules", "proxyPorts"} {
+		for i, m := range list(prev[key]) {
+			local[refKey(key, i, m)] = str(m, "node")
+		}
+	}
+	keepLocal := func(key string, i int, m obj, fallback string) {
+		if node := str(m, "node"); node == "" || ids[node] || (key == "lines" && (node == "active" || node == "direct")) {
+			return
+		}
+		if v, ok := local[refKey(key, i, m)]; ok && (ids[v] || (key == "lines" && (v == "active" || v == "direct"))) {
+			m["node"] = v
+			return
+		}
+		m["node"] = fallback
+	}
 	if sel := str(cfg, "selectedId"); sel != "" && !ids[sel] {
-		cfg["selectedId"] = ""
+		if old := str(prev, "selectedId"); ids[old] {
+			cfg["selectedId"] = old
+		} else {
+			cfg["selectedId"] = ""
+		}
 	}
 	for _, n := range list(cfg["nodes"]) {
 		if via := str(n, "via"); via != "" && !ids[via] {
 			delete(n, "via")
 		}
 	}
-	for _, l := range list(cfg["lines"]) {
-		if node := str(l, "node"); node != "" && node != "active" && node != "direct" && !ids[node] {
-			l["node"] = "active"
-		}
+	for i, l := range list(cfg["lines"]) {
+		keepLocal("lines", i, l, "active")
 	}
 	for _, key := range []string{"rules", "proxyPorts"} {
-		for _, r := range list(cfg[key]) {
-			if node := str(r, "node"); node != "" && !ids[node] {
-				r["node"] = ""
-			}
+		for i, r := range list(cfg[key]) {
+			keepLocal(key, i, r, "")
 		}
 	}
 }
 
 // Apply backs the live config up (for one-step undo) and applies the chosen
-// sections of b.
+// sections of b (manual import / cloud profile / share code).
 func Apply(store Store, dir string, b Bundle, sections []string) error {
+	return apply(store, filepath.Join(dir, BackupFile), b, sections, modeImport)
+}
+
+// ApplySync applies a cloud-sync copy: backup in SyncBackupFile (the manual
+// import undo stays intact) and this machine's selected node is kept.
+func ApplySync(store Store, dir string, b Bundle) error {
+	return apply(store, filepath.Join(dir, SyncBackupFile), b, nil, modeSync)
+}
+
+func apply(store Store, backup string, b Bundle, sections []string, mode mergeMode) error {
 	current, err := store.ExportAll()
 	if err != nil {
 		return err
 	}
-	merged, err := Merge(current, b, sections)
+	merged, err := merge(current, b, sections, mode)
 	if err != nil {
 		return err
 	}
-	if err := writeFileAtomic(filepath.Join(dir, BackupFile), []byte(current)); err != nil {
+	if err := writeFileAtomic(backup, []byte(current)); err != nil {
 		return errors.New("备份当前配置失败，已取消导入：" + err.Error())
 	}
 	return store.ImportAll(merged)

@@ -14,11 +14,14 @@ const asPreview = (r: unknown): ImportPreview => (r ?? {}) as ImportPreview;
 
 export const syncApi = {
   // 手机号
-  sendSmsCode: (phone: string, purpose: SmsPurpose) => W.SendSMSCode(phone, purpose),
+  sendSmsCode: async (phone: string, purpose: SmsPurpose) => {
+    const r = (await W.SendSMSCode(phone, purpose)) as { cooldownSeconds?: number; err?: string } | null;
+    return { err: r?.err ?? "", cooldownSeconds: r?.cooldownSeconds ?? 0 };
+  },
   registerPhone: (phone: string, code: string, user: string, pass: string, ref: string) =>
     W.RegisterPhone(phone, code, user, pass, ref),
   resetPassword: (phone: string, code: string, pass: string) => W.ResetPassword(phone, code, pass),
-  bindPhone: (phone: string, code: string) => W.BindPhone(phone, code),
+  bindPhone: (phone: string, code: string, currentPassword: string) => W.BindPhone(phone, code, currentPassword),
   refreshAccountProfile: () => W.RefreshAccountProfile(),
 
   // 本地导出 / 导入（预览 → 确认，确认前自动备份，可撤销一次）
@@ -45,13 +48,14 @@ export const syncApi = {
     };
   },
   saveProfile: (name: string) => W.SaveConfigProfile(name),
-  overwriteProfile: (id: string) => W.OverwriteConfigProfile(id),
-  renameProfile: (id: string, name: string) => W.RenameConfigProfile(id, name),
-  deleteProfile: (id: string) => W.DeleteConfigProfile(id),
+  // 设了恢复密码的配置：改名 / 覆盖 / 删除 / 分享 / 取消分享都要带恢复密码（没设传 ""）。
+  overwriteProfile: (id: string, restore = "") => W.OverwriteConfigProfile(id, restore),
+  renameProfile: (id: string, name: string, restore = "") => W.RenameConfigProfile(id, name, restore),
+  deleteProfile: (id: string, restore = "") => W.DeleteConfigProfile(id, restore),
   previewProfile: async (id: string, password: string) => asPreview(await W.PreviewConfigProfile(id, password)),
   setProfilePassword: (id: string, next: string, current: string) => W.SetConfigProfilePassword(id, next, current),
-  shareProfile: (id: string, password: string) =>
-    W.ShareConfigProfile(id, password) as Promise<{ code: string; err?: string }>,
-  unshareProfile: (id: string) => W.UnshareConfigProfile(id),
+  shareProfile: (id: string, password: string, restore = "") =>
+    W.ShareConfigProfile(id, password, restore) as Promise<{ code: string; err?: string }>,
+  unshareProfile: (id: string, restore = "") => W.UnshareConfigProfile(id, restore),
   previewShared: async (code: string, password: string) => asPreview(await W.PreviewSharedConfig(code, password)),
 };

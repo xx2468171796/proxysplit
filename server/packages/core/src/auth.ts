@@ -1,8 +1,8 @@
 import { createHash, createPublicKey, randomUUID } from 'node:crypto'
 import { argon2id, hash, verify } from 'argon2'
 import { exportSPKI, generateKeyPair, importPKCS8, jwtVerify, SignJWT } from 'jose'
-import { AppError, looksLikePhone, normalizeUsername } from '@proxysplit/shared'
-import type { ActivateDeviceInput, DeviceInput, LoginInput, PasswordResetInput, PowervpnLoginInput, RefreshInput, RegisterInput, SelfPasswordInput, WebRegisterInput } from '@proxysplit/contracts'
+import { AppError, normalizePhone, normalizeUsername } from '@proxysplit/shared'
+import type { ActivateDeviceInput, BindPhoneInput, DeviceInput, LoginInput, PasswordResetInput, PowervpnLoginInput, RefreshInput, RegisterInput, SelfPasswordInput, WebRegisterInput } from '@proxysplit/contracts'
 import { powervpnMeSchema } from '@proxysplit/contracts'
 import { channelOfSources, type PgStore, type UserChannel, type UserRecord } from './store.js'
 import { effective, licenseView } from './entitlement.js'
@@ -17,9 +17,13 @@ export type PowervpnIdentity={id:string;username:string;email:string|null;displa
 // 面板 GET /api/client/me 核实令牌；令牌只放请求头，绝不写日志。
 export type PowervpnConfig={baseUrl:string;timeoutMs?:number;fetch?:typeof fetch}
 // 短信：配了 apiKey 走云片；没配时开发环境把验证码打到日志，生产返回 503 SMS_UNAVAILABLE。
-export type SmsConfig={apiKey?:string|undefined;tplId:string;production:boolean;log?:(msg:string)=>void;fetch?:typeof fetch}
+export type SmsConfig={apiKey?:string|undefined;tplId:string;production:boolean;showDevCode?:boolean;log?:(msg:string)=>void;fetch?:typeof fetch}
 export type AuthConfig={accessSecret:string;refreshDays:number;licensePrivateKeyPem?:string;licensePublicKeyPem?:string;powervpn?:PowervpnConfig;sms?:SmsConfig}
 const userView=(user:UserRecord)=>({id:user.id,username:user.username,role:user.role,channel:user.channel??'',phoneBound:!!user.phone})
+const phoneTaken=()=>new AppError('PHONE_TAKEN','该手机号已被其他账号使用',409)
+// 没有匹配账号时也跑一次 argon2 校验，响应时间不泄露账号是否存在。
+let dummyHash:Promise<string>|null=null
+const dummyVerify=async(password:string)=>{dummyHash??=hashPassword(randomUUID());await verify(await dummyHash,password).catch(()=>false)}
 const takenError=(error:unknown)=>(error as {constraint?:string}).constraint==='users_phone_uq'
   ?new AppError('PHONE_TAKEN','该手机号已被其他账号使用',409):new AppError('IDENTITY_TAKEN','用户名或邮箱已被使用',409)
 export async function fetchPowervpnIdentity(cfg:PowervpnConfig,accessToken:string):Promise<PowervpnIdentity>{
@@ -40,7 +44,7 @@ export class AuthService{
   readonly phone:PhoneAuth
   private constructor(private store:PgStore,private cfg:AuthConfig,private privateKey:CryptoKey,readonly publicKeyPem:string){
     const sms=cfg.sms
-    this.phone=new PhoneAuth(store.pool,{sender:sms?.apiKey?yunpianSender({apiKey:sms.apiKey,tplId:sms.tplId,...(sms.fetch?{fetch:sms.fetch}:{})}):null,production:sms?.production??false,...(sms?.log?{log:sms.log}:{})})
+    this.phone=new PhoneAuth(store.pool,{sender:sms?.apiKey?yunpianSender({apiKey:sms.apiKey,tplId:sms.tplId,...(sms.fetch?{fetch:sms.fetch}:{})}):null,production:sms?.production??false,showDevCode:sms?.showDevCode===true,...(sms?.log?{log:sms.log}:{})})
   }
   static async create(store:PgStore,cfg:AuthConfig){
     let privateKey:CryptoKey, publicKeyPem=cfg.licensePublicKeyPem
@@ -66,7 +70,14 @@ export class AuthService{
     const user=await this.store.findUserById(userId);if(!user||user.status!=='active')throw new AppError('ACCOUNT_UNAVAILABLE','Account is unavailable',403)
     return this.effectiveOf(user)
   }
+  /** 注册前查撞号：手机号不能是别人的手机号或用户名；像手机号的用户名不能是别人的手机号。 */
+  private async assertIdentityFree(username:string,phone:string|undefined){
+    if(phone&&await this.phone.phoneTaken(phone))throw phoneTaken()
+    const asPhone=normalizePhone(username)
+    if(asPhone&&await this.phone.phoneOwner(asPhone))throw new AppError('IDENTITY_TAKEN','用户名或邮箱已被使用',409)
+  }
   async register(input:RegisterInput,ip=''){
+    await this.assertIdentityFree(input.username,input.phone)
     const codeId=input.phone&&input.code?await this.phone.verify(input.phone,'register',input.code):null
     const passwordHash=await hashPassword(input.password)
     try{
@@ -88,6 +99,7 @@ export class AuthService{
   }
   // 官网注册：只建账号，不绑定设备、不发试用（试用在首次客户端登录时发放）。
   async registerWeb(input:WebRegisterInput,ip=''){
+    await this.assertIdentityFree(input.username,input.phone)
     const codeId=input.phone&&input.code?await this.phone.verify(input.phone,'register',input.code):null
     const passwordHash=await hashPassword(input.password)
     try{
@@ -127,24 +139,45 @@ export class AuthService{
     await this.store.audit(r.userId,'auth.password.reset','user',r.userId,ip,'success')
     return {ok:true}
   }
-  // 登录框接受用户名或手机号：纯 11 位 1 开头先按手机号查，查不到再当用户名（兼容数字用户名）。
-  private async findLoginUser(name:string){
-    const byPhone=looksLikePhone(name)?await this.store.findUserByPhone(name.trim()):null
-    return byPhone??this.store.findUser(normalizeUsername(name))
+  // 已登录用户补绑 / 换绑手机号：已有手机号时换绑要当前登录密码（POWER云 建的无密码账号除外）。
+  async bindPhone(userId:string,input:BindPhoneInput){
+    const user=await this.store.findUserById(userId)
+    if(!user||user.status!=='active')throw new AppError('ACCOUNT_UNAVAILABLE','Account is unavailable',403)
+    if(user.phone&&user.passwordHash){
+      const ok=!!input.currentPassword&&await verify(user.passwordHash,input.currentPassword).catch(()=>false)
+      if(!ok)throw new AppError('PASSWORD_INVALID','当前登录密码不正确',401)
+    }
+    return this.phone.bindPhone(userId,input.phone,input.code)
+  }
+  // 登录框接受用户名或手机号（含 +86）：像手机号先按手机号查，再按用户名查（兼容数字用户名）；两个都在时按顺序试密码。
+  private async loginCandidates(name:string){
+    const phone=normalizePhone(name)
+    const byPhone=phone?await this.store.findUserByPhone(phone):null
+    const byName=await this.store.findUser(normalizeUsername(name))
+    return [byPhone,byName].filter((u,i,a):u is UserRecord=>!!u&&a.findIndex(x=>x?.id===u.id)===i)
+  }
+  private async findLoginUser(name:string,password:string){
+    const candidates=await this.loginCandidates(name)
+    if(!candidates.length){await dummyVerify(password);return null}
+    for(const u of candidates){
+      const locked=u.lockedUntil&&new Date(u.lockedUntil).getTime()>Date.now()
+      if(u.passwordHash&&!locked&&await verify(u.passwordHash,password).catch(()=>false))return {user:u,valid:true}
+    }
+    return {user:candidates[0]!,valid:false}
   }
   async login(input:LoginInput,ip=''){
-    const user=await this.findLoginUser(input.username)
+    const found=await this.findLoginUser(input.username,input.password),user=found?.user??null
     const lockedUntil=user?.lockedUntil?new Date(user.lockedUntil):null
-    if(user&&lockedUntil&&lockedUntil.getTime()>Date.now()){
+    if(user&&!found?.valid&&lockedUntil&&lockedUntil.getTime()>Date.now()){
       const remainingMinutes=Math.max(1,Math.ceil((lockedUntil.getTime()-Date.now())/60000))
       await this.store.audit(user.id,'auth.login','user',user.id,ip,'locked',{remainingMinutes,lockoutLevel:user.lockoutLevel})
       throw new AppError('AUTH_LOCKED',`登录已锁定，请 ${remainingMinutes} 分钟后再试`,429)
     }
-    if(user&&!user.passwordHash){
+    if(user&&!found?.valid&&!user.passwordHash){
       await this.store.audit(user.id,'auth.login','user',user.id,ip,'denied',{reason:'no_password'})
       throw new AppError('PASSWORD_NOT_SET','该账号是用 POWER云 登录创建的，还没有设置密码，请点「用 POWER云 账号登录」',401)
     }
-    const valid=user?.passwordHash?await verify(user.passwordHash,input.password).catch(()=>false):false
+    const valid=found?.valid===true
     if(!user||!valid){
       const failure=user?await this.store.recordLoginFailure(user.id):null
       const failureUntil=failure?.lockedUntil?new Date(failure.lockedUntil):null
@@ -216,14 +249,18 @@ export class AuthService{
     try{await this.store.claimTrialOnLogin(user.id,hashFingerprint(inputDevice.hardwareHash??inputDevice.fingerprint),ip)}catch{/* 发放试用失败绝不能挡住登录 */}
     // 设备上限 = 免费名额 + 套餐设备数；管理员不限（控制台和发版自动化共用一个号）。
     const eff=await this.effectiveOf(user),license=licenseView(eff),deviceLimit=eff.deviceLimit
+    // 不签发租约和刷新令牌：此令牌仅能在 15 分钟内查看/解绑本账号设备，不能启动代理。
+    const pending=async()=>{
+      await this.store.audit(user.id,'auth.login.device_limit','device','pending',ip,'success')
+      return {accessToken:await this.access(user,'pending'),refreshToken:'',expiresIn:900,deviceId:'',deviceLimitReached:true,license,user:userView(user)}
+    }
     let device;try{device=await this.store.bindDevice(user.id,hashFingerprint(inputDevice.fingerprint),hashFingerprint(inputDevice.hardwareHash??inputDevice.fingerprint),inputDevice.name,inputDevice.platform,inputDevice.appVersion,deviceLimit)}catch(e){
-      if((e as Error).message==='DEVICE_LIMIT'){
-        // 不签发租约和刷新令牌：此令牌仅能在 15 分钟内查看/解绑本账号设备，不能启动代理。
-        await this.store.audit(user.id,'auth.login.device_limit','device','pending',ip,'success')
-        return {accessToken:await this.access(user,'pending'),refreshToken:'',expiresIn:900,deviceId:'',deviceLimitReached:true,license,user:userView(user)}
-      }
+      if((e as Error).message==='DEVICE_LIMIT')return pending()
       throw e
     }
+    // 本机已绑定但名额减少（会员到期等）后排在名额之外：与名额已满同一回应，老客户端（v1.10.x）也能进解绑页，
+    // 不会拿到会话后在租约 409 时清状态卡死。租约的 409 仍保留作兜底。
+    if(!await this.store.isDeviceWithinLimit(user.id,device.id,deviceLimit))return pending()
     await this.store.audit(user.id,action,'device',device.id,ip,'success')
     return {...await this.issue(user,device.id),license}
   }
@@ -232,6 +269,8 @@ export class AuthService{
     const eff=await this.effectiveOf(user),license=licenseView(eff),deviceLimit=eff.deviceLimit
     try{
       const bound=await this.store.bindDevice(userId,hashFingerprint(device.fingerprint),hashFingerprint(device.hardwareHash??device.fingerprint),device.name,device.platform,device.appVersion,deviceLimit)
+      // 已绑定但排在名额外：和名额已满一样回 409，不签会话。
+      if(!await this.store.isDeviceWithinLimit(userId,bound.id,deviceLimit))throw new Error('DEVICE_LIMIT')
       await this.store.audit(userId,'auth.device.activate','device',bound.id,ip,'success')
       return {...await this.issue(user,bound.id),license}
     }catch(error){

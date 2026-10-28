@@ -1,10 +1,8 @@
-// 手机号 + 短信验证码两行：「获取验证码」发出后 60 秒倒计时。注册、找回密码、绑定手机号共用。
+// 手机号 + 短信验证码两行：「获取验证码」发出后按服务端给的冷却秒数倒计时（默认 60）。注册、找回密码、绑定手机号共用。
 import { Button, FormField, Input } from "@ankotti/admin-ui";
 import { useEffect, useState } from "react";
 import type { SmsPurpose } from "../../api/types-account";
 import { sendSmsCode } from "../../state/phone";
-
-const COOLDOWN = 60;
 
 type Props = {
   idPrefix: string;
@@ -19,14 +17,14 @@ type Props = {
   autoFocus?: boolean;
 };
 
-function useCountdown(): [number, () => void] {
+function useCountdown(): [number, (seconds: number) => void] {
   const [left, setLeft] = useState(0);
   useEffect(() => {
     if (left <= 0) return;
     const t = setTimeout(() => setLeft((n) => n - 1), 1000);
     return () => clearTimeout(t);
   }, [left]);
-  return [left, () => setLeft(COOLDOWN)];
+  return [left, (seconds) => setLeft(seconds)];
 }
 
 export function SmsFields({
@@ -46,9 +44,9 @@ export function SmsFields({
   const send = async () => {
     onError("");
     setSending(true);
-    const err = await sendSmsCode(phone, purpose).finally(() => setSending(false));
+    const { err, cooldown } = await sendSmsCode(phone, purpose).finally(() => setSending(false));
     if (err) return onError(err);
-    start();
+    start(cooldown);
     onSent?.("验证码已发送，5 分钟内有效");
   };
   return (
