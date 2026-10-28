@@ -17,6 +17,7 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 
+	"proxysplit/internal/configsync"
 	"proxysplit/internal/core"
 	"proxysplit/internal/coreupdate"
 	"proxysplit/internal/license"
@@ -48,9 +49,11 @@ type App struct {
 	ready        chan struct{}
 	readyOnce    sync.Once
 	initErr      error
-	accel        *accelRuntime                // Claude Code 加速（accel_app.go）
-	pv           *powervpn.Client             // POWER云 账号 / 自家节点（powervpn_app.go）
-	autoLogin    atomic.Pointer[autoLoginRun] // 免登录下载（channel.go）；nil = 这次启动没有
+	accel        *accelRuntime                     // Claude Code 加速（accel_app.go）
+	pv           *powervpn.Client                  // POWER云 账号 / 自家节点（powervpn_app.go）
+	autoLogin    atomic.Pointer[autoLoginRun]      // 免登录下载（channel.go）；nil = 这次启动没有
+	cfgSync      *configsync.Syncer                // 配置云同步（app_configsync.go）
+	pendingCfg   atomic.Pointer[configsync.Bundle] // 待确认的导入 / 恢复 / 分享配置
 }
 
 // NewApp creates the App.
@@ -124,12 +127,14 @@ func (a *App) startup(ctx context.Context) {
 	svc.SetLogSink(func(line string) {
 		runtime.EventsEmit(ctx, "log", line)
 	})
+	a.initConfigSync()
 	a.startAccel()
 	a.startAutoLogin(ctx) // AI-site download: sign in with the ticket in the file name (background)
 	a.finishStartup(nil)
 	go a.aiGuardBoot()        // AI-site customers: AI pinned to our line + DNS lock + proxy on at once
 	go svc.MigrateAutostart() // Run-key autostart never launched the elevated app: move it to a logon task
 	go a.licenseWatchdog()
+	go a.configSyncLoop()         // 会员配置云同步：启动对账 + 改动防抖上传
 	go a.powervpnMembershipSync() // AI-site customers: membership follows the POWER云 AI plan
 	go a.resumeAfterUpdate()      // bring the proxy back after an automatic update
 	go a.autoUpdateLoop()         // install new signed releases without prompting
@@ -614,42 +619,6 @@ func (a *App) PickExeFiles() []string {
 // TestApp measures reachability/latency for one app rule (by match/path).
 func (a *App) TestApp(match string) int { return a.svc.TestApp(match) }
 
-// ExportConfig writes the whole config to a user-chosen file. "" = success/cancel.
-func (a *App) ExportConfig() string {
-	path, err := runtime.SaveFileDialog(a.ctx, runtime.SaveDialogOptions{
-		Title:           "导出配置备份",
-		DefaultFilename: "proxysplit-backup.json",
-		Filters:         []runtime.FileFilter{{DisplayName: "配置文件 (*.json)", Pattern: "*.json"}},
-	})
-	if err != nil || path == "" {
-		return ""
-	}
-	data, err := a.svc.ExportAll()
-	if err != nil {
-		return err.Error()
-	}
-	if err := os.WriteFile(path, []byte(data), 0o600); err != nil {
-		return err.Error()
-	}
-	return ""
-}
-
-// ImportConfig loads a config backup from a user-chosen file. "" = success/cancel.
-func (a *App) ImportConfig() string {
-	path, err := runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{
-		Title:   "导入配置备份",
-		Filters: []runtime.FileFilter{{DisplayName: "配置文件 (*.json)", Pattern: "*.json"}},
-	})
-	if err != nil || path == "" {
-		return ""
-	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return err.Error()
-	}
-	return errStr(a.svc.ImportAll(string(data)))
-}
-
 // GetLanIP returns this machine's primary private IPv4 (for the LAN-share hint).
 func (a *App) GetLanIP() string {
 	addrs, err := net.InterfaceAddrs()
@@ -933,6 +902,9 @@ func (a *App) Logout() string {
 	}
 	a.svc.Stop()
 	telemetry.Note(telemetry.AccountLogout, nil)
+	if a.cfgSync != nil {
+		a.cfgSync.Forget() // next account starts its own sync history
+	}
 	// 劫持模式 stays on after sign-out: only the in-app 恢复 lifts it.
 	return errStr(a.lic.Logout())
 }

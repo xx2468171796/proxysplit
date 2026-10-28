@@ -214,6 +214,7 @@ func (a *App) afterSignIn() {
 	go func() {
 		a.syncAIGuard()
 		a.autoStartForAI()
+		a.configSyncAfterSignIn()
 	}()
 }
 

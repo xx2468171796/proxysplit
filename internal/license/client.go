@@ -44,6 +44,14 @@ type Status struct {
 	ExpiresAt          string   `json:"expiresAt"`
 	OfflineUntil       string   `json:"offlineUntil"`
 	DeviceLimitReached bool     `json:"deviceLimitReached"`
+	// Member is a paid tier (anything but "free"); free accounts use every
+	// feature on FreeDevices devices but have no cloud sync.
+	Member      bool `json:"member"`
+	FreeDevices int  `json:"freeDevices"`
+	PlanDevices int  `json:"planDevices"`
+	// PhoneBound is false for old accounts without a phone number: the UI
+	// asks them to bind one after every sign-in.
+	PhoneBound bool `json:"phoneBound"`
 	// Channel is where the account came from: "" (our own site / client) or
 	// "aigw" (the AI relay site's customers, who must not see author contacts).
 	Channel string `json:"channel"`
@@ -129,6 +137,11 @@ type state struct {
 	PendingDevice      bool     `json:"pendingDevice"`
 	Channel            string   `json:"channel,omitempty"`
 	SessionValidatedAt int64    `json:"sessionValidatedAt,omitempty"`
+	FreeDevices        int      `json:"freeDevices,omitempty"`
+	PlanDevices        int      `json:"planDevices,omitempty"`
+	// PhoneBound is a pointer so a state saved by an older client (or an old
+	// server that never sends the field) is not mistaken for "no phone".
+	PhoneBound *bool `json:"phoneBound,omitempty"`
 	// LastSeenAt is the latest clock reading seen while offline-valid; a clock
 	// set back before it (or before the lease was issued) cannot extend the
 	// offline grace. Reset from the server time on every online lease.
@@ -197,6 +210,7 @@ type Client struct {
 
 type APIError struct {
 	Status  int
+	Code    string // server error code, e.g. DEVICE_LIMIT / SYNC_CONFLICT
 	Message string
 }
 
@@ -366,18 +380,20 @@ func (c *Client) request(ctx context.Context, method, path string, input any, ou
 		return err
 	}
 	defer resp.Body.Close()
-	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	// Config-sync payloads may be up to 2 MB (plus JSON escaping).
+	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 6<<20))
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		var envelope struct {
 			Error struct {
+				Code    string `json:"code"`
 				Message string `json:"message"`
 			} `json:"error"`
 		}
 		_ = json.Unmarshal(raw, &envelope)
 		if envelope.Error.Message != "" {
-			return &APIError{Status: resp.StatusCode, Message: envelope.Error.Message}
+			return &APIError{Status: resp.StatusCode, Code: envelope.Error.Code, Message: envelope.Error.Message}
 		}
-		return &APIError{Status: resp.StatusCode, Message: fmt.Sprintf("授权服务返回 HTTP %d", resp.StatusCode)}
+		return &APIError{Status: resp.StatusCode, Code: envelope.Error.Code, Message: fmt.Sprintf("授权服务返回 HTTP %d", resp.StatusCode)}
 	}
 	if output != nil {
 		return json.Unmarshal(raw, output)
@@ -386,21 +402,43 @@ func (c *Client) request(ctx context.Context, method, path string, input any, ou
 }
 
 type authResult struct {
-	AccessToken        string `json:"accessToken"`
-	RefreshToken       string `json:"refreshToken"`
-	DeviceID           string `json:"deviceId"`
-	DeviceLimitReached bool   `json:"deviceLimitReached"`
-	User               *struct {
-		Username string `json:"username"`
-		Channel  string `json:"channel"`
-	} `json:"user"`
-	License *struct {
-		Plan       string   `json:"plan"`
-		PlanCode   string   `json:"planCode"`
-		Tier       string   `json:"tier"`
-		MaxDevices int      `json:"maxDevices"`
-		Features   []string `json:"features"`
-	} `json:"license"`
+	AccessToken        string       `json:"accessToken"`
+	RefreshToken       string       `json:"refreshToken"`
+	DeviceID           string       `json:"deviceId"`
+	DeviceLimitReached bool         `json:"deviceLimitReached"`
+	User               *authUser    `json:"user"`
+	License            *licenseInfo `json:"license"`
+}
+
+type authUser struct {
+	Username   string `json:"username"`
+	Channel    string `json:"channel"`
+	PhoneBound *bool  `json:"phoneBound"`
+}
+
+type licenseInfo struct {
+	Plan        string   `json:"plan"`
+	PlanCode    string   `json:"planCode"`
+	Tier        string   `json:"tier"`
+	MaxDevices  int      `json:"maxDevices"`
+	Features    []string `json:"features"`
+	FreeDevices int      `json:"freeDevices"`
+	PlanDevices int      `json:"planDevices"`
+}
+
+// applyLicenseLocked copies the login / activation license summary into state.
+func (c *Client) applyLicenseLocked(l *licenseInfo) {
+	if l == nil {
+		return
+	}
+	c.state.Plan, c.state.PlanCode, c.state.Tier, c.state.MaxDevices, c.state.Features = l.Plan, l.PlanCode, l.Tier, l.MaxDevices, l.Features
+	c.state.FreeDevices, c.state.PlanDevices = l.FreeDevices, l.PlanDevices
+}
+
+// isDeviceLimit reports the server's 409 DEVICE_LIMIT (device slots full).
+func isDeviceLimit(err error) bool {
+	var apiErr *APIError
+	return errors.As(err, &apiErr) && apiErr.Status == http.StatusConflict && (apiErr.Code == "DEVICE_LIMIT" || apiErr.Code == "")
 }
 
 func (c *Client) devicePayload() map[string]any {
@@ -473,13 +511,19 @@ func (c *Client) authenticatePayload(path, username string, payload map[string]a
 	c.state = state{SchemaVersion: stateSchemaVersion, Username: strings.TrimSpace(username), AccessToken: result.AccessToken, RefreshToken: result.RefreshToken, DeviceID: result.DeviceID, PendingDevice: result.DeviceLimitReached, SessionValidatedAt: time.Now().Unix()}
 	if result.User != nil {
 		c.state.Channel = result.User.Channel
+		c.state.PhoneBound = result.User.PhoneBound
 	}
 	if result.License != nil {
-		c.state.Plan, c.state.PlanCode, c.state.Tier, c.state.MaxDevices, c.state.Features = result.License.Plan, result.License.PlanCode, result.License.Tier, result.License.MaxDevices, result.License.Features
+		c.applyLicenseLocked(result.License)
 		if !result.DeviceLimitReached {
 			if err := c.acquireLeaseLocked(ctx); err != nil {
-				c.state = state{}
-				return err
+				if !isDeviceLimit(err) {
+					c.state = state{}
+					return err
+				}
+				// Slots shrank / are full: keep the session so the unbind
+				// screen can list and free a device.
+				c.state.PendingDevice = true
 			}
 		}
 	}
@@ -497,30 +541,6 @@ func (c *Client) Register(username, email, password, ref string) error {
 		payload["ref"] = ref
 	}
 	return c.authenticatePayload("/v1/auth/register", username, payload)
-}
-
-func (c *Client) Plans() ([]Plan, error) {
-	var result struct {
-		Items []Plan `json:"items"`
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
-	defer cancel()
-	if err := c.request(ctx, http.MethodGet, "/v1/catalog/plans", nil, &result, ""); err != nil {
-		return nil, err
-	}
-	return result.Items, nil
-}
-
-func (c *Client) Announcements() ([]Announcement, error) {
-	var result struct {
-		Items []Announcement `json:"items"`
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
-	defer cancel()
-	if err := c.request(ctx, http.MethodGet, "/v1/announcements", nil, &result, ""); err != nil {
-		return nil, err
-	}
-	return result.Items, nil
 }
 
 func (c *Client) authedRequestLocked(ctx context.Context, method, path string, input, output any) error {
@@ -564,78 +584,6 @@ func (c *Client) clearOnlineSessionLocked() {
 	c.state.SessionValidatedAt = 0
 }
 
-func (c *Client) Devices() ([]Device, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	var result struct {
-		Items []Device `json:"items"`
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
-	defer cancel()
-	if err := c.authedRequestLocked(ctx, http.MethodGet, "/v1/me/devices", nil, &result); err != nil {
-		return nil, err
-	}
-	for i := range result.Items {
-		result.Items[i].Current = result.Items[i].ID == c.state.DeviceID
-	}
-	return result.Items, nil
-}
-
-func (c *Client) UnbindDevice(id string) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
-	defer cancel()
-	if err := c.authedRequestLocked(ctx, http.MethodDelete, "/v1/me/devices/"+url.PathEscape(id), nil, nil); err != nil {
-		return err
-	}
-	if id == c.state.DeviceID {
-		c.state = state{}
-		_ = os.Remove(c.path)
-	}
-	return nil
-}
-
-// Redeem applies a redeem / activation code to the signed-in account, then
-// refreshes the entitlement and lease so the new membership takes effect
-// immediately (same path a paid order uses).
-func (c *Client) Redeem(code string) error {
-	if !c.Enabled() {
-		return errors.New("商业授权未启用")
-	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	defer cancel()
-	if err := c.authedRequestLocked(ctx, http.MethodPost, "/v1/me/redeem", map[string]any{"code": code}, nil); err != nil {
-		return err
-	}
-	// The code is now consumed and the entitlement granted server-side. From here
-	// the redemption has SUCCEEDED: a refresh/lease failure (most often an outdated
-	// client hitting the min-version wall) must NOT surface as a plain error that
-	// makes the user redeem again — that was the old "redeem twice, double time"
-	// bug. Persist whatever state we have and report success; /v1/me re-sync and
-	// the mandatory-update prompt handle the stale-lease / upgrade path.
-	_ = c.refreshLocked(ctx)
-	_ = c.acquireLeaseLocked(ctx)
-	return c.saveLocked()
-}
-
-// ChangePassword updates the signed-in account's password after verifying the
-// current one server-side. The local session stays valid.
-func (c *Client) ChangePassword(current, next string) error {
-	if !c.Enabled() {
-		return errors.New("商业授权未启用")
-	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	defer cancel()
-	return c.authedRequestLocked(ctx, http.MethodPost, "/v1/me/password", map[string]any{
-		"currentPassword": current, "newPassword": next,
-	}, nil)
-}
-
 // ActivateCurrentDevice converts the short-lived "名额已满" login into a real
 // device binding after the user removes an old device. Until this succeeds no
 // lease is held, therefore Service.Start remains blocked.
@@ -653,56 +601,11 @@ func (c *Client) ActivateCurrentDevice() error {
 		return err
 	}
 	c.state.AccessToken, c.state.RefreshToken, c.state.DeviceID, c.state.PendingDevice = result.AccessToken, result.RefreshToken, result.DeviceID, false
-	if result.License != nil {
-		c.state.Plan, c.state.PlanCode, c.state.Tier, c.state.MaxDevices, c.state.Features = result.License.Plan, result.License.PlanCode, result.License.Tier, result.License.MaxDevices, result.License.Features
-	}
+	c.applyLicenseLocked(result.License)
 	if err := c.acquireLeaseLocked(ctx); err != nil {
 		return err
 	}
 	return c.saveLocked()
-}
-
-// AccelToken 取 Claude Code 加速令牌（服务端签发，24 小时有效；只给设备已激活、会员有效的账号）
-func (c *Client) AccelToken() (string, time.Time, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	var result struct {
-		Token     string    `json:"token"`
-		ExpiresAt time.Time `json:"expiresAt"`
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
-	defer cancel()
-	if err := c.authedRequestLocked(ctx, http.MethodPost, "/v1/accel/token", map[string]any{}, &result); err != nil {
-		return "", time.Time{}, err
-	}
-	if result.Token == "" {
-		return "", time.Time{}, errors.New("服务端没有返回加速令牌")
-	}
-	return result.Token, result.ExpiresAt, nil
-}
-
-func (c *Client) Orders() ([]Order, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	var result struct {
-		Items []Order `json:"items"`
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
-	defer cancel()
-	if err := c.authedRequestLocked(ctx, http.MethodGet, "/v1/me/orders", nil, &result); err != nil {
-		return nil, err
-	}
-	return result.Items, nil
-}
-
-func (c *Client) CreateOrder(planID string) (Checkout, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	var result Checkout
-	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
-	defer cancel()
-	err := c.authedRequestLocked(ctx, http.MethodPost, "/v1/orders", map[string]string{"planId": planID}, &result)
-	return result, err
 }
 
 func normalizedVersion(v string) string {
@@ -790,6 +693,7 @@ func (c *Client) acquireLeaseLocked(ctx context.Context) error {
 	// A fresh lease carries the server's clock: restart the offline
 	// high-water mark from it (this also heals a clock that ran fast).
 	c.state.LastSeenAt = claims.IssuedAt
+	c.state.PendingDevice = false
 	return nil
 }
 
@@ -846,10 +750,13 @@ func compareVersion(a, b string) int {
 	return 0
 }
 
-func (c *Client) Status() Status {
+func (c *Client) Status() (status Status) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	status := Status{Enabled: c.Enabled(), SignedIn: c.state.AccessToken != "", Username: c.state.Username, Plan: c.state.Plan, PlanCode: c.state.PlanCode, Tier: c.state.Tier, MaxDevices: c.state.MaxDevices, Features: append([]string{}, c.state.Features...), DeviceLimitReached: c.state.PendingDevice, Channel: c.state.Channel}
+	status = Status{Enabled: c.Enabled(), SignedIn: c.state.AccessToken != "", Username: c.state.Username, Plan: c.state.Plan, PlanCode: c.state.PlanCode, Tier: c.state.Tier, MaxDevices: c.state.MaxDevices, Features: append([]string{}, c.state.Features...), DeviceLimitReached: c.state.PendingDevice, Channel: c.state.Channel}
+	status.FreeDevices, status.PlanDevices = c.state.FreeDevices, c.state.PlanDevices
+	status.PhoneBound = c.state.PhoneBound == nil || *c.state.PhoneBound
+	defer func() { status.Member = isMemberTier(status.Tier) }()
 	if !status.Enabled {
 		status.Authenticated = true
 		return status
@@ -859,7 +766,7 @@ func (c *Client) Status() Status {
 		if status.DeviceLimitReached {
 			status.Error = "本机尚未激活：设备数量已达上限，请解绑一台旧设备"
 		} else if status.SignedIn && c.state.Lease == "" {
-			status.Error = "当前账号暂无有效会员，请选择套餐开通"
+			status.Error = "本机暂未取得授权，请联网后点「刷新授权」或重新登录"
 		} else {
 			status.Error = err.Error()
 		}
@@ -930,6 +837,9 @@ func (c *Client) EnsureEntitled() error {
 			}
 		} else if err := c.acquireLeaseLocked(ctx); err != nil {
 			onlineErr = err
+			if isDeviceLimit(err) {
+				c.state.PendingDevice = true
+			}
 		} else {
 			_ = c.saveLocked()
 			return nil
