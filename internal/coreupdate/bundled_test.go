@@ -3,6 +3,7 @@ package coreupdate
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -42,7 +43,7 @@ func TestBundledUpgradeDecision(t *testing.T) {
 
 func TestInstallBinary(t *testing.T) {
 	dir := t.TempDir()
-	dst := filepath.Join(dir, "sing-box.exe")
+	dst := filepath.Join(dir, SingBoxExe)
 	if err := installBinary(dir, []byte("old"), false); err != nil {
 		t.Fatal(err)
 	}
@@ -67,5 +68,20 @@ func TestInstallBinary(t *testing.T) {
 	got, _ = os.ReadFile(dst)
 	if string(got) != "new" {
 		t.Fatalf("installed core lost: %q", got)
+	}
+}
+
+func TestInstalledCoreIsExecutable(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("no exec bit on Windows")
+	}
+	dir := t.TempDir()
+	exe := append(append([]byte(nil), exeMagic...), make([]byte, minExeBytes)...)
+	if err := installBinary(dir, exe, false); err != nil {
+		t.Fatal(err)
+	}
+	st, err := os.Stat(filepath.Join(dir, SingBoxExe))
+	if err != nil || st.Mode().Perm()&0o111 == 0 {
+		t.Fatalf("core not executable: %v %v", st.Mode(), err)
 	}
 }

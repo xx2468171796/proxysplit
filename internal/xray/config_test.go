@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -107,6 +108,9 @@ func xrayBin(t *testing.T) string {
 	p := os.Getenv("PROXYSPLIT_XRAY")
 	if p == "" {
 		p = filepath.Join("..", "..", "bin", ExeName)
+		if runtime.GOOS == "darwin" {
+			p = filepath.Join("..", "..", "bin", "darwin", ExeName)
+		}
 	}
 	if _, err := os.Stat(p); err != nil {
 		t.Skip("xray.exe not present (scripts/fetch-core.ps1 or build-xray.ps1)")

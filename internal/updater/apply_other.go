@@ -1,9 +1,9 @@
-//go:build !windows
+//go:build !windows && !darwin
 
 package updater
 
 import "errors"
 
 func ScheduleInstall(string, string) error {
-	return errors.New("自动安装目前仅支持 Windows")
+	return errors.New("本平台不支持自动安装")
 }

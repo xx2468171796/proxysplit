@@ -404,7 +404,7 @@ type authResult struct {
 }
 
 func (c *Client) devicePayload() map[string]any {
-	return map[string]any{"fingerprint": c.fingerprint, "hardwareHash": c.hardwareHash, "name": c.deviceName, "platform": "windows", "appVersion": normalizedVersion(c.version)}
+	return map[string]any{"fingerprint": c.fingerprint, "hardwareHash": c.hardwareHash, "name": c.deviceName, "platform": platformName(), "appVersion": normalizedVersion(c.version)}
 }
 
 func (c *Client) authenticate(path, username, email, password string) error {
@@ -648,7 +648,7 @@ func (c *Client) ActivateCurrentDevice() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	var result authResult
-	err := c.request(ctx, http.MethodPost, "/v1/me/device/activate", map[string]any{"device": map[string]any{"fingerprint": c.fingerprint, "hardwareHash": c.hardwareHash, "name": c.deviceName, "platform": "windows", "appVersion": normalizedVersion(c.version)}}, &result, c.state.AccessToken)
+	err := c.request(ctx, http.MethodPost, "/v1/me/device/activate", map[string]any{"device": map[string]any{"fingerprint": c.fingerprint, "hardwareHash": c.hardwareHash, "name": c.deviceName, "platform": platformName(), "appVersion": normalizedVersion(c.version)}}, &result, c.state.AccessToken)
 	if err != nil {
 		return err
 	}

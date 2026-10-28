@@ -26,7 +26,7 @@ func TestChildProcessesHideConsole(t *testing.T) {
 			}
 			return nil
 		}
-		if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") || strings.HasSuffix(path, "_other.go") {
+		if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") || strings.HasSuffix(path, "_other.go") || strings.HasSuffix(path, "_darwin.go") { // macOS has no console windows
 			return nil
 		}
 		raw, err := os.ReadFile(path)

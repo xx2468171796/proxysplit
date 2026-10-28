@@ -44,6 +44,9 @@ func hasFlag(args []string, flag string) bool {
 }
 
 func main() {
+	if platformCLI(os.Args[1:]) {
+		return
+	}
 	if hasFlag(os.Args[1:], mcpFlag) {
 		if err := runMCPBridge(os.Stdin, os.Stdout); err != nil {
 			os.Exit(1)

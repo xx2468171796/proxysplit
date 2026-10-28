@@ -171,15 +171,7 @@ func (p *PortProcess) PrepareXray(node *nodes.Node) (map[string]xray.Endpoint, e
 // from binPath whose command line points into the proxyports directory, and
 // port Xray sidecars whose config lives under dataDir/proxyports/xray-*).
 func KillPortStrays(binPath, dataDir string) {
-	ps := "Get-CimInstance Win32_Process -Filter \"Name='sing-box.exe'\" | " +
-		"Where-Object { $_.ExecutablePath -and ($_.ExecutablePath -ieq $env:PS_SINGBOX_PATH) -and ($_.CommandLine -like '*" + PortDirName + "*') } | " +
-		"ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }"
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, "powershell", "-NoProfile", "-NonInteractive", "-Command", ps)
-	cmd.Env = append(os.Environ(), "PS_SINGBOX_PATH="+filepath.Clean(binPath))
-	hideWindow(cmd)
-	_ = cmd.Run()
+	killCoreProcs(binPath, true)
 	xray.KillStrays(XrayBinPath(binPath), portXrayPrefix(dataDir))
 }
 

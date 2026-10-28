@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -142,6 +143,10 @@ func (s *Service) AIEnvCheck(ctx context.Context) AIEnvReport {
 func (s *Service) guardItem() AIEnvItem {
 	it := AIEnvItem{ID: "guard", Name: "AI 劫持"}
 	running, line := s.AIGuardLine()
+	if runtime.GOOS != "windows" { // the DNS lock is Windows NRPT
+		it.Status, it.Detail = "info", "macOS 版暂不支持 AI 劫持：请把 AI 程序（Claude、Cursor、浏览器等）加进分应用代理"
+		return it
+	}
 	switch {
 	case !s.AIGuardOn():
 		it.Status, it.Detail = "warn", "劫持已关闭：关掉 ProxySplit 或分应用代理没覆盖 AI 程序时，AI 会走本机网络，有封号风险。建议点上方「开启劫持」"

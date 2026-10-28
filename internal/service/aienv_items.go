@@ -3,6 +3,7 @@ package service
 import (
 	"fmt"
 	"net"
+	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -60,10 +61,14 @@ func timezoneItem(exitLoc string) AIEnvItem {
 	case !twExit:
 		// Taipei only matches a Taiwan exit; for any other exit it is no better.
 		it.Status, it.Detail = "info", "「"+tz+"」；出口在 "+exitLoc+"，不在台湾：时区按出口所在地设置即可（用台湾线路时再改成台北时间）"
-	case tz == "China Standard Time":
+	case tz == aienv.ChinaTimezone:
 		it.Status, it.Detail, it.Fix = "warn", "北京时间：程序和浏览器会报「Asia/Shanghai」，和台湾出口对不上。改成台北时间（同为 UTC+8，钟点不变）", "timezone"
 	default:
 		it.Status, it.Detail, it.Fix = "warn", "当前「"+tz+"」与出口（台湾）不一致，建议改成台北时间", "timezone"
+	}
+	if runtime.GOOS != "windows" && it.Fix != "" { // no one-click change off Windows
+		it.Fix = ""
+		it.Detail += "（在「系统设置 → 通用 → 日期与时间」里改）"
 	}
 	return it
 }
@@ -96,6 +101,9 @@ func localeItem() AIEnvItem {
 		it.Status, it.Detail = "info", "读不到"
 	case strings.EqualFold(loc, "zh-CN"):
 		it.Status, it.Detail, it.Fix = "info", "区域格式是简体中文（zh-CN）：程序读到的默认语言区域是大陆。影响不大，可一键改成繁体（台湾），界面语言不变", "culture"
+		if runtime.GOOS != "windows" {
+			it.Detail, it.Fix = "区域格式是简体中文（zh-CN）：程序读到的默认语言区域是大陆。影响不大；要改在「系统设置 → 通用 → 语言与地区」", ""
+		}
 	default:
 		it.Status, it.Detail = "ok", loc
 	}

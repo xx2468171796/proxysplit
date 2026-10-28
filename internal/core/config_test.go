@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -28,7 +29,11 @@ var sampleLinks = map[string]string{
 }
 
 func singboxPath(t *testing.T) string {
-	p, err := filepath.Abs(filepath.Join("..", "..", "bin", "sing-box.exe"))
+	rel := filepath.Join("..", "..", "bin", "sing-box.exe")
+	if runtime.GOOS == "darwin" {
+		rel = filepath.Join("..", "..", "bin", "darwin", "sing-box")
+	}
+	p, err := filepath.Abs(rel)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -650,6 +655,9 @@ func TestRealityHybridAcceptedByBundledCore(t *testing.T) {
 }
 
 func TestProcessSetDirEntries(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Windows 路径 / 行为")
+	}
 	var got struct {
 		Rules []map[string][]string `json:"rules"`
 	}

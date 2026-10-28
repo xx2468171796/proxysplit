@@ -85,7 +85,7 @@ func newPortID() string {
 	return hex.EncodeToString(b)
 }
 
-func (s *Service) singBoxPath() string { return filepath.Join(s.binDir, "sing-box.exe") }
+func (s *Service) singBoxPath() string { return filepath.Join(s.binDir, coreupdate.SingBoxExe) }
 
 // ListProxyPorts returns every port with its live state.
 func (s *Service) ListProxyPorts() []ProxyPortStatus {

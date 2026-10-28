@@ -22,7 +22,7 @@ import (
 )
 
 // ExeName is the sidecar binary, kept next to sing-box.exe.
-const ExeName = "xray.exe"
+// ExeName is defined per OS (exe_windows.go / exe_other.go).
 
 // ErrMissing: a node needs Xray but xray.exe is absent and could not be fetched.
 var ErrMissing = errors.New("该节点需要 Xray 内核")

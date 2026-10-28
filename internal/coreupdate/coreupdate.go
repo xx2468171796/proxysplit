@@ -32,9 +32,6 @@ const maxExeBytes = 160 << 20 // 160MB
 // smaller "MZ" file is almost certainly a stub or corruption.
 const minExeBytes = 1 << 20 // 1MB
 
-// peMagic is the leading magic of a Windows PE executable ("MZ").
-var peMagic = []byte{0x4D, 0x5A}
-
 // newClient builds an *http.Client with a bounded download timeout. When viaProxy
 // (host:port SOCKS5) is non-empty, requests are routed THROUGH it (the
 // fallback when the download host is unreachable directly).
@@ -72,6 +69,9 @@ func installBinary(destDir string, exe []byte, keepBackup bool) error {
 	tmp := f.Name()
 	defer os.Remove(tmp)
 	_, writeErr := f.Write(exe)
+	if writeErr == nil {
+		writeErr = f.Chmod(0o755) // CreateTemp makes 0600: macOS needs the exec bit
+	}
 	closeErr := f.Close()
 	if writeErr != nil {
 		return writeErr
@@ -79,7 +79,7 @@ func installBinary(destDir string, exe []byte, keepBackup bool) error {
 	if closeErr != nil {
 		return closeErr
 	}
-	dst := filepath.Join(destDir, "sing-box.exe")
+	dst := filepath.Join(destDir, SingBoxExe)
 	old := backupPath(destDir)
 	if err := os.Remove(old); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("%w: %v", ErrBackupBusy, err)
@@ -143,7 +143,7 @@ func extractExe(zipBytes []byte) ([]byte, error) {
 	for _, f := range zr.File {
 		// Match only by base name; we never use the (attacker-controlled) path
 		// to write a file, so there is no zip-slip exposure here.
-		if path.Base(f.Name) != "sing-box.exe" {
+		if path.Base(f.Name) != SingBoxExe {
 			continue
 		}
 		rc, err := f.Open()

@@ -3,6 +3,7 @@ package service
 import (
 	"fmt"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -20,7 +21,11 @@ const (
 // ProcessCapture reports 仅接管选中程序, the default (业主 2026-10-28: the
 // product is per-program capture; unlisted programs must not pass through us).
 // Only an explicit "tun" picks 整机虚拟网卡.
-func (st Settings) ProcessCapture() bool { return st.CaptureMode != CaptureTUN }
+// WinDivert exists only on Windows: elsewhere the TUN with per-app rules is
+// the capture.
+func (st Settings) ProcessCapture() bool {
+	return runtime.GOOS == "windows" && st.CaptureMode != CaptureTUN
+}
 
 // streamPreset are live-streaming programs sent direct by default (推流程序默认
 // 直连) unless the user lists them anywhere; upload-heavy pushes must never sit
@@ -116,7 +121,7 @@ func (s *Service) startCapture(opts core.Options) error {
 	// sing-box and every xray sidecar (main, per port, latency probe) run from
 	// binDir, so excluding by image path covers all of them. Capturing them in
 	// 默认全走代理 would loop their upstream traffic back into sing-box.
-	exclude := []string{filepath.Join(s.binDir, "sing-box.exe"), core.XrayBinPath(s.singBoxPath())}
+	exclude := []string{s.singBoxPath(), core.XrayBinPath(s.singBoxPath())}
 	if p := s.portProcessPath(); p != "" {
 		exclude = append(exclude, p)
 	}

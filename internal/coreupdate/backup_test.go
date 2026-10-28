@@ -12,11 +12,11 @@ import (
 	"testing"
 )
 
-// fakeExe is a PE-looking payload above minExeBytes.
+// fakeExe is a native-executable-looking payload above minExeBytes.
 func fakeExe(tag string) []byte {
 	b := make([]byte, minExeBytes+1024)
-	copy(b, peMagic)
-	copy(b[2:], tag)
+	copy(b, exeMagic)
+	copy(b[len(exeMagic):], tag)
 	return b
 }
 
@@ -30,7 +30,7 @@ func serve(t *testing.T, body []byte) (*httptest.Server, string) {
 
 func writeInstalled(t *testing.T, dir string, exe []byte, version string) {
 	t.Helper()
-	if err := os.WriteFile(filepath.Join(dir, "sing-box.exe"), exe, 0o755); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, SingBoxExe), exe, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	sum := sha256.Sum256(exe)
@@ -82,7 +82,7 @@ func TestInstallReleaseKeepsBackupAndRollsBack(t *testing.T) {
 	if err := Rollback(dir); err != nil {
 		t.Fatal(err)
 	}
-	if b, _ := os.ReadFile(filepath.Join(dir, "sing-box.exe")); !bytes.Equal(b, oldExe) {
+	if b, _ := os.ReadFile(filepath.Join(dir, SingBoxExe)); !bytes.Equal(b, oldExe) {
 		t.Fatal("rollback did not restore the previous core")
 	}
 	if got := InstalledVersion(dir); got != "1.14.2-relayops.9" {
@@ -91,7 +91,7 @@ func TestInstallReleaseKeepsBackupAndRollsBack(t *testing.T) {
 	if HasBackup(dir) {
 		t.Fatal("backup still present after rollback")
 	}
-	for _, leftover := range []string{"sing-box.exe" + failedSuffix, markerFile + ".old"} {
+	for _, leftover := range []string{SingBoxExe + failedSuffix, markerFile + ".old"} {
 		if _, err := os.Stat(filepath.Join(dir, leftover)); !os.IsNotExist(err) {
 			t.Fatalf("%s left behind", leftover)
 		}
@@ -118,7 +118,7 @@ func TestInstallReleaseKeepsBackupAndRollsBack(t *testing.T) {
 func TestRollbackWithoutPreviousMarker(t *testing.T) {
 	dir := t.TempDir()
 	oldExe := fakeExe("old")
-	if err := os.WriteFile(filepath.Join(dir, "sing-box.exe"), oldExe, 0o755); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, SingBoxExe), oldExe, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	srv, sum := serve(t, fakeExe("new"))

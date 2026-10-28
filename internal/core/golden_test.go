@@ -6,6 +6,7 @@ import (
 	"net/netip"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"proxysplit/internal/nodes"
@@ -62,6 +63,9 @@ func goldenProcess(opts Options) Options {
 }
 
 func TestGoldenConfigs(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Windows 路径 / 行为")
+	}
 	old := localPrefixes
 	localPrefixes = func() []netip.Prefix { return []netip.Prefix{netip.MustParsePrefix("192.168.1.10/24")} }
 	t.Cleanup(func() { localPrefixes = old })

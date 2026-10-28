@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -46,6 +47,9 @@ func TestAigwStartURL(t *testing.T) {
 }
 
 func TestDownloadTicket(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Windows 路径 / 行为")
+	}
 	tk := "Abc_-" + "x0123456789012345678901234567890123456789"[:38]
 	if len(tk) != 43 {
 		t.Fatalf("test ticket length %d", len(tk))

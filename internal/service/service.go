@@ -14,8 +14,10 @@ import (
 	"proxysplit/internal/appid"
 	"proxysplit/internal/capture"
 	"proxysplit/internal/core"
+	"proxysplit/internal/coreupdate"
 	"proxysplit/internal/nodes"
 	"proxysplit/internal/powervpn"
+	"proxysplit/internal/sysproxy"
 )
 
 // Sub is a subscription source.
@@ -201,16 +203,17 @@ func New(binDir, dataDir string) (*Service, error) {
 	s := &Service{binDir: binDir, dataDir: dataDir, onLog: func(string) {}, quit: make(chan struct{})}
 	s.load()
 	s.clashMode = s.cfg.ClashMode // restore last runtime mode (rule|global|direct)
-	s.core = core.NewManager(filepath.Join(binDir, "sing-box.exe"), dataDir, func(line string) { s.log(line) })
+	s.core = core.NewManager(filepath.Join(binDir, coreupdate.SingBoxExe), dataDir, func(line string) { s.log(line) })
+	sysproxy.Core = s.singBoxPath() // macOS: the control script runs this core
 	if exe, err := os.Executable(); err == nil {
 		appid.SetProtected(filepath.Dir(exe), binDir) // whole-folder rules may never cover ProxySplit itself
 	}
-	s.core.SetOnExit(s.onCoreExit)                                                                 // clear a dangling system proxy if the core crashes
-	s.core.CleanStrays()                                                                           // kill orphaned sing-box from a prior crash (else it keeps proxying)
-	core.KillPortStrays(filepath.Join(binDir, "sing-box.exe"), dataDir)                            // 端口代理 orphans, before any port can start
-	core.CleanProbeStrays(filepath.Join(binDir, "sing-box.exe"), filepath.Join(dataDir, "probes")) // latency-probe Xray orphans + temp dirs
-	s.healStaleSystemProxy()                                                                       // recover from a prior crash that left one dangling
-	s.SyncAILock()                                                                                 // crash / power-off left the AI lock on the tunnel: close it before anything else
+	s.core.SetOnExit(s.onCoreExit)                                                                        // clear a dangling system proxy if the core crashes
+	s.core.CleanStrays()                                                                                  // kill orphaned sing-box from a prior crash (else it keeps proxying)
+	core.KillPortStrays(filepath.Join(binDir, coreupdate.SingBoxExe), dataDir)                            // 端口代理 orphans, before any port can start
+	core.CleanProbeStrays(filepath.Join(binDir, coreupdate.SingBoxExe), filepath.Join(dataDir, "probes")) // latency-probe Xray orphans + temp dirs
+	s.healStaleSystemProxy()                                                                              // recover from a prior crash that left one dangling
+	s.SyncAILock()                                                                                        // crash / power-off left the AI lock on the tunnel: close it before anything else
 	if err := aiguard.EnsureBootTask(); err != nil {
 		s.log("[AI] " + err.Error())
 	}

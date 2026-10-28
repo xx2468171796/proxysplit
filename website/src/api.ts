@@ -38,6 +38,7 @@ const VISITOR = visitorId();
 /** 下载走 /v1/download/<file>?v=<访客>：服务端记一次后 302 到真实文件。 */
 const downloadUrl = (file: string) => `/v1/download/${file}?v=${encodeURIComponent(VISITOR)}`;
 export const LATEST_DOWNLOAD = downloadUrl("proxysplit-latest.exe");
+export const MAC_DOWNLOAD = downloadUrl("proxysplit-macos-latest.zip");
 
 export function trackView(): void {
   if (import.meta.env.DEV) return;

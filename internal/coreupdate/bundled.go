@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -24,12 +25,13 @@ func EnsureBundled(dir string, exe []byte, version, expectedHash string) error {
 	if hex.EncodeToString(hash[:]) != expectedHash {
 		return fmt.Errorf("embedded core SHA256 mismatch")
 	}
-	dst := filepath.Join(dir, "sing-box.exe")
+	dst := filepath.Join(dir, SingBoxExe)
 	current, err := os.ReadFile(dst)
 	if err != nil && !os.IsNotExist(err) {
 		return err
 	}
 	if sha256.Sum256(current) == hash {
+		ensureExecutable(dst)
 		_ = writeMarker(dir, version, hash[:])
 		return nil
 	}
@@ -42,12 +44,24 @@ func EnsureBundled(dir string, exe []byte, version, expectedHash string) error {
 		return err
 	}
 	if !upgrade {
+		ensureExecutable(dst)
 		return nil
 	}
 	if err := installBinary(dir, exe, false); err != nil {
 		return err
 	}
 	return writeMarker(dir, version, hash[:])
+}
+
+// ensureExecutable heals a core written without the exec bit (macOS test
+// builds before 2026-10-28 extracted it as 0600). No-op on Windows.
+func ensureExecutable(path string) {
+	if runtime.GOOS == "windows" {
+		return
+	}
+	if st, err := os.Stat(path); err == nil && st.Mode().Perm()&0o100 == 0 {
+		_ = os.Chmod(path, st.Mode().Perm()|0o755)
+	}
 }
 
 // markerFile records the full version of the installed core. The platform
@@ -68,7 +82,7 @@ func writeMarker(dir, version string, sum []byte) error {
 // InstalledVersion returns the full version of dir/sing-box.exe, e.g.
 // "1.14.2-relayops.6", or "" when there is no usable core.
 func InstalledVersion(dir string) string {
-	exe, err := os.ReadFile(filepath.Join(dir, "sing-box.exe"))
+	exe, err := os.ReadFile(filepath.Join(dir, SingBoxExe))
 	if err != nil {
 		return ""
 	}
@@ -87,7 +101,7 @@ func installedVersion(dir string, exe []byte) string {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, filepath.Join(dir, "sing-box.exe"), "version")
+	cmd := exec.CommandContext(ctx, filepath.Join(dir, SingBoxExe), "version")
 	hideVersionWindow(cmd)
 	out, err := cmd.Output()
 	if err != nil {

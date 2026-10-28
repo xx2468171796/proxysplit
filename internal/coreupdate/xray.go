@@ -18,7 +18,7 @@ import (
 // with a client release (bundled) or the lazy download of that same pin.
 
 // XrayExe is the sidecar's file name in the bin directory.
-const XrayExe = "xray.exe"
+// XrayExe is defined per OS in name_windows.go / name_other.go.
 
 // XrayRelease is bin/xray-release.json (fields the client uses).
 type XrayRelease struct {
@@ -129,7 +129,7 @@ func InstallXray(dir string, exe []byte, expected string) error {
 	if hex.EncodeToString(sum[:]) != strings.ToLower(expected) {
 		return fmt.Errorf("Xray %w", errSHAMismatch)
 	}
-	if len(exe) < minExeBytes || !bytes.HasPrefix(exe, peMagic) {
+	if len(exe) < minExeBytes || !bytes.HasPrefix(exe, exeMagic) {
 		return fmt.Errorf("Xray 内核文件无效")
 	}
 	installMu.Lock()
@@ -144,6 +144,9 @@ func InstallXray(dir string, exe []byte, expected string) error {
 	tmp := f.Name()
 	defer os.Remove(tmp)
 	_, werr := f.Write(exe)
+	if werr == nil {
+		werr = f.Chmod(0o755) // CreateTemp makes 0600: macOS needs the exec bit
+	}
 	if cerr := f.Close(); werr == nil {
 		werr = cerr
 	}

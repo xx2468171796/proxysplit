@@ -148,7 +148,8 @@ func (s *Service) SetCustomApps(apps []appid.App) string {
 // a path separator) rather than one program: every program under it matches.
 func IsDirRule(match string) bool {
 	m := strings.TrimSpace(match)
-	return len(m) > 3 && (strings.HasSuffix(m, `\`) || strings.HasSuffix(m, "/"))
+	// macOS: a whole .app bundle (Chrome's traffic comes from helpers inside it)
+	return len(m) > 3 && (strings.HasSuffix(m, `\`) || strings.HasSuffix(m, "/") || strings.HasSuffix(m, ".app"))
 }
 
 // folderRule returns the normalized folder of an existing whole-folder app rule

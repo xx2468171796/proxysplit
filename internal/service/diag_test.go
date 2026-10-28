@@ -2,6 +2,7 @@ package service
 
 import (
 	"fmt"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -109,6 +110,9 @@ func TestRouteCategory(t *testing.T) {
 }
 
 func TestIsProbePath(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Windows 路径 / 行为")
+	}
 	dir := `C:\Users\ADMINI~1\AppData\Local\Temp\ps-route-123`
 	for path, want := range map[string]bool{
 		`C:\Users\Administrator\AppData\Local\Temp\ps-route-123\msedge.exe`:         true, // long form of the 8.3 temp dir

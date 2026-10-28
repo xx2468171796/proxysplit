@@ -262,7 +262,10 @@ func (m *Manager) watchLinesExit(cmd *exec.Cmd, done chan struct{}) {
 // It does NOT wait for readiness (the caller does). Safe to call only when the
 // core is stopped.
 func (m *Manager) spawn(cfgPath string) error {
-	cmd := exec.Command(m.binPath, "run", "-c", cfgPath)
+	cmd, err := m.tunCommand(cfgPath)
+	if err != nil {
+		return err
+	}
 	cmd.Dir = m.dataDir
 	hideWindow(cmd)
 	stdout, _ := cmd.StdoutPipe()
@@ -321,7 +324,7 @@ func (m *Manager) Stop() error {
 		m.xray.Stop()
 		return nil
 	}
-	_ = cmd.Process.Kill()
+	terminate(cmd)
 	if done != nil {
 		select {
 		case <-done:
@@ -345,20 +348,7 @@ func (m *Manager) CleanStrays() {
 // killStrays force-kills every sing-box.exe running from OUR bin path. This
 // catches orphans left by a crash or a botched restart that would otherwise
 // keep the TUN adapter up (proxying) after Stop, or collide with a new Start.
-func (m *Manager) killStrays() {
-	// The path comes from %APPDATA% (contains the user name) and is passed as an
-	// environment variable: PowerShell ends a '…' string at typographic quotes
-	// too, so quoting it into the script text would break on such names.
-	ps := "Get-CimInstance Win32_Process -Filter \"Name='sing-box.exe'\" | " +
-		"Where-Object { $_.ExecutablePath -and ($_.ExecutablePath -ieq $env:PS_SINGBOX_PATH) -and ($_.CommandLine -notlike '*" + PortDirName + "*') } | " +
-		"ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }"
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, "powershell", "-NoProfile", "-NonInteractive", "-Command", ps)
-	cmd.Env = append(os.Environ(), "PS_SINGBOX_PATH="+filepath.Clean(m.binPath))
-	hideWindow(cmd)
-	_ = cmd.Run()
-}
+func (m *Manager) killStrays() { killCoreProcs(m.binPath, false) }
 
 func (m *Manager) pump(r interface{ Read([]byte) (int, error) }) { pumpLines(r, m.onLog) }
 

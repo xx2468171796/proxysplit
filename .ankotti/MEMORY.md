@@ -5,7 +5,7 @@
 - 线上：**v1.10.8 stable（强制，min 1.9.51）**，2026-10-28 全站发布（驱动被拦自动回退 TUN、TCP 延迟只计建连、首次 EV Sign 代码签名）；服务端 current = releases/20261028-135541-d41caa2-v1.10.8，上一版 releases/20261028-114826-5fdc1c1-v1.10.7。夜间计划见 docs/plan-2026-10-28-v2rayn.md。客户端有新版一律自动升级；规则库由 sz 每天同步、客户端从 /rules/ 自动拉（见 docs/memory/routing.md）。
 - 前端已用 @ankotti/admin-ui 重写（React 19 + Vite 8 + TS 7 + pnpm 12.9.1，替换旧单文件 Svelte），随 v1.9.75 上线（已并入 main）；门禁 `pnpm --dir frontend check`，预览 `pnpm --dir frontend dev`。
 - 技术栈：Go + Wails + React 前端，sing-box 原生 TUN + process_name；服务端 Fastify + 深圳共享 PG（堡垒机数据源 sz-pg-proxysplit）。
-- **下一步**：日志详细化（net.conn_summary 连接成败汇总，业主 2026-10-28 要求，方便版本迭代排查）；有真实 IPv6 的电脑仍待实测（claude00002 是现成用户）；socks5 链式前置代理待业主决定；macOS 版：业主准备 Mac 接堡垒机，先不买 Apple 开发者账号。发版前用正式下载包跑 alonehome2 自检，查别的会话未合并分支，测试机经 coord 轮流用。
+- **下一步**：日志详细化（net.conn_summary 连接成败汇总，业主 2026-10-28 要求，方便版本迭代排查）；有真实 IPv6 的电脑仍待实测（claude00002 是现成用户）；socks5 链式前置代理待业主决定；macOS 版：分支 feat/macos 已移植（Apple 芯片，构建机 xuan-macbook-air，见 docs/memory/macos.md），待 root 实测与随版本发布；不买 Apple 开发者账号（ad-hoc 签名）。发版前用正式下载包跑 alonehome2 自检，查别的会话未合并分支，测试机经 coord 轮流用。
 
 ## 红线（不得做）
 - 不碰腾讯云 110.40.185.27（支付网关），只能以客户端身份调接口。
@@ -27,6 +27,7 @@
 | 架构与生产环境 | docs/memory/deploy-architecture.md | 技术栈、sz 共享 PG/Redis、产品规则、remote |
 | Claude 加速/握手 | docs/memory/accel.md | 编码模式、兜底握手跟中继、暂停行为 |
 | AI 劫持模式 | docs/memory/ai-guard.md | NRPT 锁随代理切换（运行→隧道 fdfe::2、停→127.0.0.53）、范围、恢复、待实测 |
+| macOS 版 | docs/memory/macos.md | 平台差异表、root 控制脚本、.app 规则、Tailscale 排除、Mac 上构建与发版 |
 | 内核/多源下载/自动跟随 | docs/memory/core-update.md | relayops 内核版本线、mirror.go、corefollow.go、Xray 双内核（XHTTP/mKCP/VLESS encryption，待上传制品） |
 | POWER云/会员/aigw/支付 | docs/memory/account-membership.md | 接入标准、AI 套餐会员、egress、刷新令牌容错、退款 |
 | 分流规则/TUN 配置 | docs/memory/routing.md | 规则顺序、热加载、占位进程、真内核测试、仅接管选中程序（WinDivert）、推流直连预设 |

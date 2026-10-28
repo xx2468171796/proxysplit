@@ -21,7 +21,7 @@ func TestParseVersionOutputRelayops(t *testing.T) {
 }
 
 func TestInstallReleaseVerifiesAndWritesMarker(t *testing.T) {
-	exe := append([]byte("MZ"), make([]byte, minExeBytes+10)...)
+	exe := append(append([]byte(nil), exeMagic...), make([]byte, minExeBytes+10)...)
 	sum := sha256.Sum256(exe)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write(exe) }))
 	defer srv.Close()
@@ -39,7 +39,7 @@ func TestInstallReleaseVerifiesAndWritesMarker(t *testing.T) {
 	if _, err := InstallRelease(dir, "1.14.2-relayops.7", Release{Version: "1.14.2-relayops.6", URL: srv.URL, SHA256: hex.EncodeToString(sum[:])}, ""); err == nil {
 		t.Fatal("downgrade allowed")
 	}
-	if _, err := os.Stat(filepath.Join(dir, "sing-box.exe")); err != nil {
+	if _, err := os.Stat(filepath.Join(dir, SingBoxExe)); err != nil {
 		t.Fatal(err)
 	}
 }

@@ -28,7 +28,8 @@ Go x/net、x/crypto、x/sys、x/text 已更新，Go 1.26.8 修复旧工具链 5 
 
 ## Xray 双内核（2026-10-27，internal/xray）
 sing-box 跑不了的节点（XHTTP/splithttp、mKCP、VLESS encryption）走 Xray 旁路内核，设计见 docs/architecture.md「Xray 双内核」。
-- 固定版本 bin/xray-release.json（与 core-release.json 分开，不动面板合同 / PanelPublicKey）：上游 v26.6.1 @ 94ffd50，Go 1.26.8，sha256 dee38bbd…a8d6f。
+- 固定版本 bin/xray-release.json（与 core-release.json 分开，不动面板合同 / PanelPublicKey）：上游 v26.10.21 @ 1b1647c，Go 1.27.3（上游要求：紧急安全更新，去掉被破解的印度中间证书相关根证书），windows sha256 c77a00eb…1e15；macOS 用 bin/darwin/xray-release.json（94a9bfc0…de2e，scripts/build-xray-darwin.sh 编）。
+- **两个内核都必须打进安装包**（业主 2026-10-28：用户可能没网，不能用时再下）：build.ps1 缺 bin/xray.exe 直接报错；Mac 的 fetch-core-darwin.sh 同时取 sing-box 和 xray。升级 = 查上游最新正式版 → 改两份 pin（tag / commit / go）→ 两台机器各编两次核对 sha 可复现 → 真内核测试（Windows 和 Mac 都跑 internal/core、internal/xray）→ 传 Gitea generic gonggong/xray/<版本>/ + 深圳 /opt/proxysplit/downloads/xray/<版本>/ → 发客户端。
 - 构建：`scripts/build-xray.ps1` 从 Go 模块代理按 commit 取源码，参数同上游发布流程（-trimpath -buildvcs=false -gcflags=all=-l=4 -ldflags "-X core.build=<7位> -s -w -buildid="），两次构建 sha 一致（可复现）。
 - 制品已上传（2026-10-27）：Gitea generic `gonggong/generic/xray/26.6.1/xray-windows-amd64.exe` + 公网 https://proxysplit.zygskins.cn/download/xray/26.6.1/（xray-release.json 的 `urls`，内置文件丢了时懒下载用）。发版用 `fetch-core.ps1 -RequireXray`。
 - 内置：`bin/xray.exe` 在就随客户端打包（xraypayload.go，`//go:embed bin/xray*`），启动时 EnsureBundledXray 按 sha 安装到数据目录 bin，保留 xray.exe.old 可 RollbackXray；不跟随面板自动更新，换版本 = 改 pin + 发客户端。

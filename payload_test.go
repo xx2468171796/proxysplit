@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"proxysplit/internal/coreupdate"
 	"testing"
 )
 
@@ -18,7 +19,7 @@ func TestEmbeddedPayloadInstallAndPreserveRules(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	metadata, err := payloadFS.ReadFile("bin/core-release.json")
+	metadata, err := coreFS.ReadFile(coreMetaFile)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -28,7 +29,7 @@ func TestEmbeddedPayloadInstallAndPreserveRules(t *testing.T) {
 	if err := json.Unmarshal(metadata, &release); err != nil {
 		t.Fatal(err)
 	}
-	exe, err := os.ReadFile(filepath.Join(dir, "sing-box.exe"))
+	exe, err := os.ReadFile(filepath.Join(dir, coreupdate.SingBoxExe))
 	if err != nil {
 		t.Fatal(err)
 	}
