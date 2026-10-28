@@ -48,7 +48,8 @@ func (a *App) initConfigSync() {
 		return st.Enabled && st.SignedIn && st.Member && !st.DeviceLimitReached
 	}
 	notify := func(st configsync.Status) { runtime.EventsEmit(a.ctx, "configsync", st) }
-	a.cfgSync = configsync.NewSyncer(dataDir(), a.lic.DeviceName(), a.svc, a.lic, member, notify)
+	account := func() string { return strings.ToLower(strings.TrimSpace(a.lic.Status().Username)) }
+	a.cfgSync = configsync.NewSyncer(dataDir(), a.lic.DeviceName(), a.svc, a.lic, member, account, notify)
 }
 
 // configSyncLoop: reconcile shortly after launch, then debounce local
@@ -98,7 +99,9 @@ func friendlyErr(err error) string {
 		case "SHARE_INVALID":
 			return "分享码或分享密码不对，请核对后再试"
 		case "RESTORE_PASSWORD_WRONG":
-			return "恢复密码不对"
+			return "这份配置设了恢复密码，请输入正确的恢复密码"
+		case "RESTORE_LOCKED", "SHARE_LOCKED":
+			return apiErr.Message
 		}
 	}
 	return err.Error()
@@ -281,8 +284,9 @@ func (a *App) SaveConfigProfile(name string) string {
 	return friendlyErr(err)
 }
 
-// OverwriteConfigProfile replaces a cloud config with the current config.
-func (a *App) OverwriteConfigProfile(id string) string {
+// OverwriteConfigProfile replaces a cloud config with the current config
+// (restorePassword: needed when the profile is locked).
+func (a *App) OverwriteConfigProfile(id, restorePassword string) string {
 	if err := a.syncReady(); err != nil {
 		return err.Error()
 	}
@@ -290,11 +294,11 @@ func (a *App) OverwriteConfigProfile(id string) string {
 	if err != nil {
 		return err.Error()
 	}
-	return friendlyErr(a.lic.UpdateProfile(id, nil, &text))
+	return friendlyErr(a.lic.UpdateProfile(id, nil, &text, restorePassword))
 }
 
 // RenameConfigProfile renames a cloud config.
-func (a *App) RenameConfigProfile(id, name string) string {
+func (a *App) RenameConfigProfile(id, name, restorePassword string) string {
 	if err := a.syncReady(); err != nil {
 		return err.Error()
 	}
@@ -302,15 +306,15 @@ func (a *App) RenameConfigProfile(id, name string) string {
 	if err != nil {
 		return err.Error()
 	}
-	return friendlyErr(a.lic.UpdateProfile(id, &n, nil))
+	return friendlyErr(a.lic.UpdateProfile(id, &n, nil, restorePassword))
 }
 
 // DeleteConfigProfile deletes a cloud config (its share code stops working).
-func (a *App) DeleteConfigProfile(id string) string {
+func (a *App) DeleteConfigProfile(id, restorePassword string) string {
 	if err := a.syncReady(); err != nil {
 		return err.Error()
 	}
-	return friendlyErr(a.lic.DeleteProfile(id))
+	return friendlyErr(a.lic.DeleteProfile(id, restorePassword))
 }
 
 func (a *App) stagePayload(np license.NamedPayload, err error) ImportPreview {
@@ -345,23 +349,23 @@ func (a *App) SetConfigProfilePassword(id, next, current string) string {
 }
 
 // ShareConfigProfile turns sharing on with a password and returns the code.
-func (a *App) ShareConfigProfile(id, password string) ShareResult {
+func (a *App) ShareConfigProfile(id, password, restorePassword string) ShareResult {
 	if err := a.syncReady(); err != nil {
 		return ShareResult{Err: err.Error()}
 	}
-	if len(password) < 4 || len(password) > 64 {
-		return ShareResult{Err: "分享密码 4 到 64 位"}
+	if len(password) < 6 || len(password) > 64 {
+		return ShareResult{Err: "分享密码 6 到 64 位"}
 	}
-	code, err := a.lic.ShareProfile(id, password)
+	code, err := a.lic.ShareProfile(id, password, restorePassword)
 	return ShareResult{Code: code, Err: friendlyErr(err)}
 }
 
 // UnshareConfigProfile stops sharing a cloud config.
-func (a *App) UnshareConfigProfile(id string) string {
+func (a *App) UnshareConfigProfile(id, restorePassword string) string {
 	if err := a.syncReady(); err != nil {
 		return err.Error()
 	}
-	return friendlyErr(a.lic.UnshareProfile(id))
+	return friendlyErr(a.lic.UnshareProfile(id, restorePassword))
 }
 
 // PreviewSharedConfig fetches someone's shared config by code + password

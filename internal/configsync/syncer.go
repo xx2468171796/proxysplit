@@ -22,6 +22,7 @@ type Remote interface {
 
 type syncState struct {
 	Disabled     bool   `json:"disabled,omitempty"`
+	Account      string `json:"account,omitempty"` // signed-in username this state belongs to
 	LastVersion  int    `json:"lastVersion"`
 	LastHash     string `json:"lastHash"`
 	LastSyncedAt string `json:"lastSyncedAt,omitempty"`
@@ -57,6 +58,7 @@ type Syncer struct {
 	store    Store
 	remote   Remote
 	member   func() bool
+	account  func() string // signed-in account identity (username)
 	notify   func(Status)
 	st       syncState
 	pending  string // hash seen on the previous tick (debounce)
@@ -67,8 +69,8 @@ type Syncer struct {
 }
 
 // NewSyncer loads the sync state from dir. notify may be nil.
-func NewSyncer(dir, device string, store Store, remote Remote, member func() bool, notify func(Status)) *Syncer {
-	s := &Syncer{dir: dir, device: device, store: store, remote: remote, member: member, notify: notify, now: time.Now}
+func NewSyncer(dir, device string, store Store, remote Remote, member func() bool, account func() string, notify func(Status)) *Syncer {
+	s := &Syncer{dir: dir, device: device, store: store, remote: remote, member: member, account: account, notify: notify, now: time.Now}
 	if raw, err := os.ReadFile(filepath.Join(dir, StateFile)); err == nil {
 		_ = json.Unmarshal(raw, &s.st)
 	}
@@ -86,7 +88,7 @@ func (s *Syncer) Status() Status {
 	st := Status{Member: s.member(), Enabled: !s.st.Disabled, Busy: s.busy, LastSyncedAt: s.st.LastSyncedAt, LastVersion: s.st.LastVersion, Error: s.lastErr, Conflict: s.conflict}
 	last := s.st.LastHash
 	s.mu.Unlock()
-	if h, err := LocalHash(s.store); err == nil {
+	if h, err := SyncHash(s.store); err == nil {
 		st.LocalChanged = h != last
 	}
 	st.CanUndo, st.UndoAt = CanUndo(s.dir)
@@ -124,7 +126,7 @@ func (s *Syncer) Tick() {
 	if !s.auto() {
 		return
 	}
-	h, err := LocalHash(s.store)
+	h, err := SyncHash(s.store)
 	if err != nil {
 		return
 	}
@@ -170,7 +172,8 @@ func (s *Syncer) SyncNow() (err error) {
 	defer s.run.Unlock()
 	s.setBusy(true, nil)
 	defer func() { s.setBusy(false, err) }()
-	local, err := Snapshot(s.store, s.device)
+	s.ensureAccount()
+	local, err := s.snapshot()
 	if err != nil {
 		return err
 	}
@@ -203,7 +206,7 @@ func (s *Syncer) cloudNewer(local Bundle, localDirty bool) error {
 	if err != nil {
 		return err
 	}
-	cloud, err := Parse(full.Payload)
+	cloud, err := s.parseCloud(full.Payload)
 	if err != nil {
 		return err
 	}
@@ -217,14 +220,21 @@ func (s *Syncer) cloudNewer(local Bundle, localDirty bool) error {
 		s.mu.Unlock()
 		return license.ErrSyncConflict
 	}
-	return s.pull(cloud, full.Version)
+	return s.pull(cloud, full.Version, false)
 }
 
-func (s *Syncer) pull(cloud Bundle, version int) error {
-	if err := Apply(s.store, s.dir, cloud, nil); err != nil {
+// pull applies a cloud copy. Automatic pulls back up to SyncBackupFile; a
+// user-chosen conflict resolution (manual) backs up to BackupFile so it can
+// be undone like an import. Either way the selected node stays.
+func (s *Syncer) pull(cloud Bundle, version int, manual bool) error {
+	backup := SyncBackupFile
+	if manual {
+		backup = BackupFile
+	}
+	if err := apply(s.store, filepath.Join(s.dir, backup), cloud, nil, modeSync); err != nil {
 		return err
 	}
-	h, err := LocalHash(s.store)
+	h, err := SyncHash(s.store)
 	if err != nil {
 		return err
 	}
@@ -239,7 +249,12 @@ func (s *Syncer) push(local Bundle, base int) error {
 	}
 	v, err := s.remote.ConfigSyncPut(payload, base)
 	if errors.Is(err, license.ErrSyncConflict) {
-		meta, _ := s.remote.ConfigSyncGet(true)
+		// Without the cloud metadata the conflict dialog would show version 0:
+		// surface the fetch error instead of a bogus conflict.
+		meta, merr := s.remote.ConfigSyncGet(true)
+		if merr != nil {
+			return errors.New("云端配置已被其他设备更新，但读取云端信息失败：" + merr.Error())
+		}
 		s.mu.Lock()
 		s.conflict = &Conflict{CloudVersion: meta.Version, CloudUpdatedAt: meta.UpdatedAt, CloudDevice: meta.DeviceName}
 		s.mu.Unlock()
@@ -270,22 +285,65 @@ func (s *Syncer) Resolve(choice string) (err error) {
 	defer s.run.Unlock()
 	s.setBusy(true, nil)
 	defer func() { s.setBusy(false, err) }()
+	if s.ensureAccount() {
+		return errors.New("登录账号已切换，请重新同步")
+	}
 	full, err := s.remote.ConfigSyncGet(choice == "local")
 	if err != nil {
 		return err
 	}
 	if choice == "local" {
-		local, err := Snapshot(s.store, s.device)
+		local, err := s.snapshot()
 		if err != nil {
 			return err
 		}
 		return s.push(local, full.Version)
 	}
-	cloud, err := Parse(full.Payload)
+	cloud, err := s.parseCloud(full.Payload)
 	if err != nil {
 		return err
 	}
-	return s.pull(cloud, full.Version)
+	return s.pull(cloud, full.Version, true)
+}
+
+// snapshot is the live config as cloud sync carries it (no selected node).
+func (s *Syncer) snapshot() (Bundle, error) {
+	b, err := Snapshot(s.store, s.device)
+	if err != nil {
+		return Bundle{}, err
+	}
+	return b.ForSync(), nil
+}
+
+func (s *Syncer) parseCloud(payload string) (Bundle, error) {
+	b, err := Parse(payload)
+	if err != nil {
+		return Bundle{}, err
+	}
+	return b.ForSync(), nil
+}
+
+// ensureAccount forgets the bookkeeping when it belongs to another account
+// than the signed-in one (account switch without sign-out), so that
+// account's version / hash can never make this one push or pull wrongly.
+// It reports whether a switch was detected.
+func (s *Syncer) ensureAccount() bool {
+	cur := ""
+	if s.account != nil {
+		cur = s.account()
+	}
+	s.mu.Lock()
+	same := s.st.Account == cur
+	s.mu.Unlock()
+	if same {
+		return false
+	}
+	s.Forget()
+	s.mu.Lock()
+	s.st.Account = cur
+	s.saveLocked()
+	s.mu.Unlock()
+	return true
 }
 
 // Forget clears the sync bookkeeping (sign-out / account switch) so another

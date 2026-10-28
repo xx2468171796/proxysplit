@@ -170,7 +170,7 @@ func TestSyncerPushPullAndConflict(t *testing.T) {
 	remote := &fakeRemote{}
 	store := &memStore{cfg: sampleConfig}
 	dir := t.TempDir()
-	s := NewSyncer(dir, "pc", store, remote, member, nil)
+	s := NewSyncer(dir, "pc", store, remote, member, nil, nil)
 	if err := s.SyncNow(); err != nil || remote.puts != 1 {
 		t.Fatalf("first sync should upload: %v puts=%d", err, remote.puts)
 	}
@@ -191,7 +191,7 @@ func TestSyncerPushPullAndConflict(t *testing.T) {
 		t.Fatalf("resolve local failed: %v %+v", err, remote.meta)
 	}
 	// Reloaded syncer keeps the bookkeeping.
-	again := NewSyncer(dir, "pc", store, remote, member, nil)
+	again := NewSyncer(dir, "pc", store, remote, member, nil, nil)
 	if again.Status().LocalChanged || again.Status().LastVersion != 4 {
 		t.Fatalf("state not persisted: %+v", again.Status())
 	}
@@ -201,7 +201,7 @@ func TestSyncerTickDebouncesAndSkipsFreeUsers(t *testing.T) {
 	isMember := false
 	remote := &fakeRemote{}
 	store := &memStore{cfg: sampleConfig}
-	s := NewSyncer(t.TempDir(), "pc", store, remote, func() bool { return isMember }, nil)
+	s := NewSyncer(t.TempDir(), "pc", store, remote, func() bool { return isMember }, nil, nil)
 	s.Tick()
 	s.Tick()
 	if remote.puts != 0 {

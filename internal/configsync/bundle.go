@@ -276,6 +276,34 @@ func (b Bundle) Hash() string {
 	return hex.EncodeToString(h.Sum(nil))
 }
 
+// ForSync drops the per-machine selected node from the bundle: automatic
+// cloud sync never carries it (switching nodes is not a config change that
+// should be uploaded or pulled). Manual export / profiles keep it.
+func (b Bundle) ForSync() Bundle {
+	out := b
+	out.Sections = make(map[string]json.RawMessage, len(b.Sections))
+	for k, v := range b.Sections {
+		out.Sections[k] = v
+	}
+	var nodes obj
+	if raw, ok := b.Sections[SecNodes]; ok && json.Unmarshal(raw, &nodes) == nil {
+		delete(nodes, "selectedId")
+		if raw, err := json.Marshal(nodes); err == nil {
+			out.Sections[SecNodes] = raw
+		}
+	}
+	return out
+}
+
+// SyncHash fingerprints the live config as cloud sync sees it (ForSync).
+func SyncHash(store Store) (string, error) {
+	b, err := Snapshot(store, "")
+	if err != nil {
+		return "", err
+	}
+	return b.ForSync().Hash(), nil
+}
+
 // LocalHash fingerprints the live config.
 func LocalHash(store Store) (string, error) {
 	b, err := Snapshot(store, "")

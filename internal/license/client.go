@@ -351,7 +351,7 @@ func (c *Client) saveLocked() error {
 	return os.Rename(tmp, c.path)
 }
 
-func (c *Client) request(ctx context.Context, method, path string, input any, output any, token string) error {
+func (c *Client) request(ctx context.Context, method, path string, input any, output any, token string, extra ...http.Header) error {
 	if c.apiURL == "" {
 		return errors.New("商业服务地址未配置")
 	}
@@ -374,6 +374,11 @@ func (c *Client) request(ctx context.Context, method, path string, input any, ou
 	}
 	if token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	for _, h := range extra {
+		for k, v := range h {
+			req.Header[k] = v
+		}
 	}
 	resp, err := c.http.Do(req)
 	if err != nil {
@@ -435,10 +440,10 @@ func (c *Client) applyLicenseLocked(l *licenseInfo) {
 	c.state.FreeDevices, c.state.PlanDevices = l.FreeDevices, l.PlanDevices
 }
 
-// isDeviceLimit reports the server's 409 DEVICE_LIMIT (device slots full).
+// isDeviceLimit reports the server error code DEVICE_LIMIT (device slots full); other 409s are not it.
 func isDeviceLimit(err error) bool {
 	var apiErr *APIError
-	return errors.As(err, &apiErr) && apiErr.Status == http.StatusConflict && (apiErr.Code == "DEVICE_LIMIT" || apiErr.Code == "")
+	return errors.As(err, &apiErr) && apiErr.Code == "DEVICE_LIMIT"
 }
 
 func (c *Client) devicePayload() map[string]any {
@@ -543,11 +548,11 @@ func (c *Client) Register(username, email, password, ref string) error {
 	return c.authenticatePayload("/v1/auth/register", username, payload)
 }
 
-func (c *Client) authedRequestLocked(ctx context.Context, method, path string, input, output any) error {
+func (c *Client) authedRequestLocked(ctx context.Context, method, path string, input, output any, extra ...http.Header) error {
 	if c.state.AccessToken == "" {
 		return errors.New("请先登录")
 	}
-	err := c.request(ctx, method, path, input, output, c.state.AccessToken)
+	err := c.request(ctx, method, path, input, output, c.state.AccessToken, extra...)
 	if err == nil {
 		return nil
 	}
@@ -569,7 +574,7 @@ func (c *Client) authedRequestLocked(ctx context.Context, method, path string, i
 		}
 		return err
 	}
-	if err := c.request(ctx, method, path, input, output, c.state.AccessToken); err != nil {
+	if err := c.request(ctx, method, path, input, output, c.state.AccessToken, extra...); err != nil {
 		return err
 	}
 	_ = c.saveLocked()

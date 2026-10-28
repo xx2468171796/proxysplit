@@ -19,10 +19,12 @@ export function codeError(code: string): string {
   return /^\d{6}$/.test(code.trim()) ? "" : "请输入 6 位短信验证码";
 }
 
-export async function sendSmsCode(phone: string, purpose: SmsPurpose): Promise<string> {
+/** 发验证码；cooldown = 服务端给的重发等待秒数（没给按 60）。 */
+export async function sendSmsCode(phone: string, purpose: SmsPurpose): Promise<{ err: string; cooldown: number }> {
   const invalid = phoneError(phone);
-  if (invalid) return invalid;
-  return syncApi.sendSmsCode(cleanPhone(phone), purpose);
+  if (invalid) return { err: invalid, cooldown: 0 };
+  const r = await syncApi.sendSmsCode(cleanPhone(phone), purpose);
+  return { err: r.err, cooldown: r.cooldownSeconds > 0 ? r.cooldownSeconds : 60 };
 }
 
 export async function resetPassword(phone: string, code: string, password: string): Promise<string> {
@@ -31,10 +33,11 @@ export async function resetPassword(phone: string, code: string, password: strin
   return syncApi.resetPassword(cleanPhone(phone), code.trim(), password);
 }
 
-export async function bindPhone(phone: string, code: string): Promise<string> {
+/** 已绑过手机号的账号换绑要当前登录密码 currentPassword。 */
+export async function bindPhone(phone: string, code: string, currentPassword = ""): Promise<string> {
   const invalid = phoneError(phone) || codeError(code);
   if (invalid) return invalid;
-  const err = await syncApi.bindPhone(cleanPhone(phone), code.trim());
+  const err = await syncApi.bindPhone(cleanPhone(phone), code.trim(), currentPassword);
   if (err) return err;
   closeBindPhone();
   await refreshLicense();

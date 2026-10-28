@@ -26,7 +26,7 @@ export function ApplyEnvConfig(arg1:Array<string>):Promise<string>;
 
 export function AutoLoginPending():Promise<boolean>;
 
-export function BindPhone(arg1:string,arg2:string):Promise<string>;
+export function BindPhone(arg1:string,arg2:string,arg3:string):Promise<string>;
 
 export function CancelImport():Promise<void>;
 
@@ -42,7 +42,7 @@ export function CopyToClipboard(arg1:string):Promise<string>;
 
 export function CreateMembershipOrder(arg1:string):Promise<main.OrderResult>;
 
-export function DeleteConfigProfile(arg1:string):Promise<string>;
+export function DeleteConfigProfile(arg1:string,arg2:string):Promise<string>;
 
 export function DeleteProxyPort(arg1:string):Promise<void>;
 
@@ -170,7 +170,7 @@ export function OpenPaymentURL(arg1:string):Promise<string>;
 
 export function OpenWebsite():Promise<void>;
 
-export function OverwriteConfigProfile(arg1:string):Promise<string>;
+export function OverwriteConfigProfile(arg1:string,arg2:string):Promise<string>;
 
 export function PickExeFiles():Promise<Array<string>>;
 
@@ -200,7 +200,7 @@ export function RemoveNodes(arg1:Array<string>):Promise<string>;
 
 export function RemoveSub(arg1:string):Promise<void>;
 
-export function RenameConfigProfile(arg1:string,arg2:string):Promise<string>;
+export function RenameConfigProfile(arg1:string,arg2:string,arg3:string):Promise<string>;
 
 export function RequestFenxiaoWithdrawal(arg1:number,arg2:string,arg3:string,arg4:string):Promise<main.FenxiaoResult>;
 
@@ -228,7 +228,7 @@ export function SaveSub(arg1:string,arg2:string,arg3:string,arg4:service.SubOpti
 
 export function SelectNode(arg1:string):Promise<string>;
 
-export function SendSMSCode(arg1:string,arg2:string):Promise<string>;
+export function SendSMSCode(arg1:string,arg2:string):Promise<main.SMSSendResult>;
 
 export function SetAIHijack(arg1:boolean):Promise<string>;
 
@@ -278,7 +278,7 @@ export function SetSyncEnabled(arg1:boolean):Promise<string>;
 
 export function SetSystemProxy(arg1:boolean):Promise<string>;
 
-export function ShareConfigProfile(arg1:string,arg2:string):Promise<main.ShareResult>;
+export function ShareConfigProfile(arg1:string,arg2:string,arg3:string):Promise<main.ShareResult>;
 
 export function SpeedTest():Promise<main.SpeedResult>;
 
@@ -308,7 +308,7 @@ export function UndoImport():Promise<string>;
 
 export function UndoReset():Promise<string>;
 
-export function UnshareConfigProfile(arg1:string):Promise<string>;
+export function UnshareConfigProfile(arg1:string,arg2:string):Promise<string>;
 
 export function UpdateCore():Promise<string>;
 

@@ -4,11 +4,13 @@ import { useState } from "react";
 import { syncApi } from "../../../api/sync";
 import type { ConfigProfile } from "../../../api/types-account";
 import { loadProfiles } from "../../../state/configsync";
+import { needRestore, RestoreField } from "./restore-field";
 
 type Props = { p: ConfigProfile; onClose: () => void; onShared: (code: string) => void };
 
 export function ShareDialog({ p, onClose, onShared }: Props) {
   const [password, setPassword] = useState("");
+  const [restore, setRestore] = useState("");
   return (
     <FormDialog
       open
@@ -19,14 +21,15 @@ export function ShareDialog({ p, onClose, onShared }: Props) {
       dirty={password !== ""}
       onClose={onClose}
       onSubmit={async () => {
-        if (password.length < 4) throw new Error("分享密码至少 4 位");
-        const r = await syncApi.shareProfile(p.id, password);
+        if (password.length < 6) throw new Error("分享密码至少 6 位");
+        needRestore(p, restore);
+        const r = await syncApi.shareProfile(p.id, password, restore);
         if (r.err) throw new Error(r.err);
         await loadProfiles();
         onShared(r.code);
       }}
     >
-      <FormField label="分享密码" htmlFor="share-new-pass" hint="4 到 64 位">
+      <FormField label="分享密码" htmlFor="share-new-pass" hint="6 到 64 位">
         <PasswordInput
           id="share-new-pass"
           value={password}
@@ -35,6 +38,7 @@ export function ShareDialog({ p, onClose, onShared }: Props) {
           autoFocus
         />
       </FormField>
+      <RestoreField p={p} value={restore} onChange={setRestore} />
     </FormDialog>
   );
 }
