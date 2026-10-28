@@ -42,6 +42,7 @@
 | 多级分销/推广赚钱 | docs/memory/fenxiao.md | tuiguang/fenxiao 接线、分佣 / 冻结 / 冲回 / 提现、规则存哪、坑 |
 | 客户端日志上报 | docs/memory/telemetry.md | 日志 + 事件自动上传、脱敏规则、0016 表、后台「客户端日志」、AI 用 sz-pg-proxysplit 查询 SQL |
 | 同事节点上报（内部） | docs/节点上报.md | 节点 / 订阅整份上报、0017 表、AES-GCM 链接加密（NODE_LINK_KEY）、后台「同事节点」、超管解密记审计 |
+| 运营后台（admin-ui） | docs/admin-rebuild.md | admin-ui 9.6.1 重做、验收表、总览分类卡与指标字典、假后端与截图脚本、新只读接口 |
 | 已知限制/待办 | docs/memory/known-issues.md | 无代码签名、Defender 误报、权益风险、待办 |
 | 逐版发布史 | docs/decisions.md | commit、SHA256、releases id、incoming 目录 |
 

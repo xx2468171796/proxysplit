@@ -557,7 +557,7 @@ export class PgStore {
     if(params.q){vals.push(`%${params.q}%`);conds.push(`(u.username ILIKE $${i} OR u.email ILIKE $${i} OR u.note ILIKE $${i} OR u.phone LIKE $${i})`);i++}
     if(params.status){vals.push(params.status);conds.push(`u.status::text=$${i}`);i++}
     if(params.role){vals.push(params.role);conds.push(`u.role::text=$${i}`);i++}
-    if(params.tier){vals.push(params.tier);conds.push(`p.tier=${i}`);i++}
+    if(params.tier){vals.push(params.tier);conds.push(`p.tier=$${i}`);i++}
     if(params.fenxiao==='agent')conds.push(`fm.tier_code IS NOT NULL`)
     else if(params.fenxiao==='referred')conds.push(`fm.parent_user_id IS NOT NULL`)
     if(params.membership==='active')conds.push(`l.id IS NOT NULL`)

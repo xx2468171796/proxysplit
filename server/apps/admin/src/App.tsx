@@ -1,49 +1,31 @@
+// 登录门 + 外壳。登录页用 AuthLayout + LoginForm（按钮一直能点，错误给人话）。
 import * as React from 'react'
-import { Navigate, Route, Routes } from 'react-router-dom'
-import { hasToken } from '@/lib/api'
-import { AppShell } from '@/components/app-shell'
-import { Login } from '@/pages/login'
-import DashboardPage from '@/pages/dashboard'
-import UsersPage from '@/pages/users'
-import DevicesPage from '@/pages/devices'
-import PlansPage from '@/pages/plans'
-import OrdersPage from '@/pages/orders'
-import RedeemPage from '@/pages/redeem'
-import PaymentsPage from '@/pages/payments'
-import AnnouncementsPage from '@/pages/announcements'
-import ReleasesPage from '@/pages/releases'
-import DownloadsPage from '@/pages/downloads'
-import AuditPage from '@/pages/audit'
-import SettingsPage from '@/pages/settings'
-import FenxiaoPage from '@/pages/fenxiao'
-import ClientLogsPage from '@/pages/client-logs'
-import ClientNodesPage from '@/pages/client-nodes'
+import { AuthLayout, LoginForm, errorText } from '@ankotti/admin-ui'
+import { hasToken, login } from '@/lib/api'
+import { Workspace } from '@/shell/workspace'
+
+const USER_KEY = 'ps-admin-user'
 
 export function App() {
   const [signed, setSigned] = React.useState(hasToken())
+  const [username, setUsername] = React.useState(() => sessionStorage.getItem(USER_KEY) ?? '管理员')
 
-  if (!signed) return <Login onDone={() => setSigned(true)} />
-
+  if (signed) return <Workspace username={username} />
   return (
-    <Routes>
-      <Route element={<AppShell />}>
-        <Route index element={<DashboardPage />} />
-        <Route path="users" element={<UsersPage />} />
-        <Route path="devices" element={<DevicesPage />} />
-        <Route path="plans" element={<PlansPage />} />
-        <Route path="orders" element={<OrdersPage />} />
-        <Route path="redeem" element={<RedeemPage />} />
-        <Route path="fenxiao" element={<FenxiaoPage />} />
-        <Route path="payments" element={<PaymentsPage />} />
-        <Route path="announcements" element={<AnnouncementsPage />} />
-        <Route path="releases" element={<ReleasesPage />} />
-        <Route path="downloads" element={<DownloadsPage />} />
-        <Route path="audit" element={<AuditPage />} />
-        <Route path="client-logs" element={<ClientLogsPage />} />
-        <Route path="client-nodes" element={<ClientNodesPage />} />
-        <Route path="settings" element={<SettingsPage />} />
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Route>
-    </Routes>
+    <AuthLayout logo="P" title="ProxySplit 运营后台" description="管理员账号登录">
+      <LoginForm
+        accountLabel="用户名"
+        accountPlaceholder="管理员用户名"
+        submitLabel="登录"
+        errorMessage={(e) => errorText(e, '登录失败，请稍后再试')}
+        onSubmit={async ({ account, password }) => {
+          if (!account.trim() || !password) throw new Error('请填写用户名和密码')
+          await login(account.trim(), password)
+          sessionStorage.setItem(USER_KEY, account.trim())
+          setUsername(account.trim())
+          setSigned(true)
+        }}
+      />
+    </AuthLayout>
   )
 }

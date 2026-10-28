@@ -1,46 +1,67 @@
+// 按套餐的分佣规则：某个套餐不返佣，或在正常比例上打折 / 加成（0–300%）；身份编辑器。
 import * as React from 'react'
 import { Plus, Trash2 } from 'lucide-react'
-import { listApi } from '@/lib/api'
-import { Button } from '@/components/ui/button'
-import { Checkbox } from '@/components/ui/checkbox'
-import { Input } from '@/components/ui/input'
-import { Select, SelectContent, SelectItem, SelectTrigger } from '@/components/ui/select'
+import { Button, Checkbox, Choice, IconButton, InfoList, Input, Note, NumberInput } from '@ankotti/admin-ui'
+import { get, type ListEnvelope } from '@/lib/api'
 import type { PlanRule } from './shared'
 
-type PlanLite = { id: string; name: string; code: string; active?: boolean }
+type PlanLite = { id: string; name: string; code: string }
 
-/** 按套餐的分佣规则：某个套餐不返，或在正常比例上打折 / 加成（结算时按订单的套餐 id 匹配）。 */
 export function PlanRulesEditor({ value, onChange }: { value: PlanRule[]; onChange: (v: PlanRule[]) => void }) {
   const [plans, setPlans] = React.useState<PlanLite[]>([])
   React.useEffect(() => {
-    listApi<PlanLite>('/v1/admin/plans', { limit: 100, offset: 0 }).then((r) => setPlans(r.items)).catch(() => setPlans([]))
+    const ctl = new AbortController()
+    get<ListEnvelope<PlanLite>>('/v1/admin/plans?limit=100&offset=0', ctl.signal).then((r) => setPlans(r.items)).catch(() => setPlans([]))
+    return () => ctl.abort()
   }, [])
   const nameOf = (id: string) => plans.find((p) => p.id === id)?.name ?? '（已删除的套餐）'
   const unused = plans.filter((p) => !value.some((r) => r.planId === p.id))
-  const update = (i: number, patch: Partial<PlanRule>) => onChange(value.map((r, j) => (j === i ? { ...r, ...patch } : r)))
+  const update = (i: number, p: Partial<PlanRule>) => onChange(value.map((r, j) => (j === i ? { ...r, ...p } : r)))
   return (
-    <div className="space-y-2">
-      {value.map((r, i) => (
-        <div key={r.planId} className="flex flex-wrap items-center gap-3 text-sm">
-          <span className="w-40 truncate font-medium" title={nameOf(r.planId)}>{nameOf(r.planId)}</span>
-          <label className="flex items-center gap-2"><Checkbox checked={r.excluded} onCheckedChange={(v) => update(i, { excluded: v === true })} />不返佣</label>
-          {!r.excluded && (
-            <label className="flex items-center gap-2">
-              按正常比例的
-              <Input type="number" className="w-20" min={0} max={300} value={r.multiplierBps / 100} onChange={(e) => update(i, { multiplierBps: Math.round(Math.min(300, Math.max(0, Number(e.target.value) || 0)) * 100) })} />
-              %
-            </label>
-          )}
-          <Button size="icon" variant="ghost" onClick={() => onChange(value.filter((_, j) => j !== i))} title="删掉这条（这个套餐回到正常比例）"><Trash2 className="h-4 w-4" /></Button>
-        </div>
-      ))}
+    <>
+      {value.length === 0 && <Note>没设的套餐都按正常比例返。</Note>}
+      <InfoList label="按套餐的分佣规则" items={value.map((r, i) => ({
+        key: r.planId,
+        label: nameOf(r.planId),
+        value: (
+          <>
+            <Checkbox aria-label={`${nameOf(r.planId)} 不返佣`} checked={r.excluded} onCheckedChange={(v) => update(i, { excluded: v === true })} />
+            {r.excluded ? '不返佣' : (
+              <NumberInput aria-label={`${nameOf(r.planId)} 按正常比例的百分比`} min={0} max={300} unit="%" clamp
+                value={r.multiplierBps / 100} onChange={(v) => update(i, { multiplierBps: Math.round((v ?? 0) * 100) })} />
+            )}
+            <IconButton label="删掉这条（回到正常比例）" icon={<Trash2 />} size="sm" onClick={() => onChange(value.filter((_, j) => j !== i))} />
+          </>
+        ),
+      }))} />
       {unused.length > 0 && (
-        <Select value="" onValueChange={(id) => onChange([...value, { planId: id, excluded: false, multiplierBps: 10000 }])}>
-          <SelectTrigger className="w-60"><span className="flex items-center gap-1 text-muted-foreground"><Plus className="h-4 w-4" />给某个套餐单独设</span></SelectTrigger>
-          <SelectContent>{unused.map((p) => <SelectItem key={p.id} value={p.id}>{p.name}（{p.code}）</SelectItem>)}</SelectContent>
-        </Select>
+        <Choice label="给某个套餐单独设" placeholder="给某个套餐单独设…" size="sm" width={260} value=""
+          onChange={(id) => id && onChange([...value, { planId: id, excluded: false, multiplierBps: 10000 }])}
+          options={unused.map((p) => ({ value: p.id, label: `${p.name}（${p.code}）` }))} />
       )}
-      {value.length === 0 && <div className="text-xs text-muted-foreground">没设的套餐都按正常比例返。</div>}
-    </div>
+    </>
+  )
+}
+
+export type TierDraft = { code: string; name: string; rates: string }
+
+export function TiersEditor({ value, onChange, differential }: { value: TierDraft[]; onChange: (v: TierDraft[]) => void; differential: boolean }) {
+  const update = (i: number, p: Partial<TierDraft>) => onChange(value.map((t, j) => (j === i ? { ...t, ...p } : t)))
+  return (
+    <>
+      <InfoList label="分销身份" items={value.map((t, i) => ({
+        key: String(i),
+        label: t.name || `身份 ${i + 1}`,
+        value: (
+          <>
+            <Input aria-label="身份名称" size="sm" width={120} value={t.name} placeholder="名称" onChange={(e) => update(i, { name: e.target.value })} />
+            <Input aria-label="身份代码" size="sm" width={120} mono value={t.code} placeholder="代码 agent" onChange={(e) => update(i, { code: e.target.value.toLowerCase() })} />
+            <Input aria-label="比例（%）" size="sm" width={160} value={t.rates} placeholder={differential ? '30' : '20, 5'} onChange={(e) => update(i, { rates: e.target.value })} />
+            <IconButton label="删除这个身份（已设成这个身份的人变回普通用户）" icon={<Trash2 />} size="sm" onClick={() => onChange(value.filter((_, j) => j !== i))} />
+          </>
+        ),
+      }))} />
+      <Button size="sm" variant="outline" onClick={() => onChange([...value, { code: '', name: '', rates: '' }])}><Plus />加一个身份</Button>
+    </>
   )
 }

@@ -1,164 +1,111 @@
+// 佣金流水（T02 列表，分销页分区）：状态筛选、筛选结果合计；待复核的放行 / 作废（作废写原因）；手工调账。
 import * as React from 'react'
-import { type ColumnDef } from '@tanstack/react-table'
-import { SlidersHorizontal } from 'lucide-react'
-import { toast } from 'sonner'
-import { listApi, post } from '@/lib/api'
-import { dt, money } from '@/lib/utils'
-import { DataTable } from '@/components/data-table'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { CommissionStatus, LEVEL_NAMES, pct, type Commission } from './shared'
+import { Check, Plus, X } from 'lucide-react'
+import {
+  Button, CellDate, CellText, Choice, ConfirmDialog, DataTable, FormDialog, FormField, Input, MoneyDisplay, QueryBar,
+  ResourcePanel, RowActionBar, StatusBadge, Textarea, useNotify, type Column,
+} from '@ankotti/admin-ui'
+import { post } from '@/lib/api'
+import { useServerList } from '@/lib/list'
+import { minor, money, options, yuanToCents } from '@/lib/format'
+import { COMMISSION_STATUS, pct, toneOf, type Commission } from './shared'
 
 type Review = { row: Commission; action: 'approve' | 'void' }
 
-function StatusCell({ c }: { c: Commission }) {
-  const sub = c.status === 'frozen' ? `${dt(c.availableAt)} 到账` : c.status === 'held' ? c.holdReason ?? '' : c.status === 'reversed' ? c.reverseReason ?? '' : ''
-  return (
-    <div className="space-y-0.5">
-      <CommissionStatus value={c.status} />
-      <div className="max-w-[220px] truncate text-xs text-muted-foreground" title={sub}>{sub}</div>
-    </div>
-  )
+function statusNote(c: Commission): string | undefined {
+  if (c.status === 'frozen') return `${new Date(c.availableAt).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })} 到账`
+  if (c.status === 'held') return c.holdReason ?? undefined
+  if (c.status === 'reversed') return c.reverseReason ?? undefined
+  return undefined
 }
 
-export function CommissionsTab({ refresh, onChanged }: { refresh: number; onChanged: () => void }) {
-  const [sum, setSum] = React.useState(0)
+export function CommissionsTab({ onChanged }: { onChanged: () => void }) {
+  const notify = useNotify()
+  const list = useServerList<Commission, { status: string }>('/v1/admin/fenxiao/commissions', { filters: { status: '' } })
   const [review, setReview] = React.useState<Review | null>(null)
   const [adjust, setAdjust] = React.useState(false)
-  const columns = React.useMemo<ColumnDef<Commission, unknown>[]>(() => [
-    {
-      id: 'order', header: '订单',
-      cell: ({ row: { original: c } }) => c.sourceKind === 'adjust' ? (
-        <div className="min-w-0 max-w-[220px]"><div className="text-xs font-medium">手工调账</div><div className="truncate text-xs text-muted-foreground" title={c.note ?? ''}>{c.note}</div></div>
-      ) : (
-        <div className="min-w-0 max-w-[220px]">
-          <div className="truncate font-mono text-xs">{c.orderNo ?? c.sourceRef}</div>
-          <div className="truncate text-xs text-muted-foreground">{c.planName ?? ''}</div>
-        </div>
-      ),
-    },
-    { id: 'buyer', header: '付款人', cell: ({ row: { original: c } }) => c.sourceKind === 'adjust' ? '—' : c.buyer },
-    {
-      id: 'beneficiary', header: '拿佣金的人',
-      cell: ({ row: { original: c } }) => <span><span className="font-medium">{c.beneficiary}</span> {c.level > 0 && <span className="text-xs text-muted-foreground">（{LEVEL_NAMES[c.level - 1] ?? `${c.level}级`}上级）</span>}</span>,
-    },
-    { id: 'base', header: '付款 × 比例', cell: ({ row: { original: c } }) => c.sourceKind === 'adjust' ? '—' : <span className="tabular-nums text-xs">{money(c.baseCents)} × {pct(c.rateBps)}</span> },
-    { id: 'amount', header: '佣金', cell: ({ row: { original: c } }) => <span className="font-medium tabular-nums">{money(c.amountCents)}</span> },
-    { id: 'status', header: '状态', cell: ({ row: { original: c } }) => <StatusCell c={c} /> },
-    { id: 'createdAt', header: '时间', cell: ({ row: { original: c } }) => <span className="text-xs">{dt(c.createdAt)}</span> },
-    {
-      id: 'actions', header: '',
-      cell: ({ row: { original: c } }) => c.status !== 'held' ? null : (
-        <div className="flex justify-end gap-1">
-          <Button size="sm" onClick={() => setReview({ row: c, action: 'approve' })}>放行</Button>
-          <Button size="sm" variant="outline" onClick={() => setReview({ row: c, action: 'void' })}>作废</Button>
-        </div>
-      ),
-    },
-  ], [])
+  const done = () => { list.refresh(); onChanged() }
+  const sum = minor(list.meta.amountSumCents ?? null)
+
+  const columns: Column<Commission>[] = [
+    { key: 'createdAt', title: '时间', width: 150, render: (c) => <CellDate value={c.createdAt} time /> },
+    { key: 'beneficiary', title: '拿佣金的人', width: 130, mobile: 'primary', render: (c) => c.beneficiary },
+    { key: 'source', title: '来源', maxWidth: 240, render: (c) => c.sourceKind === 'adjust'
+      ? <CellText primary="手工调账" secondary={c.note ?? undefined} />
+      : <CellText primary={c.orderNo ?? c.sourceRef} secondary={`${c.planName ?? '—'} · 买家 ${c.buyer}`} /> },
+    { key: 'rate', title: '级别 / 比例', width: 140, render: (c) => c.sourceKind === 'adjust' ? '—'
+      : <CellText primary={`${c.level} 级 · ${pct(c.rateBps)}`} secondary={<>基数 <MoneyDisplay value={minor(c.baseCents)} /></>} /> },
+    { key: 'amount', title: '金额（元）', width: 110, numeric: true, render: (c) => <MoneyDisplay value={minor(c.amountCents)} /> },
+    { key: 'status', title: '状态', width: 180, render: (c) => {
+      const s = toneOf(COMMISSION_STATUS, c.status)
+      return <CellText primary={<StatusBadge tone={s.tone}>{s.label}</StatusBadge>} secondary={statusNote(c)} />
+    } },
+    { key: 'actions', title: '操作', kind: 'actions', render: (c) => (
+      <RowActionBar label={`佣金 ${c.id} 的更多操作`} actions={[
+        { key: 'approve', label: '放行', icon: <Check />, disabled: c.status !== 'held', disabledReason: '只有待复核的佣金能放行', onSelect: () => setReview({ row: c, action: 'approve' }) },
+        { key: 'void', label: '作废', icon: <X />, destructive: true, menuOnly: false, disabled: c.status !== 'held', disabledReason: '只有待复核的佣金能作废', onSelect: () => setReview({ row: c, action: 'void' }) },
+      ]} />
+    ) },
+  ]
+
+  const r = review
   return (
     <>
-      <DataTable<Commission>
-        columns={columns}
-        searchable
-        searchPlaceholder="按拿佣金的人的用户名筛"
-        filters={[{ key: 'status', label: '状态', options: [{ label: '待复核', value: 'held' }, { label: '冻结中', value: 'frozen' }, { label: '已到账', value: 'available' }, { label: '已冲回', value: 'reversed' }] }]}
-        refreshSignal={refresh}
-        onLoaded={(r) => setSum(r.amountSum ?? 0)}
-        emptyText="还没有佣金。分佣开启后，被推荐用户每付一笔款，这里就会多出上级的佣金。"
-        toolbar={
-          <div className="flex items-center gap-3">
-            <span className="text-sm text-muted-foreground">筛选结果合计 <b className="text-foreground">{money(sum)}</b></span>
-            <Button variant="outline" onClick={() => setAdjust(true)}><SlidersHorizontal className="h-4 w-4" />调账</Button>
-          </div>
-        }
-        fetcher={async (q) => {
-          const r = await listApi<Commission>('/v1/admin/fenxiao/commissions', { q: q.q, limit: q.limit, offset: q.offset, ...q.filters })
-          return { ...r, amountSum: (r as { amountSumCents?: number }).amountSumCents ?? 0 }
-        }}
-      />
-      <ReviewDialog review={review} onClose={() => setReview(null)} onDone={onChanged} />
-      <AdjustDialog open={adjust} onClose={() => setAdjust(false)} onDone={onChanged} />
+      <ResourcePanel title="佣金流水" {...list.panel} unit="笔"
+        description="大额单的佣金先挂起「待复核」，放行后按冻结期到账；作废不可恢复。合计按当前筛选的全部结果算。"
+        actions={<Button size="sm" variant="ghost" onClick={() => setAdjust(true)}><Plus />手工调账</Button>}
+        filters={
+          <QueryBar {...list.queryBar} placeholder="搜索拿佣金的人">
+            <Choice label="状态" size="sm" clearable placeholder="全部状态" value={list.query.filters.status} onChange={(v) => list.setFilter('status', v)} options={options(COMMISSION_STATUS)} />
+          </QueryBar>
+        }>
+        <DataTable caption="佣金流水" columns={columns} rowKey={(c) => c.id} {...list.table}
+          {...(sum !== null && list.total ? { summary: { amount: <MoneyDisplay value={sum} />, createdAt: '筛选结果合计' } } : {})} />
+      </ResourcePanel>
+      <ConfirmDialog open={!!r} tone={r?.action === 'void' ? 'danger' : 'info'} destructive={r?.action === 'void'}
+        title={r?.action === 'void' ? `作废这笔 ${money(r.row.amountCents)} 的佣金？` : `放行这笔 ${money(r?.row.amountCents)} 的佣金？`}
+        confirmLabel={r?.action === 'void' ? '作废' : '放行'}
+        impact={r ? [`拿佣金的人：${r.row.beneficiary}`, r.action === 'void' ? '作废后不会再到账，原因写进审计' : '放行后按冻结期规则到账'] : []}
+        {...(r?.action === 'void' ? { reason: { label: '作废原因', required: true, placeholder: '至少 2 个字，最多 200 字' } } : {})}
+        onClose={() => setReview(null)}
+        onConfirm={async (reason) => {
+          if (!r) return
+          if (r.action === 'void' && (reason.trim().length < 2 || reason.trim().length > 200)) throw new Error('作废原因写 2–200 个字')
+          await post(`/v1/admin/fenxiao/commissions/${r.row.id}/review`, { action: r.action, ...(r.action === 'void' ? { note: reason.trim() } : {}) })
+          notify(r.action === 'void' ? '已作废' : '已放行', 'success')
+          done()
+        }} />
+      {adjust && <AdjustDialog onClose={() => setAdjust(false)} onDone={done} />}
     </>
   )
 }
 
-function ReviewDialog({ review, onClose, onDone }: { review: Review | null; onClose: () => void; onDone: () => void }) {
-  const [note, setNote] = React.useState('')
-  const [busy, setBusy] = React.useState(false)
-  React.useEffect(() => setNote(''), [review])
-  const approve = review?.action === 'approve'
-  async function submit() {
-    if (!review) return
-    setBusy(true)
-    try {
-      await post(`/v1/admin/fenxiao/commissions/${review.row.id}/review`, { action: review.action, ...(note.trim() ? { note: note.trim() } : {}) })
-      toast.success(approve ? '已放行' : '已作废，这笔佣金不再发放')
-      onClose(); onDone()
-    } catch (e) { toast.error((e as Error).message) } finally { setBusy(false) }
-  }
+function AdjustDialog({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
+  const notify = useNotify()
+  const [d, setD] = React.useState({ username: '', amount: '', reason: '' })
+  const set = (p: Partial<typeof d>) => setD((x) => ({ ...x, ...p }))
   return (
-    <Dialog open={!!review} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>{approve ? '放行这笔佣金' : '作废这笔佣金'}</DialogTitle>
-          <DialogDescription>
-            {approve ? '放行后按正常流程走：冻结期没过先冻结，过了直接可提现。' : '作废后这笔佣金不再发给他，记为冲回；他能看到作废原因。'}
-          </DialogDescription>
-        </DialogHeader>
-        {review && (
-          <div className="space-y-3 text-sm">
-            <div className="rounded-md border p-3">
-              <div className="text-2xl font-semibold">{money(review.row.amountCents)}</div>
-              <div className="mt-1">{review.row.beneficiary} · 付款人 {review.row.buyer} · {review.row.orderNo ?? review.row.sourceRef}</div>
-              {review.row.holdReason && <div className="mt-1 text-xs text-muted-foreground">挂起原因：{review.row.holdReason}</div>}
-            </div>
-            <Input value={note} maxLength={200} onChange={(e) => setNote(e.target.value)} placeholder={approve ? '备注（可不填）' : '作废原因（他能看到）'} />
-          </div>
-        )}
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose}>取消</Button>
-          <Button variant={approve ? 'default' : 'destructive'} disabled={busy || (!approve && note.trim().length < 2)} onClick={submit}>{busy ? '处理中…' : approve ? '确认放行' : '确认作废'}</Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  )
-}
-
-function AdjustDialog({ open, onClose, onDone }: { open: boolean; onClose: () => void; onDone: () => void }) {
-  const [username, setUsername] = React.useState('')
-  const [yuan, setYuan] = React.useState('')
-  const [reason, setReason] = React.useState('')
-  const [busy, setBusy] = React.useState(false)
-  React.useEffect(() => { if (open) { setUsername(''); setYuan(''); setReason('') } }, [open])
-  const cents = Math.round(Number(yuan) * 100)
-  const valid = username.trim() && Number.isFinite(cents) && cents !== 0 && /^-?\d+(\.\d{1,2})?$/.test(yuan.trim()) && reason.trim().length >= 2
-  async function submit() {
-    setBusy(true)
-    try {
-      await post('/v1/admin/fenxiao/adjustments', { username: username.trim(), amountCents: cents, reason: reason.trim() })
-      toast.success(cents > 0 ? `已给 ${username.trim()} 补发 ${money(cents)}` : `已从 ${username.trim()} 扣减 ${money(-cents)}`)
-      onClose(); onDone()
-    } catch (e) { toast.error((e as Error).message) } finally { setBusy(false) }
-  }
-  return (
-    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>手工调账</DialogTitle>
-          <DialogDescription>正数补发、负数扣减，直接进他的可提现余额（扣成负数就是欠款，后面的佣金先抵）。原因他能看到，操作会记审计。</DialogDescription>
-        </DialogHeader>
-        <div className="grid gap-3 text-sm">
-          <label className="grid gap-1.5"><span className="text-muted-foreground">用户名</span><Input value={username} onChange={(e) => setUsername(e.target.value)} placeholder="推广人的账号" /></label>
-          <label className="grid gap-1.5"><span className="text-muted-foreground">金额（元，负数为扣减）</span><Input value={yuan} onChange={(e) => setYuan(e.target.value)} placeholder="例如 50 或 -20" inputMode="decimal" /></label>
-          <label className="grid gap-1.5"><span className="text-muted-foreground">原因</span><Input value={reason} maxLength={200} onChange={(e) => setReason(e.target.value)} placeholder="例如：10 月活动奖励" /></label>
-        </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose}>取消</Button>
-          <Button disabled={busy || !valid} onClick={submit}>{busy ? '处理中…' : '确认调账'}</Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    <FormDialog open title="手工调账" description="正数 = 补发佣金（直接可提现），负数 = 扣减。写进佣金流水和审计。"
+      dirty={!!(d.username || d.amount || d.reason)} submitLabel="确认调账" onClose={onClose}
+      onSubmit={async () => {
+        if (!d.username.trim()) throw new Error('请填写用户名')
+        const cents = /^-?\d+(\.\d{1,2})?$/.test(d.amount.trim()) ? yuanToCents(d.amount) : null
+        if (cents === null || cents === 0) throw new Error('金额填元，最多两位小数，不能为 0（负数表示扣减）')
+        if (d.reason.trim().length < 2 || d.reason.trim().length > 200) throw new Error('原因写 2–200 个字')
+        await post('/v1/admin/fenxiao/adjustments', { username: d.username.trim(), amountCents: cents, reason: d.reason.trim() })
+        notify(`已${cents > 0 ? '补发' : '扣减'} ${money(Math.abs(cents))}`, 'success')
+        onDone()
+        onClose()
+      }}>
+      <FormField label="用户名" htmlFor="adj-user" required>
+        <Input id="adj-user" value={d.username} onChange={(e) => set({ username: e.target.value })} />
+      </FormField>
+      <FormField label="金额（元）" htmlFor="adj-amount" required hint="例如 50 或 -12.5">
+        <Input id="adj-amount" value={d.amount} inputMode="decimal" onChange={(e) => set({ amount: e.target.value })} />
+      </FormField>
+      <FormField label="原因" htmlFor="adj-reason" required count={{ value: d.reason.length, max: 200 }}>
+        <Textarea id="adj-reason" value={d.reason} maxLength={200} onChange={(e) => set({ reason: e.target.value })} />
+      </FormField>
+    </FormDialog>
   )
 }

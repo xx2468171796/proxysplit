@@ -1,18 +1,18 @@
-import React from 'react'
+import '@ankotti/admin-ui/styles.css'
+import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
-import { BrowserRouter } from 'react-router-dom'
+import { AdminProvider, NotificationProvider } from '@ankotti/admin-ui'
 import { App } from './App'
-import { ThemeProvider } from '@/components/theme-provider'
-import { Toaster } from '@/components/ui/sonner'
-import './globals.css'
 
-createRoot(document.getElementById('root')!).render(
-  <React.StrictMode>
-    <ThemeProvider>
-      <BrowserRouter basename="/admin">
-        <App />
-      </BrowserRouter>
-      <Toaster richColors position="top-right" />
-    </ThemeProvider>
-  </React.StrictMode>,
-)
+const root = document.getElementById('root')
+if (root) {
+  createRoot(root).render(
+    <StrictMode>
+      <AdminProvider storageKey="proxysplit:admin" mode="system" defaults={{ timeZone: 'Asia/Shanghai', currency: '¥', phoneCountry: '+86' }}>
+        <NotificationProvider>
+          <App />
+        </NotificationProvider>
+      </AdminProvider>
+    </StrictMode>,
+  )
+}
