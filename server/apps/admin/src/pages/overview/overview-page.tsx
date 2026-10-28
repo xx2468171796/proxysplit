@@ -35,8 +35,8 @@ export function OverviewPage({ active }: PageProps) {
         {stats.staleError && <InlineAlert tone="warning" title="刷新失败，下面是上一次的数据">{stats.staleError}</InlineAlert>}
         <StatStrip title="此刻" label="此刻的运营状态" items={[
           { key: 'online', label: '在线设备', value: now.data ? String(now.data.online) : null, unit: '台', note: '15 分钟内有心跳' },
-          { key: 'pending', label: '待支付订单', value: now.data ? String(now.data.pendingOrders) : null, unit: '笔', note: '打开订单页处理', onSelect: () => ws.openPage('orders') },
-          { key: 'expiring', label: '7 天内到期', value: now.data ? String(now.data.expiring) : null, unit: '人', ...(now.data?.expiring ? { tone: 'attention' as const } : {}), note: '会员即将到期', onSelect: () => ws.openPage('users') },
+          { key: 'pending', label: '待支付订单', value: now.data ? String(now.data.pendingOrders) : null, unit: '笔', note: '打开订单页处理', onSelect: () => ws.openPage('orders', { status: 'pending' }) },
+          { key: 'expiring', label: '7 天内到期', value: now.data ? String(now.data.expiring) : null, unit: '人', ...(now.data?.expiring ? { tone: 'attention' as const } : {}), note: '会员即将到期', onSelect: () => ws.openPage('users', { membership: 'expiring' }) },
           { key: 'month', label: '本月实收', value: now.data ? money(now.data.monthRevenue) : null, note: '自然月，已支付订单' },
           { key: 'fx', label: '待审提现', value: fx.data ? String(fx.data.pendingWithdrawals) : null, unit: '笔',
             ...(fx.data?.pendingWithdrawals ? { tone: 'attention' as const } : {}), note: fx.data ? `提现中 ${money(fx.data.withdrawingCents)}` : '推广返利', onSelect: () => ws.openPage('fenxiao') },

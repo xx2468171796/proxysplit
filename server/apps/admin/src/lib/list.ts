@@ -15,6 +15,8 @@ export type ServerListOptions<F extends Filters> = {
   /** 后端分页参数风格：默认 limit / offset，同事节点接口用 page / pageSize。 */
   paging?: 'offset' | 'page'
   initialSearch?: string
+  /** 打开时带的筛选（下钻），「重置」回到 filters。 */
+  initialFilters?: Partial<F> | undefined
 }
 
 const EXTRA_KEY = '__extra'
@@ -37,7 +39,7 @@ export function listParams<F extends Filters>(query: ListQuery<F>, extra: QueryP
 export function useServerList<T, F extends Filters>(path: string, opts: ServerListOptions<F>) {
   const paging = opts.paging ?? 'offset'
   const [query, setQuery] = React.useState<ListQuery<F>>(() => ({
-    page: 1, pageSize: opts.pageSize ?? 20, search: opts.initialSearch ?? '', filters: opts.filters, ...(opts.sort ? { sort: opts.sort } : {}),
+    page: 1, pageSize: opts.pageSize ?? 20, search: opts.initialSearch ?? '', filters: { ...opts.filters, ...opts.initialFilters }, ...(opts.sort ? { sort: opts.sort } : {}),
   }))
   const [draft, setDraft] = React.useState(opts.initialSearch ?? '')
   const [meta, setMeta] = React.useState<ListMeta>({})

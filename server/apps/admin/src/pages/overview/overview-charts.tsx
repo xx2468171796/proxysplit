@@ -50,8 +50,8 @@ export function OverviewCharts({ days, stats, statsLoading, active }: Props) {
         </SplitLayout>
         <SplitLayout rail={
           <Panel title="订单状态" count="笔">
-            <AdminChart option={donutOption({ items: (a?.orderStatus ?? []).map((o) => ({ name: ORDER[o.status] ?? o.status, value: o.count })), unit: ' 笔', centerLabel: '订单', maxSlices: 5 })}
-              label="订单状态分布" height={220} {...st} empty={!!a && a.orderStatus.length === 0} />
+            <AdminChart option={donutOption({ items: (a?.orderStatus ?? []).map((o) => ({ name: ORDER[o.status] ?? o.status, value: o.count })), unit: ' 笔', centerLabel: '订单', maxSlices: 5, layout: 'stacked' })}
+              label="订单状态分布" height={300} {...st} empty={!!a && a.orderStatus.length === 0} />
           </Panel>}>
           <Panel title="下单和成交" count="笔">
             <AdminChart option={orders} label="每天下单和成交" height={220} {...st} empty={!!a && a.ordersDaily.length === 0}
@@ -62,7 +62,7 @@ export function OverviewCharts({ days, stats, statsLoading, active }: Props) {
       <DashboardSection title="用户和客户端分布" description="会员等级与平台为当前快照；新增设备、审计量按天。">
         <SplitLayout rail={
           <Panel title="会员等级" count="人">
-            <AdminChart option={donutOption({ items: tiers, unit: ' 人', centerLabel: '用户', maxSlices: 5 })} label="会员等级分布" height={220} {...st} empty={!!a && tiers.length === 0} />
+            <AdminChart option={donutOption({ items: tiers, unit: ' 人', centerLabel: '用户', maxSlices: 5, layout: 'stacked' })} label="会员等级分布" height={300} {...st} empty={!!a && tiers.length === 0} />
           </Panel>}>
           <Panel title="每天新增设备" count="台">
             <AdminChart option={line('devices', '新增设备', (a?.newDevicesDaily ?? []).map((x) => ({ date: x.date, value: x.count })), ' 台')} label="每天新增设备" height={220} {...st}

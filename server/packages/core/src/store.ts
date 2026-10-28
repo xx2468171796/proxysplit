@@ -929,7 +929,7 @@ export class PgStore {
     vals.push(limit,offset)
     // Window aggregates run over the full filtered set (before LIMIT), so total
     // and amountSum reflect every matched order, not just the current page.
-    const r=await this.pool.query(`SELECT o.id,o.order_no AS "orderNo",u.username,o.plan_name AS "planName",o.tier,o.billing_cycle AS "billingCycle",
+    const r=await this.pool.query(`SELECT o.id,o.order_no AS "orderNo",u.username,o.user_id AS "userId",o.plan_name AS "planName",o.tier,o.billing_cycle AS "billingCycle",
       o.amount_cents AS "amountCents",o.currency,o.status,o.provider_code AS "providerCode",o.provider_order_no AS "providerOrderNo",
       o.paid_at AS "paidAt",o.created_at AS "createdAt",o.group_id AS "groupId",
       (SELECT coalesce(sum(c.amount),0)::int FROM fx_commissions c WHERE c.source_kind='order' AND c.source_ref=coalesce(o.group_id::text,o.id::text) AND c.status<>'reversed') AS "commissionCents",

@@ -1,7 +1,7 @@
 // 分销（T05 分区合并页）：分销商与团队 / 佣金流水 / 提现审核 / 分佣规则；上方是分佣状态与近 30 天指标。
 import * as React from 'react'
 import { BadgePercent, FileCog, ReceiptText, Users, Wallet } from 'lucide-react'
-import { ContentSkeleton, MetricCard, MetricGrid, PageBody, StatePanel, StatusBadge, TabbedPage, errorText } from '@ankotti/admin-ui'
+import { ContentSkeleton, KpiCard, KpiGrid, PageBody, StatePanel, StatusBadge, TabbedPage, errorText } from '@ankotti/admin-ui'
 import { get } from '@/lib/api'
 import { money } from '@/lib/format'
 import type { PageProps } from '@/shell/workspace-context'
@@ -13,16 +13,16 @@ import type { Overview, Policy } from './shared'
 
 function OverviewCards({ ov }: { ov: Overview | null }) {
   const m = (v: number | undefined) => (ov ? money(v ?? 0) : null)
-  const note = (text: (o: Overview) => string) => (ov ? { note: text(ov) } : {})
+  const note = (text: (o: Overview) => string) => (ov ? { detail: text(ov) } : {})
   return (
-    <MetricGrid>
-      <MetricCard title="近 30 天佣金" value={m(ov?.periodCommissionCents)} {...note((o) => `${o.periodCount} 笔`)} icon={BadgePercent} />
-      <MetricCard title="冻结中" value={m(ov?.frozenCents)} {...note((o) => `待复核 ${o.heldCommissions} 笔 · ${money(o.heldCents)}`)} />
-      <MetricCard title="可提现" value={m(ov?.availableCents)} icon={Wallet} />
-      <MetricCard title="提现中" value={m(ov?.withdrawingCents)} {...note((o) => `${o.pendingWithdrawals} 笔待审核`)} />
-      <MetricCard title="已提现" value={m(ov?.withdrawnCents)} {...note((o) => `已冲回 ${money(o.reversedCents)}`)} />
-      <MetricCard title="推荐关系" value={ov ? ov.boundMembers : null} unit="人" {...note((o) => `分销商 ${o.agents} 人`)} icon={Users} />
-    </MetricGrid>
+    <KpiGrid>
+      <KpiCard size="sm" title="近 30 天佣金" value={m(ov?.periodCommissionCents)} {...note((o) => `${o.periodCount} 笔`)} icon={BadgePercent} />
+      <KpiCard size="sm" title="冻结中" value={m(ov?.frozenCents)} {...note((o) => `待复核 ${o.heldCommissions} 笔 · ${money(o.heldCents)}`)} />
+      <KpiCard size="sm" title="可提现" value={m(ov?.availableCents)} icon={Wallet} />
+      <KpiCard size="sm" title="提现中" value={m(ov?.withdrawingCents)} {...note((o) => `${o.pendingWithdrawals} 笔待审核`)} />
+      <KpiCard size="sm" title="已提现" value={m(ov?.withdrawnCents)} {...note((o) => `已冲回 ${money(o.reversedCents)}`)} />
+      <KpiCard size="sm" title="推荐关系" value={ov ? String(ov.boundMembers) : null} unit="人" {...note((o) => `分销商 ${o.agents} 人`)} icon={Users} />
+    </KpiGrid>
   )
 }
 

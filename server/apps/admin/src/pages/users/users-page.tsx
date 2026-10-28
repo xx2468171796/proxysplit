@@ -44,13 +44,13 @@ function fenxiaoCell(u: UserRow, names: Record<string, string>) {
   return items.length ? <CellTags items={items} /> : '—'
 }
 
-export function UsersPage(_: PageProps) {
+export function UsersPage({ params }: PageProps) {
   const notify = useNotify()
   const fxNames = useFxTierNames()
   const [range, setRange] = React.useState<DateRangeValue>(EMPTY_RANGE)
   const [creating, setCreating] = React.useState(false)
   const list = useServerList<UserRow, UserFilters>('/v1/admin/users', {
-    filters: FILTERS, sort: { key: 'createdAt', direction: 'desc' }, extra: rangeParams(range, 'createdFrom', 'createdTo'),
+    filters: FILTERS, initialFilters: params?.membership ? { membership: params.membership } : undefined, sort: { key: 'createdAt', direction: 'desc' }, extra: rangeParams(range, 'createdFrom', 'createdTo'),
   })
   const actions = useUserActions(() => list.refresh())
   const set = (k: keyof UserFilters) => (v: string) => list.setFilter(k, v)

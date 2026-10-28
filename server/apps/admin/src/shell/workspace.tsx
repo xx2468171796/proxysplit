@@ -66,7 +66,7 @@ export function Workspace({ username }: { username: string }) {
     const Page = PAGES[t.id]
     return {
       id: t.id, title: nav?.title ?? t.id, icon: nav?.icon ?? UserRound, pinned: t.id === HOME, closable: t.id !== HOME,
-      content: Page ? <React.Suspense fallback={<ContentSkeleton rows={6} />}><Page active={active} params={t.params} /></React.Suspense> : null,
+      content: Page ? <React.Suspense fallback={<ContentSkeleton rows={6} />}><Page key={JSON.stringify(t.params ?? {})} active={active} params={t.params} /></React.Suspense> : null,
     }
   })
 

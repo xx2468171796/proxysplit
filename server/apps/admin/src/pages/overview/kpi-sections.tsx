@@ -3,7 +3,7 @@ import { Cloud, CreditCard, MessageSquare, Smartphone, UserPlus, Users, Wallet }
 import { DashboardSection, KpiCard, KpiGrid } from '@ankotti/admin-ui'
 import { comparisonLabel, conversionDelta, countDelta, MIN_COHORT, moneyDelta, pctText, ratio, yuanText, type StatsOverview } from './metrics'
 
-type Props = { data: StatsOverview | undefined; loading: boolean; openPage: (id: string) => void; fx?: unknown }
+type Props = { data: StatsOverview | undefined; loading: boolean; openPage: (id: string, params?: Record<string, string>) => void; fx?: unknown }
 
 export function KpiSections({ data: d, loading, openPage }: Props) {
   const cmp = d ? comparisonLabel(d.days) : ''
@@ -16,7 +16,7 @@ export function KpiSections({ data: d, loading, openPage }: Props) {
         <KpiGrid>
           <KpiCard size="lg" icon={Users} title="付费会员" loading={loading} value={d ? String(d.members.paid) : null} unit="人" tag="北极星"
             detail={d ? `占注册用户 ${pctText(paidShare) ?? '—'}%（${d.members.paid} / ${d.members.users}）` : undefined}
-            footnote="当前快照，没有历史基线" onActivate={() => openPage('users')} activateLabel="查看用户" />
+            footnote="当前快照，没有历史基线" onActivate={() => openPage('users', { membership: 'active' })} activateLabel="查看会员用户" />
           <KpiCard icon={Users} title="免费用户" loading={loading} value={d ? String(d.members.free) : null} unit="人" footnote="当前快照" />
           <KpiCard icon={UserPlus} title="新注册" loading={loading} value={d ? String(d.signups.cur) : null} unit="人"
             delta={d ? countDelta(d.signups.cur, d.signups.prev) : null} comparison={cmp}
@@ -32,14 +32,12 @@ export function KpiSections({ data: d, loading, openPage }: Props) {
         <KpiGrid>
           <KpiCard size="lg" icon={Wallet} title="实收" loading={loading} value={d ? yuanText(d.revenue.curCents) : null}
             delta={d ? moneyDelta(d.revenue.curCents, d.revenue.prevCents) : null} comparison={cmp}
-            detail={d ? `上期 ${yuanText(d.revenue.prevCents)}` : undefined} onActivate={() => openPage('orders')} activateLabel="查看订单" />
+            detail={d ? `上期 ${yuanText(d.revenue.prevCents)}` : undefined} onActivate={() => openPage('orders', { status: 'paid' })} activateLabel="查看已支付订单" />
           <KpiCard icon={CreditCard} title="已支付订单" loading={loading} value={d ? String(d.revenue.paidOrders.cur) : null} unit="笔"
             delta={d ? countDelta(d.revenue.paidOrders.cur, d.revenue.paidOrders.prev) : null} comparison={cmp} />
           <KpiCard icon={UserPlus} title="新增付费用户" loading={loading} value={d ? String(d.members.newPaid.cur) : null} unit="人"
             delta={d ? countDelta(d.members.newPaid.cur, d.members.newPaid.prev) : null} comparison={cmp}
             definition="第一笔已支付订单落在本期的用户数。" />
-          <KpiCard icon={Smartphone} title="在线设备" loading={loading} value={d ? String(d.online.devices15m) : null} unit="台"
-            footnote="客户端运维：15 分钟内有心跳" onActivate={() => openPage('devices')} activateLabel="查看设备" />
         </KpiGrid>
       </DashboardSection>
       <DashboardSection title="手机号和云端配置用起来了吗" description="手机号注册、云同步、云端命名配置与分享（2026-10-29 上线）。短信记录只保留约 2 天，所以固定看最近 24 小时。">

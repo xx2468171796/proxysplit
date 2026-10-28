@@ -55,12 +55,13 @@ function layout(providerName: (c: string) => string): Partial<RecordLayout<Order
   }
 }
 
-export function OrdersPage(_: PageProps) {
+export function OrdersPage({ params }: PageProps) {
   const providers = useProviders()
   const providerName = (c: string) => providers.find((p) => p.code === c)?.displayName ?? c ?? '—'
   const [range, setRange] = React.useState<DateRangeValue>(EMPTY_RANGE)
   const list = useServerList<Order, { status: string; tier: string; providerCode: string }>('/v1/admin/orders', {
     filters: { status: '', tier: '', providerCode: '' },
+    initialFilters: params?.status ? { status: params.status } : undefined,
     sort: { key: 'createdAt', direction: 'desc' },
     extra: rangeParams(range, 'createdFrom', 'createdTo'),
   })
