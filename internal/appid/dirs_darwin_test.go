@@ -13,7 +13,7 @@ func TestCheckDirMac(t *testing.T) {
 			t.Errorf("CheckDir(%q) = %q, %v; want %q", in, got, err, want)
 		}
 	}
-	for _, bad := range []string{"/Applications", "/System/Library", "/System", "/Users", "/usr/local", "/"} {
+	for _, bad := range []string{"/Applications", "/Applications/Utilities", "/System/Library", "/System", "/Users", "/usr/local", "/"} {
 		if got, err := CheckDir(bad); err == nil {
 			t.Errorf("CheckDir(%q) = %q, want an error", bad, got)
 		}

@@ -29,7 +29,7 @@ func SetProtected(dirs ...string) {
 // sharedRoots are folders that hold many unrelated programs.
 func sharedRoots() []string {
 	if runtime.GOOS == "darwin" {
-		out := []string{"/Applications/", "/System/Applications/", "/Users/", "/usr/local/", "/opt/homebrew/"}
+		out := []string{"/Applications/", "/Applications/Utilities/", "/System/Applications/", "/Users/", "/usr/local/", "/opt/homebrew/"}
 		if h, err := os.UserHomeDir(); err == nil {
 			out = append(out, NormDir(h), NormDir(filepath.Join(h, "Applications")))
 		}

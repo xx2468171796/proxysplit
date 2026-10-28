@@ -38,7 +38,7 @@ const (
 	legacyCtl   = "/usr/local/libexec/proxysplit-psctl" // test builds before 2026-10-29
 	// ctlVersion changes whenever ctlScript / checkJS change, so an upgraded
 	// app re-installs them (one password prompt) instead of running old ones.
-	ctlVersion = "2"
+	ctlVersion = "3"
 )
 
 // Command runs the control script as root without a prompt (sudo -n).
@@ -117,8 +117,27 @@ chmod 440 "$t"
 visudo -cf "$t" >/dev/null || { rm -f "$t"; echo "sudoers invalid" >&2; exit 1; }
 mv -f "$t" %[6]s
 [ -L %[7]s ] || rm -f %[7]s
-`, Dir, ctlScript, checkJS, core, username, sudoersFile, legacyCtl), nil
+# at boot: put back the DNS servers a reboot / crash left pointing into the TUN
+t=$(mktemp /Library/LaunchDaemons/.proxysplit.XXXXXX)
+cat > "$t" <<'PLIST'
+%[8]s
+PLIST
+chown root:wheel "$t" && chmod 644 "$t" && mv -f "$t" %[9]s
+`, Dir, ctlScript, checkJS, core, username, sudoersFile, legacyCtl, bootPlist, bootDaemon), nil
 }
+
+// bootDaemon runs "psctl stop" once at every boot (restores DNS, clears the pid).
+const bootDaemon = "/Library/LaunchDaemons/cn.zygskins.proxysplit.dnsrestore.plist"
+
+const bootPlist = `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>cn.zygskins.proxysplit.dnsrestore</string>
+  <key>ProgramArguments</key><array><string>` + Ctl + `</string><string>stop</string></array>
+  <key>RunAtLoad</key><true/>
+</dict>
+</plist>`
 
 // ctlScript is the control script. Arguments are validated here because the
 // sudoers line allows any.
@@ -128,6 +147,7 @@ const ctlScript = `#!/bin/sh
 PATH=/usr/bin:/bin:/usr/sbin:/sbin
 HOME=/var/root
 export PATH HOME
+set -f
 D=` + Dir + `
 CWD=$PWD
 cd "$D" || exit 1
@@ -145,26 +165,38 @@ stopcore() {
 }
 # macOS resolves through mDNSResponder with interface-scoped sockets, which
 # bypass the TUN's DNS hijack; while the core runs, every network service's DNS
-# points into the TUN. The original servers are kept in dns.bak (never
-# overwritten, so a crash leaves the real originals) and restored when the core
-# exits, on stop, and when the app starts (it calls stop).
+# points into the TUN. networksetup changes persist, so the original servers are
+# kept in dns.bak (written atomically, never overwritten: a crash keeps the real
+# originals) and restored when the core exits, on stop, when the app starts
+# (it calls stop) and at boot (LaunchDaemon, so a reboot or an uninstalled app
+# never leaves the Mac without DNS).
 flushdns() { dscacheutil -flushcache; killall -HUP mDNSResponder 2>/dev/null; }
+TAB=$(printf '\t')
 dnson() {
-  [ -f "$D/dns.bak" ] || services | while IFS= read -r s; do
-    printf '%s\t%s\n' "$s" "$(networksetup -getdnsservers "$s" | tr '\n' ' ')"
-  done > "$D/dns.bak"
-  services | while IFS= read -r s; do networksetup -setdnsservers "$s" "$1"; done
+  if [ ! -f "$D/dns.bak" ]; then
+    services | while IFS= read -r s; do
+      printf '%s\t%s\n' "$s" "$(networksetup -getdnsservers "$s" | tr '\n' ' ')"
+    done > "$D/dns.bak.tmp" && mv -f "$D/dns.bak.tmp" "$D/dns.bak" || return 1
+  fi
+  # only services whose originals are on record
+  while IFS="$TAB" read -r s v; do networksetup -setdnsservers "$s" "$1"; done < "$D/dns.bak"
   flushdns
 }
 dnsoff() {
   [ -f "$D/dns.bak" ] || return 0
-  T=$(printf '\t')
-  while IFS="$T" read -r s v; do
-    case "$v" in *"aren't any"*|' '|'') networksetup -setdnsservers "$s" empty ;; *) networksetup -setdnsservers "$s" $v ;; esac
+  ok=1
+  while IFS="$TAB" read -r s v; do
+    # keep only address tokens; "There aren't any DNS Servers…" (or any other text) = none
+    ips=$(printf '%s\n' $v | grep -E '^[0-9A-Fa-f:.]+$' | grep -E '[.:]' | tr '\n' ' ')
+    if [ -n "$ips" ]; then networksetup -setdnsservers "$s" $ips || ok=
+    else networksetup -setdnsservers "$s" empty || ok=; fi
   done < "$D/dns.bak"
-  rm -f "$D/dns.bak"
+  # the backup goes only once every service is back (otherwise the next stop retries)
+  [ -n "$ok" ] && rm -f "$D/dns.bak"
   flushdns
 }
+# alive: running and not a zombie (kill -0 also succeeds on an unreaped zombie)
+alive() { [ -z "$stopping" ] && ps -p "$1" -o stat= 2>/dev/null | grep -qv Z; }
 case "$1" in
 ping) echo "ok $(shasum -a 256 "$D/sing-box" | cut -d' ' -f1) v` + ctlVersion + `" ;;
 run)
@@ -187,10 +219,11 @@ run)
   C=$!
   echo $C > "$D/core.pid"
   # sudo relays SIGTERM here; pass it on and still restore DNS afterwards
-  trap 'kill -TERM $C 2>/dev/null' TERM INT HUP
+  stopping=
+  trap 'stopping=1; kill -TERM $C 2>/dev/null' TERM INT HUP
   if [ -n "$DNSIP" ]; then
-    i=0; until ifconfig | grep -q "inet $TUNIP " || ! kill -0 $C 2>/dev/null || [ $i -ge 50 ]; do sleep 0.1; i=$((i+1)); done
-    kill -0 $C 2>/dev/null && dnson "$DNSIP"
+    i=0; until ifconfig | grep -q "inet $TUNIP " || ! alive $C || [ $i -ge 50 ]; do sleep 0.1; i=$((i+1)); done
+    alive $C && dnson "$DNSIP"
   fi
   wait $C; rc=$?
   while kill -0 $C 2>/dev/null; do wait $C; rc=$?; done
@@ -242,7 +275,7 @@ function run(argv) {
   // The TUN's IPv4 address and the next one (system DNS while the core runs).
   var tun = (c.inbounds || []).filter(function (i) { return i.type === 'tun'; })[0];
   var m = tun && (tun.address || []).map(function (a) { return /^(\d+)\.(\d+)\.(\d+)\.(\d+)\/(\d+)$/.exec(a); }).filter(Boolean)[0];
-  if (!m || +m[5] > 30 || +m[4] >= 254) return '';
+  if (!m || +m[5] > 30 || +m[4] >= 254 || m.slice(1, 4).some(function (o) { return +o > 255; })) return '';
   return m.slice(1, 5).join('.') + ' ' + [m[1], m[2], m[3], +m[4] + 1].join('.');
 }`
 
