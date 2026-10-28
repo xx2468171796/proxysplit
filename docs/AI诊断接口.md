@@ -27,6 +27,9 @@ ProxySplit 内置一组诊断接口，让 AI（或工程师）在任何一台装
 | `GET/POST /api/settings`（POST 只传要改的字段，如 `{"tunMode":true}`） | `proxysplit_set_settings` | 读取 / 修改设置：整机全局、阻止 QUIC、远程解析、内网直连等 |
 | `POST /api/nodes/add` `{"text":"链接
 链接"}`；`POST /api/nodes/remove` `{"id"}` | `proxysplit_add_nodes` | 导入 / 删除节点 |
+| `POST /api/nodes/select` `{"id"}` | — | 手动切换活动节点 |
+| `POST /api/nodes/via` `{"id","via"}` | — | 前置代理：id 经由 via 连接（via 为空 = 关闭） |
+| `GET/POST /api/settings/net` | — | DNS 与高级（国内 / 国外 DNS、hosts、拦截 HTTPS/SVCB、MTU、严格路由），保存前校验 |
 
 原有接口（状态、节点、应用、代理策略、启动 / 停止）不变。装好并启动软件后，AI 经堡垒机 `run_command` 调这些接口就能从登录到测试全程远程操作，不用点界面。
 

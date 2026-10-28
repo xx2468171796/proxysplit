@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"proxysplit/internal/core"
+	"proxysplit/internal/service"
 )
 
 // Diagnostics / test endpoints of the local control API (and the matching MCP
@@ -80,6 +81,42 @@ func (a *App) registerDiagAPI(mux *http.ServeMux, auth func(func(http.ResponseWr
 			return
 		}
 		writeJSON(w, 200, okOr(a.SetNodeCore(b.ID, b.Core)))
+	}))
+	// POST /api/nodes/select {"id"} — switch the active node (manual only).
+	mux.HandleFunc("/api/nodes/select", auth(func(w http.ResponseWriter, r *http.Request) {
+		var b struct {
+			ID string `json:"id"`
+		}
+		if r.Method != http.MethodPost || json.NewDecoder(r.Body).Decode(&b) != nil || b.ID == "" {
+			writeJSON(w, 400, map[string]string{"error": "POST {\"id\":\"<节点 id>\"}"})
+			return
+		}
+		writeJSON(w, 200, okOr(a.SelectNode(b.ID)))
+	}))
+	// POST /api/nodes/via {"id","via"} — 前置代理: dial node id through via ("" = off).
+	mux.HandleFunc("/api/nodes/via", auth(func(w http.ResponseWriter, r *http.Request) {
+		var b struct {
+			ID  string `json:"id"`
+			Via string `json:"via"`
+		}
+		if r.Method != http.MethodPost || json.NewDecoder(r.Body).Decode(&b) != nil || b.ID == "" {
+			writeJSON(w, 400, map[string]string{"error": "POST {\"id\":\"<节点 id>\",\"via\":\"<前置节点 id，空 = 关闭>\"}"})
+			return
+		}
+		writeJSON(w, 200, okOr(a.SetNodeVia(b.ID, b.Via)))
+	}))
+	// GET / POST /api/settings/net — DNS 与高级 (validated like the UI).
+	mux.HandleFunc("/api/settings/net", auth(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			writeJSON(w, 200, a.GetSettings().Net)
+			return
+		}
+		var n service.NetSettings
+		if err := json.NewDecoder(r.Body).Decode(&n); err != nil {
+			writeJSON(w, 400, map[string]string{"error": "body must be NetSettings JSON"})
+			return
+		}
+		writeJSON(w, 200, okOr(a.SetNetSettings(n)))
 	}))
 	// POST /api/split-mode {"mode":"whitelist|blacklist"}
 	mux.HandleFunc("/api/split-mode", auth(func(w http.ResponseWriter, r *http.Request) {
