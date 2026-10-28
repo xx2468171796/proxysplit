@@ -14,7 +14,7 @@ import type { Node } from "../../api/types";
 import { useFeedback } from "../../app/use-feedback";
 import { latencyGrade, latencyText, tcpLatencyText } from "../../shared/format";
 import { useStore } from "../../shared/store";
-import { selectNode } from "../../state/data";
+import { data, selectNode } from "../../state/data";
 import { type NodeTestState, nodeTests, testGoogle, testSpeed, testTCP } from "../../state/nodes";
 import { runtime } from "../../state/runtime";
 import { coreLabel } from "./node-core-dialog";
@@ -120,6 +120,8 @@ export function useNodeColumns(on: NodeRowHandlers): Column<Node>[] {
   const { say } = useFeedback();
   const tests = useStore(nodeTests, (s) => s);
   const selected = useStore(runtime, (s) => s.status?.selectedId);
+  const all = useStore(data, (s) => s.nodes);
+  const names = useMemo(() => new Map(all.map((x) => [x.id, x.name])), [all]);
   // 窄窗口只露两个按钮，免得操作列压住「状态」列。
   const wide = useMediaQuery("(min-width: 1300px)");
   return useMemo(
@@ -135,8 +137,8 @@ export function useNodeColumns(on: NodeRowHandlers): Column<Node>[] {
               {coreLabel(n)}
             </Tag>
             {n.via && (
-              <Tag size="sm" variant="plain" title="经由前置节点连接">
-                前置
+              <Tag size="sm" variant="plain" title={`本机 → ${names.get(n.via) ?? "前置节点"} → ${n.name}`}>
+                经 {names.get(n.via) ?? "前置节点"}
               </Tag>
             )}
             <CellText primary={n.name} secondary={`${n.server}:${n.port}`} />
@@ -188,6 +190,6 @@ export function useNodeColumns(on: NodeRowHandlers): Column<Node>[] {
         ),
       },
     ],
-    [tests, selected, say, on, wide],
+    [tests, selected, say, on, wide, names],
   );
 }

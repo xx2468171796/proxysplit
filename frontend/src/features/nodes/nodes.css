@@ -29,3 +29,49 @@
 .ps-node-filters > :first-child {
   flex: 1 1 280px;
 }
+
+/* 前置代理示意图 */
+.ps-via-chain {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding: 12px;
+  border-radius: 8px;
+  background: var(--ui-surface-muted, rgba(127, 127, 127, 0.08));
+  margin-bottom: 12px;
+}
+.ps-via-hop {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  min-width: 64px;
+  max-width: 120px;
+  text-align: center;
+  font-size: 12px;
+}
+.ps-via-hop svg {
+  width: 20px;
+  height: 20px;
+}
+.ps-via-hop b {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+.ps-via-hop span {
+  opacity: 0.65;
+  font-size: 11px;
+}
+.ps-via-hop--front {
+  color: var(--ui-accent, #2563eb);
+}
+.ps-via-arrow {
+  width: 16px;
+  height: 16px;
+  opacity: 0.5;
+  flex: none;
+}
