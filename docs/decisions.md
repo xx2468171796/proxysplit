@@ -4,6 +4,11 @@
 > 结论与坑已提炼到 `docs/memory/<主题>.md`；这里是事实存档，按标题取（`node ~/.ankotti/ai-kit/mem.mjs <关键词>`），不要整份读。
 > 约定：sz = 深圳生产机；incoming = sz `/opt/proxysplit/incoming/`；客户端回滚 = 该版本 incoming 目录 `python3 publish-client.py rollback` 并删 releases 表里该版本那行。
 
+## v1.10.6（2026-10-28 11:35，全站发布，强制）
+- release id 20261028-111253-135fbfb-v1.10.6，上一版 releases/20261028-061415-427ba90-v1.10.5；备份 backups/postgres-20261028-111253-135fbfb-v1.10.6.sql.gz；无新迁移。exe SHA256 350ecc8667366f9524fd39721bfd418529b43c0c6284a69175b14f0a35024d31。
+- 业主定：去掉「自动选择（最快）」只手动切换；前置代理保留，改为默认关的开关 + 用途说明 + 链路示意图。AI 接口新增 /api/nodes/select、/api/nodes/via、/api/settings/net。
+- alonehome2 真机实测（武汉电信）：1.10.6 启动、Edge→Google 走节点 / 百度直连；socks5 198.87.105.21:8022 经「台湾1」前置 → Google 200 两次，出口 IP 198.87.105.21（洛杉矶），配置 proxy(socks) detour=proxy~via(vless)；DNS 设置非法值被拒、合法值重启生效（MTU 1400、DNS 119.29.29.29 / 1.1.1.1）；测完还原（台湾1、无前置、net 空、代理运行）。VM153 Defender 0 威胁。
+
 ## v1.10.5（2026-10-28 06:40，全站发布，强制）
 - release id 20261028-061415-427ba90-v1.10.5，上一版 releases/20261028-052838-436ff73-v1.10.4；备份 backups/postgres-20261028-061415-427ba90-v1.10.5.sql.gz；无新迁移。exe SHA256 c8e1d6088421f56eeb72e363d81c33168a702131e747ee0330c3d18eb61b44cb。
 - 内容：导入 WireGuard（链接 / .conf，sing-box endpoint，marshalConfig 统一挪 endpoints）；BuildMultiConfig / StartLines 拆小函数、manager.go 拆出 manager_tun.go（golden 逐字一致）。
