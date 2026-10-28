@@ -12,8 +12,10 @@ import { IpByteBudget } from './telemetry-budget.js'
 import { registerClientNodesRoutes, type ClientNodesDeps } from './client-nodes-routes.js'
 import { registerPhoneRoutes } from './phone-routes.js'
 import { registerSyncRoutes } from './sync-routes.js'
+import { registerAdminStatsRoutes, type AdminStatsDeps } from './admin-stats-routes.js'
+import { AdminStatsQuery } from './admin-stats.js'
 
-type Core={auth:AuthService;store:PgStore;fenxiao?:FenxiaoService;telemetry?:Pick<TelemetryDeps,'store'|'query'>;clientNodes?:Pick<ClientNodesDeps,'store'|'query'>;close:()=>Promise<void>}
+type Core={auth:AuthService;store:PgStore;fenxiao?:FenxiaoService;telemetry?:Pick<TelemetryDeps,'store'|'query'>;clientNodes?:Pick<ClientNodesDeps,'store'|'query'>;adminStats?:AdminStatsDeps['query'];close:()=>Promise<void>}
 const bearer=(value?:string)=>value?.startsWith('Bearer ')?value.slice(7):''
 export async function buildApp(config:ApiConfig,provided?:Core){
   const core:Core=provided??await createCommercialCore({databaseUrl:config.DATABASE_URL,auth:{accessSecret:config.ACCESS_TOKEN_SECRET,refreshDays:config.REFRESH_TOKEN_TTL_DAYS,...(config.LICENSE_PRIVATE_KEY_PEM?{licensePrivateKeyPem:config.LICENSE_PRIVATE_KEY_PEM}:{}),...(config.LICENSE_PUBLIC_KEY_PEM?{licensePublicKeyPem:config.LICENSE_PUBLIC_KEY_PEM}:{}),powervpn:{baseUrl:config.POWERVPN_BASE_URL??'https://lxc.5fskins.com'},
@@ -184,6 +186,8 @@ export async function buildApp(config:ApiConfig,provided?:Core){
     catch(error){app.log.error({err:error instanceof Error?error.message:'callback failed'},'payment callback rejected');const status=error instanceof AppError?error.status:500;return reply.code(status>=500?500:status).send({code:status,message:'failed'})}
   })
 
+  // 运营总览聚合与用户云端配置元数据（admin-stats-routes.ts，只读）
+  registerAdminStatsRoutes(app,{admin,query:core.adminStats??new AdminStatsQuery(core.store.pool)})
   app.get('/v1/admin/dashboard',async(req)=>{await admin(req);return core.store.dashboard()})
   app.get('/v1/admin/analytics',async(req)=>{
     await admin(req)
