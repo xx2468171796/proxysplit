@@ -20,7 +20,7 @@ func (s *Service) GetSubs() []Sub {
 
 // AddSub adds a subscription, fetches it and merges its nodes.
 func (s *Service) AddSub(name, url string, autoUpdate bool) error {
-	name, url = strings.TrimSpace(name), strings.TrimSpace(url)
+	name, url = strings.TrimSpace(name), subs.NormalizeURL(url)
 	if name == "" || url == "" {
 		return fmt.Errorf("订阅名称和地址不能为空")
 	}
@@ -38,6 +38,7 @@ func (s *Service) AddSub(name, url string, autoUpdate bool) error {
 	}
 	s.cfg.Subs = append(s.cfg.Subs, sub)
 	s.replaceSubscriptionNodesLocked(sub.ID, list)
+	s.ensureSelectedLocked() // first subscription: 启动 must not say "no node"
 	s.save()
 	s.mu.Unlock()
 	s.applyLive()
@@ -83,7 +84,7 @@ func (s *Service) UpdateSub(id string) error {
 // the nodes, so a failed fetch (bad address, filter that keeps nothing)
 // leaves the old subscription and all of its nodes intact.
 func (s *Service) SaveSub(id, name, url string, o SubOptions) error {
-	name, url = strings.TrimSpace(name), strings.TrimSpace(url)
+	name, url = strings.TrimSpace(name), subs.NormalizeURL(url)
 	if name == "" || url == "" {
 		return fmt.Errorf("订阅名称和地址不能为空")
 	}

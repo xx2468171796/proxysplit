@@ -69,7 +69,16 @@ func (s *Service) startLocked() error {
 	}
 	s.mu.Lock()
 	guard := s.startGuard
+	// Before the license check: with no node, every click used to call the
+	// license server too and soon hit its rate limit.
+	picked, auto := s.ensureSelectedLocked()
 	s.mu.Unlock()
+	if picked == nil {
+		return errNoNode
+	}
+	if auto {
+		s.log("[service] 还没选节点，已自动选中「" + picked.Name + "」")
+	}
 	if guard != nil {
 		if err := guard(); err != nil {
 			return fmt.Errorf("授权校验失败：%w", err)
@@ -127,7 +136,7 @@ func (s *Service) startLocked() error {
 	// System-wide mode: sing-box TUN routes the whole machine.
 	if set.TunMode {
 		if node == nil {
-			return fmt.Errorf("no node selected")
+			return errNoNode
 		}
 		// TUN has no mixed inbound, so the clash port can't collide with one.
 		clashPort, _ := core.FreePort()
@@ -166,7 +175,7 @@ func (s *Service) startLocked() error {
 	// App-split mode: sing-box TUN + per-app routing. The per-app lists live in
 	// rule-set files, so later app add/remove can apply without a restart.
 	if node == nil {
-		return fmt.Errorf("no node selected")
+		return errNoNode
 	}
 	clashPort, _ := core.FreePort()
 	base := clashOptsFor(clashPort)

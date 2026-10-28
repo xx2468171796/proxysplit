@@ -47,6 +47,7 @@ type Options struct {
 
 // FetchOpts is FetchWith with per-subscription options.
 func FetchOpts(url string, viaProxy string, pv *powervpn.Client, opt Options) (*Result, error) {
+	url = NormalizeURL(url)
 	tr := &http.Transport{}
 	if viaProxy != "" {
 		d, err := proxy.SOCKS5("tcp", viaProxy, nil, proxy.Direct)
@@ -140,6 +141,9 @@ func FetchOpts(url string, viaProxy string, pv *powervpn.Client, opt Options) (*
 func ParseBody(body []byte) ([]*nodes.Node, error) {
 	var out []*nodes.Node
 	trimmed := strings.TrimSpace(string(body))
+	if low := strings.ToLower(trimmed); strings.HasPrefix(low, "<!doctype") || strings.HasPrefix(low, "<html") {
+		return nil, fmt.Errorf("这个地址打开的是网页，不是订阅：请到服务商后台点「复制订阅链接」，把那条链接粘贴进来")
+	}
 	if strings.HasPrefix(trimmed, "{") {
 		out, _ = nodes.ParseSingboxJSON(body)
 	}
@@ -206,4 +210,14 @@ func b64decode(s string) ([]byte, error) {
 		s += strings.Repeat("=", 4-m)
 	}
 	return base64.StdEncoding.DecodeString(s)
+}
+
+// NormalizeURL adds https:// to an address typed without a scheme
+// ("example.com/sub?token=…" failed with `unsupported protocol scheme ""`).
+func NormalizeURL(u string) string {
+	u = strings.TrimSpace(u)
+	if u == "" || strings.Contains(u, "://") {
+		return u
+	}
+	return "https://" + strings.TrimPrefix(u, "//")
 }

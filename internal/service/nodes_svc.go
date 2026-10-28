@@ -1,6 +1,7 @@
 package service
 
 import (
+	"errors"
 	"time"
 
 	"proxysplit/internal/latency"
@@ -108,6 +109,28 @@ func (s *Service) SelectNode(id string) string {
 	go s.restartPortsFollowingActive()
 	return restartMsg(s.applyLive())
 }
+
+// ensureSelectedLocked picks the first node when nothing valid is selected
+// (none chosen yet, or the chosen one left with its subscription). A user
+// with 88 subscription nodes was told "no node selected" 20+ times
+// (telemetry 2026-10-28). Returns the selected node (nil = there is none) and
+// whether it was just picked, so the caller can log after unlocking.
+func (s *Service) ensureSelectedLocked() (n *nodes.Node, picked bool) {
+	if n := s.selectedNode(); n != nil {
+		return n, false
+	}
+	for _, n := range s.cfg.Nodes {
+		if n != nil {
+			s.cfg.SelectedID = n.ID
+			s.save()
+			return n, true
+		}
+	}
+	return nil, false
+}
+
+// errNoNode is the start failure when there is no node at all.
+var errNoNode = errors.New("还没有节点：先在「节点」页添加节点或订阅")
 
 // selectedNode is the active node.
 func (s *Service) selectedNode() *nodes.Node {

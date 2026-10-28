@@ -16,7 +16,7 @@ var codeRules = []codeRule{
 	{ErrPortInUse, []string{"address already in use", "only one usage of each socket", "端口被占用", "bind:"}},
 	{ErrPermission, []string{"permission denied", "access is denied", "拒绝访问", "requires elevation", "管理员", "operation not permitted"}},
 	{ErrLicense, []string{"license", "会员", "授权", "登录", "lease", "device_mismatch", "设备数量"}},
-	{ErrNoNode, []string{"no node", "未选择节点", "请先选择", "没有可用节点", "节点不存在"}},
+	{ErrNoNode, []string{"no node", "还没有节点", "未选择节点", "请先选择", "没有可用节点", "节点不存在"}},
 	{ErrParse, []string{"parse", "解析", "unmarshal", "invalid character", "unsupported", "不支持", "无法识别", "格式"}},
 	{ErrSubFetch, []string{"订阅", "subscription"}},
 	{ErrUpdateVerify, []string{"signature", "sha256", "签名", "校验"}},

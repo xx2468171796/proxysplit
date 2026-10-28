@@ -39,8 +39,11 @@ export function lineNodeLabel(node: string, nodes: Node[]): string {
 }
 
 export async function addNodes(links: string): Promise<string> {
-  const r = await api.addNodes(links).catch(() => ({ added: 0, skipped: 0 }));
+  const r: { added: number; skipped: number; note?: string } = await api
+    .addNodes(links)
+    .catch(() => ({ added: 0, skipped: 0 }));
   await Promise.all([refreshNodes(), refreshStatus()]);
+  if (r?.note) return r.note; // a subscription link pasted here was added as a subscription
   return `已添加 ${r?.added ?? 0} 个，跳过 ${r?.skipped ?? 0} 个`;
 }
 

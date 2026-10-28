@@ -352,12 +352,25 @@ func ensurePayload() (string, error) {
 
 // AddResult is returned by AddNodes.
 type AddResult struct {
-	Added   int `json:"added"`
-	Skipped int `json:"skipped"`
+	Added   int    `json:"added"`
+	Skipped int    `json:"skipped"`
+	Note    string `json:"note,omitempty"` // shown instead of the counts (e.g. added as a subscription)
 }
 
-// AddNodes parses share links (one per line) and stores the new ones.
+// AddNodes parses share links (one per line) and stores the new ones. A lone
+// http(s) address is a subscription link pasted into the wrong box (seen in
+// telemetry): it is added as a subscription instead of "0 added".
 func (a *App) AddNodes(text string) AddResult {
+	if u := strings.TrimSpace(text); !strings.ContainsAny(u, " \r\n") && (strings.HasPrefix(u, "http://") || strings.HasPrefix(u, "https://")) {
+		name := "订阅"
+		if p, err := url.Parse(u); err == nil && p.Hostname() != "" {
+			name = p.Hostname()
+		}
+		if msg := a.AddSub(name, u, true); msg != "" {
+			return AddResult{Note: "这是订阅链接，按订阅添加失败：" + msg}
+		}
+		return AddResult{Note: "这是订阅链接，已按订阅添加（「订阅」页可改名）"}
+	}
 	added, skipped := a.svc.AddNodes(text)
 	tmAdd(text, added, skipped)
 	return AddResult{Added: added, Skipped: skipped}
