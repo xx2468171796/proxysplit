@@ -1,5 +1,8 @@
-# EV Sign 共享代码签名（堡垒机资产 251）：把 exe 发给 api.evsign.cn 签 Authenticode，验签通过才替换原文件。
-# 许可证只从环境变量 EVSIGN_KEY 读，不进仓库、不进命令行。文件名须是 EV Sign 已审核的（proxysplit.exe 已审核）。
+# EV Sign shared code signing (bastion asset 251): send the exe to api.evsign.cn for an
+# Authenticode signature and replace the file only when the result verifies.
+# The license comes only from the EVSIGN_KEY environment variable (never the repo or argv).
+# The file name must be on EV Sign's reviewed list (proxysplit.exe is).
+# Keep this file ASCII: Windows PowerShell 5.1 misreads BOM-less UTF-8.
 param(
     [Parameter(Mandatory = $true)][string]$File,
     [string]$SignedName = 'proxysplit.exe'
