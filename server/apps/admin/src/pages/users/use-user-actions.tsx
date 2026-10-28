@@ -32,7 +32,7 @@ export function useUserActions(onChanged: (kind: 'update' | 'delete', user: Acti
   }
 
   const actionsFor = (u: ActionUser): RowAction[] => [
-    ...(opts.inDetail ? [] : [{ key: 'detail', label: '详情', icon: <UserRound />, onSelect: () => ws.openUser(u.id, u.username) }]),
+    ...(opts.inDetail ? [] : [{ key: 'detail', label: '详情', icon: <UserRound />, menuOnly: true, onSelect: () => ws.openUser(u.id, u.username) }]),
     { key: 'grant', label: '发放会员', icon: <BadgeCheck />, onSelect: () => setOpen({ kind: 'grant', user: u }) },
     { key: 'extend', label: '续费 30 天', icon: <CalendarPlus />, onSelect: () => void run('已续费 30 天', u, () => post(`/v1/admin/users/${u.id}/extend`, { days: 30 })) },
     { key: 'fenxiao', label: u.fxTier ? '分销设置' : '设为分销商', icon: <BadgePercent />, onSelect: () => ws.openPage('fenxiao', { q: u.username }) },

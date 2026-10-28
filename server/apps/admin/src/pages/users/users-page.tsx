@@ -64,7 +64,7 @@ export function UsersPage(_: PageProps) {
     { key: 'fenxiao', title: '推荐 / 分销', maxWidth: 220, mobile: 'hidden', render: (u) => fenxiaoCell(u, fxNames) },
     { key: 'devices', title: '设备', width: 70, numeric: true, render: (u) => u.devices },
     { key: 'status', title: '状态', width: 90, sortable: true, render: (u) => { const s = userStatus(u.status); return <StatusBadge tone={s.tone}>{u.role === 'admin' ? `${s.label} · 管理员` : s.label}</StatusBadge> } },
-    { key: 'createdAt', title: '注册时间', width: 150, sortable: true, render: (u) => <CellDate value={u.createdAt} time /> },
+    { key: 'createdAt', title: '注册日期', width: 130, sortable: true, render: (u) => <CellDate value={u.createdAt} /> },
     { key: 'actions', title: '操作', kind: 'actions', render: (u) => <RowActionBar label={`${u.username}的更多操作`} actions={actions.actionsFor(u)} /> },
   ]
 

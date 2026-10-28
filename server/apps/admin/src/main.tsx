@@ -8,7 +8,7 @@ const root = document.getElementById('root')
 if (root) {
   createRoot(root).render(
     <StrictMode>
-      <AdminProvider storageKey="proxysplit:admin" mode="system" defaults={{ timeZone: 'Asia/Shanghai', currency: 'CNY', phoneCountry: '+86' }}>
+      <AdminProvider storageKey="proxysplit:admin" mode="system" defaults={{ timeZone: 'Asia/Shanghai', currency: '¥', phoneCountry: '+86' }}>
         <NotificationProvider>
           <App />
         </NotificationProvider>

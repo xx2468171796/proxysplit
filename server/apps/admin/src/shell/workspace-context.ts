@@ -9,12 +9,15 @@ export type WorkspaceApi = {
   /** 用户详情作为工作标签打开（标题 = 用户名）。 */
   openUser: (userId: string, username: string) => void
   close: (tabId: string) => void
+  /** 工作标签改名（地址栏直接打开用户详情时，加载完换成用户名）。 */
+  rename: (tabId: string, title: string) => void
 }
 
 export const WorkspaceContext = React.createContext<WorkspaceApi>({
   openPage: () => undefined,
   openUser: () => undefined,
   close: () => undefined,
+  rename: () => undefined,
 })
 
 export const useWorkspace = () => React.useContext(WorkspaceContext)

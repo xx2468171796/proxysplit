@@ -28,6 +28,8 @@ export function UserDetailPage({ userId, active }: { userId: string; active: boo
   const ws = useWorkspace()
   const detail = useUserDetail(userId)
   const [tab, setTab] = React.useState('profile')
+  const loadedName = detail.data?.user.username
+  React.useEffect(() => { if (loadedName) ws.rename(`user:${userId}`, loadedName) }, [loadedName, userId, ws])
   const actions = useUserActions((kind) => (kind === 'delete' ? ws.close(`user:${userId}`) : detail.reload()), { inDetail: true })
 
   if (!detail.data) {

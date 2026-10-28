@@ -43,6 +43,7 @@ export function Workspace({ username }: { username: string }) {
       setActiveId(id)
     },
     close: (id) => closeTabs([id]),
+    rename: (id, title) => setTabs((list) => list.map((t) => (t.id === id && t.title !== title ? { ...t, title } : t))),
   }), [])
 
   const closeTabs = (ids: readonly string[]) => {
