@@ -51,6 +51,7 @@ PID=$1; ZIP=$2; APP=$3; HEALTH=$4
 OLD="$APP.old"; NEW=$(mktemp -d)
 log() { echo "$(date '+%F %T') $*" >> "$ZIP.install.log"; }
 i=0; while kill -0 "$PID" 2>/dev/null && [ $i -lt 45 ]; do sleep 1; i=$((i+1)); done
+if kill -0 "$PID" 2>/dev/null; then log "旧版 45 秒没退出，不更新"; rm -rf "$NEW"; exit 1; fi
 if ! /usr/bin/ditto -x -k "$ZIP" "$NEW"; then log "解压失败"; open "$APP"; exit 1; fi
 SRC=$(find "$NEW" -maxdepth 1 -name '*.app' | head -1)
 [ -n "$SRC" ] || { log "包里没有 .app"; open "$APP"; exit 1; }
@@ -62,7 +63,7 @@ open -n "$APP" --args --updated
 i=0; while [ $i -lt 60 ]; do [ -f "$HEALTH" ] && break; sleep 1; i=$((i+1)); done
 if [ -f "$HEALTH" ]; then rm -rf "$OLD" "$NEW"; log "已更新"; exit 0; fi
 log "新版 60 秒内没起来，换回旧版"
-pkill -f "^$APP/Contents/MacOS/" 2>/dev/null
+ps -axo pid=,command= | awk -v p="$APP/Contents/MacOS/" 'index($0, p) { sub(/^ */, ""); if (index(substr($0, index($0, " ") + 1), p) == 1) print $1 }' | xargs kill 2>/dev/null
 rm -rf "$APP"; mv "$OLD" "$APP"; rm -rf "$NEW"
 open "$APP"
 `

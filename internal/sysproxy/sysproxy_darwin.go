@@ -17,7 +17,7 @@ import (
 var Core string
 
 func ctl(args ...string) error {
-	if !macpriv.Installed(Core) {
+	if !macpriv.Available() {
 		if err := macpriv.Install(Core); err != nil {
 			return err
 		}

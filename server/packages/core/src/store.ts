@@ -672,8 +672,8 @@ export class PgStore {
   async listReleases(params:Partial<ReleaseListQuery>={}):Promise<ListResult<any>>{
     const conds:string[]=[];const vals:unknown[]=[];let i=1
     if(params.q){vals.push(`%${params.q}%`);conds.push(`(version ILIKE $${i} OR title ILIKE $${i} OR summary ILIKE $${i})`);i++}
-    if(params.channel){vals.push(params.channel);conds.push(`channel=${i}`);i++}
-    if(params.platform){vals.push(params.platform);conds.push(`platform=${i}`);i++}
+    if(params.channel){vals.push(params.channel);conds.push(`channel=$${i}`);i++}
+    if(params.platform){vals.push(params.platform);conds.push(`platform=$${i}`);i++}
     if(params.mandatory!==undefined){vals.push(params.mandatory);conds.push(`mandatory=$${i}`);i++}
     const where=conds.length?`WHERE ${conds.join(' AND ')}`:''
     const orderBy=orderClause(params.sort,params.order,{publishedAt:'published_at',version:'version',channel:'channel'},'published_at DESC')

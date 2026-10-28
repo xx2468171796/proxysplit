@@ -43,9 +43,9 @@ func registerResetters(bin string) {
 // pinned SHA256 and re-downloads what is missing or damaged.
 func verifyBinaries(bin string) error {
 	var errs []error
-	if raw, err := xrayFS.ReadFile("bin/xray-release.json"); err == nil {
+	if raw, err := xrayFS.ReadFile(xrayDir + "xray-release.json"); err == nil {
 		if rel, err := coreupdate.ParseXrayRelease(raw); err == nil && !coreupdate.XrayInstalled(bin, rel) {
-			load := func() ([]byte, error) { return xrayFS.ReadFile("bin/" + coreupdate.XrayExe) }
+			load := func() ([]byte, error) { return xrayFS.ReadFile(xrayDir + coreupdate.XrayExe) }
 			if err := coreupdate.EnsureBundledXray(bin, load, rel); err != nil {
 				if err := coreupdate.FetchXray(bin, rel, ""); err != nil {
 					errs = append(errs, fmt.Errorf("Xray：%w", err))

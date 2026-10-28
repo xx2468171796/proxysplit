@@ -20,7 +20,7 @@ func killCoreProcs(binPath string, ports bool) {
 		return
 	}
 	_ = exec.Command("/usr/bin/pkill", "-KILL", "-f", "^"+regexp.QuoteMeta(binPath)+` run -c .*sing-box.json$`).Run()
-	if runtime.GOOS == "darwin" && macpriv.Installed(binPath) {
+	if runtime.GOOS == "darwin" && macpriv.Available() {
 		_ = macpriv.Run("stop")
 	}
 }
