@@ -19,7 +19,10 @@ import (
 
 // TaipeiTimezone is the Windows id matching a Taiwan exit. Same UTC+8 as
 // China Standard Time: switching changes the zone name, not the clock.
-const TaipeiTimezone = "Taipei Standard Time"
+const (
+	TaipeiTimezone = "Taipei Standard Time"
+	ChinaTimezone  = "China Standard Time"
+)
 
 const (
 	taiwanCulture = "zh-TW"
