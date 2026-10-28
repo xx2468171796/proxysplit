@@ -523,6 +523,7 @@ export namespace main {
 	export class AddResult {
 	    added: number;
 	    skipped: number;
+	    note?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new AddResult(source);
@@ -532,6 +533,7 @@ export namespace main {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.added = source["added"];
 	        this.skipped = source["skipped"];
+	        this.note = source["note"];
 	    }
 	}
 	export class AnnouncementsResult {
