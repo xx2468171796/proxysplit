@@ -16,7 +16,8 @@
 ## 开发预览
 `pnpm --dir frontend dev`：没有 Wails 运行时会自动装 mock，用 URL 参数切状态。
 - `?theme=dark` 深色。
-- `?gate=login|member` 登录门 / 会员门。
+- `?gate=login|member` 登录门 / 设备名额已满闸门（免费用户不再有会员门）。
+- `?tier=free` 免费用户（侧栏「会员」页，`&intro=1` 重新弹会员介绍）、`?phone=0` 绑定手机号弹框、`?sync=conflict` 同步冲突、`?profiles=full` 云端配置份数已满（mock-sync.ts）。
 - `?split=1` 应用分流页。
 - `?update=1|force` 更新提示 / 强制更新。
 - `?page=apps` 指定页、`?look=1` 外观面板、`?donate=0` 自动关赞赏码。

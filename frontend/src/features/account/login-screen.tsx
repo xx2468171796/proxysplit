@@ -1,4 +1,4 @@
-// 登录页（不在 AdminShell 里，AuthLayout 认证页）：登录 / 免费注册两个页签，注册显示试用三步；
+// 登录页（不在 AdminShell 里，AuthLayout 认证页）：登录 / 手机号注册两个页签，外加「忘记密码」短信找回；
 // 「用 POWER云 账号登录」（中转站渠道叫「用 AI 编程官网账号登录」）走浏览器授权。
 import { AuthLayout, Button, Note, Steps, Tabs } from "@ankotti/admin-ui";
 import { Globe } from "lucide-react";
@@ -9,6 +9,7 @@ import { useStore } from "../../shared/store";
 import { isAigwChannel, license } from "../../state/account";
 import { loginPowerVPN } from "../../state/account-sso";
 import { AuthForm, type AuthMode } from "./auth-form";
+import { ForgotForm } from "./forgot-form";
 import "./account.css";
 
 const MODES = [
@@ -16,10 +17,10 @@ const MODES = [
   { value: "register", label: "免费注册" },
 ];
 
-const TRIAL_STEPS = [
-  { key: "account", label: "填写账号密码" },
+const SIGNUP_STEPS = [
+  { key: "account", label: "手机号验证 + 设置账号密码" },
   { key: "bind", label: "自动绑定当前电脑" },
-  { key: "trial", label: "领取试用或选套餐", description: "符合条件领取试用，否则选择套餐" },
+  { key: "free", label: "免费版立即可用", description: "开通会员可多绑设备、云端同步配置" },
 ];
 
 function SsoLogin({ onError }: { onError: (e: string) => void }) {
@@ -49,39 +50,70 @@ function SsoLogin({ onError }: { onError: (e: string) => void }) {
   );
 }
 
+function description(mode: AuthMode): string {
+  if (mode === "register") return "用手机号注册，免费版全部功能可用（1 台设备）";
+  if (mode === "forgot") return "用手机短信验证码设置新密码";
+  return "登录后使用你的授权设备";
+}
+
 export function LoginScreen() {
+  const { say } = useFeedback();
   const [mode, setMode] = useState<AuthMode>("login");
   const [error, setError] = useState("");
   const ssoBusy = useStore(license, (s) => s.powervpnBusy);
   const reg = mode === "register";
+  const switchTo = (next: AuthMode) => {
+    setMode(next);
+    setError("");
+  };
+  const notice = (t: string) => say(t, "info");
 
   return (
     <div className="ps-gate">
       <AuthLayout
         logo={<img src={logo} alt="" className="ps-auth-logo" />}
         title="ProxySplit"
-        description={reg ? "注册后即可登录，符合条件自动获得 3 天试用" : "登录后使用你的授权设备"}
-        footer={
-          reg
-            ? "邮箱当前不做验证；同一电脑仅能领取一次试用，但始终可以注册新账号并购买套餐。主板等硬件信息只生成摘要，不上传原始序列号。"
-            : "设备名额与会员状态由服务端校验。主板等硬件信息只生成摘要，不上传原始序列号。"
-        }
+        description={description(mode)}
+        footer="设备名额与会员状态由服务端校验。手机号只用于登录和找回密码；主板等硬件信息只生成摘要，不上传原始序列号。"
       >
         <div className="ps-auth-form">
-          <Tabs
-            label="登录方式"
-            value={mode}
-            onValueChange={(v) => {
-              setMode(v === "register" ? "register" : "login");
-              setError("");
-            }}
-            items={MODES}
-          />
-          {reg ? (
-            <Steps label="注册即可开始" steps={TRIAL_STEPS} current="account" size="sm" orientation="vertical" />
-          ) : null}
-          <AuthForm mode={mode} error={error} onError={setError} disabled={ssoBusy} />
-          {reg ? null : <SsoLogin onError={setError} />}
+          {mode === "forgot" ? (
+            <ForgotForm
+              onBack={() => switchTo("login")}
+              onNotice={notice}
+              onDone={(t) => {
+                switchTo("login");
+                say(t, "success");
+              }}
+            />
+          ) : (
+            <>
+              <Tabs
+                label="登录方式"
+                value={mode}
+                onValueChange={(v) => switchTo(v === "register" ? "register" : "login")}
+                items={MODES}
+              />
+              {reg ? (
+                <Steps label="注册即可开始" steps={SIGNUP_STEPS} current="account" size="sm" orientation="vertical" />
+              ) : null}
+              <AuthForm
+                mode={reg ? "register" : "login"}
+                error={error}
+                onError={setError}
+                onNotice={notice}
+                disabled={ssoBusy}
+              />
+              {reg ? null : (
+                <>
+                  <Button variant="text" size="sm" onClick={() => switchTo("forgot")}>
+                    忘记密码？用手机号找回（每天一次）
+                  </Button>
+                  <SsoLogin onError={setError} />
+                </>
+              )}
+            </>
+          )}
         </div>
       </AuthLayout>
     </div>

@@ -30,6 +30,14 @@ export function AutoLoginPending() {
   return window['go']['main']['App']['AutoLoginPending']();
 }
 
+export function BindPhone(arg1, arg2) {
+  return window['go']['main']['App']['BindPhone'](arg1, arg2);
+}
+
+export function CancelImport() {
+  return window['go']['main']['App']['CancelImport']();
+}
+
 export function ChangeAccountPassword(arg1, arg2) {
   return window['go']['main']['App']['ChangeAccountPassword'](arg1, arg2);
 }
@@ -42,12 +50,20 @@ export function CheckAppUpdate() {
   return window['go']['main']['App']['CheckAppUpdate']();
 }
 
+export function ConfirmImport(arg1) {
+  return window['go']['main']['App']['ConfirmImport'](arg1);
+}
+
 export function CopyToClipboard(arg1) {
   return window['go']['main']['App']['CopyToClipboard'](arg1);
 }
 
 export function CreateMembershipOrder(arg1) {
   return window['go']['main']['App']['CreateMembershipOrder'](arg1);
+}
+
+export function DeleteConfigProfile(arg1) {
+  return window['go']['main']['App']['DeleteConfigProfile'](arg1);
 }
 
 export function DeleteProxyPort(arg1) {
@@ -120,6 +136,10 @@ export function GetClashMode() {
 
 export function GetClaudeAccel() {
   return window['go']['main']['App']['GetClaudeAccel']();
+}
+
+export function GetConfigProfiles() {
+  return window['go']['main']['App']['GetConfigProfiles']();
 }
 
 export function GetConnections() {
@@ -234,6 +254,10 @@ export function GetSubs() {
   return window['go']['main']['App']['GetSubs']();
 }
 
+export function GetSyncStatus() {
+  return window['go']['main']['App']['GetSyncStatus']();
+}
+
 export function GetSystemProxy() {
   return window['go']['main']['App']['GetSystemProxy']();
 }
@@ -294,6 +318,10 @@ export function OpenWebsite() {
   return window['go']['main']['App']['OpenWebsite']();
 }
 
+export function OverwriteConfigProfile(arg1) {
+  return window['go']['main']['App']['OverwriteConfigProfile'](arg1);
+}
+
 export function PickExeFiles() {
   return window['go']['main']['App']['PickExeFiles']();
 }
@@ -302,12 +330,24 @@ export function PreviewAppRulesImport(arg1) {
   return window['go']['main']['App']['PreviewAppRulesImport'](arg1);
 }
 
+export function PreviewConfigProfile(arg1, arg2) {
+  return window['go']['main']['App']['PreviewConfigProfile'](arg1, arg2);
+}
+
+export function PreviewSharedConfig(arg1, arg2) {
+  return window['go']['main']['App']['PreviewSharedConfig'](arg1, arg2);
+}
+
 export function QQGroup() {
   return window['go']['main']['App']['QQGroup']();
 }
 
 export function RedeemCode(arg1) {
   return window['go']['main']['App']['RedeemCode'](arg1);
+}
+
+export function RefreshAccountProfile() {
+  return window['go']['main']['App']['RefreshAccountProfile']();
 }
 
 export function RefreshEntitlement() {
@@ -322,6 +362,10 @@ export function Register(arg1, arg2, arg3, arg4) {
   return window['go']['main']['App']['Register'](arg1, arg2, arg3, arg4);
 }
 
+export function RegisterPhone(arg1, arg2, arg3, arg4, arg5) {
+  return window['go']['main']['App']['RegisterPhone'](arg1, arg2, arg3, arg4, arg5);
+}
+
 export function RemoveNode(arg1) {
   return window['go']['main']['App']['RemoveNode'](arg1);
 }
@@ -334,6 +378,10 @@ export function RemoveSub(arg1) {
   return window['go']['main']['App']['RemoveSub'](arg1);
 }
 
+export function RenameConfigProfile(arg1, arg2) {
+  return window['go']['main']['App']['RenameConfigProfile'](arg1, arg2);
+}
+
 export function RequestFenxiaoWithdrawal(arg1, arg2, arg3, arg4) {
   return window['go']['main']['App']['RequestFenxiaoWithdrawal'](arg1, arg2, arg3, arg4);
 }
@@ -344,6 +392,14 @@ export function ResetAppMonitor(arg1) {
 
 export function ResetConfig() {
   return window['go']['main']['App']['ResetConfig']();
+}
+
+export function ResetPassword(arg1, arg2, arg3) {
+  return window['go']['main']['App']['ResetPassword'](arg1, arg2, arg3);
+}
+
+export function ResolveSyncConflict(arg1) {
+  return window['go']['main']['App']['ResolveSyncConflict'](arg1);
 }
 
 export function Restart() {
@@ -362,6 +418,10 @@ export function RunReset(arg1, arg2) {
   return window['go']['main']['App']['RunReset'](arg1, arg2);
 }
 
+export function SaveConfigProfile(arg1) {
+  return window['go']['main']['App']['SaveConfigProfile'](arg1);
+}
+
 export function SaveProxyPort(arg1) {
   return window['go']['main']['App']['SaveProxyPort'](arg1);
 }
@@ -372,6 +432,10 @@ export function SaveSub(arg1, arg2, arg3, arg4) {
 
 export function SelectNode(arg1) {
   return window['go']['main']['App']['SelectNode'](arg1);
+}
+
+export function SendSMSCode(arg1, arg2) {
+  return window['go']['main']['App']['SendSMSCode'](arg1, arg2);
 }
 
 export function SetAIHijack(arg1) {
@@ -396,6 +460,10 @@ export function SetClashMode(arg1) {
 
 export function SetClaudeAccelMode(arg1) {
   return window['go']['main']['App']['SetClaudeAccelMode'](arg1);
+}
+
+export function SetConfigProfilePassword(arg1, arg2, arg3) {
+  return window['go']['main']['App']['SetConfigProfilePassword'](arg1, arg2, arg3);
 }
 
 export function SetCustomApps(arg1) {
@@ -458,8 +526,16 @@ export function SetSubAutoUpdate(arg1, arg2) {
   return window['go']['main']['App']['SetSubAutoUpdate'](arg1, arg2);
 }
 
+export function SetSyncEnabled(arg1) {
+  return window['go']['main']['App']['SetSyncEnabled'](arg1);
+}
+
 export function SetSystemProxy(arg1) {
   return window['go']['main']['App']['SetSystemProxy'](arg1);
+}
+
+export function ShareConfigProfile(arg1, arg2) {
+  return window['go']['main']['App']['ShareConfigProfile'](arg1, arg2);
 }
 
 export function SpeedTest() {
@@ -476,6 +552,10 @@ export function Start() {
 
 export function Stop() {
   return window['go']['main']['App']['Stop']();
+}
+
+export function SyncNow() {
+  return window['go']['main']['App']['SyncNow']();
 }
 
 export function TestAllLatency() {
@@ -506,8 +586,16 @@ export function UnbindMyDevice(arg1) {
   return window['go']['main']['App']['UnbindMyDevice'](arg1);
 }
 
+export function UndoImport() {
+  return window['go']['main']['App']['UndoImport']();
+}
+
 export function UndoReset() {
   return window['go']['main']['App']['UndoReset']();
+}
+
+export function UnshareConfigProfile(arg1) {
+  return window['go']['main']['App']['UnshareConfigProfile'](arg1);
 }
 
 export function UpdateCore() {

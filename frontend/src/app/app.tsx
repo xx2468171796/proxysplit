@@ -1,4 +1,4 @@
-// 根组件：主题 Provider + 闸门顺序：强制升级（盖住一切）→ 登录 / 会员闸门 → 主界面。
+// 根组件：主题 Provider + 闸门顺序：强制升级（盖住一切）→ 登录 / 设备名额已满 → 主界面。
 import { AdminProvider, NotificationProvider, PanelErrorBoundary } from "@ankotti/admin-ui";
 import { useCallback, useState } from "react";
 import { LoginScreen } from "../features/account/login-screen";
@@ -51,15 +51,15 @@ function Root() {
   useAppLifecycle(say, isLogsPage, setNetBlocked);
 
   const status = useStore(license, (s) => s.status);
-  const gated = status.enabled && !status.authenticated;
+  // 免费用户功能齐全，直接进主界面；会员闸门只在设备名额满了（要先解绑旧设备）时出现。
   let body = <MainShell netBlocked={netBlocked} onDismissNetBlocked={dismissNetBlocked} />;
-  if (gated && status.signedIn)
+  if (status.enabled && status.signedIn && status.deviceLimitReached)
     body = (
       <GateFrame>
         <MemberGate netBlocked={netBlocked} onDismissNetBlocked={dismissNetBlocked} />
       </GateFrame>
     );
-  else if (gated)
+  else if (status.enabled && !status.signedIn && !status.authenticated)
     body = (
       <GateFrame>
         <LoginScreen />

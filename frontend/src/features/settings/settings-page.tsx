@@ -2,7 +2,7 @@
 // Claude Code 加速和 AI 控制接口在「AI」页、诊断在「日志与诊断」页（业主 2026-10-28 合并同类项）。
 // 每节一个 Panel；开关改了立即生效，所以不放保存条。每个功能只有一个正式位置，别处只放跳转（docs/ui-audit-2026-10.md）。
 import { PageBody, PageHeader, SideNavLayout, type SideNavSection } from "@ankotti/admin-ui";
-import { Cpu, Eraser, Globe, Network, SlidersHorizontal, UserRound } from "lucide-react";
+import { Cpu, Eraser, FolderSync, Globe, Network, SlidersHorizontal, UserRound } from "lucide-react";
 import { useEffect } from "react";
 import { useSectionJump } from "../../app/nav";
 import { useStore } from "../../shared/store";
@@ -14,6 +14,7 @@ import { DNSSection } from "./dns-section";
 import { GeneralSection } from "./general-section";
 import { NetworkSection } from "./network-section";
 import { ResetSection } from "./reset/reset-section";
+import { SyncSection } from "./sync/sync-section";
 import "./settings.css";
 
 const BASE = "设置";
@@ -22,6 +23,7 @@ const BEFORE_ACCOUNT: SideNavSection[] = [
   { id: "network", label: "网络与接管", group: BASE, icon: <Network />, content: <NetworkSection /> },
   { id: "dns", label: "DNS 与高级", group: BASE, icon: <Globe />, content: <DNSSection /> },
   { id: "core", label: "内核与节点", group: BASE, icon: <Cpu />, content: <CoreSection /> },
+  { id: "sync", label: "配置与同步", group: BASE, icon: <FolderSync />, content: <SyncSection /> },
 ];
 const ACCOUNT: SideNavSection = {
   id: "account",

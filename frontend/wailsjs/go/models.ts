@@ -274,6 +274,105 @@ export namespace appid {
 
 }
 
+export namespace configsync {
+	
+	export class Conflict {
+	    cloudVersion: number;
+	    cloudUpdatedAt: string;
+	    cloudDevice: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new Conflict(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.cloudVersion = source["cloudVersion"];
+	        this.cloudUpdatedAt = source["cloudUpdatedAt"];
+	        this.cloudDevice = source["cloudDevice"];
+	    }
+	}
+	export class Preview {
+	    name?: string;
+	    device: string;
+	    exportedAt: string;
+	    sections: string[];
+	    nodes: number;
+	    subscriptions: number;
+	    rules: number;
+	    lines: number;
+	    proxyPorts: number;
+	    hasSettings: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new Preview(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.device = source["device"];
+	        this.exportedAt = source["exportedAt"];
+	        this.sections = source["sections"];
+	        this.nodes = source["nodes"];
+	        this.subscriptions = source["subscriptions"];
+	        this.rules = source["rules"];
+	        this.lines = source["lines"];
+	        this.proxyPorts = source["proxyPorts"];
+	        this.hasSettings = source["hasSettings"];
+	    }
+	}
+	export class Status {
+	    member: boolean;
+	    enabled: boolean;
+	    busy: boolean;
+	    lastSyncedAt: string;
+	    lastVersion: number;
+	    localChanged: boolean;
+	    error?: string;
+	    conflict?: Conflict;
+	    canUndo: boolean;
+	    undoAt?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new Status(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.member = source["member"];
+	        this.enabled = source["enabled"];
+	        this.busy = source["busy"];
+	        this.lastSyncedAt = source["lastSyncedAt"];
+	        this.lastVersion = source["lastVersion"];
+	        this.localChanged = source["localChanged"];
+	        this.error = source["error"];
+	        this.conflict = this.convertValues(source["conflict"], Conflict);
+	        this.canUndo = source["canUndo"];
+	        this.undoAt = source["undoAt"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+
+}
+
 export namespace core {
 	
 	export class RouteRule {
@@ -421,6 +520,32 @@ export namespace license {
 	        this.saleEndsAt = source["saleEndsAt"];
 	    }
 	}
+	export class Profile {
+	    id: string;
+	    name: string;
+	    deviceName: string;
+	    size: number;
+	    updatedAt: string;
+	    shared: boolean;
+	    shareCode?: string;
+	    locked: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new Profile(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.deviceName = source["deviceName"];
+	        this.size = source["size"];
+	        this.updatedAt = source["updatedAt"];
+	        this.shared = source["shared"];
+	        this.shareCode = source["shareCode"];
+	        this.locked = source["locked"];
+	    }
+	}
 	export class Status {
 	    enabled: boolean;
 	    signedIn: boolean;
@@ -434,6 +559,10 @@ export namespace license {
 	    expiresAt: string;
 	    offlineUntil: string;
 	    deviceLimitReached: boolean;
+	    member: boolean;
+	    freeDevices: number;
+	    planDevices: number;
+	    phoneBound: boolean;
 	    channel: string;
 	    error?: string;
 	
@@ -455,6 +584,10 @@ export namespace license {
 	        this.expiresAt = source["expiresAt"];
 	        this.offlineUntil = source["offlineUntil"];
 	        this.deviceLimitReached = source["deviceLimitReached"];
+	        this.member = source["member"];
+	        this.freeDevices = source["freeDevices"];
+	        this.planDevices = source["planDevices"];
+	        this.phoneBound = source["phoneBound"];
 	        this.channel = source["channel"];
 	        this.error = source["error"];
 	    }
@@ -664,6 +797,40 @@ export namespace main {
 	        this.err = source["err"];
 	    }
 	}
+	export class ImportPreview {
+	    preview: configsync.Preview;
+	    canceled?: boolean;
+	    err?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ImportPreview(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.preview = this.convertValues(source["preview"], configsync.Preview);
+	        this.canceled = source["canceled"];
+	        this.err = source["err"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class NodeShareResult {
 	    link: string;
 	    qr: string;
@@ -796,6 +963,42 @@ export namespace main {
 	        this.username = source["username"];
 	    }
 	}
+	export class ProfilesResult {
+	    items: license.Profile[];
+	    quota: number;
+	    used: number;
+	    err?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ProfilesResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.items = this.convertValues(source["items"], license.Profile);
+	        this.quota = source["quota"];
+	        this.used = source["used"];
+	        this.err = source["err"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class QRResult {
 	    data: string;
 	    err: string;
@@ -857,6 +1060,20 @@ export namespace main {
 		    }
 		    return a;
 		}
+	}
+	export class ShareResult {
+	    code: string;
+	    err?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ShareResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.code = source["code"];
+	        this.err = source["err"];
+	    }
 	}
 	export class SpeedResult {
 	    mbps: number;

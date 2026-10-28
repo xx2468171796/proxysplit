@@ -4,7 +4,7 @@
 import { navigate, type PageId, type PageTab } from "../app/nav";
 import { previewSearch } from "./search";
 
-const PAGE_IDS: readonly PageId[] = ["overview", "ai", "nodes", "apps", "rules", "logs", "settings"];
+const PAGE_IDS: readonly PageId[] = ["overview", "ai", "nodes", "apps", "rules", "logs", "member", "settings"];
 const PAGE_TABS: readonly PageTab[] = [
   "nodes",
   "subs",

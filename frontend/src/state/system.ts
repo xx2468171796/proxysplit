@@ -2,7 +2,7 @@
 import { api } from "../api/backend";
 import type { AccelState, AIControlInfo } from "../api/types";
 import { createStore } from "../shared/store";
-import { reloadData, saveSettings } from "./data";
+import { saveSettings } from "./data";
 import { runtime } from "./runtime";
 
 export type SystemState = {
@@ -95,18 +95,6 @@ export async function updateCore(): Promise<string> {
   } finally {
     system.set({ coreUpdating: false });
   }
-}
-
-export async function exportConfig(): Promise<string> {
-  const err = await api.exportConfig();
-  return err ? `导出失败：${err}` : "已导出配置备份";
-}
-
-export async function importConfig(): Promise<string> {
-  const err = await api.importConfig();
-  if (err) return `导入失败：${err}`;
-  await reloadData();
-  return "已导入配置备份";
 }
 
 /** 复制到剪贴板：优先走 Go（WebView2 剪贴板权限偶尔不可用）。 */

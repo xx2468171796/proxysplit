@@ -4,6 +4,7 @@ import { api } from "../api/backend";
 import { license, loadCommerce, refreshLicense } from "./account";
 import { refreshNodes, refreshSubs, reloadData } from "./data";
 import { closePayment } from "./payment";
+import { promptAfterSignIn } from "./prompts";
 import { refreshStatus } from "./runtime";
 
 const NOTICE = "NOTICE:";
@@ -14,8 +15,7 @@ async function afterPowerVPNLogin(): Promise<void> {
   await refreshSubs();
   await reloadData();
   await loadCommerce();
-  const s = license.get().status;
-  if (!s.authenticated || s.planCode === "trial") license.set({ membershipOpen: true, membershipPrompted: true });
+  promptAfterSignIn(license.get().status);
 }
 
 /** 浏览器授权（最多等 5 分钟）→ 登录 → 自动添加「POWER云」订阅。返回 { err } 或 { notice }。 */

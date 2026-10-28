@@ -2,6 +2,7 @@
 > 最后更新：2026-10-28。细节按下方路由表读 docs/memory/，逐版发布史在 docs/decisions.md（按标题取）。
 
 ## 当前状态
+- 分支 feat/free-sync-phone（2026-10-29，未发版）：免费档 1 台设备全功能、会员设备 = 免费 + 套餐、手机号注册 / 短信找回 / 补绑、配置导出导入 + 会员云同步 + 云端多份配置与分享码；客户端见 docs/memory/account-membership.md 末节。
 - 线上：**v1.10.11 stable（强制，min 1.9.51）**，2026-10-28 全站发布（按服务端日志修：内核自动更新经节点隧道、加速探测 / 防火墙 / ANSI / 遥测误报）。服务端 current = releases/20261028-201653-33261d3-v1.10.11，上一版 releases/20261028-174132-1faed3e-v1.10.10（macOS 版正式，Windows 同号）。Mac 测试机与账号见 docs/memory/macos.md。
 - 前端已用 @ankotti/admin-ui 重写（React 19 + Vite 8 + TS 7 + pnpm 12.9.1，替换旧单文件 Svelte），随 v1.9.75 上线（已并入 main）；门禁 `pnpm --dir frontend check`，预览 `pnpm --dir frontend dev`。
 - 技术栈：Go + Wails + React 前端，sing-box 原生 TUN + process_name；服务端 Fastify + 深圳共享 PG（堡垒机数据源 sz-pg-proxysplit）。

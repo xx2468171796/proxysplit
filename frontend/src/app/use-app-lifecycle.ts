@@ -5,7 +5,9 @@ import type { AppUpdateStatus, BootstrapState } from "../api/types";
 import { license, loadCommerce, refreshLicense } from "../state/account";
 import { awaitAutoLogin } from "../state/account-sso";
 import { refreshProcesses } from "../state/app-rules";
+import { loadSyncStatus, watchSyncEvents } from "../state/configsync";
 import { applyBootstrap, data, loadBootstrap, refreshClashMode, reloadData } from "../state/data";
+import { maybeShowMemberIntro } from "../state/prompts";
 import { refreshCustomRules, refreshRuleSets } from "../state/routing";
 import { pushLog, refreshConns, refreshCoreVersion, refreshHealth, refreshStatus } from "../state/runtime";
 import { loadSystem, refreshAccel } from "../state/system";
@@ -59,10 +61,8 @@ async function loadSecondary(say: Say): Promise<void> {
   ]);
   await checkAppUpdate(true);
   await loadCommerce();
-  const s = license.get().status;
-  if (!license.get().membershipPrompted && s.signedIn && (!s.authenticated || s.planCode === "trial")) {
-    license.set({ membershipOpen: true, membershipPrompted: true });
-  }
+  maybeShowMemberIntro(license.get().status);
+  await loadSyncStatus();
 }
 
 function subscribeEvents(say: Say): Array<() => void> {
@@ -81,6 +81,7 @@ function subscribeEvents(say: Say): Array<() => void> {
     }),
     // 后台改密 / 发会员 / 暂停账号等由看门狗每分钟推送，界面跟着刷新。
     onBackendEvent("license-changed", () => void onLicenseChanged(say)),
+    watchSyncEvents(), // 配置云同步状态（冲突、拉到新配置后重读）
   ];
 }
 

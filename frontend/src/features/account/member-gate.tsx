@@ -1,4 +1,4 @@
-// 会员闸门（已登录、没有有效权益）：不在 AdminShell 里的整页，居中一栏。
+// 设备名额已满闸门（已登录、本机未激活）：不在 AdminShell 里的整页，居中一栏。免费用户不会被拦在这里。
 // 顶部标题 + 退出账号 → 横幅 / 错误 → 设备名额已满时先解绑旧设备 → 选套餐 → 公告；付款框盖在上面。
 import { Button, ConfirmDialog, InlineAlert, Panel } from "@ankotti/admin-ui";
 import { LogOut } from "lucide-react";
@@ -83,7 +83,10 @@ export function MemberGate({ netBlocked, onDismissNetBlocked }: Props) {
         ) : null}
         {full ? <DeviceLimit /> : null}
         <div className="ps-gate-block">
-          <Panel title="会员套餐" description="按使用时长和设备数量选择即可，支付成功后会员权益会自动生效。">
+          <Panel
+            title="不想解绑？开通会员多绑几台"
+            description="会员设备数 = 免费 1 台 + 套餐设备数，按需要的电脑数量选择即可。"
+          >
             <PlanPicker />
           </Panel>
         </div>

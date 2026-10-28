@@ -1,5 +1,8 @@
 // 界面用的领域类型：与 Go 端 JSON 一一对应（wailsjs/go/models.ts 是生成的类，这里用纯对象接口，界面可自由构造）。
 
+import type { LicenseStatus } from "./types-account";
+
+export type { LicenseStatus };
 export type Node = {
   id: string;
   name: string;
@@ -157,23 +160,6 @@ export type NetSettings = {
   /** 0 = 1500 */
   tunMtu?: number;
   strictRouteOff?: boolean;
-};
-
-export type LicenseStatus = {
-  enabled: boolean;
-  signedIn: boolean;
-  authenticated: boolean;
-  deviceLimitReached: boolean;
-  username: string;
-  plan: string;
-  planCode: string;
-  tier: string;
-  maxDevices: number;
-  features: string[];
-  expiresAt: string;
-  offlineUntil: string;
-  channel?: string;
-  error?: string;
 };
 
 export type MemberPlan = {

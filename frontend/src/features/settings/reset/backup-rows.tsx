@@ -1,46 +1,17 @@
-// 配置备份：整份配置导出到文件 / 从文件导入（原「备份与重置」的导出导入部分）。
-import { Button, FormField, FormSection } from "@ankotti/admin-ui";
-import { Download, Upload } from "lucide-react";
-import { useState } from "react";
-import { useFeedback } from "../../../app/use-feedback";
-import { exportConfig, importConfig } from "../../../state/system";
+// 配置备份：正式位置在设置「配置与同步」（导出 / 导入 / 撤销 / 云同步），这里只放跳转。
+import { FormSection } from "@ankotti/admin-ui";
+import { openSettings } from "../../../app/nav";
+import { LinkRow } from "../link-row";
 
 export function BackupRows() {
-  const { say } = useFeedback();
-  const [busy, setBusy] = useState("");
-  const run = async (key: string, action: () => Promise<string>) => {
-    setBusy(key);
-    try {
-      say(await action());
-    } finally {
-      setBusy("");
-    }
-  };
   return (
     <FormSection title="备份" description="换电脑时先导出，到新电脑上导入" layout="side">
-      <FormField label="配置备份" htmlFor="cfg-export" hint="节点 / 规则 / 线路 / 设置全部存到文件">
-        <div className="ps-set-actions">
-          <Button
-            id="cfg-export"
-            size="sm"
-            variant="outline"
-            loading={busy === "export"}
-            onClick={() => void run("export", exportConfig)}
-          >
-            <Download />
-            导出配置
-          </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            loading={busy === "import"}
-            onClick={() => void run("import", importConfig)}
-          >
-            <Upload />
-            导入配置
-          </Button>
-        </div>
-      </FormField>
+      <LinkRow
+        id="cfg-backup-link"
+        label="配置备份"
+        hint="导出、导入、撤销导入和会员云同步都在「配置与同步」"
+        actions={[{ label: "去配置与同步", onClick: () => openSettings("sync") }]}
+      />
     </FormSection>
   );
 }

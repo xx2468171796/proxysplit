@@ -1,7 +1,9 @@
 // 账号与会员：登录状态（license）、套餐 / 设备 / 订单 / 公告（commerce）及其动作。
 import { api } from "../api/backend";
+import { syncApi } from "../api/sync";
 import type { AccountDevice, Announcement, LicenseStatus, MemberOrder, MemberPlan } from "../api/types";
 import { createStore } from "../shared/store";
+import { promptAfterSignIn } from "./prompts";
 
 export type AccountState = {
   status: LicenseStatus;
@@ -57,11 +59,12 @@ export const license = createStore<AccountState>({
 
 /** 中转站（AI 编程官网）来的客户由推广员服务：不显示作者联系方式、赞赏码、官网 / GitHub。 */
 export const isAigwChannel = (s: LicenseStatus): boolean => s.channel === "aigw";
-/** 已付费会员（登录且有非试用套餐）：不弹赞赏码。 */
+/** 付费会员（tier 不是 free）：不弹赞赏码、能用云同步。老服务端没有 member 字段时按套餐判断。 */
 export const isPaidMember = (s: LicenseStatus): boolean =>
-  s.enabled && s.signedIn && s.authenticated && s.planCode !== "" && s.planCode !== "trial";
-/** 试用或无权益时，登录后直接给出套餐选择。 */
-const needsPlan = (s: LicenseStatus): boolean => !s.authenticated || s.planCode === "trial";
+  s.enabled &&
+  s.signedIn &&
+  s.authenticated &&
+  (s.member ?? (s.planCode !== "" && s.planCode !== "trial" && s.planCode !== "free"));
 
 export async function refreshLicense(): Promise<void> {
   try {
@@ -77,7 +80,7 @@ let recoveredOrder = "";
 async function recoverPaidOrder(orders: MemberOrder[]): Promise<void> {
   const s = license.get().status;
   const paid = orders.find((o) => o.status === "paid");
-  if (!paid || !s.signedIn || s.authenticated || paid.orderNo === recoveredOrder) return;
+  if (!paid || !s.signedIn || isPaidMember(s) || paid.orderNo === recoveredOrder) return;
   recoveredOrder = paid.orderNo;
   const err = await api.refreshEntitlement();
   if (!err) await refreshLicense();
@@ -126,22 +129,25 @@ export async function loadCommerce(): Promise<void> {
   }
 }
 
-async function afterSignIn(forcePlans: boolean): Promise<void> {
+async function afterSignIn(): Promise<void> {
   await refreshLicense();
   await loadCommerce();
-  if (forcePlans || needsPlan(license.get().status)) license.set({ membershipOpen: true, membershipPrompted: true });
+  promptAfterSignIn(license.get().status);
 }
 
-export async function login(username: string, password: string): Promise<string> {
-  const err = await api.login(username.trim(), password);
-  if (!err) await afterSignIn(false);
+/** 登录框填用户名或手机号都行。 */
+export async function login(account: string, password: string): Promise<string> {
+  const err = await api.login(account.trim(), password);
+  if (!err) await afterSignIn();
   return err;
 }
 
-/** 注册后直接展示试用说明和实时套餐，用户不必再去找续费入口。 */
-export async function register(username: string, email: string, password: string, ref = ""): Promise<string> {
-  const err = await api.register(username.trim(), email.trim(), password, ref.trim());
-  if (!err) await afterSignIn(true);
+export type PhoneSignup = { phone: string; code: string; username: string; password: string; ref: string };
+
+/** 手机号注册：注册成功即登录本机（免费版），随后弹会员介绍。 */
+export async function registerPhone(d: PhoneSignup): Promise<string> {
+  const err = await syncApi.registerPhone(d.phone.trim(), d.code.trim(), d.username.trim(), d.password, d.ref.trim());
+  if (!err) await afterSignIn();
   return err;
 }
 

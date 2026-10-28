@@ -51,3 +51,10 @@ Ed25519 离线租约绑定账号 / 设备 / 硬件 / 期限；minimumVersion 会
 - 退款：后台订单「退款」→ POST /v1/admin/orders/:no/refund {reason}，整组拆单一起退，只扣未用时长（权益流水 license_grants 记录每次发放的 start/end；refundedLicense 纯函数有单测）；2026-09-26 之前的订单无流水，只标退款不动会员，需手动调；钱在支付宝商户后台原路退。
 - 单笔回调到账走 grantWithinTx（以前漏了试用剩余时长合并）。
 - 拆单续付（2026-10-23）：拆单各笔共用一个过期时间，付了一部分、其余过期时，再买同一套餐会续付这一组（resumeSplitInTx）：还有效的那笔原样返回、不重复下单，过期的标 closed 并换新单号重发；「全部付齐」只数非 closed 的笔。旧二维码迟到付款照样算（closed 的笔仍对账、可到账，同序号的替补自动关掉）；后台手动确认拆单子单只确认这一笔、付齐才发（payGroupPieceInTx，与回调同一组级事件防重复发放）。真库场景脚本在 pve-pg-proxysplit-paytest 跑过 14 项全过。
+
+## 免费档 / 手机号 / 配置同步（客户端，2026-10-29，docs/plan-2026-10-29-free-sync-phone.md）
+- license.Status 增 member / freeDevices / planDevices / phoneBound；tier=free 照常签租约、全部功能可用；租约 409 DEVICE_LIMIT → PendingDevice（只有这时出整页闸门）。APIError 带服务端 code。
+- 手机号：internal/license/phone.go（发码 / 手机注册 / 短信找回 / 补绑 / RefreshProfile 读 /v1/me）；老账号 phoneBound=false 每次登录后弹绑定框，「下次再说」只关本次。
+- 配置包：internal/configsync（schema 1，sections nodes / subscriptions / rules / proxyPorts / settings）；不含 POWER云 官方线路与 powervpn://profile 订阅、apiToken、sysProxyLast、测速值。恢复可勾选部分，先备份到 %APPDATA%/proxysplit/config-before-import.json（撤销一次）；引用不存在的节点回落默认。
+- 云同步：configsync.Syncer，状态存 configsync.json（lastVersion / lastHash）；启动 8 秒后对账、每 10 秒查改动（连续两次同一哈希才上传 = 防抖）、5 分钟查云端；从没同步过的电脑遇到云端已有内容也算冲突，弹「用云端 / 用本机」。哈希不含订阅节点列表和测速，订阅刷新不触发上传。退出账号清同步记录。
+- 云端配置：列表 / 另存 / 覆盖 / 改名 / 删除 / 恢复密码（POST /:id/restore）/ 分享码；分享导入任何档位。界面在设置「配置与同步」；侧栏「会员」/「我的权益」。

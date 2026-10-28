@@ -3,12 +3,12 @@
 import { useEffect, useState } from "react";
 import { createStore, useStore } from "../shared/store";
 
-export type PageId = "overview" | "ai" | "nodes" | "apps" | "rules" | "logs" | "settings";
+export type PageId = "overview" | "ai" | "nodes" | "apps" | "rules" | "logs" | "member" | "settings";
 /** 合并页里的分区 id；navigate(page, intent, tab) 带上就切到那个分区。 */
 export type PageTab = "nodes" | "subs" | "apps" | "ports" | "conns" | "logs" | "diag" | "env" | "accel" | "control";
 export type Intent = "add-app" | "add-node" | "add-sub";
 /** 设置页分节 id（settings-page.tsx 的 SECTIONS）。 */
-export type SettingsSection = "account" | "general" | "network" | "core" | "reset";
+export type SettingsSection = "account" | "general" | "network" | "core" | "sync" | "reset";
 
 type NavState = { page: PageId; tab: PageTab | null; intent: Intent | null; section: SettingsSection | null };
 

@@ -1,6 +1,6 @@
 // 设置页第一节「账户与设备」（SideNavLayout 里的一节，用 SectionCard 块）：
 // 授权概要 + 续费 / 刷新授权 / 退出 → 修改密码 → 设备管理。
-import { Button, ConfirmDialog, DescriptionList, InlineAlert, SectionCard, StatusBadge } from "@ankotti/admin-ui";
+import { Button, ConfirmDialog, InlineAlert, Note, SectionCard, StatusBadge } from "@ankotti/admin-ui";
 import { Crown, KeyRound, LogOut, Monitor, RefreshCw, ShieldCheck } from "lucide-react";
 import { useState } from "react";
 import { useFeedback } from "../../app/use-feedback";
@@ -8,6 +8,8 @@ import { fmtDateTime } from "../../shared/format";
 import { useStore } from "../../shared/store";
 import { license, loadCommerce, openMembership, refreshEntitlement } from "../../state/account";
 import { logoutAccount } from "../../state/account-sso";
+import { tierLabel } from "../member/entitlement";
+import { EntitlementSummary } from "../member/entitlement-summary";
 import { DeviceTable } from "./device-table";
 import { PasswordForm } from "./password-form";
 import "./account.css";
@@ -43,12 +45,12 @@ function LicenseCard({ onLogout }: { onLogout: () => void }) {
     <SectionCard
       title="账户与授权"
       icon={<ShieldCheck />}
-      actions={<StatusBadge tone="success">已授权</StatusBadge>}
+      actions={<StatusBadge tone={status.member ? "success" : "neutral"}>{tierLabel(status)}</StatusBadge>}
       footer={
         <div className="ps-account-actions">
           <Button onClick={openMembership}>
             <Crown />
-            续费 / 升级套餐
+            {status.member ? "续费 / 升级套餐" : "开通会员"}
           </Button>
           <Button variant="outline" loading={refreshing} loadingText="刷新中…" onClick={() => void refresh()}>
             <RefreshCw />
@@ -61,15 +63,8 @@ function LicenseCard({ onLogout }: { onLogout: () => void }) {
         </div>
       }
     >
-      <DescriptionList
-        columns={2}
-        items={[
-          { label: "用户名", value: status.username },
-          { label: "套餐", value: status.plan || "默认套餐" },
-          { label: "授权到期", value: status.expiresAt ? fmtDateTime(status.expiresAt) : "以服务端为准" },
-          { label: "离线可用至", value: status.offlineUntil ? fmtDateTime(status.offlineUntil) : "需在线校验" },
-        ]}
-      />
+      <EntitlementSummary />
+      <Note as="p">离线可用至 {status.offlineUntil ? fmtDateTime(status.offlineUntil) : "需在线校验"}</Note>
     </SectionCard>
   );
 }

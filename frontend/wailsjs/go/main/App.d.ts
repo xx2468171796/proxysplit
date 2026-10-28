@@ -9,6 +9,7 @@ import {core} from '../models';
 import {aienv} from '../models';
 import {license} from '../models';
 import {nodes} from '../models';
+import {configsync} from '../models';
 import {proc} from '../models';
 
 export function ActivateCurrentDevice():Promise<string>;
@@ -25,15 +26,23 @@ export function ApplyEnvConfig(arg1:Array<string>):Promise<string>;
 
 export function AutoLoginPending():Promise<boolean>;
 
+export function BindPhone(arg1:string,arg2:string):Promise<string>;
+
+export function CancelImport():Promise<void>;
+
 export function ChangeAccountPassword(arg1:string,arg2:string):Promise<string>;
 
 export function CheckAIEnv():Promise<service.AIEnvReport>;
 
 export function CheckAppUpdate():Promise<updater.Status>;
 
+export function ConfirmImport(arg1:Array<string>):Promise<string>;
+
 export function CopyToClipboard(arg1:string):Promise<string>;
 
 export function CreateMembershipOrder(arg1:string):Promise<main.OrderResult>;
+
+export function DeleteConfigProfile(arg1:string):Promise<string>;
 
 export function DeleteProxyPort(arg1:string):Promise<void>;
 
@@ -70,6 +79,8 @@ export function GetBootstrapState():Promise<main.BootstrapState>;
 export function GetClashMode():Promise<string>;
 
 export function GetClaudeAccel():Promise<accel.State>;
+
+export function GetConfigProfiles():Promise<main.ProfilesResult>;
 
 export function GetConnections():Promise<Array<service.ConnInfo>>;
 
@@ -127,13 +138,15 @@ export function GetStatus():Promise<service.Status>;
 
 export function GetSubs():Promise<Array<service.Sub>>;
 
+export function GetSyncStatus():Promise<configsync.Status>;
+
 export function GetSystemProxy():Promise<boolean>;
 
 export function GetUpdateNotes():Promise<Array<main.ReleaseNote>>;
 
 export function ImportAppRules(arg1:string):Promise<string>;
 
-export function ImportConfig():Promise<string>;
+export function ImportConfig():Promise<main.ImportPreview>;
 
 export function InstallAppUpdate(arg1:updater.Release):Promise<string>;
 
@@ -157,13 +170,21 @@ export function OpenPaymentURL(arg1:string):Promise<string>;
 
 export function OpenWebsite():Promise<void>;
 
+export function OverwriteConfigProfile(arg1:string):Promise<string>;
+
 export function PickExeFiles():Promise<Array<string>>;
 
 export function PreviewAppRulesImport(arg1:string):Promise<service.RuleImportPreview>;
 
+export function PreviewConfigProfile(arg1:string,arg2:string):Promise<main.ImportPreview>;
+
+export function PreviewSharedConfig(arg1:string,arg2:string):Promise<main.ImportPreview>;
+
 export function QQGroup():Promise<string>;
 
 export function RedeemCode(arg1:string):Promise<string>;
+
+export function RefreshAccountProfile():Promise<string>;
 
 export function RefreshEntitlement():Promise<string>;
 
@@ -171,17 +192,25 @@ export function RefreshPowerVPN():Promise<string>;
 
 export function Register(arg1:string,arg2:string,arg3:string,arg4:string):Promise<string>;
 
+export function RegisterPhone(arg1:string,arg2:string,arg3:string,arg4:string,arg5:string):Promise<string>;
+
 export function RemoveNode(arg1:string):Promise<string>;
 
 export function RemoveNodes(arg1:Array<string>):Promise<string>;
 
 export function RemoveSub(arg1:string):Promise<void>;
 
+export function RenameConfigProfile(arg1:string,arg2:string):Promise<string>;
+
 export function RequestFenxiaoWithdrawal(arg1:number,arg2:string,arg3:string,arg4:string):Promise<main.FenxiaoResult>;
 
 export function ResetAppMonitor(arg1:string):Promise<void>;
 
 export function ResetConfig():Promise<void>;
+
+export function ResetPassword(arg1:string,arg2:string,arg3:string):Promise<string>;
+
+export function ResolveSyncConflict(arg1:string):Promise<string>;
 
 export function Restart():Promise<string>;
 
@@ -191,11 +220,15 @@ export function RestoreEnvConfig(arg1:Array<string>):Promise<string>;
 
 export function RunReset(arg1:Array<string>,arg2:string):Promise<service.ResetReport>;
 
+export function SaveConfigProfile(arg1:string):Promise<string>;
+
 export function SaveProxyPort(arg1:service.ProxyPort):Promise<string>;
 
 export function SaveSub(arg1:string,arg2:string,arg3:string,arg4:service.SubOptions):Promise<string>;
 
 export function SelectNode(arg1:string):Promise<string>;
+
+export function SendSMSCode(arg1:string,arg2:string):Promise<string>;
 
 export function SetAIHijack(arg1:boolean):Promise<string>;
 
@@ -208,6 +241,8 @@ export function SetAutostart(arg1:boolean):Promise<string>;
 export function SetClashMode(arg1:string):Promise<string>;
 
 export function SetClaudeAccelMode(arg1:string):Promise<string>;
+
+export function SetConfigProfilePassword(arg1:string,arg2:string,arg3:string):Promise<string>;
 
 export function SetCustomApps(arg1:Array<appid.App>):Promise<string>;
 
@@ -239,7 +274,11 @@ export function SetSettings(arg1:service.Settings):Promise<string>;
 
 export function SetSubAutoUpdate(arg1:string,arg2:boolean):Promise<void>;
 
+export function SetSyncEnabled(arg1:boolean):Promise<string>;
+
 export function SetSystemProxy(arg1:boolean):Promise<string>;
+
+export function ShareConfigProfile(arg1:string,arg2:string):Promise<main.ShareResult>;
 
 export function SpeedTest():Promise<main.SpeedResult>;
 
@@ -248,6 +287,8 @@ export function SpeedTestNode(arg1:string):Promise<main.SpeedResult>;
 export function Start():Promise<string>;
 
 export function Stop():Promise<void>;
+
+export function SyncNow():Promise<string>;
 
 export function TestAllLatency():Promise<void>;
 
@@ -263,7 +304,11 @@ export function TrackPage(arg1:string):Promise<void>;
 
 export function UnbindMyDevice(arg1:string):Promise<string>;
 
+export function UndoImport():Promise<string>;
+
 export function UndoReset():Promise<string>;
+
+export function UnshareConfigProfile(arg1:string):Promise<string>;
 
 export function UpdateCore():Promise<string>;
 

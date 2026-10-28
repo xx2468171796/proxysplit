@@ -1,5 +1,5 @@
 // 只在 `vite dev` 且不在 Wails 里时装上：给浏览器预览和截图验收一份逼真的假后端。生产包不含本文件。
-// 地址参数：?showcase=1 官网截图（普通用户、不显示 AI 劫持），?theme=dark|system 主题，?gate=login 未登录页，?gate=member 无权益会员页（&full=1 设备名额已满），?split=1 拆单付款，?update=1 有新版本，?update=force 强制升级，?page=<页面 id> 打开指定页，?look=1 打开外观面板（见 preview-params.ts）。
+// 地址参数：?showcase=1 官网截图（普通用户、不显示 AI 劫持），?theme=dark|system 主题，?gate=login 未登录页，?gate=member 无权益会员页（&full=1 设备名额已满），?split=1 拆单付款，?update=1 有新版本，?update=force 强制升级，?page=<页面 id> 打开指定页，?look=1 打开外观面板（见 preview-params.ts）；?tier=free ?phone=0 ?sync=conflict ?profiles=full 见 mock-sync.ts。
 
 import { createAIMock } from "./mock-ai";
 import { createAppMonMock } from "./mock-appmon";
@@ -7,6 +7,7 @@ import { mockFenxiao } from "./mock-fenxiao";
 import { mockSetNodeCore } from "./mock-node-core";
 import { createPortsMock } from "./mock-ports";
 import { mockReset } from "./mock-reset";
+import { licenseExtras, mockSync } from "./mock-sync";
 import { previewSearch } from "./search";
 
 type Fn = (...args: unknown[]) => unknown;
@@ -161,16 +162,13 @@ const license = {
   enabled: true,
   signedIn: gate !== "login",
   authenticated: !gate,
-  deviceLimitReached: params.get("full") === "1",
+  deviceLimitReached: gate === "member" || params.get("full") === "1",
   username: showcase ? "chen" : "xuan",
-  plan: gate ? "" : "超级会员 · 年付",
-  planCode: gate ? "" : "premium-year",
-  tier: "premium",
-  maxDevices: 8,
   features: [],
   expiresAt: "2027-06-01T00:00:00Z",
   offlineUntil: "2026-10-29T00:00:00Z",
   channel: "",
+  ...licenseExtras, // 档位 / 设备 / 手机号（mock-sync.ts，?tier=free ?phone=0）
 };
 const mockOrder = (orderNo: string, amountCents: number) => ({
   orderNo,
@@ -452,6 +450,7 @@ const impl: Record<string, Fn> = {
   },
   SetNodeCore: (id, core) => mockSetNodeCore(nodes, id, core),
   ...mockReset,
+  ...mockSync,
   SetRuleSetEnabled: (name, on) => {
     const rs = ruleSets.find((r) => r.name === name);
     if (rs) rs.enabled = !!on;

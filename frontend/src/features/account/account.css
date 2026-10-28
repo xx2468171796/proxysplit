@@ -275,3 +275,22 @@
 .ps-pay-info > :first-child {
   align-self: flex-start;
 }
+
+/* 手机号验证码一行：输入框 + 「获取验证码」 */
+.ps-sms-row {
+  display: flex;
+  gap: var(--aui-space-2);
+  align-items: center;
+}
+
+.ps-sms-row > :first-child {
+  flex: 1;
+  min-width: 0;
+}
+
+/* 会员 / 我的权益页 */
+.ps-member-page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--aui-space-4);
+}
