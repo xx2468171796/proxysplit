@@ -17,6 +17,7 @@ import AuditPage from '@/pages/audit'
 import SettingsPage from '@/pages/settings'
 import FenxiaoPage from '@/pages/fenxiao'
 import ClientLogsPage from '@/pages/client-logs'
+import ClientNodesPage from '@/pages/client-nodes'
 
 export function App() {
   const [signed, setSigned] = React.useState(hasToken())
@@ -39,6 +40,7 @@ export function App() {
         <Route path="downloads" element={<DownloadsPage />} />
         <Route path="audit" element={<AuditPage />} />
         <Route path="client-logs" element={<ClientLogsPage />} />
+        <Route path="client-nodes" element={<ClientNodesPage />} />
         <Route path="settings" element={<SettingsPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>

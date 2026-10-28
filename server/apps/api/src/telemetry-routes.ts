@@ -41,7 +41,25 @@ export class DeviceLimiter {
   }
 }
 
-const deviceParam = (req: FastifyRequest) => {
+/** Content-Encoding: gzip 的上报体：边收边解压，压缩前超过 maxGzipBytes 直接 413（解压后上限靠路由 bodyLimit）。 */
+export function gzipPreParsing(maxGzipBytes: number) {
+  return async (req: FastifyRequest, _reply: unknown, payload: NodeJS.ReadableStream & { on: (e: 'data', f: (c: Buffer) => void) => unknown }) => {
+    if (Number(req.headers['content-length'] ?? 0) > maxGzipBytes) throw new AppError('PAYLOAD_TOO_LARGE', '上报数据过大', 413)
+    if (req.headers['content-encoding'] !== 'gzip') return payload
+    const gz = createGunzip() as Transform & { receivedEncodedLength?: number }
+    let received = 0
+    gz.receivedEncodedLength = 0
+    payload.on('data', (c: Buffer) => {
+      received += c.length
+      gz.receivedEncodedLength = received
+      if (received > maxGzipBytes) gz.destroy(new AppError('PAYLOAD_TOO_LARGE', '上报数据过大', 413))
+    })
+    payload.pipe(gz)
+    return gz
+  }
+}
+
+const deviceParam =(req: FastifyRequest) => {
   const parsed = telemetryDeviceId.safeParse((req.params as { id?: string }).id)
   if (!parsed.success) throw new AppError('NOT_FOUND', '设备不存在', 404)
   return parsed.data
@@ -52,20 +70,7 @@ export function registerTelemetryRoutes(app: FastifyInstance, d: TelemetryDeps) 
   app.post('/v1/client/telemetry', {
     bodyLimit: TELEMETRY_MAX_BODY_BYTES, // 解压后上限；压缩前上限在 preParsing 里按 maxGzipBytes 查
     config: { rateLimit: { max: 240, timeWindow: '1 minute' } }, // 每 IP（公司 NAT 后多台机器）
-    preParsing: async (req, _reply, payload) => {
-      if (Number(req.headers['content-length'] ?? 0) > d.maxGzipBytes) throw new AppError('PAYLOAD_TOO_LARGE', '上报数据过大', 413)
-      if (req.headers['content-encoding'] !== 'gzip') return payload
-      const gz = createGunzip() as Transform & { receivedEncodedLength?: number }
-      let received = 0
-      gz.receivedEncodedLength = 0
-      payload.on('data', (c: Buffer) => {
-        received += c.length
-        gz.receivedEncodedLength = received
-        if (received > d.maxGzipBytes) gz.destroy(new AppError('PAYLOAD_TOO_LARGE', '上报数据过大', 413))
-      })
-      payload.pipe(gz)
-      return gz
-    },
+    preParsing: gzipPreParsing(d.maxGzipBytes),
   }, async (req) => {
     const header = String(req.headers['x-device-id'] ?? '')
     const batch = telemetryBatchSchema.parse(req.body)

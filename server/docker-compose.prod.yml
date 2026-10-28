@@ -28,7 +28,7 @@ services:
     restart: unless-stopped
     init: true
     env_file:
-      - /opt/proxysplit/secrets/runtime.env
+      - /opt/proxysplit/secrets/runtime.env   # 含 NODE_LINK_KEY / SUPER_ADMIN_USERNAMES（同事节点上报，见 docs/节点上报.md）
       - /opt/proxysplit/secrets/payment-zhongzhuan.env
     environment:
       HOST: 0.0.0.0

@@ -320,7 +320,7 @@ export function DataTable<T>({
             ))}
           </TableHeader>
           <TableBody>
-            {loading ? (
+            {loading && items.length === 0 ? (
               Array.from({ length: 6 }).map((_, r) => (
                 <TableRow key={`sk-${r}`} className="hover:bg-transparent">
                   {columns.map((_c, c) => (
