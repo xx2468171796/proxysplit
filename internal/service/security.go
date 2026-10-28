@@ -3,7 +3,6 @@ package service
 import (
 	"fmt"
 	"net"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -61,7 +60,7 @@ func (s *Service) securityAdvice(products []string) string {
 		return ""
 	}
 	return fmt.Sprintf("检测到安全软件：%s。开代理后如果网站打不开（连本该直连的国内网站也打不开），多半是它拦了 ProxySplit：在它的「信任区 / 白名单 / 联网控制」里放行 proxysplit.exe 和 %s，然后重新启动代理。",
-		strings.Join(products, "、"), filepath.Join(s.binDir, "sing-box.exe"))
+		strings.Join(products, "、"), s.singBoxPath())
 }
 
 // PostStartCheck runs right after the core starts: when neither mainland probe

@@ -48,14 +48,14 @@ func TestCheckAndDownloadSignedRelease(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]any{"release": release})
 			return
 		}
-		if r.URL.Path == "/proxysplit.exe" {
+		if r.URL.Path == "/proxysplit"+PackageExt {
 			_, _ = w.Write(payload)
 			return
 		}
 		http.NotFound(w, r)
 	}))
 	defer server.Close()
-	release = signedRelease(private, "1.8.3", hash, server.URL+"/proxysplit.exe")
+	release = signedRelease(private, "1.8.3", hash, server.URL+"/proxysplit"+PackageExt)
 	client := New(server.URL, "1.8.2", t.TempDir(), encoded, "")
 	client.http = server.Client()
 	status := client.Check(context.Background())
@@ -74,7 +74,7 @@ func TestCheckAndDownloadSignedRelease(t *testing.T) {
 
 func TestTamperedReleaseRejected(t *testing.T) {
 	_, private, encoded := testKeys(t)
-	release := signedRelease(private, "1.8.3", strings.Repeat("a", 64), "https://updates.invalid/proxysplit.exe")
+	release := signedRelease(private, "1.8.3", strings.Repeat("a", 64), "https://updates.invalid/proxysplit"+PackageExt)
 	client := New("https://updates.invalid", "1.8.2", t.TempDir(), encoded, "")
 	release.SHA256 = "b" + release.SHA256[1:]
 	if err := client.verifyRelease(release); err == nil {

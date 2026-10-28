@@ -91,8 +91,8 @@ func InstallRelease(destDir, installed string, r Release, viaProxy string) (stri
 			return "", err
 		}
 	}
-	if len(exe) < len(peMagic) || !bytes.Equal(exe[:len(peMagic)], peMagic) {
-		return "", fmt.Errorf("invalid sing-box.exe: missing PE magic (got %d bytes)", len(exe))
+	if len(exe) < len(exeMagic) || !bytes.Equal(exe[:len(exeMagic)], exeMagic) {
+		return "", fmt.Errorf("invalid %s: not a native executable (got %d bytes)", SingBoxExe, len(exe))
 	}
 	if len(exe) <= minExeBytes {
 		return "", fmt.Errorf("invalid sing-box.exe: only %d bytes (expected > %d)", len(exe), minExeBytes)

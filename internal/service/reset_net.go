@@ -106,7 +106,7 @@ func (s *Service) resetStrays(context.Context) (string, error) {
 	if wasRunning {
 		s.stopLocked()
 	}
-	bin := filepath.Join(s.binDir, "sing-box.exe")
+	bin := s.singBoxPath()
 	s.core.CleanStrays()
 	core.KillPortStrays(bin, s.dataDir)
 	core.CleanProbeStrays(bin, filepath.Join(s.dataDir, "probes"))

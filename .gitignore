@@ -28,6 +28,8 @@ node_modules/
 # downloaded/vendored runtime binaries (large; fetched during setup)
 /bin/sing-box.exe
 /bin/xray.exe
+/bin/darwin/sing-box
+/bin/darwin/xray
 /.download/
 
 # go

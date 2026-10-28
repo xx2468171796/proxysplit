@@ -356,6 +356,9 @@ func tunInbounds(opts Options, a4 string) []M {
 		"strict_route": !opts.StrictRouteOff,
 		"stack":        "system",
 	}}
+	if ex := tunRouteExclude(); len(ex) > 0 {
+		ins[0]["route_exclude_address"] = ex
+	}
 	if lan := lanInbound(opts); lan != nil {
 		ins = append(ins, lan)
 	}

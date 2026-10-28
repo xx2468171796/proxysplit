@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -650,6 +651,9 @@ func TestRealityHybridAcceptedByBundledCore(t *testing.T) {
 }
 
 func TestProcessSetDirEntries(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Windows 路径 / 行为")
+	}
 	var got struct {
 		Rules []map[string][]string `json:"rules"`
 	}

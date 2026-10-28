@@ -87,3 +87,6 @@ func refresh() error {
 	proc.Call(0, internetOptionRefresh, 0, 0)
 	return nil
 }
+
+// Core is only used on macOS (the control script); kept for a shared API.
+var Core string

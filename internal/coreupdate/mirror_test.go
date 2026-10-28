@@ -36,7 +36,7 @@ func fastTimings(t *testing.T) {
 }
 
 func testExe() ([]byte, string) {
-	exe := append([]byte("MZ"), bytes.Repeat([]byte("sing-box!"), (minExeBytes+4096)/9+1)...)
+	exe := append(append([]byte(nil), exeMagic...), bytes.Repeat([]byte("sing-box!"), (minExeBytes+4096)/9+1)...)
 	sum := sha256.Sum256(exe)
 	return exe, hex.EncodeToString(sum[:])
 }
@@ -60,7 +60,7 @@ func TestInstallReleaseMirrorsBadShaStallThenGood(t *testing.T) {
 	log := &reqLog{}
 
 	bad := bytes.Repeat([]byte{'X'}, len(exe))
-	copy(bad, "MZ")
+	copy(bad, exeMagic)
 	badSrv := mirror(log, "bad", 0, bad) // answers probes first
 	defer badSrv.Close()
 

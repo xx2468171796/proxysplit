@@ -1,0 +1,9 @@
+{
+  "version": "1.14.3-relayops.1",
+  "format": "exe",
+  "url": "http://192.168.110.246:3001/api/packages/gonggong/generic/sing-box/1.14.3-relayops.1/sing-box-1.14.3-darwin-arm64",
+  "urlAuth": "gitea",
+  "sha256": "8abc4104bf299b682dde5113fb65034a4f295e30d9ea6f35c24ebff093a46a5e",
+  "source": "PowerVPN 平台自编 sing-box 1.14.3 + relayops.1 补丁 0001–0011（与 windows 制品同源同标签：上游 v1.14.3 = goproxy.cn 模块包 github.com/sagernet/sing-box@v1.14.3，按 powervpn deploy/singbox/build.sh 的标签和 ldflags，GOOS=darwin GOARCH=arm64 CGO 关；2026-10-28 在 xuan-macbook-air 上编，sing-box version 显示 1.14.3、Tags 全）",
+  "verifiedAt": "2026-10-28"
+}

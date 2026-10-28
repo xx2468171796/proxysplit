@@ -1,8 +1,14 @@
 package appid
 
-import "testing"
+import (
+	"runtime"
+	"testing"
+)
 
 func TestDiscoverLDPlayer(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Windows 路径 / 行为")
+	}
 	env := Env{
 		Installed: []Installed{
 			{Name: "雷电模拟器14", Dir: DirOf(`D:\LDPlayer\LDPlayer14\dnuninst.exe`)},
@@ -29,6 +35,9 @@ func TestDiscoverLDPlayer(t *testing.T) {
 }
 
 func TestDirOf(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Windows 路径 / 行为")
+	}
 	for in, want := range map[string]string{
 		`"D:\LDPlayer\LDPlayer14\dnuninst.exe" /S`: `D:\LDPlayer\LDPlayer14`,
 		`C:\Apps\x.exe,0`:                          `C:\Apps`,
@@ -41,6 +50,9 @@ func TestDirOf(t *testing.T) {
 }
 
 func TestNormalizeCustomDirs(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Windows 路径 / 行为")
+	}
 	got, err := NormalizeCustom([]App{{Name: "手游助手", Dirs: []string{` D:\Games\Helper `}}})
 	if err != nil || got[0].Dirs[0] != `D:\Games\Helper\` || len(got[0].Processes) != 0 {
 		t.Fatalf("got %+v err %v", got, err)
@@ -53,6 +65,9 @@ func TestNormalizeCustomDirs(t *testing.T) {
 }
 
 func TestDetectNoFalsePositives(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Windows 路径 / 行为")
+	}
 	env := Env{Installed: []Installed{
 		{Name: "Memurai Developer", Dir: `C:\Program Files\Memurai`},
 		{Name: "NoxAudit Tool", Dir: `C:\Tools\NoxAudit`},
@@ -75,6 +90,9 @@ func TestDetectNoFalsePositives(t *testing.T) {
 }
 
 func TestCheckDir(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Windows 路径 / 行为")
+	}
 	t.Setenv("SystemRoot", `C:\Windows`)
 	t.Setenv("ProgramFiles", `C:\Program Files`)
 	SetProtected(`D:\Apps\ProxySplit`, `D:\Apps\ProxySplit\bin`)

@@ -14,7 +14,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/energye/systray"
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 
@@ -29,9 +28,9 @@ import (
 	"proxysplit/internal/updater"
 )
 
-// payloadFS bundles sing-box and its rule sets into the portable executable.
+// payloadFS bundles the rule sets; the core is in coreFS (payload_<os>.go).
 //
-//go:embed bin/sing-box.exe bin/core-release.json bin/geoip-cn.srs bin/geosite-cn.srs bin/geosite-category-ads-all.srs
+//go:embed bin/geoip-cn.srs bin/geosite-cn.srs bin/geosite-category-ads-all.srs
 var payloadFS embed.FS
 
 // App is the Wails-bound application object.
@@ -283,7 +282,7 @@ func (a *App) domReady(ctx context.Context) {
 // system proxy we set, so exiting never orphans sing-box or leaves the OS
 // pointing at a now-dead proxy.
 func (a *App) shutdown(ctx context.Context) {
-	systray.Quit()
+	a.quitTray()
 	a.stopAccel() // 先把 Claude Code 配置还原成官方默认，再停内核
 	if a.svc != nil {
 		a.svc.Stop()
@@ -315,7 +314,7 @@ func ensurePayload() (string, error) {
 	// may have been locked while that core was still running).
 	_ = coreupdate.ClearBackup(dir)
 
-	metadata, err := payloadFS.ReadFile("bin/core-release.json")
+	metadata, err := coreFS.ReadFile(coreMetaFile)
 	if err != nil {
 		return "", err
 	}
@@ -326,7 +325,7 @@ func ensurePayload() (string, error) {
 	if err := json.Unmarshal(metadata, &bundled); err != nil {
 		return "", err
 	}
-	exe, err := payloadFS.ReadFile("bin/sing-box.exe")
+	exe, err := coreFS.ReadFile(coreExeFile)
 	if err != nil {
 		return "", err
 	}
@@ -591,7 +590,7 @@ func (a *App) PreviewAppRulesImport(data string) service.RuleImportPreview {
 func (a *App) PickExeFiles() []string {
 	paths, err := runtime.OpenMultipleFilesDialog(a.ctx, runtime.OpenDialogOptions{
 		Title:   "选择要分流的程序",
-		Filters: []runtime.FileFilter{{DisplayName: "可执行文件 (*.exe)", Pattern: "*.exe"}},
+		Filters: []runtime.FileFilter{pickFilter},
 	})
 	if err != nil {
 		return nil

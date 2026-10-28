@@ -1,6 +1,7 @@
 package service
 
 import (
+	"runtime"
 	"testing"
 
 	"proxysplit/internal/core"
@@ -19,6 +20,9 @@ func TestStreamPresetIsOverridable(t *testing.T) {
 }
 
 func TestPrepareProcessCaptureReusesPorts(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Windows 路径 / 行为")
+	}
 	s := &Service{onLog: func(string) {}, wdReady: func() bool { return true }}
 	opts := core.Options{Split: true, SplitWhitelist: true, SplitGroups: []core.SplitGroup{{Key: "a", NodeTag: "proxy"}}}
 	if err := s.prepareProcessCapture(Settings{CaptureMode: CaptureTUN}, &opts, nil); err != nil || opts.Process != nil {

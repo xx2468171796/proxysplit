@@ -13,7 +13,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"syscall"
 	"time"
 )
 
@@ -220,7 +219,7 @@ func launchBackground(exe string) error {
 		return errors.New("找不到 ProxySplit 程序路径")
 	}
 	cmd := exec.Command(exe, backgroundFlag)
-	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: syscall.CREATE_NEW_PROCESS_GROUP | 0x00000008 /* DETACHED_PROCESS */}
+	cmd.SysProcAttr = detachedAttr()
 	if err := cmd.Start(); err != nil {
 		return err
 	}

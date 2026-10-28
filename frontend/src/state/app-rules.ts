@@ -126,7 +126,7 @@ export async function clearRules(): Promise<string> {
 /** 从文件夹选 exe（不必正在运行）。返回添加的个数。 */
 export async function pickFiles(): Promise<number> {
   const paths = await api.pickExeFiles();
-  for (const p of paths) await addRule(baseName(p), p);
+  for (const p of paths) await addRule(p.endsWith(".app") ? `${p}/` : baseName(p), p);
   return paths.length;
 }
 

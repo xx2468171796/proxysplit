@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"regexp"
+	"runtime"
 	"strings"
 
 	"proxysplit/internal/nodes"
@@ -247,8 +248,12 @@ func SplitRuleSets(opts Options) map[string][]byte {
 // instead of one exe name.
 const DirPrefix = "dir:"
 
-// DirRegex matches every process whose path lies under dir, case-insensitively.
+// DirRegex matches every process whose path lies under dir: Windows paths
+// case-insensitively with backslashes, macOS paths (an .app folder) as they are.
 func DirRegex(dir string) string {
+	if runtime.GOOS != "windows" {
+		return "^" + regexp.QuoteMeta(strings.TrimRight(strings.TrimSpace(dir), "/")) + "/"
+	}
 	dir = strings.TrimRight(strings.ReplaceAll(strings.TrimSpace(dir), "/", `\`), `\`)
 	return `(?i)^` + regexp.QuoteMeta(dir) + `\\`
 }

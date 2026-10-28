@@ -116,13 +116,15 @@ export async function buildApp(config:ApiConfig,provided?:Core){
     paymentReconcileTimer.unref()
     setTimeout(()=>void reconcilePayments(),1_000).unref()
   }
-  app.get('/v1/releases/latest',async(req)=>({release:await core.store.latestRelease((req.query as {channel?:string}).channel==='beta'?'beta':'stable')}))
+  // platform=macos 给 Mac 客户端（.zip）；不带或其它值 = windows（老客户端不带这个参数）。
+  app.get('/v1/releases/latest',async(req)=>{const q=req.query as {channel?:string;platform?:string};return {release:await core.store.latestRelease(q.channel==='beta'?'beta':'stable',q.platform==='macos'?'macos':'windows')}})
   app.get('/v1/releases',async()=>({items:(await core.store.listReleases({limit:100})).items}))
   // Tracked download: log one event (hashed IP + visitor id + UA), then 302 to
   // the real Nginx-served file. Only known-shaped filenames are allowed so this
   // can never become an open redirect or path-traversal.
   // proxysplit-ai-latest.exe = AI 编程官网给的下载（同一个安装包的软链）：文件名带 -ai，客户端据此隐藏作者联系方式
-  const DOWNLOAD_FILE=/^proxysplit-(v\d+\.\d+\.\d+|latest|ai-latest)\.exe$/
+  // ProxySplit-v<版本>-macos-arm64.zip / proxysplit-macos-latest.zip = macOS 版（Apple 芯片）
+  const DOWNLOAD_FILE=/^(proxysplit-(v\d+\.\d+\.\d+|latest|ai-latest)\.exe|ProxySplit-v\d+\.\d+\.\d+-macos-arm64\.zip|proxysplit-macos-latest\.zip)$/
   app.get('/v1/download/:file',{config:{rateLimit:{max:60,timeWindow:'1 minute'}}},async(req,reply)=>{
     const file=(req.params as {file:string}).file
     if(!DOWNLOAD_FILE.test(file))throw new AppError('NOT_FOUND','文件不存在',404)

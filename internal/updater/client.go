@@ -92,7 +92,7 @@ func (c *Client) Check(ctx context.Context) Status {
 	}
 	// Stable clients must only ever be offered stable releases; the server
 	// isolates channels so a higher-versioned beta never auto-updates them.
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.apiURL+"/v1/releases/latest?channel=stable", nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.apiURL+"/v1/releases/latest?channel=stable&platform="+Platform, nil)
 	if err != nil {
 		status.Error = err.Error()
 		return status
@@ -161,7 +161,7 @@ func (c *Client) Download(ctx context.Context, release Release) (string, error) 
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", err
 	}
-	path := filepath.Join(dir, "proxysplit-v"+release.Version+".exe.download")
+	path := filepath.Join(dir, "proxysplit-v"+release.Version+PackageExt+".download")
 	file, err := os.OpenFile(path, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
 	if err != nil {
 		return "", err
@@ -202,7 +202,7 @@ func (c *Client) verifyRelease(release Release) error {
 		return errors.New("更新 SHA256 格式无效")
 	}
 	u, err := url.Parse(release.URL)
-	if err != nil || u.Scheme != "https" || u.Host == "" || !strings.HasSuffix(strings.ToLower(u.Path), ".exe") {
+	if err != nil || u.Scheme != "https" || u.Host == "" || !strings.HasSuffix(strings.ToLower(u.Path), PackageExt) {
 		return errors.New("更新下载地址无效")
 	}
 	sig, err := base64.StdEncoding.DecodeString(release.Signature)

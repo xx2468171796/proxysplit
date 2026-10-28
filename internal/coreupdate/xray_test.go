@@ -12,7 +12,7 @@ import (
 )
 
 func fakeXray(fill byte) ([]byte, string) {
-	exe := append([]byte("MZ"), bytes.Repeat([]byte{fill}, minExeBytes)...)
+	exe := append(append([]byte(nil), exeMagic...), bytes.Repeat([]byte{fill}, minExeBytes)...)
 	sum := sha256.Sum256(exe)
 	return exe, hex.EncodeToString(sum[:])
 }

@@ -36,7 +36,7 @@ func TestAppListChangesKeepConfigStructure(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	chrome := AppRule{Match: `C:\Chrome\chrome.exe`, Line: LineRule, Enabled: true}
+	chrome := AppRule{Match: "chrome.exe", Line: LineRule, Enabled: true} // bare names: same on every OS
 	variants := [][]AppRule{
 		nil,
 		{chrome},
@@ -44,7 +44,7 @@ func TestAppListChangesKeepConfigStructure(t *testing.T) {
 		{{Match: chrome.Match, Line: LineDirect, Enabled: true}},
 		{{Match: chrome.Match, Line: LineBlock, Enabled: true}},
 		{{Match: chrome.Match, Line: LineRule, Enabled: false}},
-		{chrome, {Match: `C:\Code\Code.exe`, Line: LineGlobal, Enabled: true}},
+		{chrome, {Match: "Code.exe", Line: LineGlobal, Enabled: true}},
 	}
 	base, _, _ := buildSplit(t, s, node, variants[0])
 	seen := map[string]bool{}

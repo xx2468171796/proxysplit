@@ -31,7 +31,7 @@ export type SessionRecord = {
 export type ReleaseRecord = {
   version:string; minimumVersion:string; url:string; sha256:string;
   signature:string; mandatory:boolean; title:string; summary:string;
-  changelog:string; channel:string; publishedAt:Date
+  changelog:string; channel:string; platform?:string; publishedAt:Date
 }
 export type CommerceSettings = {
   registrationEnabled:boolean; trialDays:number; trialPlanCode:string;
@@ -523,10 +523,11 @@ export class PgStore {
 
   // 返回指定通道的“最新版”。按语义版本(而非发布时间)取最高，避免误发一个更旧
   // 版本号后顶替真正的最新版；channel 隔离让 beta 不会被推给稳定版客户端。
-  async latestRelease(channel:'stable'|'beta'='stable'):Promise<ReleaseRecord|null>{
-    const r=await this.pool.query(`SELECT version,minimum_version AS "minimumVersion",url,sha256,signature,mandatory,title,summary,changelog,channel,published_at AS "publishedAt"
-      FROM releases WHERE channel=$1
-      ORDER BY string_to_array(version,'.')::int[] DESC,published_at DESC LIMIT 1`,[channel])
+  // platform：Windows / macOS 各自一条（同版本号），不带时按 windows，老客户端不受影响。
+  async latestRelease(channel:'stable'|'beta'='stable',platform:'windows'|'macos'='windows'):Promise<ReleaseRecord|null>{
+    const r=await this.pool.query(`SELECT version,minimum_version AS "minimumVersion",url,sha256,signature,mandatory,title,summary,changelog,channel,platform,published_at AS "publishedAt"
+      FROM releases WHERE channel=$1 AND platform=$2
+      ORDER BY string_to_array(version,'.')::int[] DESC,published_at DESC LIMIT 1`,[channel,platform])
     return r.rows[0]??null
   }
   // 是否存在该版本号的正式发布（用于下载接口过滤伪造版本，避免污染下载统计）。
@@ -671,21 +672,22 @@ export class PgStore {
   async listReleases(params:Partial<ReleaseListQuery>={}):Promise<ListResult<any>>{
     const conds:string[]=[];const vals:unknown[]=[];let i=1
     if(params.q){vals.push(`%${params.q}%`);conds.push(`(version ILIKE $${i} OR title ILIKE $${i} OR summary ILIKE $${i})`);i++}
-    if(params.channel){vals.push(params.channel);conds.push(`channel=$${i}`);i++}
+    if(params.channel){vals.push(params.channel);conds.push(`channel=${i}`);i++}
+    if(params.platform){vals.push(params.platform);conds.push(`platform=${i}`);i++}
     if(params.mandatory!==undefined){vals.push(params.mandatory);conds.push(`mandatory=$${i}`);i++}
     const where=conds.length?`WHERE ${conds.join(' AND ')}`:''
     const orderBy=orderClause(params.sort,params.order,{publishedAt:'published_at',version:'version',channel:'channel'},'published_at DESC')
     const limit=pageLimit(params.limit),offset=pageOffset(params.offset)
     vals.push(limit,offset)
-    const r=await this.pool.query(`SELECT id,version,minimum_version AS "minimumVersion",url,sha256,signature,mandatory,title,summary,changelog,channel,
+    const r=await this.pool.query(`SELECT id,version,minimum_version AS "minimumVersion",url,sha256,signature,mandatory,title,summary,changelog,channel,platform,
       published_at AS "publishedAt",(count(*) OVER())::int AS "totalCount"
       FROM releases ${where} ORDER BY ${orderBy} LIMIT $${i} OFFSET $${i+1}`,vals)
     const total=r.rows[0]?Number(r.rows[0].totalCount):0
     const items=r.rows.map(({totalCount,...rest}:{totalCount:number})=>rest)
     return {items,total,limit,offset}
   }
-  async createRelease(v:{version:string;minimumVersion:string;url:string;sha256:string;signature:string;mandatory:boolean;title:string;summary:string;changelog:string;channel:string}){
-    const r=await this.pool.query('INSERT INTO releases(version,minimum_version,url,sha256,signature,mandatory,title,summary,changelog,channel) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id,version',[v.version,v.minimumVersion,v.url,v.sha256,v.signature,v.mandatory,v.title,v.summary,v.changelog,v.channel])
+  async createRelease(v:{version:string;minimumVersion:string;url:string;sha256:string;signature:string;mandatory:boolean;title:string;summary:string;changelog:string;channel:string;platform?:string}){
+    const r=await this.pool.query('INSERT INTO releases(version,minimum_version,url,sha256,signature,mandatory,title,summary,changelog,channel,platform) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id,version,platform',[v.version,v.minimumVersion,v.url,v.sha256,v.signature,v.mandatory,v.title,v.summary,v.changelog,v.channel,v.platform??'windows'])
     return r.rows[0]
   }
   async listAudit(params:Partial<AuditListQuery>={}):Promise<ListResult<any>>{

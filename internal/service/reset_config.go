@@ -34,9 +34,30 @@ func (s *Service) backupBeforeReset() (string, error) {
 		return "", err
 	}
 	now := time.Now()
-	name := fmt.Sprintf("reset-%s-%03d.json", now.Format("20060102-150405"), now.Nanosecond()/1e6) // sortable
-	if err := os.WriteFile(filepath.Join(dir, name), []byte(data), 0o600); err != nil {
-		return "", err
+	stamp := fmt.Sprintf("reset-%s-%03d", now.Format("20060102-150405"), now.Nanosecond()/1e6) // sortable
+	// Two resets in the same millisecond must not overwrite each other's backup:
+	// a numbered suffix keeps them apart and still sorts after the plain name.
+	var name string
+	for i := 0; ; i++ {
+		name = stamp + ".json"
+		if i > 0 {
+			name = fmt.Sprintf("%s_%02d.json", stamp, i) // "_" sorts after "."
+		}
+		f, err := os.OpenFile(filepath.Join(dir, name), os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+		if os.IsExist(err) && i < 99 {
+			continue
+		}
+		if err != nil {
+			return "", err
+		}
+		_, werr := f.WriteString(data)
+		if cerr := f.Close(); werr == nil {
+			werr = cerr
+		}
+		if werr != nil {
+			return "", werr
+		}
+		break
 	}
 	s.pruneResetBackups()
 	return name, nil

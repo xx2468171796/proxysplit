@@ -15,12 +15,14 @@ import type { Proc } from "../../api/types";
 import { useFeedback } from "../../app/use-feedback";
 import { AppIcon } from "../../components/app-icon";
 import { appDisplayName } from "../../shared/app-names";
+import { isMac } from "../../shared/platform";
 import { useStore } from "../../shared/store";
 import { addRule, apps, pickFiles, procHasRule, refreshProcesses } from "../../state/app-rules";
 import { data } from "../../state/data";
 import { useSaveNotice } from "./use-save-notice";
 
-const procMatch = (p: Proc) => p.path || p.name;
+// macOS 的应用是 .app 目录（里面多个进程，如 Chrome 的 Helper），整个目录作为一条规则。
+const procMatch = (p: Proc) => (p.path?.endsWith(".app") ? `${p.path}/` : p.path || p.name);
 
 function ProcList({ query }: { query: string }) {
   const save = useSaveNotice();
@@ -78,10 +80,12 @@ function ManualAdd() {
     <div className="ps-row">
       <Input
         id="picker-manual"
-        aria-label="手动输入 exe 名或完整路径"
+        aria-label={isMac ? "手动输入程序名或 .app 路径" : "手动输入 exe 名或完整路径"}
         boxClassName="ps-grow"
         value={value}
-        placeholder="找不到？手动输入程序名（如 chrome.exe）或完整路径"
+        placeholder={
+          isMac ? "找不到？手动输入程序名（如 node）或 .app 路径" : "找不到？手动输入程序名（如 chrome.exe）或完整路径"
+        }
         onChange={(e) => setValue(e.target.value)}
         onKeyDown={(e) => {
           if (!isComposingEvent(e) && e.key === "Enter") submit();
@@ -117,7 +121,13 @@ export function AppPicker({ open, onClose }: { open: boolean; onClose: () => voi
       description="选择要分流的程序，添加后默认「智能分流」：国内直连、国外走当前节点，之后可在列表里改。"
       onClose={onClose}
       footer={
-        <DialogFooter hint="「从文件夹选择」可以添加没在运行的程序，浏览到它的 .exe 即可。">
+        <DialogFooter
+          hint={
+            isMac
+              ? "「从文件夹选择」可以添加没在运行的应用，在「应用程序」里选它即可。"
+              : "「从文件夹选择」可以添加没在运行的程序，浏览到它的 .exe 即可。"
+          }
+        >
           <Button variant="outline" loading={picking} onClick={() => void pick()}>
             <FolderOpen />
             从文件夹选择…

@@ -4,7 +4,7 @@ export const deviceSchema = z.object({
   fingerprint: z.string().min(32).max(128),
   hardwareHash: z.string().min(32).max(128).optional(),
   name: z.string().trim().min(1).max(80),
-  platform: z.literal('windows'),
+  platform: z.enum(['windows','macos']),
   appVersion: z.string().regex(/^\d+\.\d+\.\d+(?:[-+].+)?$/),
 })
 export const loginSchema = z.object({ username: z.string().trim().min(3).max(64), password: z.string().min(8).max(256), device: deviceSchema })
@@ -93,16 +93,21 @@ export const downloadStatsQuery = z.object({
   from: z.string().datetime().optional(),
   to: z.string().datetime().optional(),
 })
+/** 各平台更新包后缀（客户端 updater.PackageExt）。 */
+export const releaseExt = { windows: '.exe', macos: '.zip' } as const
+export const releasePlatforms = ['windows','macos'] as const
+export type ReleasePlatform = (typeof releasePlatforms)[number]
 export const releaseCreateSchema = z.object({
   version: z.string().regex(/^\d+\.\d+\.\d+$/), minimumVersion: z.string().regex(/^\d+\.\d+\.\d+$/),
-  // 必须与客户端 updater.verifyRelease 一致：https 直链且路径以 .exe 结尾，
+  // 必须与客户端 updater.verifyRelease 一致：https 直链，Windows 以 .exe、macOS 以 .zip 结尾（见下方 refine），
   // 否则签名再正确客户端也会静默判为“更新下载地址无效”，表现为一直收不到更新。
-  url: z.string().url().refine((s)=>{try{const u=new URL(s);return u.protocol==='https:'&&u.pathname.toLowerCase().endsWith('.exe')}catch{return false}},'下载地址必须是以 .exe 结尾的 https 直链'),
+  url: z.string().url().refine((s)=>{try{return new URL(s).protocol==='https:'}catch{return false}},'下载地址必须是 https 直链'),
   sha256: z.string().regex(/^[a-f0-9]{64}$/), signature: z.string().min(32),
   mandatory: z.boolean().default(false), title:z.string().trim().max(120).default(''),
   summary:z.string().trim().max(500).default(''), changelog:z.string().trim().max(20000).default(''),
   channel:z.enum(['stable','beta']).default('stable'),
-})
+  platform:z.enum(['windows','macos']).default('windows'),
+}).refine((v)=>new URL(v.url).pathname.toLowerCase().endsWith(releaseExt[v.platform]),{message:'下载地址后缀不对：Windows 要 .exe，macOS 要 .zip',path:['url']})
 const planBaseSchema = z.object({
   code: z.string().trim().regex(/^[a-z0-9][a-z0-9-]{1,62}$/),
   name: z.string().trim().min(2).max(80),
@@ -221,6 +226,7 @@ export const announcementListQuery = paginationSchema.extend({
 })
 export const releaseListQuery = paginationSchema.extend({
   channel: z.enum(['stable','beta']).optional(),
+  platform: z.enum(['windows','macos']).optional(),
   mandatory: boolParam,
 })
 export const auditListQuery = paginationSchema.extend({

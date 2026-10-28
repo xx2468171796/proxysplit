@@ -1,3 +1,5 @@
+//go:build windows
+
 // Command diagrun runs ProxySplit's routing self-test headless on any Windows
 // machine (no UI, no login): it starts the real core with the given node and
 // app rules in a throwaway data dir, runs the built-in SelfTest plus optional

@@ -23,7 +23,7 @@ var ErrBackupBusy = errors.New("旧内核文件仍被占用，重启软件后再
 
 const failedSuffix = ".failed"
 
-func backupPath(dir string) string       { return filepath.Join(dir, "sing-box.exe.old") }
+func backupPath(dir string) string       { return filepath.Join(dir, SingBoxExe+".old") }
 func markerBackupPath(dir string) string { return filepath.Join(dir, markerFile+".old") }
 
 // releaseWait bounds how long rename / remove retry while Windows still holds
@@ -83,7 +83,7 @@ func Rollback(dir string) error {
 	if !HasBackup(dir) {
 		return fmt.Errorf("没有可换回的旧内核")
 	}
-	dst := filepath.Join(dir, "sing-box.exe")
+	dst := filepath.Join(dir, SingBoxExe)
 	failed := dst + failedSuffix
 	_ = os.Remove(failed)
 	moved := false

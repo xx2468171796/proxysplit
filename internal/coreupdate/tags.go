@@ -39,7 +39,7 @@ func HasTag(dir, tag string) bool {
 }
 
 func installedTags(dir string) []string {
-	exe := filepath.Join(dir, "sing-box.exe")
+	exe := filepath.Join(dir, SingBoxExe)
 	info, err := os.Stat(exe)
 	if err != nil {
 		return nil
