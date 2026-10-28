@@ -41,7 +41,7 @@ export function PlanCard({ plan }: { plan: MemberPlan }) {
       <p className="ps-plan-desc">{plan.description || "开通后立即生效，可在有效期内持续使用。"}</p>
       <Price plan={plan} />
       <div className="ps-plan-highlights">
-        {plan.durationDays || 0} 天 · 另加 {plan.maxDevices} 台设备 · {premium ? "全部功能" : "基础功能"}
+        {plan.durationDays || 0} 天 · 另加 {plan.maxDevices} 台设备 · 全部功能 + 云同步
       </div>
       <BuyButton plan={plan} />
     </article>
