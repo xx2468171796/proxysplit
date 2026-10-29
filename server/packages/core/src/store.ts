@@ -1,9 +1,10 @@
 import { createHash, randomBytes } from 'node:crypto'
 import { createDatabase } from '@proxysplit/db'
-import type { AnnouncementListQuery, AnnouncementUpsertInput, AuditListQuery, DeviceListQuery, OrderListQuery, PlanListQuery, PlanPatchInput, PlanUpsertInput, ProviderUpsertInput, RedeemListQuery, ReleaseListQuery, UserListQuery } from '@proxysplit/contracts'
+import type { AuditListQuery, DeviceListQuery, OrderListQuery, PlanListQuery, PlanPatchInput, PlanUpsertInput, ProviderUpsertInput, RedeemListQuery, ReleaseListQuery, UserListQuery } from '@proxysplit/contracts'
 import { AppError, maskPhone } from '@proxysplit/shared'
 import { planSplit } from './split.js'
 import { createProxysplitFenxiao, type ProxysplitFenxiao } from './fenxiao.js'
+import type { FxNotice } from './vendor/fenxiao/index.js'
 
 export type UserRecord = {
   id:string; username:string; passwordHash:string|null; role:'user'|'admin';
@@ -168,7 +169,9 @@ export class PgStore {
   readonly pool: ReturnType<typeof createDatabase>['pool']
   /** 多级分销（tuiguang/fenxiao）：注册绑上级、付款分佣、退款冲回都在本类的事务里调 */
   readonly fx: ProxysplitFenxiao
-  constructor(url:string) { this.pool=createDatabase(url).pool; this.fx=createProxysplitFenxiao(this.pool) }
+  /** 站内通知出口（app 装好 tongzhi 后接上）；分销的佣金通知经它发 */
+  notifySink?:(n:FxNotice)=>Promise<void>
+  constructor(url:string) { this.pool=createDatabase(url).pool; this.fx=createProxysplitFenxiao(this.pool,async n=>{await this.notifySink?.(n)}) }
   async close(){ await this.pool.end() }
 
   async findUser(username:string):Promise<UserRecord|null>{
@@ -1300,38 +1303,6 @@ export class PgStore {
       recent:recent.rows.map(r=>({kind:r.kind,file:r.file,version:r.version,referer:r.referer,createdAt:r.createdAt})),
     }
   }
-
-  async listAnnouncements(params:Partial<AnnouncementListQuery>&{publicOnly?:boolean}={}):Promise<ListResult<any>>{
-    const conds:string[]=[];const vals:unknown[]=[];let i=1
-    if(params.publicOnly)conds.push(`active=true AND (starts_at IS NULL OR starts_at<=now()) AND (ends_at IS NULL OR ends_at>now())`)
-    if(params.q){vals.push(`%${params.q}%`);conds.push(`(title ILIKE $${i} OR summary ILIKE $${i} OR content ILIKE $${i})`);i++}
-    if(params.type){vals.push(params.type);conds.push(`type=$${i}`);i++}
-    if(params.active!==undefined){vals.push(params.active);conds.push(`active=$${i}`);i++}
-    if(params.pinned!==undefined){vals.push(params.pinned);conds.push(`pinned=$${i}`);i++}
-    const where=conds.length?`WHERE ${conds.join(' AND ')}`:''
-    const orderBy=orderClause(params.sort,params.order,{publishedAt:'published_at',createdAt:'created_at',title:'title',type:'type'},'pinned DESC,published_at DESC')
-    const limit=pageLimit(params.limit),offset=pageOffset(params.offset)
-    vals.push(limit,offset)
-    const r=await this.pool.query(`SELECT id,type,title,summary,content,version,active,pinned,published_at AS "publishedAt",
-      starts_at AS "startsAt",ends_at AS "endsAt",created_at AS "createdAt",updated_at AS "updatedAt",(count(*) OVER())::int AS "totalCount"
-      FROM announcements ${where} ORDER BY ${orderBy} LIMIT $${i} OFFSET $${i+1}`,vals)
-    const total=r.rows[0]?Number(r.rows[0].totalCount):0
-    const items=r.rows.map(({totalCount,...rest}:{totalCount:number})=>rest)
-    return {items,total,limit,offset}
-  }
-  async createAnnouncement(v:AnnouncementUpsertInput,actor:string){
-    const r=await this.pool.query(`INSERT INTO announcements(type,title,summary,content,version,active,pinned,starts_at,ends_at,created_by)
-      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id`,
-      [v.type,v.title,v.summary,v.content,v.version,v.active,v.pinned,v.startsAt??null,v.endsAt??null,actor])
-    return r.rows[0]
-  }
-  async updateAnnouncement(id:string,v:AnnouncementUpsertInput){
-    const r=await this.pool.query(`UPDATE announcements SET type=$2,title=$3,summary=$4,content=$5,version=$6,active=$7,pinned=$8,
-      starts_at=$9,ends_at=$10,updated_at=now() WHERE id=$1 RETURNING id`,
-      [id,v.type,v.title,v.summary,v.content,v.version,v.active,v.pinned,v.startsAt??null,v.endsAt??null])
-    return r.rows[0]??null
-  }
-  async deleteAnnouncement(id:string){const r=await this.pool.query('DELETE FROM announcements WHERE id=$1 RETURNING id',[id]);return r.rows[0]??null}
 
   // Hard-delete a user. licenses/devices/sessions/trial_claims cascade; audit /
   // announcement / settings references are nulled to preserve history. A user

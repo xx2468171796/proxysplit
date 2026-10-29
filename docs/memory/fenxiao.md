@@ -1,6 +1,6 @@
 # 多级分销（推广赚钱）
 
-> 公司分销包 **fenxiao**（yanzheng 仓 packages/fenxiao，v1.9.94 起 fenxiao-v0.1.0，取代 tuiguang/fenxiao），接入手册在包里 INTEGRATION.md。服务端 vendor 在 `server/packages/core/src/vendor/fenxiao/`（含 http/ 子目录），升级改 `server/scripts/vendor-fenxiao.mjs` 的 UPSTREAM_TAG 重跑。
+> 公司分销包 **fenxiao**（yanzheng 仓 packages/fenxiao，v1.9.94 起 fenxiao-v0.1.0，取代 tuiguang/fenxiao），接入手册在包里 INTEGRATION.md。服务端 vendor 在 `server/packages/core/src/vendor/fenxiao/`（含 http/ 子目录），升级改 `server/scripts/vendor-company.mjs（包名 fenxiao）` 的 UPSTREAM_TAG 重跑。
 
 ## 模型
 - 用户带邀请码注册（客户端注册表单「邀请码」、官网 `?ref=` 记 30 天并预填）→ 建号事务里绑上级（一生一次，后台可改挂，整支下级跟着改）。

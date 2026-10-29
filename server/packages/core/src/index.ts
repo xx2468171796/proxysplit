@@ -10,6 +10,8 @@ export { ClientNodesStore, LinkCipher, diffInventory, sha256Hex } from './client
 export { ClientNodesQuery, type RevealResult } from './client-nodes-query.js'
 export * from './entitlement.js'
 export * from './phone-auth.js'
+export * from './notify.js'
+export * from './notify-events.js'
 export * from './config-sync.js'
 export * from './config-profiles.js'
 import { hashPassword, AuthService, type AuthConfig } from './auth.js'

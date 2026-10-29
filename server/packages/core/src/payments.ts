@@ -26,7 +26,12 @@ const credential=(provider:PaymentProviderRecord,name:'APP_ID'|'APP_SECRET')=>{
 
 export class PaymentService{
   private syncCache=new Map<string,{at:number;promise:Promise<SyncOrderResult>}>()
-  constructor(private store:PgStore,private publicBaseUrl:string,private log:(message:string)=>void=message=>console.warn(message)){}
+  /** onPaid：付款真正落地（非重复事件）后调，用于发到账通知；失败不影响履约 */
+  constructor(private store:PgStore,private publicBaseUrl:string,private log:(message:string)=>void=message=>console.warn(message),private onPaid?:(orderNo:string)=>Promise<void>){}
+  private async landed<T extends {duplicate?:boolean}>(orderNo:string,result:T):Promise<T>{
+    if(!result.duplicate)await this.onPaid?.(orderNo).catch(e=>this.log(`onPaid ${orderNo} failed: ${String(e)}`))
+    return result
+  }
 
   // A checkout is one or more orders. Plans above the split cap create a group
   // of sub-orders, each with its own gateway QR, paid separately.
@@ -118,11 +123,11 @@ export class PaymentService{
     }
     const eventId=callback.sn||callback.trade_no||callback.out_trade_no||`${callback.app_order_no}:${timestamp}`
     const paidAt=parsePaidAt(callback.paid_at)
-    return this.store.fulfillPaidOrder({
+    return this.landed(callback.app_order_no,await this.store.fulfillPaidOrder({
       providerCode:provider.code,eventId,orderNo:callback.app_order_no,amountCents,
       providerOrderNo,payloadHash:createHash('sha256').update(JSON.stringify(callback)).digest('hex'),
       ...(paidAt?{paidAt}:{}),
-    })
+    }))
   }
 
   // 主动查单兜底：异步回调（notify_url）可能因回调地址不可达/网关未转发而永远收不到，
@@ -171,11 +176,11 @@ export class PaymentService{
       }
       const eventId=data.data.sn||data.data.trade_no||data.data.out_trade_no||`${orderNo}:query`
       const paidAt=parsePaidAt(data.data.paid_at)
-      const result=await this.store.fulfillPaidOrder({
+      const result=await this.landed(orderNo,await this.store.fulfillPaidOrder({
         providerCode:provider.code,eventId,orderNo,amountCents,providerOrderNo,
         payloadHash:createHash('sha256').update(JSON.stringify(data.data)).digest('hex'),
         ...(paidAt?{paidAt}:{}),
-      })
+      }))
       return {...result,status:'paid',changed:!result.duplicate}
     }finally{clearTimeout(timer)}
   }

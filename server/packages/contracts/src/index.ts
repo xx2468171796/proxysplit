@@ -172,17 +172,6 @@ export const providerUpsertSchema = z.object({
   config:z.record(z.string(),z.union([z.string(),z.number(),z.boolean()])).default({}),
   enabled:z.boolean().default(false),
 })
-export const announcementUpsertSchema = z.object({
-  type:z.enum(['notice','maintenance','release']).default('notice'),
-  title:z.string().trim().min(2).max(160),
-  summary:z.string().trim().max(500).default(''),
-  content:z.string().trim().min(1).max(20000),
-  version:z.string().trim().max(40).default(''),
-  active:z.boolean().default(true),
-  pinned:z.boolean().default(false),
-  startsAt:z.string().datetime().nullable().optional(),
-  endsAt:z.string().datetime().nullable().optional(),
-})
 // ---- Admin console: shared list pagination / filtering + analytics ----
 // Query params arrive as strings; coerce numbers and normalise "true"/"false".
 const boolParam = z.preprocess(v=>typeof v==='string'?v==='true':v, z.boolean()).optional()
@@ -231,11 +220,6 @@ export const planListQuery = paginationSchema.extend({
   public: boolParam,
   billingCycle: z.enum(['trial','month','quarter','year','lifetime','custom']).optional(),
 })
-export const announcementListQuery = paginationSchema.extend({
-  type: z.enum(['notice','maintenance','release']).optional(),
-  active: boolParam,
-  pinned: boolParam,
-})
 export const releaseListQuery = paginationSchema.extend({
   channel: z.enum(['stable','beta']).optional(),
   platform: z.enum(['windows','macos']).optional(),
@@ -269,7 +253,6 @@ export type LeaseInput = z.infer<typeof leaseSchema>
 export type PlanUpsertInput = z.infer<typeof planUpsertSchema>
 export type PlanPatchInput = z.infer<typeof planPatchSchema>
 export type ProviderUpsertInput = z.infer<typeof providerUpsertSchema>
-export type AnnouncementUpsertInput = z.infer<typeof announcementUpsertSchema>
 export type AdminGrantInput = z.infer<typeof adminGrantSchema>
 export type RedeemCodeCreateInput = z.infer<typeof redeemCodeCreateSchema>
 export type RedeemInput = z.infer<typeof redeemSchema>
@@ -279,7 +262,6 @@ export type DeviceListQuery = z.infer<typeof deviceListQuery>
 export type OrderListQuery = z.infer<typeof orderListQuery>
 export type RedeemListQuery = z.infer<typeof redeemListQuery>
 export type PlanListQuery = z.infer<typeof planListQuery>
-export type AnnouncementListQuery = z.infer<typeof announcementListQuery>
 export type ReleaseListQuery = z.infer<typeof releaseListQuery>
 export type AuditListQuery = z.infer<typeof auditListQuery>
 export type AnalyticsQuery = z.infer<typeof analyticsQuerySchema>

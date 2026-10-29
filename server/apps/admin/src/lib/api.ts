@@ -11,6 +11,9 @@ export const setToken = (v: string) => {
   else sessionStorage.removeItem(TOKEN_KEY)
 }
 export const hasToken = () => !!token
+/** 给自带请求器的公司包（tongzhi 后台客户端等）用 */
+export const authHeaders = (): Record<string, string> => (token ? { authorization: `Bearer ${token}` } : {})
+export const apiBase = BASE
 export const logout = () => {
   const had = hasToken()
   setToken('')

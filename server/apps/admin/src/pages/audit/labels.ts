@@ -32,6 +32,14 @@ export const ACTION_LABELS: Record<string, string> = {
   'admin.announcement.create': '创建公告',
   'admin.announcement.update': '更新公告',
   'admin.announcement.delete': '删除公告',
+  'admin.notice.created': '新建通知',
+  'admin.notice.updated': '修改通知',
+  'admin.notice.published': '发布通知',
+  'admin.notice.revoked': '撤回通知',
+  'admin.notice.batch_revoked': '整批撤回通知',
+  'admin.notice.sent': '定向发送通知',
+  'admin.notice.removed': '删除通知',
+  'admin.notice.purged': '清理过期通知',
   'admin.release.create': '发布版本',
   'admin.release.delete': '删除版本',
 }
@@ -40,7 +48,7 @@ export const auditActionLabel = (action: string) => ACTION_LABELS[action] ?? act
 
 export const TARGET_TYPES: Record<string, string> = {
   user: '用户', device: '设备', session: '会话', plan: '套餐', order: '订单', 'redeem-code': '兑换码',
-  announcement: '公告', release: '版本', 'payment-provider': '支付渠道', settings: '设置',
+  announcement: '公告', notice: '通知', release: '版本', 'payment-provider': '支付渠道', settings: '设置',
 }
 export const targetTypeLabel = (t: string) => TARGET_TYPES[t] ?? t
 

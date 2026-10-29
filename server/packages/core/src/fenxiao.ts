@@ -3,7 +3,7 @@
 // 三个接入点在 store.ts：注册建号事务里 bind、grantWithinTx(source='order') 里 settle（productKey = 套餐 id）、refundOrder 里 reverse。
 import type { PgStore } from './store.js'
 import { fenxiaoPolicySchema, type FenxiaoPolicyInput } from '@proxysplit/contracts'
-import { createFenxiao, type FxPolicy, type FxQueryable } from './vendor/fenxiao/index.js'
+import { createFenxiao, type FxNotice, type FxPolicy, type FxQueryable } from './vendor/fenxiao/index.js'
 
 export const FENXIAO_POLICY_KEY = 'fenxiao_policy'
 
@@ -51,11 +51,13 @@ export async function readFenxiaoPolicy(db: FxQueryable): Promise<FenxiaoPolicyI
   return parsed.success ? parsed.data : defaultFenxiaoPolicy
 }
 
-export function createProxysplitFenxiao(pool: PgStore['pool']) {
+/** notify：佣金入账 / 冲回等站内通知（接 tongzhi，提交后由包调用；不给 = 不发） */
+export function createProxysplitFenxiao(pool: PgStore['pool'], notify?: (n: FxNotice) => Promise<void>) {
   return createFenxiao({
     db: pool,
     // 在付款 / 注册事务里调时 db 就是那个事务：读规则走它，不另借连接
     getPolicy: async (db) => toFxPolicy(await readFenxiaoPolicy(db)),
+    ...(notify ? { notify } : {}),
     logger: {
       warn: (msg, meta) => console.warn(`[fenxiao] ${msg}`, meta ?? ''),
       error: (msg, meta) => console.error(`[fenxiao] ${msg}`, meta ?? ''),
