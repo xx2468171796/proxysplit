@@ -45,7 +45,7 @@ export const telemetryEventSchema = z.object({
   durationMs: z.number().int().min(0).max(86_400_000).optional(),
   errorCode: z.string().regex(/^[A-Z][A-Z0-9_]{1,47}$/).optional(),
   errorText: z.string().max(4000).optional(),
-  payload: z.record(z.unknown()).nullable().default({}),
+  payload: z.record(z.string(), z.unknown()).nullable().default({}),
 })
 
 export const telemetryLogChunkSchema = z.object({

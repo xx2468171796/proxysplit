@@ -5,6 +5,7 @@
 ## 技术栈
 客户端 Go + Wails，前端已由 Svelte 改为 React（见 frontend.md），分流用 sing-box 原生 TUN + process_name，早期 WinDivert 已移除。
 - 服务端 Fastify + PostgreSQL + Redis；会员真源在服务端，Ed25519 离线租约绑定账号 / 设备 / 硬件 / 期限。
+- 服务端版本线（2026-10-29 对齐公司标准）：Node 26、pnpm 12.16、TypeScript 7、Fastify 5.12、Zod 4、ioredis 6、pg 8.23、Vitest 5、密码哈希 @node-rs/argon2（与旧 argon2 包哈希格式相同，老密码照常验过，有回归测试）。镜像 node:26（Node 25 起不带 corepack，pnpm 用 npm 从镜像源装）。
 - 工具链：Go 1.26.8（go.mod 最低版本），Wails 2.16.0，内核 sing-box 1.14.x（relayops 自编，见 core-update.md）。
 
 ## 生产环境（深圳 sz）

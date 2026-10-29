@@ -1,7 +1,7 @@
 // 云端命名配置（会员专属）：另存多份、恢复密码、分享码 + 分享密码导入。
 // 表 config_profiles / config_attempts（migrations/0019_free_sync_phone.sql）；合同 docs/plan-2026-10-29-free-sync-phone.md 补充合同 7–10。
 import { randomBytes, randomUUID } from 'node:crypto'
-import { verify } from 'argon2'
+import { verify } from '@node-rs/argon2'
 import { AppError } from '@proxysplit/shared'
 import { hashPassword } from './auth.js'
 import { profileAad, type SyncCipher } from './config-sync.js'

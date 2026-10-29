@@ -1,1 +1,1 @@
-{"name":"@proxysplit/shared","version":"0.1.0","type":"module","exports":"./src/index.ts","scripts":{"typecheck":"tsc --noEmit","build":"tsc -p tsconfig.json","test":"vitest run --passWithNoTests"},"devDependencies":{"typescript":"^5.8.3","vitest":"^3.2.4"}}
+{"name":"@proxysplit/shared","version":"0.1.0","type":"module","exports":"./src/index.ts","scripts":{"typecheck":"tsc --noEmit","build":"tsc -p tsconfig.json","test":"vitest run --passWithNoTests"},"devDependencies":{"typescript":"^7.0.2","vitest":"^5.0.5"}}

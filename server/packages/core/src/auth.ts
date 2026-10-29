@@ -1,5 +1,5 @@
 import { createHash, createPublicKey, randomUUID } from 'node:crypto'
-import { argon2id, hash, verify } from 'argon2'
+import { Algorithm, hash, verify } from '@node-rs/argon2'
 import { exportSPKI, generateKeyPair, importPKCS8, jwtVerify, SignJWT } from 'jose'
 import { AppError, normalizePhone, normalizeUsername } from '@proxysplit/shared'
 import type { ActivateDeviceInput, BindPhoneInput, DeviceInput, LoginInput, PasswordResetInput, PowervpnLoginInput, RefreshInput, RegisterInput, SelfPasswordInput, WebRegisterInput } from '@proxysplit/contracts'
@@ -11,7 +11,7 @@ import { PhoneAuth, yunpianSender } from './phone-auth.js'
 const encoder=new TextEncoder()
 const sha256=(value:string)=>createHash('sha256').update(value).digest('hex')
 export const hashFingerprint=(value:string)=>sha256('proxysplit-device-v1:'+value)
-export const hashPassword=(value:string)=>hash(value,{type:argon2id,memoryCost:65536,timeCost:3,parallelism:1})
+export const hashPassword=(value:string)=>hash(value,{algorithm:Algorithm.Argon2id,memoryCost:65536,timeCost:3,parallelism:1})
 
 export type PowervpnIdentity={id:string;username:string;email:string|null;displayName:string;sources:string[];aiPlanExpiresAt?:string|null|undefined}
 // 面板 GET /api/client/me 核实令牌；令牌只放请求头，绝不写日志。

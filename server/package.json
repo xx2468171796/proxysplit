@@ -1,7 +1,8 @@
 {
   "name": "proxysplit-commercial",
   "private": true,
-  "packageManager": "pnpm@11.8.0",
+  "packageManager": "pnpm@12.16.1",
+  "engines": { "node": ">=26" },
   "scripts": {
     "dev": "dotenv -e .env -- pnpm --parallel --filter @proxysplit/api --filter @proxysplit/admin dev",
     "build": "pnpm -r build",
@@ -11,8 +12,8 @@
     "keys:generate": "node scripts/generate-license-keys.mjs"
   },
   "devDependencies": {
-    "dotenv-cli": "^8.0.0",
-    "typescript": "^5.8.3",
-    "vitest": "^3.2.4"
+    "dotenv-cli":"^11.1.0",
+    "typescript":"^7.0.2",
+    "vitest":"^5.0.5"
   }
 }

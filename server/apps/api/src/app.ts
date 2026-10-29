@@ -23,7 +23,7 @@ export async function buildApp(config:ApiConfig,provided?:Core){
   // The API port is host-loopback-only and has exactly one Nginx hop. Nginx
   // overwrites (rather than appends) X-Forwarded-For, so client-supplied hops
   // cannot become req.ip even though Docker changes the proxy source address.
-  const app=Fastify({logger:{level:config.NODE_ENV==='test'?'silent':'info'},trustProxy:1})
+  const app=Fastify({logger:{level:config.NODE_ENV==='test'?'silent':'info'},trustProxy:(_addr:string,hop:number)=>hop<1})
   // v1.9.20 and older clients sent Content-Type: application/json on a
   // bodyless DELETE. Fastify rejects that before routing, so normalize these
   // legacy requests while new clients stop sending the incorrect header.

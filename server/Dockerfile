@@ -1,11 +1,11 @@
-FROM public.ecr.aws/docker/library/node:22-bookworm-slim AS api
+FROM public.ecr.aws/docker/library/node:26-bookworm-slim AS api
 
 ENV PNPM_HOME=/pnpm
 ENV PATH=$PNPM_HOME:$PATH
 ENV NODE_ENV=production
 
-RUN corepack enable \
-    && corepack prepare pnpm@11.8.0 --activate
+# Node 25+ no longer bundles corepack; install the pinned pnpm from the mirror.
+RUN npm install -g pnpm@12.16.1 --registry=https://registry.npmmirror.com
 
 WORKDIR /app
 COPY . .
