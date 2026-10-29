@@ -314,6 +314,10 @@ export function OpenGitHub() {
   return window['go']['main']['App']['OpenGitHub']();
 }
 
+export function OpenLogDir() {
+  return window['go']['main']['App']['OpenLogDir']();
+}
+
 export function OpenPaymentURL(arg1) {
   return window['go']['main']['App']['OpenPaymentURL'](arg1);
 }

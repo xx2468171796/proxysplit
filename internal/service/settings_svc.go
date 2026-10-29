@@ -61,11 +61,15 @@ func (s *Service) GetSettings() Settings {
 }
 
 func (s *Service) SetSettings(st Settings) string {
+	st.LogDays = st.LogRetentionDays() // 1–30 (logfiles.go)
 	s.mu.Lock()
 	old := s.cfg.Settings
 	s.cfg.Settings = st
 	s.save()
 	s.mu.Unlock()
+	if st.LogDays != old.LogRetentionDays() {
+		s.files.PruneNow()
+	}
 	if st.ProcessCapture() && !old.ProcessCapture() {
 		s.ensureWinDivertUnlocked() // fetch the driver before restart takes lifecycleMu
 	}

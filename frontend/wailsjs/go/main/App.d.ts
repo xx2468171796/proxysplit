@@ -168,6 +168,8 @@ export function MarkUpdateNotesSeen():Promise<void>;
 
 export function OpenGitHub():Promise<void>;
 
+export function OpenLogDir():Promise<string>;
+
 export function OpenPaymentURL(arg1:string):Promise<string>;
 
 export function OpenWebsite():Promise<void>;

@@ -39,6 +39,7 @@
 | 应用识别/模拟器/逐应用监测 | docs/memory/app-monitor.md | internal/appid 应用库、模拟器预设、连接成功失败判定 |
 | 端口代理/更新说明弹窗 | docs/memory/proxy-ports.md | 指纹浏览器多端口独立进程、设备与日志、防火墙、升级后弹更新内容 |
 | 多级分销/推广赚钱 | docs/memory/fenxiao.md | tuiguang/fenxiao 接线、分佣 / 冻结 / 冲回 / 提现、规则存哪、坑 |
+| 本机日志文件 | docs/memory/logs.md | %APPDATA%/proxysplit/logs 按天文件、脱敏、50 MB 封顶、保留天数（默认 7）、每分钟连接记录 [conn] |
 | 客户端日志上报 | docs/memory/telemetry.md | 日志 + 事件自动上传、脱敏规则、0016 表、后台「客户端日志」、AI 用 sz-pg-proxysplit 查询 SQL |
 | 同事节点上报（内部） | docs/节点上报.md | 节点 / 订阅整份上报、0017 表、AES-GCM 链接加密（NODE_LINK_KEY）、后台「同事节点」、超管解密记审计 |
 | 运营后台（admin-ui） | docs/admin-rebuild.md | admin-ui 9.6.1 重做、验收表、总览分类卡与指标字典、假后端与截图脚本、新只读接口 |

@@ -324,6 +324,7 @@ const impl: Record<string, Fn> = {
   MarkUpdateNotesSeen: () => undefined,
   TrackPage: () => undefined,
   GetLogLevel: () => "info",
+  OpenLogDir: () => "",
   GetAutostart: () => true,
   ListProcesses: () => [
     ...rules.map((r) => ({ name: r.match, path: r.path, count: 3, desc: r.match.replace(".exe", "") })),
