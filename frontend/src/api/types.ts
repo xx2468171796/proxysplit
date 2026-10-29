@@ -147,6 +147,8 @@ export type Settings = {
   captureMode?: string;
   /** 关掉内置「推流程序默认直连」。 */
   streamDirectOff?: boolean;
+  /** 日志文件保留天数（1–30；不填 = 7）。 */
+  logRetentionDays?: number;
   /** DNS 与高级网络（Go service.NetSettings；空 = 内置默认）。 */
   net?: NetSettings;
 };

@@ -58,7 +58,7 @@ export async function buildApp(config:ApiConfig,provided?:Core){
   const optionalUser=async(req:FastifyRequest)=>{const token=bearer(req.headers.authorization);if(!token)return null;try{return (await core.auth.verifyAccess(token)).userId}catch{return null}}
   // 客户端日志上报（telemetry-routes.ts）：令牌可选，没有就按设备 + IP 限流
   const telemetry=core.telemetry??{store:new TelemetryStore(core.store.pool),query:new TelemetryQuery(core.store.pool)}
-  registerTelemetryRoutes(app,{...telemetry,admin,retentionDays:config.TELEMETRY_RETENTION_DAYS??15,maxGzipBytes:config.TELEMETRY_MAX_GZIP_BYTES??512*1024,
+  registerTelemetryRoutes(app,{...telemetry,admin,retentionDays:config.TELEMETRY_RETENTION_DAYS??7,maxGzipBytes:config.TELEMETRY_MAX_GZIP_BYTES??512*1024,
     perDevicePerMinute:config.TELEMETRY_PER_DEVICE_PER_MINUTE??30,ipBudget:new IpByteBudget(config.TELEMETRY_IP_BYTES_PER_10MIN??20*1024*1024,10*60_000,redis),runRetention:config.NODE_ENV!=='test',log:app.log,
     optionalUser})
   // 同事节点上报（client-nodes-routes.ts，docs/节点上报.md）：解密链接只给 SUPER_ADMIN_USERNAMES 里的管理员

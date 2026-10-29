@@ -182,6 +182,7 @@ export const api = {
   exits: () => W.GetExits() as Promise<ExitsReport>,
   copyToClipboard: (text: string) => W.CopyToClipboard(text),
   openWebsite: () => W.OpenWebsite(),
+  openLogDir: () => W.OpenLogDir(),
   openGitHub: () => W.OpenGitHub(),
 
   // 软件更新

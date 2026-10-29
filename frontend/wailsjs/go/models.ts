@@ -2184,6 +2184,7 @@ export namespace service {
 	    claudeAccelAutoOff?: boolean;
 	    captureMode?: string;
 	    streamDirectOff?: boolean;
+	    logRetentionDays?: number;
 	    net: NetSettings;
 	
 	    static createFrom(source: any = {}) {
@@ -2213,6 +2214,7 @@ export namespace service {
 	        this.claudeAccelAutoOff = source["claudeAccelAutoOff"];
 	        this.captureMode = source["captureMode"];
 	        this.streamDirectOff = source["streamDirectOff"];
+	        this.logRetentionDays = source["logRetentionDays"];
 	        this.net = this.convertValues(source["net"], NetSettings);
 	    }
 	

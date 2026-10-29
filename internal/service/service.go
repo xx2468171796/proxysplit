@@ -15,6 +15,7 @@ import (
 	"proxysplit/internal/capture"
 	"proxysplit/internal/core"
 	"proxysplit/internal/coreupdate"
+	"proxysplit/internal/logfile"
 	"proxysplit/internal/nodes"
 	"proxysplit/internal/powervpn"
 	"proxysplit/internal/sysproxy"
@@ -64,6 +65,8 @@ type Settings struct {
 	CaptureMode string `json:"captureMode,omitempty"`
 	// 关掉内置「推流程序默认直连」（零值 = 开）
 	StreamDirectOff bool `json:"streamDirectOff,omitempty"`
+	// 日志文件保留天数（logfiles.go）：1–30，零值 / 老配置没有这个字段 = 7
+	LogDays int `json:"logRetentionDays,omitempty"`
 	// Net holds the DNS and TUN advanced options (settings_net.go).
 	Net NetSettings `json:"net"`
 }
@@ -134,7 +137,8 @@ type Service struct {
 	cfg              Config
 	core             *core.Manager
 	onLog            func(string)
-	logs             logRing // recent lines for diagnostics (diag.go)
+	logs             logRing         // recent lines for diagnostics (diag.go)
+	files            *logfile.Writer // daily log files (logfiles.go)
 	startedAt        time.Time
 	activeFP         map[string]string // running line id -> content fingerprint (change detection)
 	clashPort        int               // clash_api external controller port of the running core
@@ -192,6 +196,7 @@ func (s *Service) Close() {
 	s.closeOnce.Do(func() {
 		if s.quit != nil {
 			close(s.quit)
+			s.closeLogFiles()
 		}
 	})
 }
@@ -203,6 +208,7 @@ func New(binDir, dataDir string) (*Service, error) {
 	}
 	s := &Service{binDir: binDir, dataDir: dataDir, onLog: func(string) {}, quit: make(chan struct{})}
 	s.load()
+	s.openLogFiles()              // first: everything below may log
 	s.clashMode = s.cfg.ClashMode // restore last runtime mode (rule|global|direct)
 	s.core = core.NewManager(filepath.Join(binDir, coreupdate.SingBoxExe), dataDir, func(line string) { s.log(line) })
 	sysproxy.Core = s.singBoxPath() // macOS: the control script runs this core
@@ -221,6 +227,7 @@ func New(binDir, dataDir string) (*Service, error) {
 	s.startScheduler()
 	go s.healthLoop() // live line/node reachability for the status panel
 	go s.appMonitorLoop()
+	go s.connLogLoop() // per-connection routing record in the day file (logfiles.go)
 	s.registerCacheResetters()
 	return s, nil
 }
@@ -296,7 +303,8 @@ func (s *Service) SetLogSink(fn func(string)) {
 
 func (s *Service) log(line string) {
 	s.logs.add(line)
-	s.tap.send(line) // telemetry spool (telemetry_tap.go)
+	s.tap.send(line)    // telemetry spool (telemetry_tap.go)
+	s.files.Write(line) // daily log file (logfiles.go)
 	s.appMon.OnLog(line, time.Now())
 	s.mu.Lock()
 	fn := s.onLog
