@@ -72,7 +72,13 @@ export const leaseSchema = z.object({ deviceFingerprint: z.string().min(32).max(
 export const userCreateSchema = z.object({ username: z.string().trim().min(3).max(64), password: z.string().min(10).max(256), role: z.enum(['user','admin']).default('user'), planId: z.string().uuid().optional(), days: z.number().int().min(1).max(3650).default(30) })
 export const userStatusSchema = z.object({ status: z.enum(['active','suspended','banned']) })
 // 管理端重置密码：与客户端注册保持一致，密码最低 8 位。
-export const userPasswordSchema = z.object({ password: z.string().min(8).max(256) })
+export const userPasswordSchema = z.object({ password: z.string().min(8).max(256), requestId: z.string().trim().min(8).max(100).optional() })
+// 后台账号操作（zhanghao）：requestId = 幂等锚，前端在动作开始时生成一次、重试时复用；老后台不传时服务端现生成。
+const requestId = z.string().trim().min(8).max(100).optional()
+export const adminBanSchema = z.object({ days: z.number().int().min(1).max(3650).nullable(), reason: z.string().trim().min(1).max(200), requestId })
+export const adminReasonSchema = z.object({ reason: z.string().trim().min(1).max(200), requestId })
+export const adminNicknameSchema = z.object({ nickname: z.string().trim().max(32).nullable(), requestId })
+export const adminActionsQuery = z.object({ beforeId: z.string().regex(/^\d+$/).optional(), limit: z.coerce.number().int().min(1).max(100).default(50) })
 export const licenseExtendSchema = z.object({ days: z.number().int().min(1).max(3650) })
 // 后台手动发放：绑定一个套餐（决定会员等级/设备数/功能），可覆盖时长或直接永久。
 export const adminGrantSchema = z.object({

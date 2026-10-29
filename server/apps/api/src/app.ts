@@ -2,12 +2,15 @@ import Fastify, { type FastifyRequest } from 'fastify'
 import cors from '@fastify/cors'
 import rateLimit from '@fastify/rate-limit'
 import { Redis } from 'ioredis'
+import { randomUUID } from 'node:crypto'
+import { z } from 'zod'
 import { AppError, maskPhone, normalizeUsername } from '@proxysplit/shared'
 import { activateDeviceSchema, powervpnLoginSchema, powervpnSyncSchema, adminGrantSchema, adminPowervpnProvisionSchema, selfPasswordSchema, webRegisterSchema, analyticsQuerySchema, auditListQuery, deviceListQuery, downloadStatsQuery, leaseSchema, licenseExtendSchema, loginSchema, orderCreateSchema, orderListQuery, orderRefundSchema, planListQuery, planPatchSchema, planUpsertSchema, providerUpsertSchema, redeemCodeCreateSchema, redeemListQuery, redeemSchema, refreshSchema, registerSchema, releaseCreateSchema, releaseListQuery, settingPatchSchema, trackViewSchema, userCreateSchema, userListQuery, userPasswordSchema, userStatusSchema } from '@proxysplit/contracts'
-import { AccelTokens, ClientNodesQuery, ClientNodesStore, ConfigProfilesStore, ConfigSyncStore, LinkCipher, SyncCipher, createCommercialCore, createNotify, createNotifyEvents, type Notify, licenseView, FenxiaoService, hashPassword, PaymentService, TelemetryQuery, TelemetryStore, type AuthService, type PgStore } from '@proxysplit/core'
+import { AccelTokens, ClientNodesQuery, ClientNodesStore, ConfigProfilesStore, ConfigSyncStore, LinkCipher, SyncCipher, createAccount, createCommercialCore, createNotify, createNotifyEvents, type Notify, licenseView, FenxiaoService, hashPassword, PaymentService, TelemetryQuery, TelemetryStore, type AuthService, type PgStore } from '@proxysplit/core'
 import type { ApiConfig } from './config.js'
 import { registerFenxiaoRoutes } from './fenxiao-routes.js'
 import { registerNotifyRoutes } from './notify-routes.js'
+import { registerAccountRoutes } from './account-routes.js'
 import { registerTelemetryRoutes, type TelemetryDeps } from './telemetry-routes.js'
 import { IpByteBudget } from './telemetry-budget.js'
 import { registerClientNodesRoutes, type ClientNodesDeps } from './client-nodes-routes.js'
@@ -58,6 +61,8 @@ export async function buildApp(config:ApiConfig,provided?:Core){
   registerFenxiaoRoutes(app,{service:core.fenxiao??new FenxiaoService(core.store),store:core.store,publicBaseUrl:config.PUBLIC_BASE_URL,auth:req=>auth(req),admin})
   const notify=core.notify??createNotify(core.store.pool,{aiToken:config.TZ_AI_TOKEN,log:{warn:(msg,detail)=>app.log.warn({detail},msg)},audit:(actor,action,type,id,meta)=>core.store.audit(actor,action,type,id,'',meta.source==='cli'?'ai':'ok',meta)})
   registerNotifyRoutes(app,{notify,auth:req=>auth(req),admin,tierOf:async id=>(await core.auth.effectiveFor(id)).ent.tier})
+  const account=createAccount(core.store.pool,{accessSecret:config.ACCESS_TOKEN_SECRET,redis,revokeSessions:id=>core.store.revokeUserSessions(id),audit:(actor,action,id,meta)=>core.store.audit(actor,action,'user',id,'','success',meta),warn:(msg,detail)=>app.log.warn({detail},msg)})
+  registerAccountRoutes(app,{account,admin})
   const notifyEvents=createNotifyEvents(core.store.pool,notify)
   core.store.notifySink=n=>notify.send({userId:n.userId,kind:n.kind,title:n.title,body:n.body,idemKey:n.idemKey,surfaces:['inbox','toast'],actions:n.url?[{label:'查看',url:n.url}]:[]})
   // 会员快到期提醒 + 过期通知清理：每 6 小时一轮（幂等键保证同一到期日只提醒一次，重启 / 多跑无害）
@@ -218,7 +223,7 @@ export async function buildApp(config:ApiConfig,provided?:Core){
   app.get('/v1/admin/users/:id',async(req)=>{await admin(req);const row=await core.store.getUserDetail((req.params as {id:string}).id);if(!row)throw new AppError('NOT_FOUND','用户不存在',404);return row})
   app.post('/v1/admin/users',async(req)=>{const p=await admin(req);const input=userCreateSchema.parse(req.body);const passwordHash=await hashPassword(input.password);const created=await core.store.createUserWithLicense({username:normalizeUsername(input.username),role:input.role,days:input.days,passwordHash,...(input.planId?{planId:input.planId}:{})});await core.store.audit(p.userId,'admin.user.create','user',created.id,req.ip,'success');return created})
   app.patch('/v1/admin/users/:id/status',async(req)=>{const p=await admin(req);const input=userStatusSchema.parse(req.body);const id=(req.params as {id:string}).id;if(!await core.store.setUserStatus(id,input.status))throw new AppError('NOT_FOUND','Resource not found',404);await core.store.audit(p.userId,'admin.user.status','user',id,req.ip,'success',{status:input.status});return {ok:true}})
-  app.patch('/v1/admin/users/:id/password',async(req)=>{const p=await admin(req);const input=userPasswordSchema.parse(req.body);const id=(req.params as {id:string}).id;if(!await core.store.setUserPassword(id,await hashPassword(input.password)))throw new AppError('NOT_FOUND','用户不存在',404);await core.store.audit(p.userId,'admin.user.password','user',id,req.ip,'success');return {ok:true}})
+  app.patch('/v1/admin/users/:id/password',async(req)=>{const p=await admin(req);const input=userPasswordSchema.parse(req.body);const id=z.object({id:z.guid()}).parse(req.params).id;await account.resetPassword(id,input.password,{operatorId:p.userId,requestId:input.requestId??randomUUID()});return {ok:true}})
   app.post('/v1/admin/users/:id/extend',async(req)=>{const p=await admin(req);const input=licenseExtendSchema.parse(req.body);const id=(req.params as {id:string}).id;const license=await core.store.extendLicense(id,input.days);if(!license)throw new AppError('NOT_FOUND','Resource not found',404);await core.store.audit(p.userId,'admin.license.extend','user',id,req.ip,'success',{days:input.days});return license})
   app.delete('/v1/admin/users/:id',async(req)=>{
     const p=await admin(req);const id=(req.params as {id:string}).id

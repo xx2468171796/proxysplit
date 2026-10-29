@@ -14,10 +14,15 @@ export type UserRecord = {
   channel:UserChannel
   /** 11 位大陆手机号；老账号可能没绑 */
   phone?:string|null
+  /** zhanghao 昵称；空 = 显示用户名 */
+  nickname?:string|null
 }
 export type UserChannel=''|'aigw'
 /** POWER云 /api/client/me 的 sources → 渠道：经 AI 编程官网登录过的就是中转站客户。 */
 export const channelOfSources=(sources:readonly string[]):UserChannel=>sources.includes('aigw')?'aigw':''
+// zhanghao 的限时封禁到期后 status 仍是 'banned'（包按 banned_until 惰性判断）：读出时到期即视为 active。
+export const userStatusSql=(t='')=>`(CASE WHEN ${t}status='banned' AND ${t}banned_until IS NOT NULL AND ${t}banned_until<=now() THEN 'active'::user_status ELSE ${t}status END)`
+const USER_COLS=`id,username,password_hash AS "passwordHash",role,${userStatusSql()} AS status,created_at AS "createdAt",failed_login_count AS "failedLoginCount",lockout_level AS "lockoutLevel",locked_until AS "lockedUntil",channel,phone,nickname`
 export type Entitlement = {
   licenseId:string; planId:string; planCode:string; planName:string;
   tier:'trial'|'standard'|'premium'; maxDevices:number; features:string[];
@@ -175,15 +180,15 @@ export class PgStore {
   async close(){ await this.pool.end() }
 
   async findUser(username:string):Promise<UserRecord|null>{
-    const r=await this.pool.query('SELECT id,username,password_hash AS "passwordHash",role,status,created_at AS "createdAt",failed_login_count AS "failedLoginCount",lockout_level AS "lockoutLevel",locked_until AS "lockedUntil",channel,phone FROM users WHERE username=$1',[username])
+    const r=await this.pool.query(`SELECT ${USER_COLS} FROM users WHERE username=$1`,[username])
     return r.rows[0]??null
   }
   async findUserByPhone(phone:string):Promise<UserRecord|null>{
-    const r=await this.pool.query('SELECT id,username,password_hash AS "passwordHash",role,status,created_at AS "createdAt",failed_login_count AS "failedLoginCount",lockout_level AS "lockoutLevel",locked_until AS "lockedUntil",channel,phone FROM users WHERE phone=$1',[phone])
+    const r=await this.pool.query(`SELECT ${USER_COLS} FROM users WHERE phone=$1`,[phone])
     return r.rows[0]??null
   }
   async findUserById(id:string):Promise<UserRecord|null>{
-    const r=await this.pool.query('SELECT id,username,password_hash AS "passwordHash",role,status,created_at AS "createdAt",failed_login_count AS "failedLoginCount",lockout_level AS "lockoutLevel",locked_until AS "lockedUntil",channel,phone FROM users WHERE id=$1',[id])
+    const r=await this.pool.query(`SELECT ${USER_COLS} FROM users WHERE id=$1`,[id])
     return r.rows[0]??null
   }
   async entitlement(userId:string):Promise<Entitlement|null>{
@@ -287,7 +292,7 @@ export class PgStore {
   // POWER云 等外部账号：按 (provider, external_id) 找用户，没有就建一个无密码账号。
   // 用户名冲突时加数字后缀；邮箱已被别的账号占用时不带邮箱（不自动合并已有账号）。
   async findOrCreateIdentityUser(input:{provider:string;externalId:string;usernameBase:string;email:string|null;ip:string}):Promise<{user:UserRecord;created:boolean}>{
-    const select='SELECT u.id,u.username,u.password_hash AS "passwordHash",u.role,u.status,u.created_at AS "createdAt",u.failed_login_count AS "failedLoginCount",u.lockout_level AS "lockoutLevel",u.locked_until AS "lockedUntil",u.channel FROM user_identities i JOIN users u ON u.id=i.user_id WHERE i.provider=$1 AND i.external_id=$2'
+    const select='SELECT u.id,u.username,u.password_hash AS "passwordHash",u.role,'+userStatusSql('u.')+' AS status,u.created_at AS "createdAt",u.failed_login_count AS "failedLoginCount",u.lockout_level AS "lockoutLevel",u.locked_until AS "lockedUntil",u.channel FROM user_identities i JOIN users u ON u.id=i.user_id WHERE i.provider=$1 AND i.external_id=$2'
     const found=await this.pool.query(select,[input.provider,input.externalId])
     if(found.rows[0])return {user:found.rows[0],created:false}
     const client=await this.pool.connect()
@@ -479,6 +484,7 @@ export class PgStore {
   }
   async consumeSession(jti:string){const r=await this.pool.query('UPDATE sessions SET consumed_at=now() WHERE jti=$1 AND consumed_at IS NULL AND revoked_at IS NULL RETURNING jti',[jti]);return r.rowCount===1}
   async revokeFamily(familyId:string){await this.pool.query('UPDATE sessions SET revoked_at=coalesce(revoked_at,now()) WHERE family_id=$1',[familyId])}
+  async revokeUserSessions(userId:string){await this.pool.query('UPDATE sessions SET revoked_at=coalesce(revoked_at,now()) WHERE user_id=$1 AND revoked_at IS NULL',[userId])}
   async rotateSessionAtomic(input:{
     oldJti:string;familyId:string;oldTokenHash:string;fingerprintHash:string;
     newJti:string;newTokenHash:string;expiresAt:Date
@@ -572,7 +578,7 @@ export class PgStore {
     const orderBy=orderClause(params.sort,params.order,{createdAt:'u.created_at',username:'u.username',email:'u.email',status:'u.status',role:'u.role',expiresAt:'l.expires_at'},'u.created_at DESC')
     const limit=pageLimit(params.limit),offset=pageOffset(params.offset)
     vals.push(limit,offset)
-    const r=await this.pool.query(`SELECT u.id,u.username,u.email,u.phone,u.role,u.status,u.note,u.created_at AS "createdAt",
+    const r=await this.pool.query(`SELECT u.id,u.username,u.email,u.phone,u.role,${userStatusSql('u.')} AS status,u.note,u.created_at AS "createdAt",
       l.expires_at AS "expiresAt",l.lifetime,p.name AS "planName",p.tier,
       (SELECT count(*)::int FROM devices d WHERE d.user_id=u.id AND d.revoked=false) AS devices,
       (u.password_hash IS NOT NULL) AS "hasPassword",
@@ -592,7 +598,7 @@ export class PgStore {
   // 管理后台专用聚合视图：只返回运营必要信息，绝不返回密码、令牌、原始硬件序列号或指纹哈希。
   async getUserDetail(userId:string){
     const [user,licenses,devices,orders,activity,stats]=await Promise.all([
-      this.pool.query(`SELECT id,username,email,phone,role,status,note,created_at AS "createdAt",updated_at AS "updatedAt",
+      this.pool.query(`SELECT id,username,email,phone,role,${userStatusSql()} AS status,note,nickname,banned_until AS "bannedUntil",banned_reason AS "bannedReason",created_at AS "createdAt",updated_at AS "updatedAt",
         trial_started_at AS "trialStartedAt",trial_ends_at AS "trialEndsAt" FROM users WHERE id=$1`,[userId]),
       this.pool.query(`SELECT l.id,l.status,l.starts_at AS "startsAt",l.expires_at AS "expiresAt",l.created_at AS "createdAt",
         l.source,l.lifetime,p.code AS "planCode",p.name AS "planName",p.tier,p.max_devices AS "maxDevices",p.features

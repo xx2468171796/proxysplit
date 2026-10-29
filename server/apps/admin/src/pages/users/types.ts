@@ -34,6 +34,7 @@ export type UserDetail = {
   user: {
     id: string; username: string; email: string | null; phone: string | null; role: string; status: UserRow['status']
     note: string | null; createdAt: string; updatedAt: string; trialStartedAt: string | null; trialEndsAt: string | null
+    nickname?: string | null; bannedUntil?: string | null; bannedReason?: string | null
   }
   stats: { activeDevices: number; paidOrders: number; paidAmountCents: number }
   fenxiao: FenxiaoSummary | null

@@ -11,6 +11,7 @@ import { fileURLToPath } from 'node:url'
 const PACKAGES = {
   fenxiao: { tag: 'fenxiao-v0.1.0', skip: [] },
   tongzhi: { tag: 'tongzhi-v1.7.0', skip: ['react/', 'cli/'] },
+  zhanghao: { tag: 'zhanghao-v1.19.1', skip: ['react/', 'store/drizzle-pg', 'zhctl'] },
 }
 
 const repo = process.argv[2]

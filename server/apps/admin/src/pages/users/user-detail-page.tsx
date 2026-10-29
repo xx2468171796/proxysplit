@@ -39,7 +39,7 @@ export function UserDetailPage({ userId, active }: { userId: string; active: boo
       message={detail.error ?? ''} {...(notFound ? {} : { onRetry: detail.reload })} />
   }
   const d = detail.data
-  const u = { id: d.user.id, username: d.user.username, status: d.user.status, fxTier: d.fenxiao?.tierCode ?? null }
+  const u = { id: d.user.id, username: d.user.username, status: d.user.status, nickname: d.user.nickname ?? null, fxTier: d.fenxiao?.tierCode ?? null }
   const [grant, ...rest] = actions.actionsFor(u)
   const lic = currentLicense(d.licenses)
 
