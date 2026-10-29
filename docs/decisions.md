@@ -363,3 +363,7 @@
 - 本机日志文件 <配置目录>/logs/proxysplit-日期.log，默认留 7 天（logRetentionDays 1–30），每分钟 [conn] 程序 → 线路 → 网站；服务端遥测默认保留 15 → 7 天。见 docs/memory/logs.md。
 - 发版门禁拦下「打开日志文件夹」直接 exec explorer 不隐藏控制台（TestChildProcessesHideConsole）：按平台拆 app_logs_*.go，Windows 用 CREATE_NO_WINDOW（Wails BrowserOpenURL 拒 file://）。
 - 发布：commit d631bcc，releases/20261029-125855-d631bcc-v1.11.2，exe SHA256 47c2e76d…；macOS zip a98c0ee3…；均强制（min 1.9.51），无迁移。
+
+## 2026-10-29 v1.11.3：连接图卡片可拖动
+- 卡片按住拖动、连线跟随，偏移按节点 id 存 localStorage（ps-flow-offsets，最多 300 个），「重置布局」清空；移动不足 4 像素算点击。预览实测拖动距离与位移一致、刷新后保留。
+- 发布：commit 6ac6b6f，releases/20261029-134448-6ac6b6f-v1.11.3，exe 7789810d…，macOS zip 668f32fc…，均强制（min 1.9.51），无迁移。
