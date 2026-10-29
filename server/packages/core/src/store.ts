@@ -564,7 +564,7 @@ export class PgStore {
   async listUsers(params:Partial<UserListQuery>={}):Promise<ListResult<any>>{
     const conds:string[]=[];const vals:unknown[]=[];let i=1
     if(params.q){vals.push(`%${params.q}%`);conds.push(`(u.username ILIKE $${i} OR u.email ILIKE $${i} OR u.note ILIKE $${i} OR u.phone LIKE $${i})`);i++}
-    if(params.status){vals.push(params.status);conds.push(`u.status::text=$${i}`);i++}
+    if(params.status){vals.push(params.status);conds.push(`${userStatusSql('u.')}::text=$${i}`);i++}
     if(params.role){vals.push(params.role);conds.push(`u.role::text=$${i}`);i++}
     if(params.tier){vals.push(params.tier);conds.push(`p.tier=$${i}`);i++}
     if(params.fenxiao==='agent')conds.push(`fm.tier_code IS NOT NULL`)
@@ -575,7 +575,7 @@ export class PgStore {
     if(params.createdFrom){vals.push(params.createdFrom);conds.push(`u.created_at>=$${i}`);i++}
     if(params.createdTo){vals.push(params.createdTo);conds.push(`u.created_at<=$${i}`);i++}
     const where=conds.length?`WHERE ${conds.join(' AND ')}`:''
-    const orderBy=orderClause(params.sort,params.order,{createdAt:'u.created_at',username:'u.username',email:'u.email',status:'u.status',role:'u.role',expiresAt:'l.expires_at'},'u.created_at DESC')
+    const orderBy=orderClause(params.sort,params.order,{createdAt:'u.created_at',username:'u.username',email:'u.email',status:userStatusSql('u.'),role:'u.role',expiresAt:'l.expires_at'},'u.created_at DESC')
     const limit=pageLimit(params.limit),offset=pageOffset(params.offset)
     vals.push(limit,offset)
     const r=await this.pool.query(`SELECT u.id,u.username,u.email,u.phone,u.role,${userStatusSql('u.')} AS status,u.note,u.created_at AS "createdAt",
@@ -645,7 +645,8 @@ export class PgStore {
     }catch(e){await c.query('ROLLBACK');throw e}finally{c.release()}
   }
   async setUserStatus(id:string,status:string){
-    const r=await this.pool.query('UPDATE users SET status=$2,updated_at=now() WHERE id=$1 RETURNING id',[id,status])
+    // 老状态接口：清掉 zhanghao 的限时封禁字段，免得旧的到期时间让新设的封禁 / 暂停被 userStatusSql 读成 active
+    const r=await this.pool.query('UPDATE users SET status=$2,banned_until=NULL,banned_reason=NULL,updated_at=now() WHERE id=$1 RETURNING id',[id,status])
     if(status!=='active')await this.pool.query('UPDATE sessions SET revoked_at=coalesce(revoked_at,now()) WHERE user_id=$1',[id])
     return r.rowCount===1
   }

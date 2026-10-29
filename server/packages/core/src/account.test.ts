@@ -65,6 +65,13 @@ describe('account (zhanghao)', () => {
     expect(s.user.banned_until).toBeNull()
     expect(s.revoked).toEqual([])
   })
+  it('refuses to ban / unban a suspended account (would overwrite the suspension)', async () => {
+    const s = setup()
+    s.user.status = 'suspended'
+    const e = await s.account.unban(s.user.id, { reason: 'x' }, ctx('req-unban-02')).catch(x => x)
+    expect((e as AppError).code).toBe('ACCOUNT_SUSPENDED')
+    expect(s.user.status).toBe('suspended')
+  })
   it('unknown user maps to a 404 AppError', async () => {
     const s = setup()
     const e = await s.account.ban('33333333-3333-4333-8333-333333333333', { days: 1, reason: 'x' }, ctx('req-ban-0004')).catch(x => x)

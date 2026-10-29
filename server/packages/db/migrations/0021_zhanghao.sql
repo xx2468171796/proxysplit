@@ -11,7 +11,7 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS register_meta jsonb;
 CREATE UNIQUE INDEX IF NOT EXISTS users_username_lower_uq ON users(lower(username));
 CREATE INDEX IF NOT EXISTS users_nickname_lower_idx ON users(lower(nickname));
 
--- 后台账号操作流水；request_id 唯一 = 幂等锚（同一请求重放不二次生效）。id 列沿用本项目的 uuid。
+-- 后台账号操作流水；request_id 唯一 = 幂等锚（同一请求重放不二次生效）。operator_id / target_user_id 用本项目的 uuid。
 CREATE TABLE IF NOT EXISTS zh_admin_actions (
   id              bigserial    PRIMARY KEY,
   request_id      text         NOT NULL UNIQUE,

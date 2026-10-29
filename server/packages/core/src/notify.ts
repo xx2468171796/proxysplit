@@ -2,6 +2,7 @@
 // 一份模型装公告 + 站内信；业务发消息一律走 notify.send（带 idemKey，事务提交之后调）。
 // 老客户端（≤1.11）还读 /v1/announcements：legacyAnnouncements() 从 notice 派生出老形状。
 import type { createDatabase } from '@proxysplit/db'
+import { userStatusSql } from './store.js'
 import {
   createSqlPgTongzhiStore,
   createTongzhi,
@@ -54,7 +55,7 @@ export function createNotify(pool: Pool, opts: { aiToken?: string | undefined; l
   const tongzhi = createTongzhi({
     store: createSqlPgTongzhiStore({ db, onWarn: (msg, d) => opts.log.warn(`tongzhi: ${msg}`, d) }),
     countAudience: async (a) =>
-      a.type === 'all' ? Number((await pool.query("SELECT count(*) FROM users WHERE status='active'")).rows[0].count) : null,
+      a.type === 'all' ? Number((await pool.query(`SELECT count(*) FROM users WHERE ${userStatusSql()}='active'`)).rows[0].count) : null,
     onEvent: async (e) => {
       if (!opts.audit || e.actor.id === 'system') return
       const target = 'notice' in e ? e.notice.id : 'noticeId' in e ? e.noticeId : 'batchId' in e ? e.batchId : ''

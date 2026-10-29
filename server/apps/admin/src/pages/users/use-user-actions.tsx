@@ -43,9 +43,9 @@ export function useUserActions(onChanged: (kind: 'update' | 'delete', user: Acti
     u.status !== 'suspended'
       ? { key: 'suspend', label: '暂停账号', icon: <Pause />, onSelect: () => void run('已暂停账号', u, () => patch(`/v1/admin/users/${u.id}/status`, { status: 'suspended' })) }
       : { key: 'resume', label: '恢复账号', icon: <Play />, onSelect: () => void run('已恢复账号', u, () => patch(`/v1/admin/users/${u.id}/status`, { status: 'active' })) },
-    u.status === 'banned'
+    ...(u.status === 'suspended' ? [] : [u.status === 'banned'
       ? { key: 'unban', label: '解封', icon: <ShieldCheck />, menuOnly: true, onSelect: () => setOpen({ kind: 'unban', user: u }) }
-      : { key: 'ban', label: '封禁', icon: <Ban />, menuOnly: true, destructive: true, onSelect: () => setOpen({ kind: 'ban', user: u }) },
+      : { key: 'ban', label: '封禁', icon: <Ban />, menuOnly: true, destructive: true, onSelect: () => setOpen({ kind: 'ban', user: u }) }]),
     { key: 'delete', label: '删除用户', icon: <Trash2 />, destructive: true, onSelect: () => setOpen({ kind: 'delete', user: u }) },
   ]
 

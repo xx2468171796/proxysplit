@@ -93,6 +93,10 @@ export function createAccount(pool:Pool,deps:AccountDeps):AccountService{
     onEvent,
     onWarn:(msg,extra)=>deps.warn(msg,extra),
   })
+  // 「暂停」是本项目自己的状态（老状态接口），zhanghao 不认识：封禁 / 解封会把它覆盖成 banned / active，先挡住。
+  const notSuspended=async(userId:string)=>{
+    if((await guard(()=>zh.admin.get(userId))).status===('suspended' as string))throw new AppError('ACCOUNT_SUSPENDED','该账号处于暂停状态，请先恢复账号再封禁 / 解封',409)
+  }
   // 动作写进库后再吊销本项目会话；回放（同 requestId 第二次）不重复吊销也无害。
   const kick=async(userId:string,run:()=>Promise<{user:ZhUser}>)=>{
     const r=await guard(run)
@@ -102,8 +106,8 @@ export function createAccount(pool:Pool,deps:AccountDeps):AccountService{
   return {
     zh,
     bridge:createIdentityBridge(zh,{fallbackDisplayName:id=>`用户${id.slice(0,6)}`}),
-    ban:(id,input,ctx)=>kick(id,()=>zh.admin.ban(id,input,ctx)),
-    unban:async(id,input,ctx)=>(await guard(()=>zh.admin.unban(id,input,ctx))).user,
+    ban:async(id,input,ctx)=>{await notSuspended(id);return kick(id,()=>zh.admin.ban(id,input,ctx))},
+    unban:async(id,input,ctx)=>{await notSuspended(id);return (await guard(()=>zh.admin.unban(id,input,ctx))).user},
     setNickname:async(id,nickname,ctx)=>(await guard(()=>zh.admin.setNickname(id,nickname,ctx))).user,
     resetPassword:(id,password,ctx)=>kick(id,()=>zh.admin.resetPassword(id,password,ctx)),
     revokeSessions:(id,input,ctx)=>kick(id,()=>zh.admin.revokeSessions(id,input,ctx)),
