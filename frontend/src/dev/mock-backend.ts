@@ -4,6 +4,7 @@
 import { createAIMock } from "./mock-ai";
 import { createAppMonMock } from "./mock-appmon";
 import { mockFenxiao } from "./mock-fenxiao";
+import { mockInbox } from "./mock-inbox";
 import { mockLink } from "./mock-link";
 import { mockSetNodeCore } from "./mock-node-core";
 import { createPortsMock } from "./mock-ports";
@@ -302,6 +303,7 @@ const impl: Record<string, Fn> = {
   GetHealth: () => ({ running: true, capturing: true, capturedPkts: 12873, warning: "", lines: [] }),
   GetConnections: () => conns,
   ...mockLink(conns.length),
+  ...mockInbox(),
   GetNodes: () => nodes,
   GetAppRules: () => rules,
   GetLines: () => mockLines,

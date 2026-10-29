@@ -304,6 +304,8 @@ export function TestTCP(arg1:string):Promise<number>;
 
 export function TestThenSpeedAll():Promise<service.SpeedAllSummary>;
 
+export function TongzhiCall(arg1:string,arg2:string,arg3:string):Promise<main.TongzhiResult>;
+
 export function TrackPage(arg1:string):Promise<void>;
 
 export function UnbindMyDevice(arg1:string):Promise<string>;

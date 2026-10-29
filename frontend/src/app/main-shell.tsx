@@ -22,6 +22,7 @@ import { BindPhoneDialog } from "../features/account/bind-phone-dialog";
 import { AIPage } from "../features/ai/ai-page";
 import { RoutingPage } from "../features/apps/routing-page";
 import { FlowsPage } from "../features/flows/flows-page";
+import { InboxBell, InboxProvider } from "../features/inbox/inbox";
 import { LogsPage } from "../features/logs/logs-page";
 import { MemberIntroDialog } from "../features/member/member-intro-dialog";
 import { MemberPage, memberNavTitle } from "../features/member/member-page";
@@ -90,7 +91,7 @@ export function MainShell({ netBlocked, onDismissNetBlocked }: Props) {
   );
 
   return (
-    <>
+    <InboxProvider>
       {look ? (
         <DesktopShell
           look={look}
@@ -108,6 +109,7 @@ export function MainShell({ netBlocked, onDismissNetBlocked }: Props) {
           center={<TitleBarCenter />}
           actions={
             <span className="ps-title-actions">
+              <InboxBell />
               <PowerButton />
             </span>
           }
@@ -129,7 +131,7 @@ export function MainShell({ netBlocked, onDismissNetBlocked }: Props) {
       <SyncDialogs />
       <DonateDialog />
       <UpdateNotesDialog />
-    </>
+    </InboxProvider>
   );
 }
 

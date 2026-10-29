@@ -398,3 +398,8 @@ body,
 .ps-link-chip[data-bad="true"] > i {
   background: var(--aui-danger);
 }
+
+/* 消息铃铛的下拉在标题栏里：标题栏自身层级是 1，展开时抬高，免得被页面内容盖住 */
+.qd-title:has(.tz-bell.is-open) {
+  z-index: 50;
+}

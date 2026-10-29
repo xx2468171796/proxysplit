@@ -9,4 +9,5 @@
   - 分销佣金：fenxiao 包自带文案，经 `store.notifySink` 发。
 - 定时：每 6 小时跑一次到期提醒 + `purge(90 天)`（进程内 setInterval，幂等键保证重跑无害；单实例部署）。
 - 审计：后台 / AI 操作记 `admin.notice.<事件>`，业务自动发的不记。
+- 客户端：Go 绑定 `TongzhiCall`（`internal/license/tongzhi.go`，子路径 + 方法白名单）转发到 `/v1/tongzhi`；前端 `features/inbox/inbox.tsx` 把 tongzhi 客户端的 fetch 换成这个绑定，标题栏铃铛 + 横幅 / 弹窗 / 提示由包组件渲染。铃铛下拉在标题栏里，`.qd-title:has(.tz-bell.is-open)` 抬层级。
 - 生产 env：`TZ_AI_TOKEN`（≥32 位，不配 = 没有 AI 通道）。接会员中心跨站广播在 huiyuan 那期做。

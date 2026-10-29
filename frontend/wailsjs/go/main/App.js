@@ -586,6 +586,10 @@ export function TestThenSpeedAll() {
   return window['go']['main']['App']['TestThenSpeedAll']();
 }
 
+export function TongzhiCall(arg1, arg2, arg3) {
+  return window['go']['main']['App']['TongzhiCall'](arg1, arg2, arg3);
+}
+
 export function TrackPage(arg1) {
   return window['go']['main']['App']['TrackPage'](arg1);
 }

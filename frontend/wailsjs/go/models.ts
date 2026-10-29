@@ -1103,6 +1103,22 @@ export namespace main {
 	        this.err = source["err"];
 	    }
 	}
+	export class TongzhiResult {
+	    status: number;
+	    body?: number[];
+	    err?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new TongzhiResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.status = source["status"];
+	        this.body = source["body"];
+	        this.err = source["err"];
+	    }
+	}
 
 }
 
