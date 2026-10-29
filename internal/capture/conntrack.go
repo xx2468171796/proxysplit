@@ -18,6 +18,7 @@ type Flow struct {
 	Inbound  int // sing-box mixed inbound port
 	IfIdx    uint32
 	SubIfIdx uint32
+	Exe      string // owning program (exe path)
 	last     time.Time
 	closedAt time.Time // socket closed: forget after a grace period
 }

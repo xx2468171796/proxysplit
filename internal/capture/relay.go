@@ -24,6 +24,9 @@ type relay struct {
 	dial   map[int]proxy.Dialer
 	active atomic.Int64
 	total  atomic.Int64
+	// upstream local port -> captured program: sing-box only sees this relay as the
+	// source process, so the connection view looks the real app up here.
+	progs sync.Map
 }
 
 func newRelay(ct *conntrack, log func(string)) (*relay, error) {
@@ -78,6 +81,10 @@ func (r *relay) handle(c net.Conn) {
 		return // sing-box rejected (拦截规则) or unreachable: the app sees a reset
 	}
 	defer up.Close()
+	if la, ok := up.LocalAddr().(*net.TCPAddr); ok && f.Exe != "" {
+		r.progs.Store(uint16(la.Port), f.Exe)
+		defer r.progs.Delete(uint16(la.Port))
+	}
 	if len(first) > 0 {
 		if _, err := up.Write(first); err != nil {
 			return
@@ -101,3 +108,12 @@ func (r *relay) handle(c net.Conn) {
 }
 
 func (r *relay) close() { _ = r.ln.Close() }
+
+// program returns the captured program behind a relayed upstream connection,
+// keyed by the relay's local port toward sing-box ("" when unknown).
+func (r *relay) program(port uint16) string {
+	if v, ok := r.progs.Load(port); ok {
+		return v.(string)
+	}
+	return ""
+}

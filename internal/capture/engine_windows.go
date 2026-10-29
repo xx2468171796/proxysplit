@@ -122,6 +122,10 @@ func (e *Engine) SetRoutes(r *Routes) { e.routes.Store(r) }
 // Flows reports the number of relayed TCP flows (diagnostics).
 func (e *Engine) Flows() int { return e.ct.count() }
 
+// ProgramFor maps a relayed connection's source port (as sing-box sees it) to
+// the captured program's exe path; "" when it is not a relayed connection.
+func (e *Engine) ProgramFor(port uint16) string { return e.relay.program(port) }
+
 // Stop closes every handle (the driver unloads when the last one goes) and the
 // relay. Safe to call more than once.
 func (e *Engine) Stop() {
@@ -174,7 +178,9 @@ func (e *Engine) verdictPID(pid uint32) Verdict {
 	if path == "" || e.exclude[normPath(path)] {
 		return Verdict{}
 	}
-	return e.routes.Load().Decide(path)
+	v := e.routes.Load().Decide(path)
+	v.Exe = path
+	return v
 }
 
 // injectInbound delivers a built packet to the local app.

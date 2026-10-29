@@ -9,6 +9,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -312,6 +313,7 @@ func (s *Service) Connections() []ConnInfo {
 	if err != nil {
 		return []ConnInfo{}
 	}
+	s.attributeConns(conns)
 	for i := range conns {
 		conns[i].Outbound = labelOutbound(conns[i].OutTag, labels)
 	}
@@ -369,4 +371,24 @@ func matchesProc(names map[string]bool, proc, path string) bool {
 		}
 	}
 	return false
+}
+
+// attributeConns puts the real program back on connections relayed by the
+// process-capture engine: sing-box sees ProxySplit itself as their source.
+func (s *Service) attributeConns(conns []ConnInfo) {
+	s.mu.Lock()
+	eng := s.capEng
+	s.mu.Unlock()
+	if eng == nil {
+		return
+	}
+	for i := range conns {
+		port, err := strconv.ParseUint(conns[i].SrcPort, 10, 16)
+		if err != nil {
+			continue
+		}
+		if exe := eng.ProgramFor(uint16(port)); exe != "" {
+			conns[i].Process, conns[i].Path = baseName(exe), exe
+		}
+	}
 }

@@ -21,7 +21,8 @@ const (
 // Verdict is the decision for one process.
 type Verdict struct {
 	Action Action
-	Port   int // sing-box mixed inbound port when Action == Proxy
+	Port   int    // sing-box mixed inbound port when Action == Proxy
+	Exe    string // the program's exe path (shows the real app on relayed connections)
 }
 
 // DirRoute is an install-folder entry (appid "dir:" rules).

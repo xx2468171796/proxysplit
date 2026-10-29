@@ -1,11 +1,11 @@
-// 标题栏只放简单状态：活动节点、代理模式、运行状态 + 实时 Ping（详情在概览）；右侧是启动 / 停止（主题在设置页，只认 settings.theme）。
-import { Button, Choice, SegmentedControl, Tooltip } from "@ankotti/admin-ui";
+// 标题栏只放简单状态：活动节点、代理模式、TUN 开关、运行状态 + 实时 Ping（详情在概览）；右侧是启动 / 停止（主题在设置页，只认 settings.theme）。
+import { Button, Choice, SegmentedControl, Switch, Tooltip } from "@ankotti/admin-ui";
 import { Power, Square } from "lucide-react";
 import { useMemo } from "react";
 import type { ClashMode } from "../api/types";
 import { fmtRate, fmtUptime, latencyText } from "../shared/format";
 import { useStore } from "../shared/store";
-import { data, selectNode, setClashMode } from "../state/data";
+import { data, saveSettings, selectNode, setClashMode } from "../state/data";
 import { linkState } from "../state/link";
 import { isRunning, runtime, toggleRun } from "../state/runtime";
 import { useFeedback } from "./use-feedback";
@@ -95,7 +95,31 @@ export function TitleBarCenter() {
         value={clash}
         onValueChange={(m) => void setClashMode(m).then((err) => say(err && `切换失败：${err}`))}
       />
+      <TunToggle />
       <LinkChip />
     </span>
+  );
+}
+
+/** TUN 模式 = 接管方式「整机虚拟网卡」；关 = 仅接管选中程序（默认）。切换会重启内核。 */
+function TunToggle() {
+  const { say } = useFeedback();
+  const tun = useStore(data, (s) => s.settings.captureMode === "tun");
+  const busy = useStore(runtime, (s) => s.busy);
+  return (
+    <Tooltip content="TUN 模式：整机虚拟网卡接管全部程序再分流；关闭 = 只接管名单里的程序（推荐）">
+      <span className="ps-tun-toggle">
+        <Switch
+          id="ps-tun-switch"
+          checked={tun}
+          disabled={busy}
+          aria-label="TUN 模式"
+          onCheckedChange={(on) =>
+            void saveSettings({ captureMode: on ? "tun" : "process" }).then((e) => say(e, "error"))
+          }
+        />
+        <label htmlFor="ps-tun-switch">TUN</label>
+      </span>
+    </Tooltip>
   );
 }

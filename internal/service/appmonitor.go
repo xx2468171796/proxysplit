@@ -47,6 +47,7 @@ func (s *Service) appMonitorLoop() {
 			// live connections would be settled now and counted again next time.
 			continue
 		}
+		s.attributeConns(conns)
 		in := make([]appid.Conn, 0, len(conns))
 		for _, c := range conns {
 			in = append(in, appid.Conn{

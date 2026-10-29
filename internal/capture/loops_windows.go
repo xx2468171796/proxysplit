@@ -111,7 +111,7 @@ func (e *Engine) decideSYN(pkt []byte, a *divert.Address, v Verdict) {
 	default:
 		ifIdx, sub := a.IfIdx()
 		e.ct.put(sport, Flow{LocalIP: divert.SrcIP(pkt), DstIP: divert.DstIP(pkt), DstPort: divert.DstPort(pkt),
-			Inbound: v.Port, IfIdx: ifIdx, SubIfIdx: sub})
+			Inbound: v.Port, IfIdx: ifIdx, SubIfIdx: sub, Exe: v.Exe})
 		syn, addr, ticket := append([]byte(nil), pkt...), *a, e.wd.begin()
 		e.data.addTCP(sport, func(err error) {
 			defer e.wd.end(ticket)
