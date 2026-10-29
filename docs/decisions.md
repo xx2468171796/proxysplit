@@ -4,6 +4,13 @@
 > 结论与坑已提炼到 `docs/memory/<主题>.md`；这里是事实存档，按标题取（`node ~/.ankotti/ai-kit/mem.mjs <关键词>`），不要整份读。
 > 约定：sz = 深圳生产机；incoming = sz `/opt/proxysplit/incoming/`；客户端回滚 = 该版本 incoming 目录 `python3 publish-client.py rollback` 并删 releases 表里该版本那行。
 
+## v1.12.0（2026-10-29 14:13，全站发布，强制；Windows + macOS 同号）
+- 内容：服务端对齐公司技术栈（Node 26 / pnpm 12.16 / TS 7 / Zod 4 / Fastify 5.12 / ioredis 6 / pg 8.23 / Vitest 5，@node-rs/argon2；镜像 node:26，pnpm 用 npm 从 npmmirror 装）；接入公司通知包 tongzhi-v1.7.0（迁移 0020，老公告迁入、/v1/announcements 兼容；到账 / 到期 / 佣金站内信）；客户端消息铃铛。
+- commit 5176b61（tag v1.12.0）；release id 20261029-141117-5176b61-v1.12.0；Windows SHA256 a7b13b5e5cf59e0c4e54a6ff56a0e7438d5a675f9735823028353904abfd66b6（Authenticode 已签）；macOS zip SHA256 0b7e41f7ab3321c0337eaa7b5fa27774c254a294a6f94f837a3828120aded211。备份 backups/postgres-20261029-141117-5176b61-v1.12.0.sql.gz；上一版 releases/20261029-134448-6ac6b6f-v1.11.3。
+- 坑：Vitest 5 默认不再跳过 dist，构建产物里的测试副本被误跑 → 各包 test 加 `--dir src`；Zod 4 的 uuid() 只认 RFC 版本位 → POWER云 id 用 z.guid()。
+- 发布后把 2 条迁移来的置顶老公告改成只进收件箱（原为横幅，会让所有人看到过时的 v1.9.0 横幅）。
+- 验收：飞牛 latest（windows / macos）= 1.12.0 且 mandatory，三个 exe 地址与两个 zip 地址整包 SHA256 一致；/health、官网、/admin/ 200；管理员账号实测 /v1/admin/tongzhi、/v1/tongzhi/bundle、unread 正常；/v1/announcements 老形状。
+
 ## v1.10.12（2026-10-29 03:48，全站发布，强制）
 - release id 20261029-033739-fe5cd84-v1.10.12，上一版 releases/20261028-201653-33261d3-v1.10.11；备份 backups/postgres-20261029-033739-fe5cd84-v1.10.12.sql.gz；无新迁移。exe SHA256 21b43c392fc77b6e93e1ef433755eaa7eddece032d47de5cde33c4c8e08c714d（EV Sign）。
 - 起因：10-28 23:28 一位新付费用户（aigw 渠道、火绒）的遥测时间线：加了 88 个节点的订阅，点启动连续 20 多次 "no node selected"（英文），连点触发授权「操作过于频繁」；订阅地址漏 https:// 报 unsupported protocol scheme；把订阅链接粘进「添加节点」0 个；填网页地址报 YAML 解析错；最后删了订阅。
