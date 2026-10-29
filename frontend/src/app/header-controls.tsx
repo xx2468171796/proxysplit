@@ -1,11 +1,12 @@
-// 标题栏：中间放活动节点、代理策略、实时速率与连接；右侧是启动 / 停止（主题在设置页，只认 settings.theme）。
-import { Button, Choice, SegmentedControl, Switch, Tooltip } from "@ankotti/admin-ui";
-import { ArrowDown, ArrowUp, Power, Square } from "lucide-react";
+// 标题栏只放简单状态：活动节点、代理模式、运行状态 + 实时 Ping（详情在概览）；右侧是启动 / 停止（主题在设置页，只认 settings.theme）。
+import { Button, Choice, SegmentedControl, Tooltip } from "@ankotti/admin-ui";
+import { Power, Square } from "lucide-react";
 import { useMemo } from "react";
 import type { ClashMode } from "../api/types";
 import { fmtRate, fmtUptime, latencyText } from "../shared/format";
 import { useStore } from "../shared/store";
-import { data, saveSettings, selectNode, setClashMode } from "../state/data";
+import { data, selectNode, setClashMode } from "../state/data";
+import { linkState } from "../state/link";
 import { isRunning, runtime, toggleRun } from "../state/runtime";
 import { useFeedback } from "./use-feedback";
 
@@ -43,49 +44,22 @@ function NodeSwitcher() {
   );
 }
 
-function Traffic() {
-  const down = useStore(runtime, (s) => s.downRate);
-  const up = useStore(runtime, (s) => s.upRate);
+/** 运行状态点 + 实时 Ping（节点保活往返），悬停看速率和连接数 */
+function LinkChip() {
   const status = useStore(runtime, (s) => s.status);
+  const link = useStore(linkState, (s) => s.link);
+  const down = fmtRate(useStore(runtime, (s) => s.downRate));
+  const up = fmtRate(useStore(runtime, (s) => s.upRate));
   const running = isRunning(status);
-  const d = fmtRate(down);
-  const u = fmtRate(up);
-  const conns = status?.stats?.activeConns ?? 0;
-  const tip = running ? `${conns} 个活动连接 · 已运行 ${fmtUptime(status?.uptimeSec ?? 0)}` : "代理未运行";
+  const ping = link.pingMs > 0 ? `${link.pingMs} ms` : link.pingMs < 0 ? "不通" : "—";
+  const tip = running
+    ? `已运行 ${fmtUptime(status?.uptimeSec ?? 0)} · ${link.conns} 个连接 · ↓${down.value}${down.unit} ↑${up.value}${up.unit}`
+    : "代理未运行";
   return (
     <Tooltip content={tip}>
-      <span className="ps-traffic" data-running={running}>
-        <span>
-          <ArrowDown aria-hidden="true" />
-          {d.value} {d.unit}
-        </span>
-        <span>
-          <ArrowUp aria-hidden="true" />
-          {u.value} {u.unit}
-        </span>
-      </span>
-    </Tooltip>
-  );
-}
-
-/** TUN 模式 = 接管方式「整机虚拟网卡」；关 = 仅接管选中程序（默认）。切换会重启内核。 */
-function TunToggle() {
-  const { say } = useFeedback();
-  const tun = useStore(data, (s) => s.settings.captureMode === "tun");
-  const busy = useStore(runtime, (s) => s.busy);
-  return (
-    <Tooltip content="TUN 模式：整机虚拟网卡接管全部程序再分流；关闭 = 只接管名单里的程序（推荐）">
-      <span className="ps-tun-toggle">
-        <Switch
-          id="ps-tun-switch"
-          checked={tun}
-          disabled={busy}
-          aria-label="TUN 模式"
-          onCheckedChange={(on) =>
-            void saveSettings({ captureMode: on ? "tun" : "process" }).then((e) => say(e, "error"))
-          }
-        />
-        <label htmlFor="ps-tun-switch">TUN</label>
+      <span className="ps-link-chip" data-running={running} data-bad={link.pingMs < 0 || undefined}>
+        <i aria-hidden="true" />
+        {running ? `运行中 · ${ping}` : "已停止"}
       </span>
     </Tooltip>
   );
@@ -121,8 +95,7 @@ export function TitleBarCenter() {
         value={clash}
         onValueChange={(m) => void setClashMode(m).then((err) => say(err && `切换失败：${err}`))}
       />
-      <TunToggle />
-      <Traffic />
+      <LinkChip />
     </span>
   );
 }

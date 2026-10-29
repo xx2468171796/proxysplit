@@ -104,6 +104,8 @@ export function GetLicenseStatus():Promise<license.Status>;
 
 export function GetLines():Promise<Array<service.Line>>;
 
+export function GetLinkStatus():Promise<service.LinkStatus>;
+
 export function GetLogLevel():Promise<string>;
 
 export function GetMembershipPlans():Promise<main.PlansResult>;

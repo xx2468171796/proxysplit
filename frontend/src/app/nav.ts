@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { createStore, useStore } from "../shared/store";
 
-export type PageId = "overview" | "ai" | "nodes" | "apps" | "rules" | "logs" | "member" | "settings";
+export type PageId = "overview" | "flows" | "ai" | "nodes" | "apps" | "rules" | "logs" | "member" | "settings";
 /** 合并页里的分区 id；navigate(page, intent, tab) 带上就切到那个分区。 */
 export type PageTab = "nodes" | "subs" | "apps" | "ports" | "conns" | "logs" | "diag" | "env" | "accel" | "control";
 export type Intent = "add-app" | "add-node" | "add-sub";

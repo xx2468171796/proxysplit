@@ -162,6 +162,7 @@ type Service struct {
 	hostIPv6Seen     atomic.Bool  // hostIPv6: last answer measured with the core stopped
 	hostIPv6Known    atomic.Bool
 	exits            exitsCache      // AI 页实时出口 IP（exits.go）
+	google           googleProbe     // 概览 Google 延迟（link_svc.go）
 	capEng           *capture.Engine // 仅接管选中程序的抓包引擎（capture_svc.go；nil = TUN）
 	wdFetch          chan struct{}   // in-flight WinDivert download (prefetchWinDivert)
 	wdReady          func() bool     // nil = coreupdate.WinDivertReady (tests stub it)

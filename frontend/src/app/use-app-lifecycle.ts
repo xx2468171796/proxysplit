@@ -7,6 +7,7 @@ import { awaitAutoLogin } from "../state/account-sso";
 import { refreshProcesses } from "../state/app-rules";
 import { loadSyncStatus, watchSyncEvents } from "../state/configsync";
 import { applyBootstrap, data, loadBootstrap, refreshClashMode, reloadData } from "../state/data";
+import { refreshExit, refreshLink } from "../state/link";
 import { maybeShowMemberIntro } from "../state/prompts";
 import { refreshCustomRules, refreshRuleSets } from "../state/routing";
 import { pushLog, refreshConns, refreshCoreVersion, refreshHealth, refreshStatus } from "../state/runtime";
@@ -94,13 +95,15 @@ async function onLicenseChanged(say: Say): Promise<void> {
 }
 
 /** 每秒：运行状态 + 分流健康（日志页再加实时连接）；3 秒：Claude 加速；1 分钟：套餐；1 小时：检查更新（有新版即强制升级）。 */
-function startTimers(isLogsPage: () => boolean): Array<ReturnType<typeof setInterval>> {
+function startTimers(isLogsPage: () => boolean, isOverview: () => boolean): Array<ReturnType<typeof setInterval>> {
   return [
     // admin-ui-audit-ignore short-poll: 桌面客户端读本机 Go 后端（Wails 绑定）的运行状态，不是服务器业务数据，没有推送通道
     setInterval(() => {
       void refreshStatus();
       void refreshHealth();
+      void refreshLink();
       if (isLogsPage()) void refreshConns();
+      if (isOverview()) void refreshExit();
     }, 1000),
     // admin-ui-audit-ignore short-poll: 桌面客户端读本机 Go 后端（Wails 绑定）的运行状态，不是服务器业务数据，没有推送通道
     setInterval(() => void refreshAccel(), 3000),
@@ -109,14 +112,19 @@ function startTimers(isLogsPage: () => boolean): Array<ReturnType<typeof setInte
   ];
 }
 
-export function useAppLifecycle(say: Say, isLogsPage: () => boolean, onNetBlocked: (msg: string) => void): void {
+export function useAppLifecycle(
+  say: Say,
+  isLogsPage: () => boolean,
+  onNetBlocked: (msg: string) => void,
+  isOverview: () => boolean,
+): void {
   useEffect(() => {
     const signal = { stopped: false };
     const onBootstrap = (e: Event) => applyBootstrap((e as CustomEvent<BootstrapState>).detail);
     window.addEventListener(BOOTSTRAP_EVENT, onBootstrap);
     const offs = [...subscribeEvents(say), onBackendEvent<string>("net-blocked", onNetBlocked)];
     void bootstrapWithRetry(signal).then(() => loadSecondary(say));
-    const timers = startTimers(isLogsPage);
+    const timers = startTimers(isLogsPage, isOverview);
     // 切回前台：重读数据和授权（后台刚改过密码 / 发过会员时立刻是最新状态）。
     const onFocus = () => void reloadData();
     const onVisible = () => {
@@ -132,5 +140,5 @@ export function useAppLifecycle(say: Say, isLogsPage: () => boolean, onNetBlocke
       for (const off of offs) off();
       for (const t of timers) clearInterval(t);
     };
-  }, [say, isLogsPage, onNetBlocked]);
+  }, [say, isLogsPage, onNetBlocked, isOverview]);
 }

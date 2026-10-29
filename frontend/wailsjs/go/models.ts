@@ -1730,6 +1730,34 @@ export namespace service {
 		}
 	}
 	
+	export class LinkStatus {
+	    running: boolean;
+	    nodeId: string;
+	    nodeName: string;
+	    nodeType: string;
+	    core: string;
+	    googleMs: number;
+	    pingMs: number;
+	    pingP50: number;
+	    conns: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new LinkStatus(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.running = source["running"];
+	        this.nodeId = source["nodeId"];
+	        this.nodeName = source["nodeName"];
+	        this.nodeType = source["nodeType"];
+	        this.core = source["core"];
+	        this.googleMs = source["googleMs"];
+	        this.pingMs = source["pingMs"];
+	        this.pingP50 = source["pingP50"];
+	        this.conns = source["conns"];
+	    }
+	}
 	export class NetSettings {
 	    dnsDirect?: string;
 	    dnsRemote?: string;
