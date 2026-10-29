@@ -28,7 +28,9 @@ func (c *Client) Tongzhi(method, pathAndQuery string, body json.RawMessage) (int
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	// The inbox polls often and holds c.mu while forwarding; keep it short so
+	// lease / login calls are never queued behind a slow notice fetch.
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 	defer cancel()
 	var input any
 	if method == http.MethodPost {
@@ -45,6 +47,9 @@ func (c *Client) Tongzhi(method, pathAndQuery string, body json.RawMessage) (int
 	}
 	if err != nil {
 		return 0, nil, err
+	}
+	if len(out) == 0 {
+		out = json.RawMessage("null")
 	}
 	return http.StatusOK, out, nil
 }

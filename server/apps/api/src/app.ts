@@ -61,7 +61,11 @@ export async function buildApp(config:ApiConfig,provided?:Core){
   const notifyEvents=createNotifyEvents(core.store.pool,notify)
   core.store.notifySink=n=>notify.send({userId:n.userId,kind:n.kind,title:n.title,body:n.body,idemKey:n.idemKey,surfaces:['inbox','toast'],actions:n.url?[{label:'查看',url:n.url}]:[]})
   // 会员快到期提醒 + 过期通知清理：每 6 小时一轮（幂等键保证同一到期日只提醒一次，重启 / 多跑无害）
-  const notifyTimer=config.NODE_ENV==='test'?undefined:setInterval(()=>{notifyEvents.expiringReminders().then(()=>notifyEvents.purge()).catch(e=>app.log.warn({err:e},'notify daily job failed'))},6*3600_000)
+  const notifyDaily=()=>{notifyEvents.expiringReminders().then(()=>notifyEvents.purge()).catch(e=>app.log.warn({err:e},'notify daily job failed'))}
+  // 启动 1 分钟后先跑一轮：频繁发版时 6 小时的间隔会一直被重置
+  const notifyFirst=config.NODE_ENV==='test'?undefined:setTimeout(notifyDaily,60_000)
+  notifyFirst?.unref()
+  const notifyTimer=config.NODE_ENV==='test'?undefined:setInterval(notifyDaily,6*3600_000)
   notifyTimer?.unref()
   const optionalUser=async(req:FastifyRequest)=>{const token=bearer(req.headers.authorization);if(!token)return null;try{return (await core.auth.verifyAccess(token)).userId}catch{return null}}
   // 客户端日志上报（telemetry-routes.ts）：令牌可选，没有就按设备 + IP 限流
@@ -270,6 +274,6 @@ export async function buildApp(config:ApiConfig,provided?:Core){
   app.post('/v1/admin/releases',async(req)=>{const p=await admin(req);const input=releaseCreateSchema.parse(req.body);const row=await core.store.createRelease(input);await core.store.audit(p.userId,'admin.release.create','release',row.id,req.ip,'success',{version:input.version});return row})
   app.delete('/v1/admin/releases/:id',async(req)=>{const p=await admin(req);const id=(req.params as {id:string}).id;const row=await core.store.deleteRelease(id);if(!row)throw new AppError('NOT_FOUND','版本不存在',404);await core.store.audit(p.userId,'admin.release.delete','release',id,req.ip,'success');return {ok:true}})
   app.get('/v1/admin/audit',async(req)=>{await admin(req);return core.store.listAudit(auditListQuery.parse(req.query))})
-  app.addHook('onClose',async()=>{if(paymentReconcileTimer)clearInterval(paymentReconcileTimer);if(fenxiaoReleaseTimer)clearInterval(fenxiaoReleaseTimer);if(notifyTimer)clearInterval(notifyTimer);if(redis)redis.disconnect();if(!provided)await core.close()})
+  app.addHook('onClose',async()=>{if(paymentReconcileTimer)clearInterval(paymentReconcileTimer);if(fenxiaoReleaseTimer)clearInterval(fenxiaoReleaseTimer);if(notifyTimer)clearInterval(notifyTimer);if(notifyFirst)clearTimeout(notifyFirst);if(redis)redis.disconnect();if(!provided)await core.close()})
   return app
 }
