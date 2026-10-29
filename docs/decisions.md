@@ -351,3 +351,7 @@
 - 生产新增 runtime.env：CONFIG_SYNC_KEY（资产 583，换钥前须先支持多版本密钥）、YUNPIAN_API_KEY / YUNPIAN_TPL_ID（资产 289，多站共用账号，全站每日熔断 300 条）。
 - 坑：①第一次部署 API 镜像 pnpm install 拉不到 Gitea 上的 admin-ui（后台改用 admin-ui 后 lockfile 带 git 依赖）→ Dockerfile 只装 `@proxysplit/api...` 与 `@proxysplit/db...`（后台是预构建 dist）。②短信 60 秒冷却原用应用时钟比数据库时间，两边差几秒会误判 → 改用数据库 now()。
 - 真库联调（pve-pg-proxysplit-it1029，本机 API）：账号与手机号 14 项、同步 / 云端配置 / 恢复密码 / 分享 17 项、免费档 3 项全过。滑块人机验证尚未接（短信只靠频率限制 + 全站熔断）。
+
+## 2026-10-29 v1.11.1：实时连接图
+- 合并另一会话的 feat/status-layout（未发版的本地分支）：「连接」页实时连接图、概览当前链路与流量去向图、标题栏精简。
+- 发布：commit 1bc3877，releases/20261029-120929-1bc3877-v1.11.1，exe SHA256 a8f4790b…，强制（min 1.9.51），无迁移。
