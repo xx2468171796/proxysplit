@@ -73,7 +73,7 @@ function columns(open: Open, copy: (code: string) => void): Column<ConfigProfile
       render: (p) => (
         <span className="ps-set-actions">
           {p.locked ? <Tag size="sm">有恢复密码</Tag> : null}
-          {p.shared ? <Tag size="sm">已分享 {p.shareCode ?? ""}</Tag> : null}
+          {p.shared ? <Tag size="sm">已分享</Tag> : null}
         </span>
       ),
     },
@@ -128,36 +128,40 @@ export function ProfilesPanel() {
     void copyText(code).then((ok) => say(ok ? `分享码 ${code} 已复制` : "复制失败，请手动抄下分享码"));
   const full = quota > 0 && used >= quota;
   return (
-    <FormSection
-      title="我的云端配置"
-      description="把当前配置另存一份到云端，随时恢复；可以设恢复密码或分享给朋友"
-      layout="stack"
-    >
-      <div className="ps-set-actions">
-        <Button
-          size="sm"
-          disabled={full}
-          disabledReason={full ? "份数已满" : undefined}
-          onClick={() => setDialog({ kind: "save" })}
-        >
-          <CloudUpload />
-          另存为云端配置
-        </Button>
+    <>
+      <FormSection
+        title="我的云端配置"
+        description="把当前配置另存一份到云端，随时恢复；可以设恢复密码或分享给朋友"
+        layout="stack"
+      >
+        <div className="ps-set-actions">
+          <Button
+            size="sm"
+            disabled={full}
+            disabledReason={full ? "份数已满" : undefined}
+            onClick={() => setDialog({ kind: "save" })}
+          >
+            <CloudUpload />
+            另存为云端配置
+          </Button>
+        </div>
+        <QuotaNote used={used} quota={quota} />
+        {error ? <Note tone="danger">{error}</Note> : null}
+      </FormSection>
+      <div className="ps-sync-block">
+        <DataTable
+          caption="我的云端配置"
+          rows={items}
+          rowKey={(p) => p.id}
+          columns={columns(setDialog, copy)}
+          pagination={{ mode: "all" }}
+          rowHeight="medium"
+          refreshing={loading && items.length > 0}
+          emptyLabel="还没有云端配置，点「另存为云端配置」存一份"
+        />
+        <ProfileDialogs dialog={dialog} onClose={() => setDialog(null)} onShared={setSharedCode} />
+        {sharedCode ? <SharedCodeDialog code={sharedCode} onClose={() => setSharedCode("")} /> : null}
       </div>
-      <QuotaNote used={used} quota={quota} />
-      {error ? <Note tone="danger">{error}</Note> : null}
-      <DataTable
-        caption="我的云端配置"
-        rows={items}
-        rowKey={(p) => p.id}
-        columns={columns(setDialog, copy)}
-        pagination={{ mode: "all" }}
-        rowHeight="medium"
-        refreshing={loading && items.length > 0}
-        emptyLabel="还没有云端配置，点「另存为云端配置」存一份"
-      />
-      <ProfileDialogs dialog={dialog} onClose={() => setDialog(null)} onShared={setSharedCode} />
-      {sharedCode ? <SharedCodeDialog code={sharedCode} onClose={() => setSharedCode("")} /> : null}
-    </FormSection>
+    </>
   );
 }

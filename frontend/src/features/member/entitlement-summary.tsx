@@ -22,7 +22,13 @@ export function EntitlementSummary({ showPhone = true }: { showPhone?: boolean }
   const member = !!status.member;
   const items: { label: string; value: ReactNode }[] = [
     { label: "账号", value: status.username || "未登录" },
-    { label: "当前档位", value: member && status.plan ? `${tierLabel(status)} · ${status.plan}` : tierLabel(status) },
+    {
+      label: "当前档位",
+      value:
+        member && status.plan && !status.plan.includes(tierLabel(status))
+          ? `${tierLabel(status)} · ${status.plan}`
+          : status.plan || tierLabel(status),
+    },
     {
       label: "会员到期",
       value: member ? (status.expiresAt ? fmtDateTime(status.expiresAt) : "以服务端为准") : "免费版长期有效",
