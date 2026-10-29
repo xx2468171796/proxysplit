@@ -10,7 +10,7 @@ export type StatsOverview = {
   conversion: { cur: { cohort: number; converted: number }; prev: { cohort: number; converted: number } }
   phone: { bound: number; total: number }
   cloud: { profiles: number; shared: number; locked: number; profileUsers: number; syncUsers: number }
-  sms: { sent24h: number; prev24h: number; verified24h: number; byPurpose: { purpose: string; count: number }[] }
+  sms: { sent24h: number; prev24h: number; verified24h: number; failed24h: number; byPurpose: { purpose: string; count: number }[] }
   online: { devices15m: number }
 }
 export type Dashboard = { users: number; licenses: number; online: number; expiring: number; pendingOrders: number; monthRevenue: number }

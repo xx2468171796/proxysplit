@@ -31,7 +31,7 @@ export function statsOverview(days) {
     conversion: { cur: { cohort: days * 14, converted: days + 3 }, prev: { cohort: days * 12, converted: days } },
     phone: { bound: 801, total: 1284 },
     cloud: { profiles: 268, shared: 41, locked: 19, profileUsers: 190, syncUsers: 233 },
-    sms: { sent24h: 87, prev24h: 74, verified24h: 69, byPurpose: [{ purpose: 'bind', count: 23 }, { purpose: 'register', count: 51 }, { purpose: 'reset', count: 13 }] },
+    sms: { sent24h: 87, prev24h: 74, verified24h: 69, failed24h: 2, byPurpose: [{ purpose: 'bind', count: 23 }, { purpose: 'register', count: 51 }, { purpose: 'reset', count: 13 }] },
     online: { devices15m: 143 },
   }
 }

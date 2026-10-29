@@ -68,3 +68,6 @@ CREATE TABLE IF NOT EXISTS config_attempts(
   created_at timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS config_attempts_subject_idx ON config_attempts(kind, subject, created_at DESC);
+
+-- 短信发送失败留痕（后台统计失败数）；失败的行不计冷却与次数。
+ALTER TABLE sms_codes ADD COLUMN IF NOT EXISTS failed_at timestamptz;

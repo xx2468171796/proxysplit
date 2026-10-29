@@ -51,7 +51,7 @@ export function KpiSections({ data: d, loading, openPage }: Props) {
           <KpiCard icon={MessageSquare} title="短信发送（24 小时）" loading={loading} value={d ? String(d.sms.sent24h) : null} unit="条"
             delta={d ? countDelta(d.sms.sent24h, d.sms.prev24h) : null} comparison="比前 24 小时"
             detail={d ? `验证成功 ${d.sms.verified24h} 条${d.sms.byPurpose.length ? ' · ' + d.sms.byPurpose.map((p) => `${PURPOSE[p.purpose] ?? p.purpose} ${p.count}`).join(' · ') : ''}` : undefined}
-            footnote="发送失败目前不落库，暂无失败数" />
+            footnote={d ? (d.sms.failed24h ? `发送失败 ${d.sms.failed24h} 条（多为短信通道故障）` : "发送失败 0 条") : undefined} />
         </KpiGrid>
       </DashboardSection>
     </>

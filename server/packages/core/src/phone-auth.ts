@@ -57,7 +57,9 @@ export function yunpianSender(cfg: { apiKey: string; tplId: string; fetch?: type
   }
 }
 
-export type PhoneAuthOptions = { sender: SmsSender | null; production: boolean; showDevCode?: boolean; log?: (msg: string) => void }
+export type PhoneAuthOptions = { sender: SmsSender | null; production: boolean; showDevCode?: boolean; log?: (msg: string) => void; dailyGlobalCap?: number }
+/** 全站每日（北京日）短信总量熔断，防刷短信费；超了全站暂停发送到次日。 */
+export const SMS_DAILY_GLOBAL_CAP = 1000
 type Tx = Awaited<ReturnType<Db['connect']>>
 const SENT = { ok: true, cooldownSeconds: SMS_COOLDOWN_MS / 1000 } as const
 const phoneTakenError = () => new AppError('PHONE_TAKEN', '该手机号已被其他账号使用', 409)
@@ -97,10 +99,12 @@ export class PhoneAuth {
       await c.query('SELECT pg_advisory_xact_lock(hashtext($1))', ['sms:' + phone])
       const dayStart = beijingDayStart(now), hourStart = new Date(now.getTime() - 3600_000)
       const since = new Date(Math.min(dayStart.getTime(), hourStart.getTime()))
-      const r = await c.query(`SELECT max(created_at) AS "lastAt",count(*) FILTER (WHERE created_at>=$2)::int AS today,count(*) FILTER (WHERE created_at>=$4)::int AS hour
-        FROM sms_codes WHERE phone=$1 AND created_at>=$3`, [phone, dayStart, since, hourStart])
+      const r = await c.query(`SELECT now() AS "dbNow",max(created_at) AS "lastAt",count(*) FILTER (WHERE created_at>=$2)::int AS today,count(*) FILTER (WHERE created_at>=$4)::int AS hour
+        FROM sms_codes WHERE phone=$1 AND created_at>=$3 AND failed_at IS NULL`, [phone, dayStart, since, hourStart])
+      const g = await c.query(`SELECT count(*)::int AS n FROM sms_codes WHERE created_at>=$1 AND failed_at IS NULL AND code_hash<>'silent'`, [dayStart])
+      if (Number(g.rows[0]?.n ?? 0) >= (this.opts.dailyGlobalCap ?? SMS_DAILY_GLOBAL_CAP)) { this.opts.log?.('[warn] sms daily global cap reached'); throw new AppError('SMS_BUSY', '今天的验证码发送量已达上限，请明天再试', 503) }
       const row = r.rows[0] ?? {}
-      const verdict = smsSendDecision({ lastAt: row.lastAt ? new Date(row.lastAt as string | Date) : null, hourCount: Number(row.hour ?? 0), todayCount: Number(row.today ?? 0) }, now)
+      const verdict = smsSendDecision({ lastAt: row.lastAt ? new Date(row.lastAt as string | Date) : null, hourCount: Number(row.hour ?? 0), todayCount: Number(row.today ?? 0) }, row.dbNow ? new Date(row.dbNow as string | Date) : now)
       if (verdict === 'cooldown') throw new AppError('SMS_COOLDOWN', '验证码发送太频繁，请 60 秒后再试', 429)
       if (verdict === 'hourly') throw new AppError('SMS_HOURLY_LIMIT', '该手机号获取验证码太频繁，请 1 小时后再试', 429)
       if (verdict === 'daily') throw new AppError('SMS_DAILY_LIMIT', '该手机号今天获取验证码次数已达上限', 429)
@@ -113,7 +117,7 @@ export class PhoneAuth {
     if (silent) return SENT
     if (!this.opts.sender) { this.opts.log?.(devSmsLog(purpose, phone, code, this.opts.showDevCode === true)); return SENT }
     try { await this.opts.sender(phone, code) }
-    catch (e) { await this.db.query('DELETE FROM sms_codes WHERE id=$1', [id]).catch(() => {}); throw e }
+    catch (e) { await this.db.query('UPDATE sms_codes SET failed_at=now(),consumed_at=now() WHERE id=$1', [id]).catch(() => {}); throw e }
     return SENT
   }
   /**

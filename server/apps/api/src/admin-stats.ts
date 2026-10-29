@@ -83,7 +83,8 @@ export class AdminStatsQuery {
       this.db.query(`SELECT
         count(*) FILTER (WHERE created_at>=now()-interval '24 hours')::int AS "sent",
         count(*) FILTER (WHERE created_at<now()-interval '24 hours' AND created_at>=now()-interval '48 hours')::int AS "prev",
-        count(*) FILTER (WHERE created_at>=now()-interval '24 hours' AND consumed_at IS NOT NULL)::int AS "verified"
+        count(*) FILTER (WHERE created_at>=now()-interval '24 hours' AND consumed_at IS NOT NULL AND failed_at IS NULL)::int AS "verified",
+        count(*) FILTER (WHERE created_at>=now()-interval '24 hours' AND failed_at IS NOT NULL)::int AS "failed"
         FROM sms_codes`),
       this.db.query(`SELECT purpose,count(*)::int AS n FROM sms_codes WHERE created_at>=now()-interval '24 hours' GROUP BY purpose ORDER BY purpose`),
     ])
@@ -99,7 +100,7 @@ export class AdminStatsQuery {
       conversion: { cur: { cohort: int(p.signupsCur), converted: int(p.convCur) }, prev: { cohort: int(p.signupsPrev), converted: int(p.convPrev) } },
       phone: { bound: int(s.phoneBound), total: users },
       cloud: { profiles: int(s.profiles), shared: int(s.shared), locked: int(s.locked), profileUsers: int(s.profileUsers), syncUsers: int(s.syncUsers) },
-      sms: { sent24h: int(m.sent), prev24h: int(m.prev), verified24h: int(m.verified), byPurpose: smsPurpose.rows.map((r) => ({ purpose: String(r.purpose), count: int(r.n) })) },
+      sms: { sent24h: int(m.sent), prev24h: int(m.prev), verified24h: int(m.verified), failed24h: int(m.failed), byPurpose: smsPurpose.rows.map((r) => ({ purpose: String(r.purpose), count: int(r.n) })) },
       online: { devices15m: int(s.online) },
     }
   }
