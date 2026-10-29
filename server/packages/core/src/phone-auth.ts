@@ -59,7 +59,7 @@ export function yunpianSender(cfg: { apiKey: string; tplId: string; fetch?: type
 
 export type PhoneAuthOptions = { sender: SmsSender | null; production: boolean; showDevCode?: boolean; log?: (msg: string) => void; dailyGlobalCap?: number }
 /** 全站每日（北京日）短信总量熔断，防刷短信费；超了全站暂停发送到次日。 */
-export const SMS_DAILY_GLOBAL_CAP = 1000
+export const SMS_DAILY_GLOBAL_CAP = 300
 type Tx = Awaited<ReturnType<Db['connect']>>
 const SENT = { ok: true, cooldownSeconds: SMS_COOLDOWN_MS / 1000 } as const
 const phoneTakenError = () => new AppError('PHONE_TAKEN', '该手机号已被其他账号使用', 409)
