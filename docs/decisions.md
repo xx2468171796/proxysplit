@@ -356,3 +356,10 @@
 - 合并另一会话的 feat/status-layout（未发版的本地分支）：「连接」页实时连接图、概览当前链路与流量去向图、标题栏精简。
 - 发布：commit 1bc3877，releases/20261029-120929-1bc3877-v1.11.1，exe SHA256 a8f4790b…，强制（min 1.9.51），无迁移。
 - macOS 同号同步发布（2026-10-29 12:30）：xuan-macbook-air 上 `VERSION=1.11.1 sh scripts/build-macos.sh`（源码 git archive + frontend/dist），Mac 上 configsync / license / updater 测试通过；zip SHA256 61a9596c…，本机 `go run ./cmd/releasesign` 签名后放 downloads（旧 macos-latest 存 incoming/…v1.11.1/previous/），releases 插 platform='macos' 行（更新说明含 1.11.0 + 1.11.1，Mac 用户从 1.10.10 直升）。未在真机上启动实测。
+
+## 2026-10-29 v1.11.2：连接图显示真实程序、TUN 开关回归、本机日志文件
+- 「仅接管选中程序」下抓包中转用 ProxySplit 自己连 sing-box，内核只看到 ProxySplit：中转按上游本地端口记下被接管程序（capture.Engine.ProgramFor），Connections / 逐应用监测还原真实程序。alonehome2 实测时它在 TUN（AI 劫持开着、按红线不远程关），抓包路径未在测试机实测，以业主本机（alone-pc，截图出处）更新后的日志 [conn] 行为准。
+- v1.11.1 精简标题栏误删 TUN 开关，已恢复。
+- 本机日志文件 <配置目录>/logs/proxysplit-日期.log，默认留 7 天（logRetentionDays 1–30），每分钟 [conn] 程序 → 线路 → 网站；服务端遥测默认保留 15 → 7 天。见 docs/memory/logs.md。
+- 发版门禁拦下「打开日志文件夹」直接 exec explorer 不隐藏控制台（TestChildProcessesHideConsole）：按平台拆 app_logs_*.go，Windows 用 CREATE_NO_WINDOW（Wails BrowserOpenURL 拒 file://）。
+- 发布：commit d631bcc，releases/20261029-125855-d631bcc-v1.11.2，exe SHA256 47c2e76d…；macOS zip a98c0ee3…；均强制（min 1.9.51），无迁移。
