@@ -9,6 +9,8 @@ RUN corepack enable \
 
 WORKDIR /app
 COPY . .
+# Only the API and the migration runner run in this image. The admin console
+# ships prebuilt (dist), and its git-hosted UI library is unreachable from here.
 # The production host reaches registry.npmjs.org slowly and pnpm install times
 # out on cold cache (e.g. after new deps land). Pull tarballs from the faithful
 # npmmirror mirror (identical integrity hashes, so --frozen-lockfile still
@@ -16,7 +18,7 @@ COPY . .
 RUN pnpm config set registry https://registry.npmmirror.com \
     && pnpm config set fetch-timeout 600000 \
     && pnpm config set fetch-retries 5 \
-    && pnpm install --frozen-lockfile \
+    && pnpm install --frozen-lockfile --filter "@proxysplit/api..." --filter "@proxysplit/db..." \
     && chmod 0755 /app/deploy/api-entrypoint.sh
 
 ENTRYPOINT ["/app/deploy/api-entrypoint.sh"]

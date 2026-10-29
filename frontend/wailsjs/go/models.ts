@@ -1064,11 +1064,11 @@ export namespace main {
 	export class SMSSendResult {
 	    cooldownSeconds: number;
 	    err?: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new SMSSendResult(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.cooldownSeconds = source["cooldownSeconds"];
