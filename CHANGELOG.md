@@ -3,6 +3,10 @@
 版本号以发布构建为准（`scripts/build-commercial.ps1 -Version <x.y.z>`，注入 `main.appVersion`），
 每个发布产物的 SHA256 见 `output/proxysplit-v<版本>.manifest.json`。
 
+## v1.11.3
+
+- 「连接」页的卡片可以拖动摆放：按住卡片拖到想要的位置，连线跟着走；位置会记住，下次打开还在原处，「重置布局」一键恢复自动排列。
+
 ## v1.11.2
 
 - 修复：「仅接管选中程序」模式下，「连接」页把所有连接都算成 ProxySplit 自己；现在显示真实程序（Edge、Chrome、Code 等）各自走的线路。

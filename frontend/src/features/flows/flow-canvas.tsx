@@ -1,7 +1,8 @@
-// 无限画布：拖动平移、滚轮以鼠标为中心缩放、「适应窗口」一键看全图。内容是 FlowSvgContent。
+// 无限画布：拖空白处平移（拖卡片是挪卡片）、滚轮以鼠标为中心缩放、「适应窗口」一键看全图。内容是 FlowSvgContent。
 import { IconButton } from "@ankotti/admin-ui";
 import { Maximize, Minus, Plus } from "lucide-react";
 import { type PointerEvent, type ReactNode, useCallback, useEffect, useRef, useState } from "react";
+import { ViewScale } from "./flow-drag";
 
 type View = { x: number; y: number; k: number };
 const MIN_K = 0.2;
@@ -79,7 +80,9 @@ export function FlowCanvas({ width, height, children, fitKey }: Props) {
       onPointerCancel={onUp}
     >
       <svg width="100%" height="100%" role="img" aria-label="连接图">
-        <g transform={`translate(${view.x},${view.y}) scale(${view.k})`}>{children}</g>
+        <g transform={`translate(${view.x},${view.y}) scale(${view.k})`}>
+          <ViewScale.Provider value={view.k}>{children}</ViewScale.Provider>
+        </g>
       </svg>
       <div className="ps-flow-tools">
         <IconButton size="sm" variant="outline" label="放大" icon={<Plus />} onClick={() => zoom(1.25)} />

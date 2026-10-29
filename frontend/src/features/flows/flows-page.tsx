@@ -1,12 +1,13 @@
 // 「连接」页：实时连接图（无限画布）。本机程序 → 直连 / 哪个节点 / 拦截 → 访问的网站；点程序展开 / 收起它访问的网站，
 // 点任意节点在右侧看它的连接明细。数据每秒刷新（use-app-lifecycle 在这个页面开着时拉实时连接）。
 import { Button, type Column, DataTable, PageBody, Panel, SegmentedControl, StatusBadge } from "@ankotti/admin-ui";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { Conn } from "../../api/types";
 import { fmtBytes } from "../../shared/format";
 import { useStore } from "../../shared/store";
 import { isRunning, runtime } from "../../state/runtime";
 import { FlowCanvas } from "./flow-canvas";
+import { loadOffsets, type Offsets, saveOffsets } from "./flow-drag";
 import { buildFlowGraph, type FlowNode, type RouteKind, routeKind, siteName } from "./flow-model";
 import { FlowSvgContent, layout } from "./flow-svg";
 import "./flows.css";
@@ -83,6 +84,8 @@ export function FlowsPage() {
   // 记「收起了哪些程序」，默认全部展开
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [selected, setSelected] = useState<FlowNode | null>(null);
+  const [offsets, setOffsets] = useState<Offsets>(loadOffsets);
+  useEffect(() => saveOffsets(offsets), [offsets]);
   const conns = useMemo(() => (filter === "all" ? all : all.filter((c) => routeKind(c) === filter)), [all, filter]);
   const apps = useMemo(
     () => [
@@ -114,7 +117,7 @@ export function FlowsPage() {
           title="实时连接图"
           description={
             running
-              ? `${graph.totalConns} 个连接 · 拖动平移，滚轮缩放，点程序展开它访问的网站`
+              ? `${graph.totalConns} 个连接 · 拖空白处平移、拖卡片挪位置，滚轮缩放，点程序展开它访问的网站`
               : "代理没在运行，没有连接"
           }
           actions={
@@ -126,6 +129,15 @@ export function FlowsPage() {
               <Button size="sm" variant="ghost" onClick={() => setCollapsed(new Set(apps))}>
                 全部收起
               </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                disabled={Object.keys(offsets).length === 0}
+                disabledReason="还没拖过卡片"
+                onClick={() => setOffsets({})}
+              >
+                重置布局
+              </Button>
             </span>
           }
         >
@@ -136,6 +148,8 @@ export function FlowsPage() {
               onToggle={toggle}
               selected={selected?.id}
               onSelect={setSelected}
+              offsets={offsets}
+              onMove={(id, o) => setOffsets((s) => ({ ...s, [id]: o }))}
             />
           </FlowCanvas>
         </Panel>

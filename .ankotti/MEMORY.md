@@ -2,7 +2,7 @@
 > 最后更新：2026-10-28。细节按下方路由表读 docs/memory/，逐版发布史在 docs/decisions.md（按标题取）。
 
 ## 当前状态
-- 线上：**v1.11.2 stable（强制，min 1.9.51；Windows + macOS 同号）**，2026-10-29 全站发布（1.11.1 加「连接」实时连接图；1.11.0：免费版（1 台）、会员设备叠加、配置导出导入 / 云同步 / 云端多份配置与分享、手机号注册登录与短信找回、运营后台 admin-ui 重做（设计 docs/plan-2026-10-29-free-sync-phone.md）。）。服务端 current = releases/20261029-125855-d631bcc-v1.11.2，上一版 releases/20261029-120929-1bc3877-v1.11.1。macOS 版本次未随发。Mac 测试机与账号见 docs/memory/macos.md。
+- 线上：**v1.11.3 stable（强制，min 1.9.51；Windows + macOS 同号）**，2026-10-29 全站发布（1.11.1 加「连接」实时连接图；1.11.0：免费版（1 台）、会员设备叠加、配置导出导入 / 云同步 / 云端多份配置与分享、手机号注册登录与短信找回、运营后台 admin-ui 重做（设计 docs/plan-2026-10-29-free-sync-phone.md）。）。服务端 current = releases/20261029-134448-6ac6b6f-v1.11.3，上一版 releases/20261029-125855-d631bcc-v1.11.2。macOS 版本次未随发。Mac 测试机与账号见 docs/memory/macos.md。
 - 前端已用 @ankotti/admin-ui 重写（React 19 + Vite 8 + TS 7 + pnpm 12.9.1，替换旧单文件 Svelte），随 v1.9.75 上线（已并入 main）；门禁 `pnpm --dir frontend check`，预览 `pnpm --dir frontend dev`。
 - 技术栈：Go + Wails + React 前端，sing-box 原生 TUN + process_name；服务端 Fastify + 深圳共享 PG（堡垒机数据源 sz-pg-proxysplit）。
 - **下一步**：日志详细化（net.conn_summary 连接成败汇总，业主 2026-10-28 要求，方便版本迭代排查）；有真实 IPv6 的电脑仍待实测（claude00002 是现成用户）；socks5 链式前置代理待业主决定；macOS 版：分支 feat/macos 已移植（Apple 芯片，构建机 xuan-macbook-air，见 docs/memory/macos.md），待 root 实测与随版本发布；不买 Apple 开发者账号（ad-hoc 签名）。发版前用正式下载包跑 alonehome2 自检，查别的会话未合并分支，测试机经 coord 轮流用。

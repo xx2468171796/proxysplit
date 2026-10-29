@@ -156,3 +156,17 @@
   fill: currentColor;
   opacity: 0.6;
 }
+
+.ps-flow-node[data-draggable] {
+  cursor: grab;
+}
+
+.ps-flow-node[data-draggable]:active {
+  cursor: grabbing;
+}
+
+/* 拖卡片时别把卡片上的字选成高亮 */
+.ps-flow-canvas svg {
+  user-select: none;
+  -webkit-user-select: none;
+}
