@@ -4,6 +4,13 @@
 > 结论与坑已提炼到 `docs/memory/<主题>.md`；这里是事实存档，按标题取（`node ~/.ankotti/ai-kit/mem.mjs <关键词>`），不要整份读。
 > 约定：sz = 深圳生产机；incoming = sz `/opt/proxysplit/incoming/`；客户端回滚 = 该版本 incoming 目录 `python3 publish-client.py rollback` 并删 releases 表里该版本那行。
 
+## v1.10.12（2026-10-29 03:48，全站发布，强制）
+- release id 20261029-033739-fe5cd84-v1.10.12，上一版 releases/20261028-201653-33261d3-v1.10.11；备份 backups/postgres-20261029-033739-fe5cd84-v1.10.12.sql.gz；无新迁移。exe SHA256 21b43c392fc77b6e93e1ef433755eaa7eddece032d47de5cde33c4c8e08c714d（EV Sign）。
+- 起因：10-28 23:28 一位新付费用户（aigw 渠道、火绒）的遥测时间线：加了 88 个节点的订阅，点启动连续 20 多次 "no node selected"（英文），连点触发授权「操作过于频繁」；订阅地址漏 https:// 报 unsupported protocol scheme；把订阅链接粘进「添加节点」0 个；填网页地址报 YAML 解析错；最后删了订阅。
+- 内容：ensureSelectedLocked（启动 / 加订阅时选中节点不存在就选第一个）；没节点在授权检查前本地报中文错；subs.NormalizeURL 补 https://；订阅返回 HTML 说人话；App.AddNodes 遇单条 http(s) 链接按订阅添加（AddResult.note）。
+- 同时核实 1.10.11 修复已生效：10-28 21:20 起 9 台设备 2000+ 日志块 ANSI = 0、加速 NXDOMAIN = 0（之前命中的是升级切换时的残留日志）。
+- 验收：alonehome2 签名 Valid、自检 20/20、AI 劫持 tunnel 出口 TW、Edge Google 204 走节点 / 百度直连、内核 / 加速 / ANSI 报错 0；VM153 Defender 0 威胁；飞牛 latest = 1.10.12 mandatory，三下载 sha 一致。
+
 ## v1.10.11（2026-10-28 20:28，全站发布，强制）
 - release id 20261028-201653-33261d3-v1.10.11，上一版 releases/20261028-174132-1faed3e-v1.10.10；备份 backups/postgres-20261028-201653-33261d3-v1.10.11.sql.gz；无新迁移。exe SHA256 ab19547b09596a73da6d06ccb528b49b972c5c676528b93d04447eb2278ee7f8（EV Sign 签名）。
 - 起因：分析服务端遥测 / 日志（9 台设备）。内核自动更新 8 台全部每小时失败（直连 lxc.5fskins.com TLS 被断）；直连线路下加速探测 accel.powervpn.internal NXDOMAIN 刷屏；端口防火墙删不存在的规则 exit 1 误报；日志带 ANSI；ai_env / 重复安装误报失败。
