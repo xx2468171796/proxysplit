@@ -33,3 +33,9 @@
 ## 真机测试（xuan-macbook-air，同事的工作电脑）
 - 步骤和坑见堡垒机机器笔记「公司常驻服务与构建」：改网络的测试要用 nohup 跑、结束时 trap 恢复小火箭；ProxySplit 运行时别改 Tailscale 设置。
 - 2026-10-28 实测通过：授权安装、TUN 按应用（命令行进程名、整个 Chrome.app）、DNS 接管与恢复、系统代理开关、停止无残留、正式版登录。
+
+## 发 Mac 版的步骤（2026-10-29 v1.11.1 实测）
+1. Windows 正式版先发（release-all 会编好 frontend/dist）；`git archive HEAD -- . ':!server' ':!website'` 再追加 frontend/dist 打包，transfer_link 传到 Mac `~/ankotti-build/`，解到新目录，bin/darwin 的 sing-box / xray 从旧目录拷过来。
+2. Mac 上 `VERSION=x.y.z nice -n 10 sh scripts/build-macos.sh`（PATH 加 ~/go/bin、/opt/homebrew/bin），跑 configsync / license / updater 测试。
+3. zip 拉回本机，`go run ./cmd/releasesign -private-key <资产116写的临时文件> -version x.y.z -sha256 <zip sha> -url https://proxysplit.zygskins.cn/download/ProxySplit-vx.y.z-macos-arm64.zip`，用完删私钥。
+4. zip 传 sz 该版 incoming 目录 → install 到 downloads → 原子替换 proxysplit-macos-latest.zip（旧的存 previous/）→ releases 插 platform='macos' 行 + audit_logs → 飞牛验 `latest?platform=macos` 与两个下载地址 sha。

@@ -355,3 +355,4 @@
 ## 2026-10-29 v1.11.1：实时连接图
 - 合并另一会话的 feat/status-layout（未发版的本地分支）：「连接」页实时连接图、概览当前链路与流量去向图、标题栏精简。
 - 发布：commit 1bc3877，releases/20261029-120929-1bc3877-v1.11.1，exe SHA256 a8f4790b…，强制（min 1.9.51），无迁移。
+- macOS 同号同步发布（2026-10-29 12:30）：xuan-macbook-air 上 `VERSION=1.11.1 sh scripts/build-macos.sh`（源码 git archive + frontend/dist），Mac 上 configsync / license / updater 测试通过；zip SHA256 61a9596c…，本机 `go run ./cmd/releasesign` 签名后放 downloads（旧 macos-latest 存 incoming/…v1.11.1/previous/），releases 插 platform='macos' 行（更新说明含 1.11.0 + 1.11.1，Mac 用户从 1.10.10 直升）。未在真机上启动实测。
