@@ -344,3 +344,10 @@
 - macOS 的 DNS 由 mDNSResponder 按网卡发出、不进 TUN：运行时把系统 DNS 指向 TUN（psctl），退出 / 停止 / 程序启动 / 开机（LaunchDaemon）都会恢复。审计指出重启会卡 DNS，加开机任务后真机强杀验证。
 - 客户不依赖 Tailscale（业主 2026-10-28）：Tailscale 接管 DNS 时的冲突只写说明，不在产品里处理。
 - 教训：在同事电脑上做改网络的测试，恢复保险必须 nohup 独立运行（堡垒机任务在 Mac 上会随 SSH 断开被杀），且 TUN 运行时不碰 Tailscale 设置。
+
+## 2026-10-29 v1.11.0：免费版、配置同步与分享、手机号账号、后台重做
+- 业主拍板：免费版全功能、同时 1 台；会员设备 = 免费名额 + 套餐（4 / 9 台）；本地导出导入人人可用，云同步与云端多份配置（普通 1、超级 5）只给会员；恢复密码 / 分享码 + 分享密码；手机号注册、用户名或手机号登录、每天一次短信找回；老账号每次登录提示补绑。设计 docs/plan-2026-10-29-free-sync-phone.md，后台验收 docs/admin-rebuild.md。
+- 发布：commit ee85138，releases/20261029-110510-ee85138-v1.11.0，exe SHA256 f862296d…，强制（min 1.9.51），迁移 0019，备份 backups/postgres-20261029-110510-ee85138-v1.11.0.sql.gz。
+- 生产新增 runtime.env：CONFIG_SYNC_KEY（资产 583，换钥前须先支持多版本密钥）、YUNPIAN_API_KEY / YUNPIAN_TPL_ID（资产 289，多站共用账号，全站每日熔断 300 条）。
+- 坑：①第一次部署 API 镜像 pnpm install 拉不到 Gitea 上的 admin-ui（后台改用 admin-ui 后 lockfile 带 git 依赖）→ Dockerfile 只装 `@proxysplit/api...` 与 `@proxysplit/db...`（后台是预构建 dist）。②短信 60 秒冷却原用应用时钟比数据库时间，两边差几秒会误判 → 改用数据库 now()。
+- 真库联调（pve-pg-proxysplit-it1029，本机 API）：账号与手机号 14 项、同步 / 云端配置 / 恢复密码 / 分享 17 项、免费档 3 项全过。滑块人机验证尚未接（短信只靠频率限制 + 全站熔断）。
