@@ -1,9 +1,14 @@
-# ProxySplit 发布与决策档案（L3）
+﻿# ProxySplit 发布与决策档案（L3）
 
 > 倒序（新在前），每个版本一个小节；条目原文迁自旧 .ankotti/MEMORY.md（commit、SHA256、releases id、incoming 目录、回滚方式、验收）。
 > 结论与坑已提炼到 `docs/memory/<主题>.md`；这里是事实存档，按标题取（`node ~/.ankotti/ai-kit/mem.mjs <关键词>`），不要整份读。
 > 约定：sz = 深圳生产机；incoming = sz `/opt/proxysplit/incoming/`；客户端回滚 = 该版本 incoming 目录 `python3 publish-client.py rollback` 并删 releases 表里该版本那行。
 
+## v1.12.1（2026-10-31 13:50，只发客户端，强制；Windows + macOS 同号）
+- 内容：仅接管选中程序驱动（WinDivert 1450）打不开时记住、只提示一次、文案不再让用户加信任区（客户火绒）。服务端没动：Gitea 上另一会话的 zhanghao 账号改动（迁移 0021）未上线，CHANGELOG 记为 v1.12.2（未发布）。
+- 构建提交 a33fc56（tag v1.12.1；rebase 后 main 上是 9c447f4）；incoming/client-v1.12.1-a33fc56；Windows SHA256 212e60ad92dbab2fb73bbce1795ff3461be1cddc5f28095caf6e6fd866a0fcd8（EV Sign）；macOS zip SHA256 96ce4b957852dcc21b6fb2e85bccc7a37e973b70d084f1d0f5ac9057df8428c8。
+- Mac 改在业主 Mac Studio（mac-studio）编：xuan-macbook-air 离线。Go 1.26.8 在 ~/sdk/go、wails 在 ~/go/bin；内核用 CORE_SRC / XRAY_SRC 传入（Gitea 令牌只在本机用，不送服务器）。
+- 验收：飞牛 latest（windows / macos）= 1.12.1 mandatory，三个 exe 地址和两个 zip 地址下载的 SHA256 一致。
 ## v1.12.0（2026-10-29 14:13，全站发布，强制；Windows + macOS 同号）
 - 内容：服务端对齐公司技术栈（Node 26 / pnpm 12.16 / TS 7 / Zod 4 / Fastify 5.12 / ioredis 6 / pg 8.23 / Vitest 5，@node-rs/argon2；镜像 node:26，pnpm 用 npm 从 npmmirror 装）；接入公司通知包 tongzhi-v1.7.0（迁移 0020，老公告迁入、/v1/announcements 兼容；到账 / 到期 / 佣金站内信）；客户端消息铃铛。
 - commit 5176b61（tag v1.12.0）；release id 20261029-141117-5176b61-v1.12.0；Windows SHA256 a7b13b5e5cf59e0c4e54a6ff56a0e7438d5a675f9735823028353904abfd66b6（Authenticode 已签）；macOS zip SHA256 0b7e41f7ab3321c0337eaa7b5fa27774c254a294a6f94f837a3828120aded211。备份 backups/postgres-20261029-141117-5176b61-v1.12.0.sql.gz；上一版 releases/20261029-134448-6ac6b6f-v1.11.3。

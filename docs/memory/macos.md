@@ -1,4 +1,4 @@
-# macOS 版（Apple 芯片，2026-10-28 起）
+﻿# macOS 版（Apple 芯片，2026-10-28 起）
 
 > 同一套代码、同一个版本号；平台差异都在 `*_darwin.go` / `*_windows.go` / `*_other.go`。
 
@@ -20,7 +20,7 @@
 | 未做 | AI 劫持（NRPT 是 Windows 的）、路由测试（借 Windows curl.exe）、WinDivert 相关、桌面快捷方式 | 各 `_other.go` 返回不支持 |
 
 ## 构建（在 Mac 上）
-- 构建机 `xuan-macbook-air`（同事的 iOS 开发机：先确认没在跑 Xcode，用 nice）；Go / pnpm / Xcode / wails 已装，目录 `~/ankotti-build/proxysplit`。
+- 构建机 `xuan-macbook-air`，离线时用业主的 `mac-studio`（~/ankotti-build，Go 在 ~/sdk/go/bin，内核文件在本机下载后传过去，用 CORE_SRC / XRAY_SRC 指定）；（同事的 iOS 开发机：先确认没在跑 Xcode，用 nice）；Go / pnpm / Xcode / wails 已装，目录 `~/ankotti-build/proxysplit`。
 - 前端在 Windows 编（私有包在 Gitea）：`pnpm --dir frontend build`，源码连 frontend/dist 打包传过去（只排除 .git、node_modules、server、website、*.exe）。
 - 正式版：`VERSION=x.y.z sh scripts/build-macos.sh` → build/bin/ProxySplit.app（ad-hoc 签名，没有苹果开发者账号）+ `ProxySplit-v<版本>-macos-arm64.zip`；编译参数取 build/release-kit/profile.json（与 Windows 正式版同一份）。
 - APFS 不分大小写：proxysplit.app 和 ProxySplit.app 是同一个目录，改名要经临时名。
