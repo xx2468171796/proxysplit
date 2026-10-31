@@ -2,7 +2,7 @@
 > 最后更新：2026-10-28。细节按下方路由表读 docs/memory/，逐版发布史在 docs/decisions.md（按标题取）。
 
 ## 当前状态
-- 线上：**v1.12.1 stable（强制，min 1.9.51；Windows + macOS 同号）**，2026-10-31 只发客户端（WinDivert 打不开只提示一次）。服务端仍是 2026-10-29 的 v1.12.0：current = releases/20261029-141117-5176b61-v1.12.0（tongzhi 消息铃铛，见 docs/memory/notify.md）。Gitea main 上的 zhanghao 账号改动未上线。Mac 构建见 docs/memory/macos.md。
+- 线上：**v1.12.2 stable（强制，min 1.9.51；Windows + macOS 同号）**，2026-10-31 只发客户端（Xray 内核 26.10.29）。服务端仍是 2026-10-29 的 v1.12.0：current = releases/20261029-141117-5176b61-v1.12.0（tongzhi 消息铃铛，见 docs/memory/notify.md）。Gitea main 上的 zhanghao 账号改动未上线。Mac 构建见 docs/memory/macos.md。
 - 前端已用 @ankotti/admin-ui 重写（React 19 + Vite 8 + TS 7 + pnpm 12.9.1，替换旧单文件 Svelte），随 v1.9.75 上线（已并入 main）；门禁 `pnpm --dir frontend check`，预览 `pnpm --dir frontend dev`。
 - 技术栈：Go + Wails + React 前端，sing-box 原生 TUN + process_name；服务端 Fastify + 深圳共享 PG（堡垒机数据源 sz-pg-proxysplit）。
 - **下一步**：公司统一服务接入第 2 期 zhanghao 账号（设计 docs/plan-2026-10-29-zhanghao.md），之后 huiyuan 跨站会员、zhifu 支付；日志详细化（net.conn_summary 连接成败汇总，业主 2026-10-28 要求，方便版本迭代排查）；有真实 IPv6 的电脑仍待实测（claude00002 是现成用户）；socks5 链式前置代理待业主决定；macOS 版：分支 feat/macos 已移植（Apple 芯片，构建机 xuan-macbook-air，见 docs/memory/macos.md），待 root 实测与随版本发布；不买 Apple 开发者账号（ad-hoc 签名）。发版前用正式下载包跑 alonehome2 自检，查别的会话未合并分支，测试机经 coord 轮流用。

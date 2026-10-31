@@ -4,6 +4,11 @@
 > 结论与坑已提炼到 `docs/memory/<主题>.md`；这里是事实存档，按标题取（`node ~/.ankotti/ai-kit/mem.mjs <关键词>`），不要整份读。
 > 约定：sz = 深圳生产机；incoming = sz `/opt/proxysplit/incoming/`；客户端回滚 = 该版本 incoming 目录 `python3 publish-client.py rollback` 并删 releases 表里该版本那行。
 
+## v1.12.2（2026-10-31 16:00，只发客户端，强制；Windows + macOS 同号）
+- 内容：Xray 旁路内核 26.10.21 → 26.10.29（上游 0afec66，Go 1.27.3）；客户端代码与 v1.12.1 相同，只换内置 xray。服务端没动（zhanghao 改动仍未上线，CHANGELOG 记在「服务端（未发布）」）。
+- 构建提交 66187b0（tag v1.12.2，gitea + GitHub）；incoming/client-v1.12.2-66187b0（previous/ 存 1.12.1 的 exe / manifest / macos zip）；Windows SHA256 f6725f23bb064dfdbbeca8119c1c41c4865a7a1f0dfeed85b85b3e27a6afe59c（EV Sign）；macOS zip SHA256 45ec7d854d4e888327d08b9670dd86420ddea79b0d86adc86e21cb6a7c0a5b94（mac-studio 编）；releases id windows 6926088b…、macos 061f7052…。
+- 验收：Windows 全量 go test（根包缺 frontend/dist 除外）+ Xray 真内核 e2e（VLESS+XHTTP 探针 / 端口代理 / 主内核）；Mac 上 configsync / license / updater / xray / core 测试过；飞牛 latest（windows / macos）= 1.12.2，versioned / latest / ai-latest exe 与两个 zip 的 SHA256 一致；internal/updater 以 1.12.1 身份 检查→下载→验签通过。
+- Mac 回滚：把 previous/proxysplit-macos-latest.zip 换回 downloads 并删 macos 那行 releases。
 ## v1.12.1（2026-10-31 13:50，只发客户端，强制；Windows + macOS 同号）
 - 内容：仅接管选中程序驱动（WinDivert 1450）打不开时记住、只提示一次、文案不再让用户加信任区（客户火绒）。服务端没动：Gitea 上另一会话的 zhanghao 账号改动（迁移 0021）未上线，CHANGELOG 记为 v1.12.2（未发布）。
 - 构建提交 a33fc56（tag v1.12.1；rebase 后 main 上是 9c447f4）；incoming/client-v1.12.1-a33fc56；Windows SHA256 212e60ad92dbab2fb73bbce1795ff3461be1cddc5f28095caf6e6fd866a0fcd8（EV Sign）；macOS zip SHA256 96ce4b957852dcc21b6fb2e85bccc7a37e973b70d084f1d0f5ac9057df8428c8。
