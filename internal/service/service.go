@@ -172,7 +172,6 @@ type Service struct {
 	wdReady          func() bool     // nil = coreupdate.WinDivertReady (tests stub it)
 	wdBroken         atomic.Bool     // WinDivert failed to open this run: use the TUN until restart
 	wdNote           atomic.Value    // string: captureFallbackNote, computed once at the fallback
-
 	followOnce    sync.Once // core follow (corefollow.go)
 	followStart   sync.Once
 	follower      *coreFollower
@@ -210,6 +209,7 @@ func New(binDir, dataDir string) (*Service, error) {
 	s.load()
 	s.openLogFiles()              // first: everything below may log
 	s.clashMode = s.cfg.ClashMode // restore last runtime mode (rule|global|direct)
+	s.restoreCaptureMemo()        // driver failed on this build recently: don't retry every launch
 	s.core = core.NewManager(filepath.Join(binDir, coreupdate.SingBoxExe), dataDir, func(line string) { s.log(line) })
 	sysproxy.Core = s.singBoxPath() // macOS: the control script runs this core
 	if exe, err := os.Executable(); err == nil {
