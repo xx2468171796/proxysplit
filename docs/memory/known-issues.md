@@ -22,3 +22,8 @@ Windows Authenticode 证书尚无，Ed25519 更新签名不能替代代码签名
 - FakeIP（白名单下没列出的程序查境外域名不再经节点）：用户决定等有能开 TUN 的测试机实测后单独发。
 - POWER云 节点 + 访问范围在真实墙内网络的实测（用 alonehome2）。
 - 堡垒机「翻墙」能力（按人授权、节点分类下发、延迟自检）。
+
+## 仅接管选中程序：WinDivertOpen 1450（2026-10-31）
+- 现象：装火绒的机器每次启动都报「系统资源不足」(1450)，自动回退整机虚拟网卡；加火绒信任区无效（推测是内核网络过滤层被拦）。
+- 处理：失败记到 `<数据目录>/capture-fail.json`，同一程序版本 7 天内直接用 TUN 不再重试；说明文字前端只弹一次（localStorage `ps-capture-note-shown`）；诊断行带 WinDivert 服务的 ImagePath / Start。代码 internal/service/capture_memo.go。
+- 查客户日志：client_log_chunks 搜「驱动诊断」。
