@@ -28,7 +28,9 @@ Go x/net、x/crypto、x/sys、x/text 已更新，Go 1.26.8 修复旧工具链 5 
 
 ## Xray 双内核（2026-10-27，internal/xray）
 sing-box 跑不了的节点（XHTTP/splithttp、mKCP、VLESS encryption）走 Xray 旁路内核，设计见 docs/architecture.md「Xray 双内核」。
-- 固定版本 bin/xray-release.json（与 core-release.json 分开，不动面板合同 / PanelPublicKey）：上游 v26.10.21 @ 1b1647c，Go 1.27.3（上游要求：紧急安全更新，去掉被破解的印度中间证书相关根证书），windows sha256 c77a00eb…1e15；macOS 用 bin/darwin/xray-release.json（94a9bfc0…de2e，scripts/build-xray-darwin.sh 编）。
+- 固定版本 bin/xray-release.json（与 core-release.json 分开，不动面板合同 / PanelPublicKey）：上游 v26.10.29 @ 0afec66（2026-10-31 升级，v1.12.2 起内置；上一版 26.10.21 @ 1b1647c），Go 1.27.3，windows sha256 07a332b7…ce10；macOS 用 bin/darwin/xray-release.json（2d4bfa91…89aa，scripts/build-xray-darwin.sh 编；Windows 交叉编译与 mac-studio 本机编译 sha 一致）。
+- 26.10.21 → 26.10.29 对我们的影响（逐条看过 19 个提交）：①#7249 明文 VLESS / Trojan（无 TLS、无 encryption）只认 Go `IsPrivate` / 回环 / 链路本地地址，TEST-NET（203.0.113.x）、CGNAT 100.64/10 等不再算私网，这类节点 Xray 拒启动——测试样例 mKCP 节点改用 10.x；②#7242 freedom 的 `fragment` / `noises` 改提示迁到 Finalmask，我们生成的配置不用这两个字段，无需迁移；③其余（XDRIVE 传输、WebSocket 正常关闭当 EOF、Darwin keepalive 修正、Windows 单栈网卡绑定、DNS 出站缓冲、geodata 下载限制、入站最后初始化）不改我们的配置。REALITY 要求 X25519MLKEM768 是 26.9.8 起的服务端行为，客户端 fp=chrome 已带（见下）。
+- 国内开发机 proxy.golang.org 被劫持（证书不对），编 Xray 前设 `GOPROXY=https://goproxy.cn,direct`（sumdb 校验照常）。
 - **两个内核都必须打进安装包**（业主 2026-10-28：用户可能没网，不能用时再下）：build.ps1 缺 bin/xray.exe 直接报错；Mac 的 fetch-core-darwin.sh 同时取 sing-box 和 xray。升级 = 查上游最新正式版 → 改两份 pin（tag / commit / go）→ 两台机器各编两次核对 sha 可复现 → 真内核测试（Windows 和 Mac 都跑 internal/core、internal/xray）→ 传 Gitea generic gonggong/xray/<版本>/ + 深圳 /opt/proxysplit/downloads/xray/<版本>/ → 发客户端。
 - 构建：`scripts/build-xray.ps1` 从 Go 模块代理按 commit 取源码，参数同上游发布流程（-trimpath -buildvcs=false -gcflags=all=-l=4 -ldflags "-X core.build=<7位> -s -w -buildid="），两次构建 sha 一致（可复现）。
 - 制品已上传（2026-10-27）：Gitea generic `gonggong/generic/xray/26.6.1/xray-windows-amd64.exe` + 公网 https://proxysplit.zygskins.cn/download/xray/26.6.1/（xray-release.json 的 `urls`，内置文件丢了时懒下载用）。发版用 `fetch-core.ps1 -RequireXray`。

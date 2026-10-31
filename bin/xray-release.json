@@ -1,13 +1,13 @@
 {
-  "version": "26.10.21",
-  "upstreamTag": "v26.10.21",
-  "upstreamCommit": "1b1647cd9ddf0abc34b981d4611fc03bcac1ca74",
+  "version": "26.10.29",
+  "upstreamTag": "v26.10.29",
+  "upstreamCommit": "0afec66085a85191e9dd2a4a6646c7c9a94688d1",
   "go": "1.27.3",
   "format": "exe",
-  "url": "http://192.168.110.246:3001/api/packages/gonggong/generic/xray/26.10.21/xray-windows-amd64.exe",
+  "url": "http://192.168.110.246:3001/api/packages/gonggong/generic/xray/26.10.29/xray-windows-amd64.exe",
   "urlAuth": "gitea",
-  "sha256": "c77a00eb84fb93ae044c2d771a1cabcc033b81e487253fbc35b12df6879c1e15",
-  "source": "上游 XTLS/Xray-core v26.10.21 用 scripts/build-xray.ps1 自编（-trimpath，参数同上游发布流程）；Gitea generic 包 gonggong/xray；只当 sing-box 跑不了的节点（XHTTP / mKCP / VLESS encryption）的旁路内核",
-  "urls": ["https://proxysplit.zygskins.cn/download/xray/26.10.21/xray-windows-amd64.exe"],
-  "verifiedAt": "2026-10-28"
+  "sha256": "07a332b714a3c0eee047a22a9c0ea749b64df33e4e1ff6d28a8c7f9ef943ce10",
+  "source": "上游 XTLS/Xray-core v26.10.29 用 scripts/build-xray.ps1 自编（-trimpath，参数同上游发布流程）；Gitea generic 包 gonggong/xray；只当 sing-box 跑不了的节点（XHTTP / mKCP / VLESS encryption）的旁路内核",
+  "urls": ["https://proxysplit.zygskins.cn/download/xray/26.10.29/xray-windows-amd64.exe"],
+  "verifiedAt": "2026-10-31"
 }

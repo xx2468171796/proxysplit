@@ -16,7 +16,9 @@ const (
 	linkXHTTPReality = "vless://a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d@203.0.113.10:443?encryption=none&security=reality&sni=www.microsoft.com&fp=chrome&pbk=Z84J2IelR9ch3k8VtlVhhs5ycBUlXA7wHBWcBrjqnAw&sid=6ba85179e30d4fc2&spx=%2F&type=xhttp&path=%2Fxhttp-a1&mode=auto&extra=%7B%22xmux%22%3A%7B%22maxConcurrency%22%3A%2216-32%22%7D%7D#HK"
 	linkXHTTPTLS     = "vless://a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d@cdn.example.com:443?encryption=none&security=tls&sni=cdn.example.com&fp=chrome&alpn=h2&type=xhttp&host=cdn.example.com&path=%2Fsplit&mode=packet-up#US"
 	linkEncryption   = "vless://a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d@203.0.113.11:8443?encryption=mlkem768x25519plus.native.0rtt.ptjHQxBQxTJ9MWr2cd5qWIflBSACHOevTauCQwa_71U&flow=xtls-rprx-vision&security=none&type=tcp#JP"
-	linkKCP          = "vless://a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d@203.0.113.12:2096?encryption=none&security=none&type=kcp&headerType=wechat-video&seed=s3cr3t#SG"
+	// Plain VLESS (no TLS / encryption) only passes Xray's check on a private address;
+	// since v26.10.29 (#7249) that means Go's IsPrivate, so TEST-NET 203.0.113.x no longer counts.
+	linkKCP = "vless://a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d@10.0.113.12:2096?encryption=none&security=none&type=kcp&headerType=wechat-video&seed=s3cr3t#SG"
 )
 
 func entries(t *testing.T) []Entry {

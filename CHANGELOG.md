@@ -3,7 +3,11 @@
 版本号以发布构建为准（`scripts/build-commercial.ps1 -Version <x.y.z>`，注入 `main.appVersion`），
 每个发布产物的 SHA256 见 `output/proxysplit-v<版本>.manifest.json`。
 
-## v1.12.2（未发布）
+## v1.12.2
+
+- Xray 内核升级到 26.10.29（官方最新稳定版）：XHTTP / mKCP / VLESS 加密节点连接更稳，含官方多项修复；已保存的节点和设置不受影响。
+
+## 服务端（未发布）
 
 - 账号管理接入公司统一账号：支持限时封禁（到期自动解除）、强制下线、昵称，后台每一步处置都有记录。
 
