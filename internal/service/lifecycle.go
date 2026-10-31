@@ -202,6 +202,7 @@ func (s *Service) startLocked() error {
 		_ = s.core.Stop()
 		s.wdBroken.Store(true)
 		s.wdNote.Store(s.captureFallbackNote())
+		s.noteCaptureFailure(err)
 		s.log("[capture] " + err.Error() + "；本次改用整机虚拟网卡，重启软件后再试「仅接管选中程序」")
 		s.log("[capture] 驱动诊断：" + s.captureDiag())
 		opts.Process = nil

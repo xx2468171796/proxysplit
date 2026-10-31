@@ -1,6 +1,7 @@
 package service
 
 import (
+	"errors"
 	"runtime"
 	"testing"
 
@@ -50,6 +51,29 @@ func TestProcessCaptureFallsBackWithoutDriver(t *testing.T) {
 	opts := core.Options{Split: true, SplitWhitelist: true, SplitGroups: []core.SplitGroup{{Key: "a", NodeTag: "proxy"}}}
 	if err := s.prepareProcessCapture(Settings{}, &opts, nil); err != nil || opts.Process != nil {
 		t.Fatalf("missing driver must fall back to TUN: %v", err)
+	}
+}
+
+// A failure is remembered for this build, so the next launch skips the driver;
+// a different build tries again.
+func TestCaptureMemoSkipsDriverOnSameBuild(t *testing.T) {
+	dir := t.TempDir()
+	s := &Service{onLog: func(string) {}, dataDir: dir}
+	s.noteCaptureFailure(errors.New("WinDivertOpen: 1450"))
+
+	again := &Service{onLog: func(string) {}, dataDir: dir}
+	again.restoreCaptureMemo()
+	if !again.wdBroken.Load() {
+		t.Fatal("same build must skip the driver after a recorded failure")
+	}
+
+	m, _ := again.loadCaptureMemo()
+	m.Build = "other"
+	again.saveCaptureMemo(m)
+	fresh := &Service{onLog: func(string) {}, dataDir: dir}
+	fresh.restoreCaptureMemo()
+	if fresh.wdBroken.Load() {
+		t.Fatal("a new build must try the driver again")
 	}
 }
 

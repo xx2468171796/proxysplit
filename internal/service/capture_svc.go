@@ -90,11 +90,15 @@ func (s *Service) prepareProcessCapture(set Settings, opts *core.Options, reuse 
 // captureFallbackNote tells the user why 仅接管选中程序 is on the TUN this run
 // and how to get it back.
 func (s *Service) captureFallbackNote() string {
-	msg := "「仅接管选中程序」的驱动被这台电脑拦下了，本次已自动改用「整机虚拟网卡」，代理照常可用。"
+	// The usual failure (系统资源不足 / 1450) is the network-filter layer being
+	// refused inside the kernel; an antivirus trust list does not reach it, so
+	// do not promise that adding one fixes it (customers added it and it kept
+	// popping up).
+	msg := "「仅接管选中程序」的驱动在这台电脑上打不开，已自动改用「整机虚拟网卡」，分流规则照样生效，不用处理。这台电脑之后会直接用整机虚拟网卡，这条提示只出现一次。"
 	if sec := DetectSecuritySoftware(); len(sec) > 0 {
-		return msg + "多半是" + strings.Join(sec, "、") + "拦的：在它的「信任区」里添加 proxysplit.exe 所在目录和 " + s.binDir + "，再重启 ProxySplit 即可恢复。"
+		return msg + "多半是" + strings.Join(sec, "、") + "的网络防护拦的（加信任区通常没用）；确实需要的话，可以关闭它的网络防护后重启电脑再试。"
 	}
-	return msg + "常见原因是安全软件或别的软件装了另一个版本的同类驱动；重启电脑后再试。"
+	return msg + "常见原因是安全软件或别的软件装了另一个版本的同类驱动；可以重启电脑后再试。"
 }
 
 // winDivertReady reports the driver files are in place (tests stub it).

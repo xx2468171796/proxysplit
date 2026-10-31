@@ -20,10 +20,26 @@ func windivertServices() []string {
 	var out []string
 	for _, n := range names {
 		if strings.Contains(strings.ToLower(n), "windivert") {
-			out = append(out, n)
+			out = append(out, n+serviceDetail(n))
 		}
 	}
 	return out
+}
+
+// serviceDetail is "(<driver path>,start=<n>)" for a service: a path outside
+// our bin folder means another program's WinDivert is registered.
+func serviceDetail(name string) string {
+	k, err := registry.OpenKey(registry.LOCAL_MACHINE, `SYSTEM\CurrentControlSet\Services\`+name, registry.QUERY_VALUE)
+	if err != nil {
+		return ""
+	}
+	defer k.Close()
+	img, _, _ := k.GetStringValue("ImagePath")
+	start, _, err := k.GetIntegerValue("Start")
+	if err != nil {
+		start = 99
+	}
+	return fmt.Sprintf("(%s,start=%d)", img, start)
 }
 
 // regDword reads a DWORD, -1 when missing.

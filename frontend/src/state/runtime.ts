@@ -108,6 +108,20 @@ export function restoreLogs(lines: string[]): void {
   runtime.set((s) => ({ logs: [...lines, ...s.logs].slice(-800) }));
 }
 
+const CAPTURE_NOTE_KEY = "ps-capture-note-shown";
+
+/** 驱动回退说明：这台电脑上已经弹过同一句就返回空串。 */
+export function onceCaptureNote(note: string): string {
+  if (!note) return "";
+  try {
+    if (localStorage.getItem(CAPTURE_NOTE_KEY) === note) return "";
+    localStorage.setItem(CAPTURE_NOTE_KEY, note);
+  } catch {
+    // 存不了就照常提示
+  }
+  return note;
+}
+
 /** 启动 / 停止代理。返回给用户看的错误（空串 = 成功）。 */
 export async function toggleRun(): Promise<string> {
   if (runtime.get().busy) return "";
@@ -121,8 +135,9 @@ export async function toggleRun(): Promise<string> {
     if (!err) {
       await refreshStatus();
       // 仅接管选中程序的驱动被拦、本次改用整机虚拟网卡时，Go 在状态里带一句说明。
+      // 同一句只弹一次（客户反馈每次启动都弹，很烦）；Go 那边也记住了，之后不再重试驱动。
       const st = runtime.get().status as (Status & { captureNote?: string }) | null;
-      return st?.captureNote ?? "";
+      return onceCaptureNote(st?.captureNote ?? "");
     }
     pushLog(`[error] ${err}`);
     // WinDivert errors mention 管理员 too, but rights are rarely the cause there.
