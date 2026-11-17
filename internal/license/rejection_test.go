@@ -122,3 +122,98 @@ func TestAuthedRequestKeepsStateWhenRefreshIsRateLimited(t *testing.T) {
 	}
 	assertSessionAndLeaseKept(t, "rate-limited refresh", c)
 }
+
+// A definitive rejection ends the session AND the lease, wherever it is seen:
+// keeping the lease let a suspended account keep the proxy for lease + grace.
+func TestDefinitiveRejectionDropsSessionAndLeaseEverywhere(t *testing.T) {
+	body := `{"error":{"code":"ACCOUNT_UNAVAILABLE","message":"Account is unavailable"}}`
+	checks := map[string]func(*Client) error{
+		"ReconcileSession":   func(c *Client) error { return c.ReconcileSession(context.Background()) },
+		"EnsureEntitled":     func(c *Client) error { return c.EnsureEntitled() },
+		"RefreshEntitlement": func(c *Client) error { return c.RefreshEntitlement() },
+	}
+	for name, check := range checks {
+		c := sessionClient(t, rejectingServer(t, http.StatusForbidden, "application/json", body))
+		if err := check(c); !isDefinitiveRejection(err) {
+			t.Fatalf("%s: got %v, want the definitive rejection", name, err)
+		}
+		if c.state.AccessToken != "" || c.state.RefreshToken != "" || c.state.DeviceID != "" || c.state.Lease != "" {
+			t.Fatalf("%s: session or lease survived a suspension: %+v", name, c.state)
+		}
+		if c.state.Username != "member" {
+			t.Fatalf("%s: the user name should stay prefilled for sign-in", name)
+		}
+		if st := c.Status(); st.SignedIn || st.Authenticated {
+			t.Fatalf("%s: still signed in / authenticated: %+v", name, st)
+		}
+		// It is on disk too: a restart must not resurrect the lease.
+		reloaded := &Client{path: c.path}
+		reloaded.load()
+		if reloaded.state.Lease != "" || reloaded.state.RefreshToken != "" {
+			t.Fatalf("%s: revocation was not saved: %+v", name, reloaded.state)
+		}
+	}
+}
+
+func TestAuthedRequestDropsSessionAndLeaseWhenRefreshIsRevoked(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		if r.URL.Path == "/v1/auth/refresh" {
+			_, _ = w.Write([]byte(`{"error":{"code":"REFRESH_INVALID","message":"登录已过期，请重新登录"}}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"error":{"code":"ACCESS_INVALID","message":"Authentication required"}}`))
+	}))
+	defer server.Close()
+	c := sessionClient(t, server)
+	c.mu.Lock()
+	err := c.authedRequestLocked(context.Background(), http.MethodGet, "/v1/me/orders", nil, nil)
+	c.mu.Unlock()
+	if !isDefinitiveRejection(err) {
+		t.Fatalf("got %v, want the definitive rejection", err)
+	}
+	if c.state.RefreshToken != "" || c.state.Lease != "" {
+		t.Fatalf("session or lease survived: %+v", c.state)
+	}
+}
+
+// Device slots full is not a revocation: the session stays for the unbind
+// screen, only the lease goes.
+func TestDeviceLimitKeepsSessionButDropsLease(t *testing.T) {
+	c, es := entitledClient(t)
+	es.leaseCode.Store("DEVICE_LIMIT")
+	es.leaseStatus.Store(http.StatusConflict)
+	if err := c.EnsureEntitled(); !isDeviceLimit(err) {
+		t.Fatalf("got %v, want DEVICE_LIMIT", err)
+	}
+	st := c.Status()
+	if !st.SignedIn || !st.DeviceLimitReached || st.Authenticated || c.state.Lease != "" {
+		t.Fatalf("expected a signed-in session waiting for a device slot: %+v", st)
+	}
+}
+
+// A lease can only be held by a signed-in session. One left behind without a
+// session (older clients kept it when a refresh was rejected) grants nothing.
+func TestLeaseWithoutSessionGrantsNothing(t *testing.T) {
+	c, _ := entitledClient(t)
+	lease := c.state.Lease
+	c.state.AccessToken, c.state.RefreshToken = "", ""
+	if err := c.EnsureEntitled(); err == nil {
+		t.Fatal("a lease without a session was accepted")
+	}
+	if c.state.Lease != "" {
+		t.Fatal("the orphan lease was kept")
+	}
+
+	// The same state arriving from disk after an upgrade.
+	c.state.Lease = lease
+	if err := c.saveLocked(); err != nil {
+		t.Fatal(err)
+	}
+	reloaded := &Client{path: c.path, apiURL: c.apiURL, publicKey: c.publicKey, fingerprint: c.fingerprint, version: c.version}
+	reloaded.load()
+	if st := reloaded.Status(); st.Authenticated || reloaded.state.Lease != "" {
+		t.Fatalf("orphan lease from disk still authenticates: %+v", st)
+	}
+}

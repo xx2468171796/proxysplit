@@ -328,13 +328,12 @@ func (c *Client) load() {
 		c.quarantineStateFile()
 		return
 	}
-	if loaded.SchemaVersion == 0 {
-		loaded.SchemaVersion = stateSchemaVersion
-		c.state = loaded
-		_ = c.saveLocked()
-		return
-	}
+	migrated := loaded.SchemaVersion == 0
+	loaded.SchemaVersion = stateSchemaVersion
 	c.state = loaded
+	if c.dropOrphanLeaseLocked() || migrated {
+		_ = c.saveLocked()
+	}
 }
 
 func (c *Client) quarantineStateFile() {
@@ -594,14 +593,7 @@ func (c *Client) authedRequestLocked(ctx context.Context, method, path string, i
 		return err
 	}
 	if err := c.refreshLocked(ctx); err != nil {
-		// A refresh token is a server-side session credential, not an offline
-		// license. If the server definitively rejects it, stop presenting the
-		// cached session as "signed in". Keep the signed lease so temporary
-		// offline entitlement can still be evaluated independently.
-		if isDefinitiveRejection(err) {
-			c.clearOnlineSessionLocked()
-			_ = c.saveLocked()
-		}
+		c.applyRejectionLocked(err)
 		return err
 	}
 	if err := c.request(ctx, method, path, input, output, c.state.AccessToken, extra...); err != nil {
@@ -609,14 +601,6 @@ func (c *Client) authedRequestLocked(ctx context.Context, method, path string, i
 	}
 	_ = c.saveLocked()
 	return nil
-}
-
-func (c *Client) clearOnlineSessionLocked() {
-	c.state.AccessToken = ""
-	c.state.RefreshToken = ""
-	c.state.DeviceID = ""
-	c.state.PendingDevice = false
-	c.state.SessionValidatedAt = 0
 }
 
 // ActivateCurrentDevice converts the short-lived "名额已满" login into a real
@@ -689,9 +673,8 @@ func (c *Client) refreshLocked(ctx context.Context) error {
 
 // ReconcileSession validates cached online credentials against the server
 // before the first UI snapshot is rendered. Network failures keep the cache
-// for offline use, and so do transient answers (rate limit, WAF page); only a
-// definitive rejection (isDefinitiveRejection) clears the online session,
-// never the independently signed offline lease.
+// for offline use, and so do transient answers (rate limit, WAF page); a
+// definitive rejection (isDefinitiveRejection) ends the session and the lease.
 func (c *Client) ReconcileSession(ctx context.Context) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -702,10 +685,7 @@ func (c *Client) ReconcileSession(ctx context.Context) error {
 	if err == nil {
 		return nil
 	}
-	if isDefinitiveRejection(err) {
-		c.clearOnlineSessionLocked()
-		_ = c.saveLocked()
-	}
+	c.applyRejectionLocked(err)
 	return err
 }
 
@@ -850,9 +830,11 @@ func (c *Client) RefreshEntitlement() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	if err := c.refreshLocked(ctx); err != nil {
+		c.applyRejectionLocked(err)
 		return err
 	}
 	if err := c.acquireLeaseLocked(ctx); err != nil {
+		c.applyRejectionLocked(err)
 		return err
 	}
 	return c.saveLocked()
@@ -866,29 +848,22 @@ func (c *Client) EnsureEntitled() error {
 	defer c.mu.Unlock()
 	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
 	defer cancel()
-	var onlineErr error
-	if c.state.RefreshToken != "" {
-		onlineErr = c.renewOnlineLocked(ctx)
-		if onlineErr == nil {
+	if c.state.RefreshToken == "" {
+		// Only a signed-in session holds a lease (see dropOrphanLeaseLocked).
+		if c.dropOrphanLeaseLocked() {
 			_ = c.saveLocked()
-			return nil
 		}
-		switch {
-		case isDeviceLimit(onlineErr):
-			c.state.PendingDevice = true
-		case isDefinitiveRejection(onlineErr):
-			// A revoked session or device sends the user back to sign-in
-			// instead of telling a paying customer "暂无有效会员".
-			c.clearOnlineSessionLocked()
-		}
+		return errors.New("请先登录")
 	}
-	if isDefinitiveRejection(onlineErr) || isDeviceLimit(onlineErr) {
-		// A definitive authenticated rejection (suspended account, unbound
-		// device, revoked session, device slots full) must stop immediately.
-		// Offline grace is for network / server outages and transient answers
-		// (rate limit, WAF page), never for an explicit revocation.
-		c.state.Lease = ""
+	onlineErr := c.renewOnlineLocked(ctx)
+	if onlineErr == nil {
 		_ = c.saveLocked()
+		return nil
+	}
+	if c.applyRejectionLocked(onlineErr) {
+		// An explicit rejection stops immediately. The offline grace below is
+		// for network / server outages and transient answers (rate limit, WAF
+		// page) only.
 		return onlineErr
 	}
 	claims, err := c.verifyLease(c.state.Lease)

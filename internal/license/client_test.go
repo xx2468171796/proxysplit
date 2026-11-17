@@ -108,7 +108,7 @@ func TestProtectedStateRoundTrip(t *testing.T) {
 	}
 }
 
-func TestClearOnlineSessionPreservesOfflineLease(t *testing.T) {
+func TestRevokePreservesAccountMetadataForSignIn(t *testing.T) {
 	c, _ := testClient(t)
 	c.state = state{
 		Username:      "member",
@@ -121,13 +121,16 @@ func TestClearOnlineSessionPreservesOfflineLease(t *testing.T) {
 		MaxDevices:    3,
 	}
 
-	c.clearOnlineSessionLocked()
+	c.revokeLocked()
 
 	if c.state.AccessToken != "" || c.state.RefreshToken != "" || c.state.DeviceID != "" || c.state.PendingDevice {
 		t.Fatalf("stale online session was not cleared: %+v", c.state)
 	}
-	if c.state.Lease != "signed-offline-lease" || c.state.Username != "member" || c.state.Plan != "Standard" || c.state.MaxDevices != 3 {
-		t.Fatalf("offline entitlement metadata was unexpectedly cleared: %+v", c.state)
+	if c.state.Lease != "" {
+		t.Fatalf("revocation kept the lease: %+v", c.state)
+	}
+	if c.state.Username != "member" || c.state.Plan != "Standard" || c.state.MaxDevices != 3 {
+		t.Fatalf("account metadata was unexpectedly cleared: %+v", c.state)
 	}
 }
 
@@ -198,7 +201,7 @@ func TestLoadPreservesUnsupportedFutureStateForNewerClient(t *testing.T) {
 	}
 }
 
-func TestReconcileSessionClearsRejectedSessionButKeepsLease(t *testing.T) {
+func TestReconcileSessionClearsRejectedSessionAndLease(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/auth/refresh" {
 			t.Fatalf("unexpected path: %s", r.URL.Path)
@@ -231,8 +234,8 @@ func TestReconcileSessionClearsRejectedSessionButKeepsLease(t *testing.T) {
 	if c.state.AccessToken != "" || c.state.RefreshToken != "" || c.state.DeviceID != "" || c.state.SessionValidatedAt != 0 {
 		t.Fatalf("rejected online session was not cleared: %+v", c.state)
 	}
-	if c.state.Lease != "signed-offline-lease" || c.state.Username != "member" {
-		t.Fatalf("offline entitlement was cleared: %+v", c.state)
+	if c.state.Lease != "" || c.state.Username != "member" {
+		t.Fatalf("a revoked session kept its lease (or lost the user name): %+v", c.state)
 	}
 }
 
