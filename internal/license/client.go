@@ -104,6 +104,7 @@ type Order struct {
 	CreatedAt   string `json:"createdAt"`
 	SplitIndex  int    `json:"splitIndex"`
 	SplitTotal  int    `json:"splitTotal"`
+	GroupID     string `json:"groupId"` // split orders of one purchase share it ("" = not split); the UI groups unpaid pieces by it
 }
 
 // Checkout is the result of creating an order. Split=true means the plan price

@@ -14,6 +14,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -377,5 +378,24 @@ func TestSyncPowerVPNSendsDealerAndStoresContact(t *testing.T) {
 	}
 	if st := c.Status(); st.Dealer != "wen" || st.Contact == nil || st.Contact.Brand != "文" {
 		t.Fatalf("status: %+v", st)
+	}
+}
+
+// The server sends the split-group id with every order (null when the order is
+// not split); the UI groups unpaid pieces by it.
+func TestOrderCarriesSplitGroupID(t *testing.T) {
+	var got struct {
+		Items []Order `json:"items"`
+	}
+	raw := `{"items":[{"orderNo":"A","groupId":"g-1","splitIndex":1,"splitTotal":2},{"orderNo":"B","groupId":null}]}`
+	if err := json.Unmarshal([]byte(raw), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Items[0].GroupID != "g-1" || got.Items[1].GroupID != "" {
+		t.Fatalf("groupId not decoded: %+v", got.Items)
+	}
+	out, _ := json.Marshal(got.Items[0])
+	if !strings.Contains(string(out), `"groupId":"g-1"`) {
+		t.Fatalf("groupId not passed on to the UI: %s", out)
 	}
 }

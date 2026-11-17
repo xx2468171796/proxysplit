@@ -27,7 +27,7 @@ function payable(o: MemberOrder, now: number): boolean {
   return o.status === "pending" && !!o.payUrl && time(o.expiresAt) > now + MIN_LEFT_MS;
 }
 
-/** 同一组拆单：有组号按组号，老版本 Go 绑定不带组号时按「套餐名 + 总笔数」认。 */
+/** 同一组拆单：有组号按组号（Go 的 license.Order.GroupID），服务端没给组号时按「套餐名 + 总笔数」认。 */
 const groupKey = (o: MemberOrder): string => o.groupId || `${o.planName}|${o.splitTotal}`;
 
 function splitGroup(pieces: MemberOrder[], now: number): Resumable | null {
