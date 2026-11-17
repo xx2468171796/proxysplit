@@ -97,8 +97,11 @@ export class CenterPay {
     const localOrderNo = (rec && localOrderNoOf(rec.meta)) ?? order.orderNo
     if (localOrderNo !== order.orderNo && !(await acceptReuse(localOrderNo))) {
       if (onOpen === 'cancel') throw centerRefusal('OPEN_ORDER', '你还有一笔未完成的其它订单，请先完成支付或等它过期后再购买')
+      // 重下沿用同一个中心单号（按 requestId 推出来的），SDK 刚把它在订单簿里标成 reused：重下成功后再把标记拿掉
+      //（先拿掉的话，重下失败会留下一条指向不存在中心单的活记录）。回调按单号查订单簿，不看这个标记，不受影响。
+      const link = await this.place(order, ctx, passed, 'cancel', acceptReuse)
       await this.book.reopen(order.orderNo)
-      return this.place(order, ctx, passed, 'cancel', acceptReuse)
+      return link
     }
     return { siteOrderNo: r.order.orderNo, payUrl: r.order.payUrl, checkoutUrl: safeHttps(r.order.checkoutUrl), expireAt: r.order.expireAt, localOrderNo }
   }

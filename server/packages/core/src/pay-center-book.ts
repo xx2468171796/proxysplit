@@ -31,8 +31,8 @@ export function pgCenterOrderBook(db: Queryable): SiteOrderBook & {
     async discard(siteOrderNo, reason) {
       await db.query(`UPDATE pay_center_orders SET discarded=$2 WHERE site_order_no=$1 AND discarded IS NULL`, [siteOrderNo, reason])
     },
-    // 中心还回的旧单不能接管、改为「取消后重下」时：SDK 刚把这笔本地订单的中心单号标成 reused，
-    // 重下会沿用同一个单号（按 requestId 推出来的），所以先把作废标记拿掉，查单 / 对账才找得到它。
+    // 中心还回的旧单不能接管、改为「取消后重下」时：SDK 把这笔本地订单的中心单号标成了 reused，而重下沿用同一个单号
+    //（按 requestId 推出来的）。重下成功后把作废标记拿掉，查单 / 对账才找得到它。
     async reopen(orderNo) {
       await db.query(`UPDATE pay_center_orders SET discarded=NULL WHERE order_no=$1 AND discarded='reused'`, [orderNo])
     },

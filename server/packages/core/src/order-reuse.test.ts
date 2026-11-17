@@ -13,6 +13,7 @@ function fakePool(o:{target:Row|null;fresh:Row|null;onSale?:boolean;limit?:numbe
       const s=sql.replace(/\s+/g,' ').trim()
       if(s.startsWith('SELECT 1 FROM orders t JOIN orders n')){
         const ok=!!o.target&&!!o.fresh&&['user_id','plan_id','amount_cents','provider_code'].every(k=>o.target![k]===o.fresh![k])&&o.target.group_id===null
+          &&s.includes("t.status IN ('pending','failed')")&&['pending','failed'].includes(String(o.target.status))
         return {rows:ok?[{}]:[],rowCount:ok?1:0}
       }
       throw new Error(`unexpected pool SQL: ${s} ${JSON.stringify(params)}`)
@@ -51,6 +52,9 @@ describe('中心还回旧未付单的接管',()=>{
       const f=fakePool({target:{...base,...diff,order_no:'OLD',status:'failed'},fresh:{...base,order_no:'NEW',status:'pending'}})
       expect(await isOrderReusableAs(f.pool,'OLD','NEW')).toBe(false)
     }
+    // 旧单本地已经是已付（后台手动确认过）而中心那张还开着：不能把它的码再给用户付一次
+    const paid=fakePool({target:{...base,order_no:'OLD',status:'paid'},fresh:{...base,order_no:'NEW',status:'pending'}})
+    expect(await isOrderReusableAs(paid.pool,'OLD','NEW')).toBe(false)
   })
 
   it('接管失败单：同一事务里作废新单、恢复旧单并换上新码',async()=>{
@@ -78,9 +82,10 @@ describe('中心还回旧未付单的接管',()=>{
     }
   })
 
-  it('旧单其实已经付了：只作废新单，不动已付的那笔',async()=>{
+  // 用户照着旧单的码付了钱，fulfillPaidOrder 会当成重复事件不发放 —— 扣钱不到账。所以已付的旧单一律不接管。
+  it('旧单本地已经付了（预判之后才变的）：拒绝接管，什么都不改',async()=>{
     const f=fakePool({target:{...base,order_no:'OLD',status:'paid'},fresh:{...base,order_no:'NEW',status:'pending'}})
-    expect(await adoptReusedOrder(f.pool,'NEW','OLD',link)).toEqual({ok:true})
-    expect(f.updates.map(u=>u.params)).toEqual([['NEW']])
+    expect(await adoptReusedOrder(f.pool,'NEW','OLD',link)).toEqual({ok:false,reason:'state'})
+    expect(f.updates).toHaveLength(0)
   })
 })

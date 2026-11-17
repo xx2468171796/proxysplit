@@ -276,6 +276,16 @@ describe('统一支付中心适配器',()=>{
     expect([...orders.values()].find(o=>o.order_no===second)?.discarded).toBeNull()
   })
 
+  it('不接管、改为取消后重下，但重下被中心拒了：新单的订单簿记录保持作废，不留一条指向不存在中心单的活记录',async()=>{
+    const {mock,store,service,orders}=setup()
+    await service.createOrder('user-1','plan-id','alice')
+    store.createOrders.mockResolvedValueOnce([{...order,orderNo:second,planId:'other-plan'}])
+    store.isOrderReusableAs.mockImplementationOnce(async()=>{mock.failNext('COOLDOWN','下单太频繁');return false})
+    await expect(service.createOrder('user-1','other-plan','alice')).rejects.toMatchObject({code:'PAY_COOLDOWN'})
+    expect(store.failOrder).toHaveBeenCalledWith(second)
+    expect([...orders.values()].find(o=>o.order_no===second)?.discarded).toBe('reused')
+  })
+
   it('接管时重新过在售 / 限购：超过限购 → PURCHASE_LIMIT，新单作废',async()=>{
     const {store,service}=setup()
     await service.createOrder('user-1','plan-id','alice')

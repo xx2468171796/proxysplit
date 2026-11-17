@@ -1,5 +1,5 @@
 // 统一支付中心把玩家同金额的旧未付单还回来（reused）时，本地订单的「接管」规则。
-// 只有同一用户、同一套餐、同一金额、同一通道的非拆单订单才接管（否则付的是 A 套餐的钱、发的是 B 套餐）；
+// 只有同一用户、同一套餐、同一金额、同一通道、还没付的非拆单订单才接管（否则付的是 A 套餐的钱、发的是 B 套餐）；
 // 接管 = 旧单重新变成可付，所以要在同一事务里重新过「套餐在售」与「限购」两道闸（与 store.createOrders 同一套条件）。
 
 type Rows={rows:Array<Record<string,unknown>>;rowCount?:number|null}
@@ -21,7 +21,7 @@ const SAME=['user_id','plan_id','amount_cents','provider_code'] as const
 export async function isOrderReusableAs(pool:Pick<ReusePool,'query'>,target:string,fresh:string):Promise<boolean>{
   const r=await pool.query(`SELECT 1 FROM orders t JOIN orders n ON n.order_no=$2
     WHERE t.order_no=$1 AND t.user_id=n.user_id AND t.plan_id=n.plan_id AND t.amount_cents=n.amount_cents
-      AND t.provider_code=n.provider_code AND t.group_id IS NULL`,[target,fresh])
+      AND t.provider_code=n.provider_code AND t.group_id IS NULL AND t.status IN ('pending','failed')`,[target,fresh])
   return r.rows.length>0
 }
 
@@ -35,11 +35,8 @@ export async function adoptReusedOrder(pool:ReusePool,fresh:string,target:string
       WHERE order_no=ANY($1::text[]) ORDER BY order_no FOR UPDATE`,[[target,fresh]])).rows
     const t=rows.find(r=>r.order_no===target),n=rows.find(r=>r.order_no===fresh)
     if(!t||!n||t.group_id!==null||SAME.some(k=>t[k]!==n[k]))return await refuse('mismatch')
-    if(t.status==='paid'){
-      await client.query(`UPDATE orders SET status='failed',updated_at=now() WHERE order_no=$1 AND status='pending'`,[fresh])
-      await client.query('COMMIT')
-      return {ok:true}
-    }
+    // 只接管还没付的单。旧单本地已付（如后台手动确认过）而中心那张还开着时绝不能接管：
+    // 用户照旧码付了钱，fulfillPaidOrder 会当成重复事件不发放。
     if(t.status!=='pending'&&t.status!=='failed')return await refuse('state')
     await client.query('SELECT pg_advisory_xact_lock(hashtext($1))',[purchaseLockKey(String(t.user_id),String(t.plan_id))])
     const plan=(await client.query(`SELECT purchase_limit_per_user FROM plans WHERE id=$1 AND ${PLAN_ON_SALE_SQL}`,[t.plan_id])).rows[0]
