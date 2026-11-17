@@ -10,7 +10,7 @@ const ERROR_TEXT: Record<string, string> = {
   SMS_CODE_INVALID: "验证码不对或已过期，请重新获取。",
   IDENTITY_TAKEN: "这个用户名已经被注册了，换一个试试。",
   REGISTRATION_DISABLED: "当前暂停开放注册，请稍后再来。",
-  IP_ACCOUNT_LIMIT: "当前网络注册的账号已达上限，请直接登录或联系客服。",
+  IP_ACCOUNT_LIMIT: "当前网络今天注册的账号已达上限，请明天再试，或直接登录已有账号。",
   DEVICE_ACCOUNT_LIMIT: "该设备注册的账号已达上限，请使用已有账号登录。",
   VALIDATION_ERROR: "填写的内容格式不对，请检查手机号、验证码、用户名和密码。",
   RATE_LIMITED: "操作太频繁了，请稍后再试。",
