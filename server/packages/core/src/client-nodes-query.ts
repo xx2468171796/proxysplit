@@ -15,6 +15,17 @@ function toPage(rows: Row[], page: number, pageSize: number): NodePage {
   return { items: rows.map(({ totalCount: _t, ...rest }) => rest), total, page, pageSize }
 }
 
+/**
+ * 「不属于员工账号」的存量行数：没绑账号（匿名设备）、账号已不存在、或账号不是员工（users.staff=false）。
+ * 三张表各数一次，设备数按三张表里出现过的设备号去重。只读，给后台看规模用。
+ */
+const OUTSIDER = (t: string) => `FROM ${t} x LEFT JOIN users u ON u.id=x.account_id WHERE u.id IS NULL OR u.staff=false`
+export const OUTSIDER_ROWS_SQL = `SELECT
+  (SELECT count(*)::int ${OUTSIDER('client_nodes')}) AS nodes,
+  (SELECT count(*)::int ${OUTSIDER('client_subs')}) AS subs,
+  (SELECT count(*)::int ${OUTSIDER('client_node_changes')}) AS changes,
+  (SELECT count(*)::int FROM (SELECT x.device_id ${OUTSIDER('client_nodes')} UNION SELECT x.device_id ${OUTSIDER('client_subs')}) d) AS devices`
+
 export class ClientNodesQuery {
   constructor(private readonly db: Db, private readonly cipher: LinkCipher) {}
 
@@ -67,7 +78,7 @@ export class ClientNodesQuery {
   /** 实时汇总：固定几条聚合，并发查询。 */
   async stats() {
     const since = new Date(Date.now() - 86_400_000).toISOString()
-    const [totals, byType, byServer, changes] = await Promise.all([
+    const [totals, byType, byServer, changes, outsiders] = await Promise.all([
       this.db.query(`SELECT count(DISTINCT device_id)::int AS devices,count(*)::int AS nodes,count(*) FILTER (WHERE latency<0)::int AS dead,
         count(*) FILTER (WHERE latency<>0)::int AS tested,(SELECT count(*)::int FROM client_subs WHERE removed_at IS NULL) AS subs
         FROM client_nodes WHERE removed_at IS NULL`),
@@ -75,13 +86,17 @@ export class ClientNodesQuery {
       this.db.query(`SELECT server AS key,count(*)::int AS nodes,count(DISTINCT device_id)::int AS devices,count(*) FILTER (WHERE latency<0)::int AS dead
         FROM client_nodes WHERE removed_at IS NULL AND server<>'' GROUP BY 1 ORDER BY 3 DESC,2 DESC LIMIT 20`),
       this.db.query(`SELECT count(*)::int AS n FROM client_node_changes WHERE at>=$1`, [since]),
+      this.db.query(OUTSIDER_ROWS_SQL),
     ])
+    const o = outsiders.rows[0] ?? {}
     const t = totals.rows[0] ?? {}
     const tested = Number(t.tested ?? 0), dead = Number(t.dead ?? 0)
     return {
       devices: Number(t.devices ?? 0), nodes: Number(t.nodes ?? 0), subs: Number(t.subs ?? 0), dead,
       deadRate: tested ? Math.round((1000 * dead) / tested) / 10 : 0,
       changes24h: Number(changes.rows[0]?.n ?? 0), byType: byType.rows, byServer: byServer.rows,
+      // 不属于员工账号的存量（匿名设备 / 账号已删 / 非员工账号；含已标记移除的行）：现在已不再接收，删不删等业主定。
+      nonStaff: { devices: Number(o.devices ?? 0), nodes: Number(o.nodes ?? 0), subs: Number(o.subs ?? 0), changes: Number(o.changes ?? 0) },
     }
   }
 

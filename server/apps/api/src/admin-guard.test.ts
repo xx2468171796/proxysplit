@@ -98,6 +98,35 @@ describe('后台权限：动管理员账号要超级管理员', () => {
   })
 })
 
+// 公司员工标记决定谁的节点清单会被收进来：只有超级管理员能改，改动由 store 同事务写审计。
+describe('公司员工开关', () => {
+  it('超管能开关；普通管理员 403；用户详情带上「我能不能改」', async () => {
+    const root = await appAs(ids.root)
+    const setUserStaff = vi.fn(async (id: string, staff: boolean) => (id === ids.customer ? { id, staff } : null))
+    Object.assign(root.store, { setUserStaff, getUserDetail: async () => ({ user: { id: ids.customer, staff: false } }) })
+    const on = await root.call('PATCH', `/v1/admin/users/${ids.customer}/staff`, { staff: true })
+    expect(on.statusCode).toBe(200)
+    expect(on.json()).toEqual({ id: ids.customer, staff: true })
+    expect(setUserStaff).toHaveBeenCalledWith(ids.customer, true, { actor: ids.root, ip: expect.any(String) })
+    expect((await root.call('PATCH', `/v1/admin/users/${ids.customer}/staff`, { staff: 'yes' })).statusCode).toBe(400)
+    expect((await root.call('PATCH', `/v1/admin/users/${ids.plan}/staff`, { staff: true })).statusCode).toBe(404)
+    const detail = await root.app.inject({ method: 'GET', url: `/v1/admin/users/${ids.customer}`, headers: { authorization: 'Bearer t' } })
+    expect(detail.json()).toMatchObject({ user: { staff: false }, viewer: { superAdmin: true } })
+    await root.app.close()
+
+    const staff = await appAs(ids.staff)
+    const blocked = vi.fn(async () => ({ id: ids.customer, staff: true }))
+    Object.assign(staff.store, { setUserStaff: blocked, getUserDetail: async () => ({ user: { id: ids.customer, staff: false } }) })
+    const denied = await staff.call('PATCH', `/v1/admin/users/${ids.customer}/staff`, { staff: true })
+    expect(denied.statusCode).toBe(403)
+    expect(denied.json()).toMatchObject({ error: { code: 'SUPER_ADMIN_REQUIRED' } })
+    expect(blocked).not.toHaveBeenCalled()
+    const seen = await staff.app.inject({ method: 'GET', url: `/v1/admin/users/${ids.customer}`, headers: { authorization: 'Bearer t' } })
+    expect(seen.json()).toMatchObject({ viewer: { superAdmin: false } })
+    await staff.app.close()
+  })
+})
+
 describe('超管名单', () => {
   it('SUPER_ADMIN_USERNAMES 配成空串 / 全是空白：按默认的 admin（否则没有任何人能管理管理员账号）', async () => {
     for (const value of ['', ' , ']) {

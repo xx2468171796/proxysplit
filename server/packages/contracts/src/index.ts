@@ -74,6 +74,8 @@ export const activateDeviceSchema = z.object({ device: deviceSchema })
 export const leaseSchema = z.object({ deviceFingerprint: z.string().min(32).max(128), appVersion: z.string().min(5).max(40) })
 export const userCreateSchema = z.object({ username: z.string().trim().min(3).max(64), password: z.string().min(10).max(256), role: z.enum(['user','admin']).default('user'), planId: z.string().uuid().optional(), days: z.number().int().min(1).max(3650).default(30) })
 export const userStatusSchema = z.object({ status: z.enum(['active','suspended','banned']) })
+/** 后台：公司员工标记（只有员工账号的节点清单上报才入库） */
+export const userStaffSchema = z.object({ staff: z.boolean() })
 // 管理端重置密码：与客户端注册保持一致，密码最低 8 位。
 export const userPasswordSchema = z.object({ password: z.string().min(8).max(256), requestId: z.string().trim().min(8).max(100).optional() })
 // 后台账号操作（zhanghao）：requestId = 幂等锚，前端在动作开始时生成一次、重试时复用；老后台不传时服务端现生成。

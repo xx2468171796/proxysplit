@@ -4,7 +4,7 @@ import rateLimit from '@fastify/rate-limit'
 import { Redis } from 'ioredis'
 import { randomUUID } from 'node:crypto'
 import { AppError, maskPhone, normalizeUsername } from '@proxysplit/shared'
-import { activateDeviceSchema, powervpnLoginSchema, powervpnSyncSchema, adminGrantSchema, adminPowervpnProvisionSchema, selfPasswordSchema, webRegisterSchema, analyticsQuerySchema, auditListQuery, deviceListQuery, downloadStatsQuery, leaseSchema, licenseExtendSchema, loginSchema, orderCreateSchema, orderListQuery, orderRefundSchema, planListQuery, planPatchSchema, planUpsertSchema, providerUpsertSchema, redeemCodeCreateSchema, redeemCodeStatusSchema, redeemListQuery, redeemSchema, refreshSchema, registerSchema, publicReleaseListQuery, releaseCreateSchema, releaseListQuery, settingPatchSchema, trackViewSchema, userCreateSchema, userListQuery, userPasswordSchema, userStatusSchema } from '@proxysplit/contracts'
+import { activateDeviceSchema, powervpnLoginSchema, powervpnSyncSchema, adminGrantSchema, adminPowervpnProvisionSchema, selfPasswordSchema, webRegisterSchema, analyticsQuerySchema, auditListQuery, deviceListQuery, downloadStatsQuery, leaseSchema, licenseExtendSchema, loginSchema, orderCreateSchema, orderListQuery, orderRefundSchema, planListQuery, planPatchSchema, planUpsertSchema, providerUpsertSchema, redeemCodeCreateSchema, redeemCodeStatusSchema, redeemListQuery, redeemSchema, refreshSchema, registerSchema, publicReleaseListQuery, releaseCreateSchema, releaseListQuery, settingPatchSchema, trackViewSchema, userCreateSchema, userListQuery, userPasswordSchema, userStaffSchema, userStatusSchema } from '@proxysplit/contracts'
 import { AccelTokens, assertUsernameNotPhone, ClientNodesQuery, ClientNodesStore, ConfigProfilesStore, ConfigSyncStore, LinkCipher, SyncCipher, createAccount, createCommercialCore, freeDevicesOf, paymentMethodsOf, DealerAdmin, DealerService, createNotify, createNotifyEvents, type Notify, licenseView, FenxiaoService, hashPassword, PaymentService, purgeSessions, releasePlatform, createCenterPayFromEnv, createSmsCenterFromEnv, type CenterPayContext, TelemetryQuery, TelemetryStore, type AuthService, type PgStore } from '@proxysplit/core'
 import type { ApiConfig } from './config.js'
 import { registerFenxiaoRoutes } from './fenxiao-routes.js'
@@ -15,8 +15,8 @@ import { createAdminGuard } from './admin-guard.js'
 import { idParam } from './params.js'
 import { DeviceLimiter, registerTelemetryRoutes, type TelemetryDeps } from './telemetry-routes.js'
 import { CALLBACK_LIMIT, FAIL_CLOSED, FLEET_LIMIT, LIMITER_DEFAULTS, NO_LIMIT, REFRESH_PER_FAMILY_PER_MINUTE, rateLimited, redisLimitStore, refreshFamilyKey } from './rate-limits.js'
-import { IpByteBudget, IpNewDeviceBudget } from './telemetry-budget.js'
-import { NODES_IP_BYTES_PER_10MIN, NODES_NEW_DEVICES_PER_IP_PER_HOUR, registerClientNodesRoutes, type ClientNodesDeps } from './client-nodes-routes.js'
+import { IpByteBudget } from './telemetry-budget.js'
+import { NODES_IP_BYTES_PER_10MIN, registerClientNodesRoutes, type ClientNodesDeps } from './client-nodes-routes.js'
 import { registerPhoneRoutes } from './phone-routes.js'
 import { registerSyncRoutes } from './sync-routes.js'
 import { registerAdminStatsRoutes, type AdminStatsDeps } from './admin-stats-routes.js'
@@ -98,7 +98,13 @@ export async function buildApp(config:ApiConfig,provided?:Core){
   // 同事节点上报（client-nodes-routes.ts，docs/节点上报.md）：解密链接只给 SUPER_ADMIN_USERNAMES 里的管理员
   const cipher=new LinkCipher(config.NODE_LINK_KEY)
   const clientNodes=core.clientNodes??{store:new ClientNodesStore(core.store.pool,cipher,msg=>app.log.warn(msg)),query:new ClientNodesQuery(core.store.pool,cipher)}
-  registerClientNodesRoutes(app,{...clientNodes,admin,optionalUser,perDevicePerMinute:6,perIpPerMinute:120,ipBudget:new IpByteBudget(NODES_IP_BYTES_PER_10MIN,10*60_000,redis,50_000,()=>Date.now(),'nodes'),newDevices:new IpNewDeviceBudget(NODES_NEW_DEVICES_PER_IP_PER_HOUR),runRetention:config.NODE_ENV!=='test',log:app.log,
+  // 只收员工账号、且令牌绑定的设备就是上报的那台（verifyAccess 现查库：员工标记、设备、账号状态都是当下的）。
+  const staffReporter=async(req:FastifyRequest,deviceId:string)=>{
+    const token=bearer(req.headers.authorization);if(!token||!deviceId)return null
+    const p=await core.auth.verifyAccess(token).catch(()=>null)
+    return p&&p.staff===true&&p.deviceHash===deviceId?p.userId:null
+  }
+  registerClientNodesRoutes(app,{...clientNodes,admin,staffReporter,perDevicePerMinute:6,ipBudget:new IpByteBudget(NODES_IP_BYTES_PER_10MIN,10*60_000,redis,50_000,()=>Date.now(),'nodes'),runRetention:config.NODE_ENV!=='test',log:app.log,
     isSuperAdmin:guard.isSuperAdmin,
     audit:(actor,action,type,id,ip,result,meta)=>core.store.audit(actor,action,type,id,ip,result,meta)})
   // 分佣冻结期到了转可提现：每 5 分钟扫一次（查余额时也会给本人补跑）。
@@ -218,7 +224,7 @@ export async function buildApp(config:ApiConfig,provided?:Core){
     return {items:plans.items,paymentMethods:paymentMethodsOf(provider,settings.paymentMethods),freeDevices:freeDevicesOf(settings)}
   })
   // membership 仍是原始会员权益（老客户端据此判断，免费为 null）；license 是实际权益（免费档 / 叠加设备数）。
-  app.get('/v1/me',{config:{rateLimit:FLEET_LIMIT}},async(req)=>{const p=await auth(req,true);const user=await core.store.findUserById(p.userId);return {user:user&&{id:user.id,username:user.username,status:user.status,phone:maskPhone(user.phone),phoneBound:!!user.phone,channel:user.channel??'',contact:await dealers.contactFor(user.id).catch(()=>null)},membership:await core.store.entitlement(p.userId),license:licenseView(await core.auth.effectiveFor(p.userId)),devices:await core.store.listUserDevices(p.userId)}})
+  app.get('/v1/me',{config:{rateLimit:FLEET_LIMIT}},async(req)=>{const p=await auth(req,true);const user=await core.store.findUserById(p.userId);return {user:user&&{id:user.id,username:user.username,status:user.status,phone:maskPhone(user.phone),phoneBound:!!user.phone,channel:user.channel??'',staff:user.staff===true,contact:await dealers.contactFor(user.id).catch(()=>null)},membership:await core.store.entitlement(p.userId),license:licenseView(await core.auth.effectiveFor(p.userId)),devices:await core.store.listUserDevices(p.userId)}})
   app.post('/v1/me/password',{config:{rateLimit:{max:5,timeWindow:'10 minutes'}}},async(req)=>{const p=await auth(req,true);return core.auth.changeOwnPassword(p.userId,selfPasswordSchema.parse(req.body),req.ip,p.deviceId)})
   app.post('/v1/me/redeem',{config:{rateLimit:{max:10,timeWindow:'1 minute'}}},async(req)=>{const p=await auth(req,true);const input=redeemSchema.parse(req.body);const result=await core.store.redeemCode(p.userId,input.code,req.ip);return {...result,membership:await core.store.entitlement(p.userId)}})
   app.get('/v1/me/devices',{config:{rateLimit:FLEET_LIMIT}},async(req)=>{const p=await auth(req,true);return {items:await core.store.listUserDevices(p.userId)}})
@@ -279,7 +285,10 @@ export async function buildApp(config:ApiConfig,provided?:Core){
     return core.store.downloadStats({from:fromDate,to:toDate})
   })
   app.get('/v1/admin/users',async(req)=>{await admin(req);return core.store.listUsers(userListQuery.parse(req.query))})
-  app.get('/v1/admin/users/:id',async(req)=>{await admin(req);const row=await core.store.getUserDetail(idParam(req));if(!row)throw new AppError('NOT_FOUND','用户不存在',404);return row})
+  // viewer.superAdmin：当前管理员能不能改「公司员工」开关（后台据此显示 / 禁用）
+  app.get('/v1/admin/users/:id',async(req)=>{const p=await admin(req);const row=await core.store.getUserDetail(idParam(req));if(!row)throw new AppError('NOT_FOUND','用户不存在',404);return {...row,viewer:{superAdmin:await guard.isSuperAdmin(p)}}})
+  // 公司员工标记：只有超级管理员能改（它决定谁的节点清单会被收进来）；审计行由 store 同事务写。
+  app.patch('/v1/admin/users/:id/staff',async(req)=>{const p=await admin(req);const id=idParam(req);if(!await guard.isSuperAdmin(p))throw new AppError('SUPER_ADMIN_REQUIRED','只有超级管理员能设置公司员工',403);const row=await core.store.setUserStaff(id,userStaffSchema.parse(req.body).staff,{actor:p.userId,ip:req.ip});if(!row)throw new AppError('NOT_FOUND','用户不存在',404);return row})
   app.post('/v1/admin/users',async(req)=>{const p=await admin(req);const input=userCreateSchema.parse(req.body);await guard.mayCreate(p,input.role);assertUsernameNotPhone(input.username);const passwordHash=await hashPassword(input.password);const created=await core.store.createUserWithLicense({username:normalizeUsername(input.username),role:input.role,days:input.days,passwordHash,...(input.planId?{planId:input.planId}:{})});await core.store.audit(p.userId,'admin.user.create','user',created.id,req.ip,'success');return created})
   app.patch('/v1/admin/users/:id/status',async(req)=>{const p=await admin(req);const id=idParam(req);await guard.mayActOn(p,id);const input=userStatusSchema.parse(req.body);if(!await core.store.setUserStatus(id,input.status))throw new AppError('NOT_FOUND','Resource not found',404);await core.store.audit(p.userId,'admin.user.status','user',id,req.ip,'success',{status:input.status});return {ok:true}})
   app.patch('/v1/admin/users/:id/password',async(req)=>{const p=await admin(req);const id=idParam(req);await guard.mayActOn(p,id);const input=userPasswordSchema.parse(req.body);await account.resetPassword(id,input.password,{operatorId:p.userId,requestId:input.requestId??randomUUID()});return {ok:true}})

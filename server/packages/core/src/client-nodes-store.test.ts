@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { ClientNodeReport } from '@proxysplit/contracts'
 import { clientNodeReportSchema } from '@proxysplit/contracts'
 import { ClientNodesStore, diffInventory, LinkCipher, sha256Hex } from './client-nodes-store.js'
-import { ClientNodesQuery } from './client-nodes-query.js'
+import { ClientNodesQuery, OUTSIDER_ROWS_SQL } from './client-nodes-query.js'
 import type { Db } from './telemetry-store.js'
 
 type Call = { sql: string; params: unknown[] }
@@ -61,7 +61,7 @@ describe('client node inventory replace', () => {
     ]
     const { db, calls } = fakeDb({ nodes: prevNodes })
     const next = report({ nodes: [{ ...old.nodes[0]!, port: 8443, latency: -1 }, old.nodes[1]!] })
-    await new ClientNodesStore(db, cipher).ingest(next, { accountId: null })
+    await new ClientNodesStore(db, cipher).ingest(next, { accountId: 'staff-1' })
     const ch = changesOf(calls).filter(c => c.item_id.startsWith('n'))
     expect(ch).toEqual([
       expect.objectContaining({ item_id: 'n1', action: 'update', fields: ['port'] }),
@@ -75,12 +75,16 @@ describe('client node inventory replace', () => {
     expect(diffInventory('node', 'node_id', ['name'], [{ ...row, latency: -1 }], [{ ...row, removed_at: null }])).toEqual([])
   })
 
-  it('keeps accepting a bound device after sign-out (review 2026-10-28), never clearing the account', async () => {
+  // 2026-11-18 起只有核实过的员工账号能上报（路由判定）：清单上的账号就是这次上报的人，换了员工登录就跟着换。
+  it('stamps the verified reporter on every row, replacing the previous owner', async () => {
     const { db, calls } = fakeDb({ nodes: [{ node_id: 'n1', account_id: 'owner', removed_at: null }] })
     const store = new ClientNodesStore(db, new LinkCipher(KEY))
-    expect(await store.ingest(report(), { accountId: null })).toMatchObject({ ignored: false, nodes: 2 })
-    const upsert = calls.find(c => c.sql.includes('INSERT INTO client_nodes'))
-    expect(upsert?.sql).toContain('coalesce(EXCLUDED.account_id,client_nodes.account_id)')
+    expect(await store.ingest(report(), { accountId: 'staff-2' })).toMatchObject({ ignored: false, nodes: 2 })
+    for (const table of ['client_nodes', 'client_subs']) {
+      const upsert = calls.find(c => c.sql.includes(`INSERT INTO ${table}`))
+      expect(upsert?.sql, table).toContain('account_id=EXCLUDED.account_id')
+      expect(upsert?.params[2], table).toBe('staff-2')
+    }
   })
 
   it('encrypts links (never stores plaintext) and decrypts on reveal', async () => {
@@ -134,12 +138,19 @@ describe('client node inventory replace', () => {
     expect(del.params).toEqual(['2026-09-28T00:00:00.000Z', 5])
   })
 
-  it('knownDevice: a device id counts as known once it has any inventory row', async () => {
-    const seen: Call[] = []
-    const query = async (sql: string, params: unknown[] = []) => { seen.push({ sql, params }); return { rows: params[0] === DEVICE ? [{}] : [], rowCount: 0 } }
-    const store = new ClientNodesStore({ query, connect: async () => ({ query, release: () => {} }) }, new LinkCipher(KEY))
-    expect(await store.knownDevice(DEVICE)).toBe(true)
-    expect(await store.knownDevice('b'.repeat(64))).toBe(false)
+  // 以前收进来的非员工 / 匿名设备的清单不删（等业主决定），后台统计里给出规模。
+  it('stats report how many stored rows do not belong to a staff account (anonymous device, deleted or non-staff account)', async () => {
+    const seen: string[] = []
+    const query = async (sql: string) => {
+      seen.push(sql)
+      return { rows: sql === OUTSIDER_ROWS_SQL ? [{ nodes: 1200, subs: 80, changes: 3000, devices: 310 }] : [{}], rowCount: 1 }
+    }
+    const stats = await new ClientNodesQuery({ query, connect: async () => ({ query, release: () => {} }) }, new LinkCipher(KEY)).stats()
+    expect(stats.nonStaff).toEqual({ devices: 310, nodes: 1200, subs: 80, changes: 3000 })
+    for (const table of ['client_nodes', 'client_subs', 'client_node_changes']) {
+      expect(OUTSIDER_ROWS_SQL).toContain(`FROM ${table} x LEFT JOIN users u ON u.id=x.account_id WHERE u.id IS NULL OR u.staff=false`)
+    }
+    expect(seen).toContain(OUTSIDER_ROWS_SQL)
   })
 
   it('list query paginates by page / pageSize and escapes LIKE', async () => {

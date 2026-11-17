@@ -66,7 +66,7 @@ export function UserDetailPage({ userId, active }: { userId: string; active: boo
           { id: 'logs', label: '日志·审计', icon: <FileClock />, count: d.activity.length },
         ]}
         render={(id, isActive) => {
-          if (id === 'profile') return <ProfileSection detail={d} />
+          if (id === 'profile') return <ProfileSection detail={d} onChanged={detail.reload} />
           if (id === 'membership') return <MembershipSection detail={d} />
           if (id === 'devices') return <DevicesSection detail={d} />
           if (id === 'cloud') return <CloudSection userId={d.user.id} active={isActive} member={!!lic && lic.tier !== 'trial'} />

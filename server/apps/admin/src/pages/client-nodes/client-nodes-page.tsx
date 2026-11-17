@@ -2,7 +2,7 @@
 // 统计走 useLiveResource 3 秒一刷（页面不可见或不是当前标签时停），每次拿到新统计，当前分区的列表静默刷新。
 import * as React from 'react'
 import { History, Rss, Share2 } from 'lucide-react'
-import { LiveStatus, StatStrip, TabbedPage, useLiveResource, type StatItem } from '@ankotti/admin-ui'
+import { InlineAlert, LiveStatus, StatStrip, TabbedPage, useLiveResource, type StatItem } from '@ankotti/admin-ui'
 import { get } from '@/lib/api'
 import type { PageProps } from '@/shell/workspace-context'
 import { NodesTab } from './nodes-tab'
@@ -49,10 +49,16 @@ export function ClientNodesPage({ active }: PageProps) {
     <StatStrip title="同事节点概况" label="同事节点概况" items={statItems(live.data)}
       actions={<LiveStatus state={live.state} dataTime={live.dataTime} failures={live.failures} />} />
   )
+  const o = live.data?.nonStaff
+  const outsiders = o && o.nodes + o.subs + o.changes > 0 ? (
+    <InlineAlert tone="warning" title="有不属于员工账号的历史清单">
+      {`${o.devices} 台设备、${o.nodes} 条节点、${o.subs} 条订阅、${o.changes} 条变化记录来自未登录设备或非员工账号。现在只接收员工账号的上报，这些旧数据没有删，停止上报约 90 天后会被例行清理；要提前删除或保留请告诉开发。`}
+    </InlineAlert>
+  ) : null
   return (
     <>
       <TabbedPage title="同事节点" value={tab} onValueChange={setTab} active={active}
-        description="各台客户端当前的全部节点和订阅，有变化时自动上报。链接加密保存，只有超级管理员能查看，每次查看都记审计。"
+        description="公司员工账号登录的客户端当前的全部节点和订阅，有变化时自动上报。链接加密保存，只有超级管理员能查看，每次查看都记审计。"
         sections={[
           { id: 'nodes', label: '节点', icon: <Share2 />, ...(live.data ? { count: live.data.nodes } : {}) },
           { id: 'subs', label: '订阅', icon: <Rss />, ...(live.data ? { count: live.data.subs } : {}) },
@@ -63,6 +69,7 @@ export function ClientNodesPage({ active }: PageProps) {
           return (
             <>
               {strip}
+              {outsiders}
               {id === 'nodes' ? <NodesTab tick={t} canReveal={canReveal} onReveal={onReveal} />
                 : id === 'subs' ? <SubsTab tick={t} canReveal={canReveal} onReveal={onReveal} />
                   : <ChangesList tick={t} />}

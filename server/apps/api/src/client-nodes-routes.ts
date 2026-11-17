@@ -1,11 +1,12 @@
 // 同事节点上报：POST /v1/client/nodes（客户端）+ /v1/admin/client-nodes|client-subs/*（后台）+ 变化记录保留期清理。
 // 合同 docs/节点上报.md / @proxysplit/contracts client-nodes.ts，入库 / 查询在 core client-nodes-store.ts / client-nodes-query.ts。
-import type { FastifyInstance, FastifyRequest } from 'fastify'
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import { AppError } from '@proxysplit/shared'
 import { clientNodeChangesQuery, clientNodeListQuery, clientNodeReportSchema, clientNodeRevealSchema, clientSubListQuery, clientSubRevealSchema } from '@proxysplit/contracts'
 import type { ClientNodesQuery, ClientNodesStore } from '@proxysplit/core'
 import { DeviceLimiter, gzipPreParsing } from './telemetry-routes.js'
-import type { IpByteBudget, IpNewDeviceBudget } from './telemetry-budget.js'
+import type { IpByteBudget } from './telemetry-budget.js'
+import { FLEET_LIMIT } from './rate-limits.js'
 
 /** 解压后单次上报上限（docs/节点上报.md：≤ 2 MB）。 */
 export const NODES_MAX_BODY_BYTES = 2 * 1024 * 1024
@@ -14,45 +15,57 @@ export const NODE_CHANGES_RETENTION_DAYS = 90
 export const NODE_STALE_RETENTION_DAYS = 90
 /** 每 IP 每 10 分钟最多收多少字节（解压后）；公司一个出口后几十台机器各报几次绰绰有余。 */
 export const NODES_IP_BYTES_PER_10MIN = 64 * 1024 * 1024
-/** 每 IP 每小时最多带进来多少个没见过的设备号（匿名上报才算）。 */
-export const NODES_NEW_DEVICES_PER_IP_PER_HOUR = 30
+
+/** 不是员工账号（或没登录、设备对不上）的上报：照样回 200，但什么都不存。 */
+export const IGNORED_REPORT = { ok: true, nodes: 0 } as const
 
 type Principal = { userId: string; role: string }
 type Audit = (actor: string, action: string, targetType: string, targetId: string, ip: string, result: string, metadata?: Record<string, unknown>) => Promise<void>
 export type ClientNodesDeps = {
-  store: Pick<ClientNodesStore, 'ingest' | 'purge' | 'knownDevice'>
+  store: Pick<ClientNodesStore, 'ingest' | 'purge'>
   query: Pick<ClientNodesQuery, 'listNodes' | 'listSubs' | 'changes' | 'stats' | 'revealNode' | 'revealSub'>
-  optionalUser: (req: FastifyRequest) => Promise<string | null>
+  /**
+   * 谁能上报（唯一判定）：请求带着员工账号（users.staff）的有效访问令牌，且令牌绑定的设备就是 deviceId 这台 → 返回账号 id；
+   * 其余（没令牌 / 令牌失效 / 不是员工 / 设备对不上）一律 null。
+   */
+  staffReporter: (req: FastifyRequest, deviceId: string) => Promise<string | null>
   admin: (req: FastifyRequest) => Promise<Principal>
   /** 当前管理员是不是超管（能解密链接）。 */
   isSuperAdmin: (p: Principal) => Promise<boolean>
   audit: Audit
   perDevicePerMinute: number
-  perIpPerMinute: number
-  /** 每 IP 字节预算、每 IP 新设备预算（telemetry-budget.ts）。谁能上报不在这里管：这两道只限量。 */
+  /** 每 IP 字节预算（telemetry-budget.ts）：只限量，谁能上报由 staffReporter 管。 */
   ipBudget: IpByteBudget
-  newDevices: IpNewDeviceBudget
   runRetention: boolean
   log: { warn: (obj: object, msg: string) => void; info: (obj: object, msg: string) => void }
 }
 
 export function registerClientNodesRoutes(app: FastifyInstance, d: ClientNodesDeps) {
   const limiter = new DeviceLimiter(d.perDevicePerMinute)
+  const reporters = new WeakMap<FastifyRequest, string>()
+  // 读请求体之前先认人（设备号看 X-Device-Id 头，后面再核对它与请求体一致）。不是员工 → 直接回 200、不读也不存：
+  // 已发布的客户端人人都在报，而且把非 2xx 当成「稍后重试」（30 秒起退避、永不放弃）——回 4xx 等于让全网客户端一直重试；
+  // 回 200 它就记为已送达，之后只在清单变化 / 每 6 小时保活时再发一次小请求。
+  // 回调写法：不放行的请求不调 done，生命周期就停在这里；放行的才继续解压、解析。
+  const staffGate = (req: FastifyRequest, reply: FastifyReply, _payload: unknown, done: (err?: Error | null) => void) => {
+    d.staffReporter(req, String(req.headers['x-device-id'] ?? '')).then(accountId => {
+      if (!accountId) { void reply.code(200).send(IGNORED_REPORT); return }
+      reporters.set(req, accountId)
+      done()
+    }, (error: unknown) => done(error instanceof Error ? error : new Error('staff check failed')))
+  }
   app.post('/v1/client/nodes', {
     bodyLimit: NODES_MAX_BODY_BYTES,
-    config: { rateLimit: { max: d.perIpPerMinute, timeWindow: '1 minute' } },
-    preParsing: gzipPreParsing(NODES_MAX_BODY_BYTES),
+    config: { rateLimit: FLEET_LIMIT }, // 每台在线客户端都会调（绝大多数被上面直接回 200）：按 IP 用 FLEET_LIMIT
+    preParsing: [staffGate, gzipPreParsing(NODES_MAX_BODY_BYTES)],
   }, async (req) => {
+    const accountId = reporters.get(req)
+    if (!accountId) return IGNORED_REPORT
     const report = clientNodeReportSchema.parse(req.body)
     const header = String(req.headers['x-device-id'] ?? '')
     if (header !== report.deviceId) throw new AppError('DEVICE_MISMATCH', '设备标识不一致', 400)
     if (!limiter.allow(report.deviceId)) throw new AppError('RATE_LIMITED', '操作过于频繁，请稍后再试', 429)
     if (!await d.ipBudget.charge(req.ip, Buffer.byteLength(JSON.stringify(req.body)))) throw new AppError('RATE_LIMITED', '上报数据过多，请稍后再试', 429)
-    const accountId = await d.optionalUser(req)
-    // 设备号是客户端自己给的：匿名带进来的新设备号按 IP 限量（登录用户可追溯，不限）。
-    if (!accountId && !await d.store.knownDevice(report.deviceId) && !d.newDevices.allow(req.ip, report.deviceId)) {
-      throw new AppError('RATE_LIMITED', '新设备上报过多，请稍后再试', 429)
-    }
     const stored = await d.store.ingest(report, { accountId })
     return { ok: true, nodes: stored.nodes }
   })

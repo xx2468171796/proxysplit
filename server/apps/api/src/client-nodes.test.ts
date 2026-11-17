@@ -4,7 +4,7 @@ import Fastify from 'fastify'
 import { AppError } from '@proxysplit/shared'
 import { buildApp } from './app.js'
 import { registerClientNodesRoutes } from './client-nodes-routes.js'
-import { IpByteBudget, IpNewDeviceBudget } from './telemetry-budget.js'
+import { IpByteBudget } from './telemetry-budget.js'
 import type { ApiConfig } from './config.js'
 
 const config: ApiConfig = {
@@ -19,18 +19,25 @@ const report = (over: Record<string, unknown> = {}) => ({
   subs: [], ...over,
 })
 
+/** verifyAccess 的替身：'staff' = 员工账号在 DEVICE 这台上的令牌；'customer' = 普通客户；'other-device' = 员工但令牌绑的是另一台；'good' = 后台管理员。 */
 function setup(opts: { role?: string; username?: string } = {}) {
-  const ingested: { accountId: string | null }[] = []
+  const ingested: { accountId: string }[] = []
   const audits: unknown[][] = []
+  const principals: Record<string, { userId: string; deviceId: string; role: string; staff: boolean; deviceHash: string | null }> = {
+    good: { userId: 'u1', deviceId: 'd', role: opts.role ?? 'admin', staff: false, deviceHash: null },
+    staff: { userId: 'staff-1', deviceId: 'd1', role: 'user', staff: true, deviceHash: DEVICE },
+    customer: { userId: 'cust-1', deviceId: 'd2', role: 'user', staff: false, deviceHash: DEVICE },
+    'other-device': { userId: 'staff-1', deviceId: 'd3', role: 'user', staff: true, deviceHash: 'c'.repeat(64) },
+  }
   const core = {
-    auth: { publicKeyPem: 'K', verifyAccess: async (t: string) => { if (t !== 'good') throw new Error('bad'); return { userId: 'u1', deviceId: 'd', role: opts.role ?? 'admin' } } },
+    auth: { publicKeyPem: 'K', verifyAccess: async (t: string) => { const p = principals[t]; if (!p) throw new Error('bad'); return p } },
     store: {
-      findUserById: async () => ({ id: 'u1', username: opts.username ?? 'admin' }),
+      findUserById: async () => ({ id: 'u1', username: opts.username ?? 'admin', role: opts.role ?? 'admin' }),
       audit: async (...args: unknown[]) => { audits.push(args) },
     },
     telemetry: { store: { ingest: async () => ({}), purge: async () => ({}) }, query: {} },
     clientNodes: {
-      store: { ingest: async (_r: unknown, ctx: { accountId: string | null }) => { ingested.push(ctx); return { nodes: 1, subs: 0, changes: 1, ignored: false } }, purge: async () => ({ changes: 0 }), knownDevice: async () => true },
+      store: { ingest: async (_r: unknown, ctx: { accountId: string }) => { ingested.push(ctx); return { nodes: 1, subs: 0, changes: 1, ignored: false } }, purge: async () => ({ changes: 0 }) },
       query: {
         listNodes: async (q: unknown) => ({ items: [], total: 0, q }), listSubs: async (q: unknown) => ({ items: [], q }), changes: async () => ({ items: [] }),
         stats: async () => ({ devices: 1 }),
@@ -45,37 +52,59 @@ function setup(opts: { role?: string; username?: string } = {}) {
 
 const post = (app: Awaited<ReturnType<typeof buildApp>>, payload: unknown, headers: Record<string, string> = {}) =>
   app.inject({ method: 'POST', url: '/v1/client/nodes', headers: { 'content-type': 'application/json', 'x-device-id': DEVICE, ...headers }, payload: payload as string })
+const asStaff = { authorization: 'Bearer staff' }
 
-describe('client node upload', () => {
-  it('accepts gzip, binds the account only for a valid token', async () => {
+// 业主定（2026-11-18）：节点清单只收公司员工账号的。原来任何人、不登录也能报，全网客户端都在报。
+describe('client node upload：只收员工账号', () => {
+  it('员工账号 + 令牌绑定的设备就是上报的这台：入库（gzip 照收），账号记到清单上', async () => {
     const { core, ingested } = setup()
     const app = await buildApp(config, core as never)
-    const anon = await post(app, gzipSync(JSON.stringify(report())), { 'content-encoding': 'gzip' })
-    expect(anon.statusCode).toBe(200)
-    expect(anon.json()).toEqual({ ok: true, nodes: 1 })
-    await post(app, report(), { authorization: 'Bearer good' })
-    await post(app, report(), { authorization: 'Bearer expired' })
-    expect(ingested.map(i => i.accountId)).toEqual([null, 'u1', null])
+    const r = await post(app, gzipSync(JSON.stringify(report())), { 'content-encoding': 'gzip', ...asStaff })
+    expect(r.statusCode).toBe(200)
+    expect(r.json()).toEqual({ ok: true, nodes: 1 })
+    expect(ingested).toEqual([{ accountId: 'staff-1' }])
     await app.close()
   })
 
-  it('rejects device id mismatch / missing header with 400', async () => {
+  // 已发布的客户端（v1.12.2–v1.12.5）人人都在报，非 2xx 会一直重试：对它们必须是安静的 200。
+  it('没登录 / 令牌失效 / 普通客户 / 员工但设备对不上 / 没带设备头：一律 200 {ok,nodes:0}，什么都不存', async () => {
     const { core, ingested } = setup()
     const app = await buildApp(config, core as never)
-    const bad = await post(app, report(), { 'x-device-id': 'b'.repeat(64) })
-    expect(bad.statusCode).toBe(400)
-    expect(bad.json()).toMatchObject({ error: { code: 'DEVICE_MISMATCH' } })
-    expect((await post(app, report(), { 'x-device-id': '' })).statusCode).toBe(400)
-    expect((await post(app, report({ deviceId: 'xyz' }))).statusCode).toBe(400)
+    const cases: Array<[string, Record<string, string>]> = [
+      ['anonymous', {}], ['expired token', { authorization: 'Bearer expired' }], ['customer', { authorization: 'Bearer customer' }],
+      ['staff on another device', { authorization: 'Bearer other-device' }], ['staff without device header', { ...asStaff, 'x-device-id': '' }],
+      ['admin console token (pending device)', { authorization: 'Bearer good' }],
+    ]
+    for (const [name, headers] of cases) {
+      const r = await post(app, report(), headers)
+      expect(r.statusCode, name).toBe(200)
+      expect(r.json(), name).toEqual({ ok: true, nodes: 0 })
+    }
     expect(ingested).toHaveLength(0)
     await app.close()
   })
 
-  it('rate-limits each device to 6 per minute', async () => {
-    const { core } = setup()
+  it('不是员工的请求连请求体都不读：坏的 gzip、不合合同的 JSON、超过 2 MB 的体都是同一个 200（不会变成 4xx 让客户端重试）', async () => {
+    const { core, ingested } = setup()
     const app = await buildApp(config, core as never)
+    expect((await post(app, Buffer.from('not gzip at all'), { 'content-encoding': 'gzip' })).statusCode).toBe(200)
+    expect((await post(app, { nonsense: true })).statusCode).toBe(200)
+    expect((await post(app, JSON.stringify({ pad: 'x'.repeat(3 * 1024 * 1024) }))).statusCode).toBe(200)
+    // 同样的坏请求换成员工：照常按合同校验
+    expect((await post(app, { nonsense: true }, asStaff)).statusCode).toBe(400)
+    expect(ingested).toHaveLength(0)
+    await app.close()
+  })
+
+  it('员工：请求体里的设备号必须和头一致（400）；每台设备每分钟 6 次', async () => {
+    const { core, ingested } = setup()
+    const app = await buildApp(config, core as never)
+    const bad = await post(app, report({ deviceId: 'b'.repeat(64) }), asStaff)
+    expect(bad.statusCode).toBe(400)
+    expect(bad.json()).toMatchObject({ error: { code: 'DEVICE_MISMATCH' } })
+    expect(ingested).toHaveLength(0)
     const codes: number[] = []
-    for (let i = 0; i < 7; i++) codes.push((await post(app, report())).statusCode)
+    for (let i = 0; i < 7; i++) codes.push((await post(app, report(), asStaff)).statusCode)
     expect(codes).toEqual([200, 200, 200, 200, 200, 200, 429])
     await app.close()
   })
@@ -117,60 +146,28 @@ describe('admin client node endpoints', () => {
   })
 })
 
-// 匿名上报口的三道预算（谁能上报不变）：每 IP 字节数、每 IP 新设备数；直接挂路由，预算调小好测。
+// 每 IP 字节预算（只对真正入库的员工上报计）：直接挂路由，预算调小好测。
 describe('client node upload budgets', () => {
-  async function bare(opts: { maxBytes?: number; newDevices?: number; known?: string[] } = {}) {
+  it('每 IP 字节预算：用完后 429，不再入库', async () => {
     const ingested: string[] = []
     const app = Fastify()
     app.setErrorHandler((error, _req, reply) => reply.code(error instanceof AppError ? error.status : 500).send({ error: { code: error instanceof AppError ? error.code : 'E' } }))
+    const one = Buffer.byteLength(JSON.stringify(report()))
     registerClientNodesRoutes(app, {
       store: {
         ingest: async r => { ingested.push(r.deviceId); return { nodes: r.nodes.length, subs: 0, changes: 0, ignored: false } },
         purge: async () => ({ changes: 0, clearedLinks: 0, staleRows: 0 }),
-        knownDevice: async id => (opts.known ?? []).includes(id),
       },
       query: {} as never, admin: async () => { throw new Error('unused') }, isSuperAdmin: async () => false, audit: async () => {},
-      optionalUser: async req => (req.headers.authorization === 'Bearer good' ? 'u1' : null),
-      perDevicePerMinute: 1000, perIpPerMinute: 1000, runRetention: false, log: { warn() {}, info() {} },
-      ipBudget: new IpByteBudget(opts.maxBytes ?? 1e9, 600_000, undefined, 100, () => 0, 'nodes'),
-      newDevices: new IpNewDeviceBudget(opts.newDevices ?? 1000, 3600_000, 100, () => 0),
+      staffReporter: async () => 'staff-1',
+      perDevicePerMinute: 1000, runRetention: false, log: { warn() {}, info() {} },
+      ipBudget: new IpByteBudget(one * 2, 600_000, undefined, 100, () => 0, 'nodes'),
     })
-    const send = (deviceId: string, headers: Record<string, string> = {}) =>
-      app.inject({ method: 'POST', url: '/v1/client/nodes', headers: { 'x-device-id': deviceId, ...headers }, payload: report({ deviceId }) })
-    return { app, ingested, send }
-  }
-  const dev = (n: number) => n.toString(16).padStart(64, '0')
-
-  it('每 IP 字节预算：用完后 429，不再入库', async () => {
-    const one = Buffer.byteLength(JSON.stringify(report()))
-    const t = await bare({ maxBytes: one * 2 })
-    expect((await t.send(DEVICE)).statusCode).toBe(200)
-    expect((await t.send(DEVICE)).statusCode).toBe(200)
-    const over = await t.send(DEVICE)
-    expect(over.statusCode).toBe(429)
-    expect(t.ingested).toHaveLength(2)
-    await t.app.close()
-  })
-
-  it('每 IP 新设备预算：匿名上报的没见过的设备号超过上限后 429；已见过的设备、带有效令牌的不受限', async () => {
-    const t = await bare({ newDevices: 2, known: [dev(9)] })
-    expect((await t.send(dev(1))).statusCode).toBe(200)
-    expect((await t.send(dev(2))).statusCode).toBe(200)
-    expect((await t.send(dev(1))).statusCode).toBe(200) // 同一台再报不重复占名额
-    expect((await t.send(dev(3))).statusCode).toBe(429)
-    expect((await t.send(dev(9))).statusCode).toBe(200) // 库里已有这台
-    expect((await t.send(dev(4), { authorization: 'Bearer good' })).statusCode).toBe(200) // 登录用户可追溯
-    expect(t.ingested).toEqual([dev(1), dev(2), dev(1), dev(9), dev(4)])
-    await t.app.close()
-  })
-
-  it('IpNewDeviceBudget：按窗口清零，不同 IP 各算各的', () => {
-    let now = 0
-    const b = new IpNewDeviceBudget(1, 1000, 100, () => now)
-    expect(b.allow('1.1.1.1', 'a')).toBe(true)
-    expect(b.allow('1.1.1.1', 'b')).toBe(false)
-    expect(b.allow('2.2.2.2', 'b')).toBe(true)
-    now = 1000
-    expect(b.allow('1.1.1.1', 'b')).toBe(true)
+    const send = () => app.inject({ method: 'POST', url: '/v1/client/nodes', headers: { 'x-device-id': DEVICE }, payload: report() })
+    expect((await send()).statusCode).toBe(200)
+    expect((await send()).statusCode).toBe(200)
+    expect((await send()).statusCode).toBe(429)
+    expect(ingested).toHaveLength(2)
+    await app.close()
   })
 })

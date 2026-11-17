@@ -387,5 +387,23 @@ describe('free tier and phone login', () => {
     await expect(auth.bindPhone(store.user.id, { phone: '13800138000', code: '123456' })).rejects.toMatchObject({ code: 'PASSWORD_INVALID', status: 401 })
     await expect(auth.bindPhone(store.user.id, { phone: '13800138000', code: '123456', currentPassword: 'wrong' })).rejects.toMatchObject({ code: 'PASSWORD_INVALID' })
   })
-})
 
+  // 公司员工标记（users.staff）：只加字段，已发布客户端不认识就忽略。客户端读 user.staff（登录 / 刷新 / 激活 / GET /v1/me）
+  // 或租约回应顶层的 staff（每 60 秒一次，改了标记一分钟内生效）。
+  it('exposes the staff flag on login, refresh and lease, and live on verifyAccess together with the device hash', async () => {
+    const { store, auth, device } = await fixture()
+    const plain = await auth.login({ username: 'alice', password: 'correct horse battery staple', device })
+    expect(plain.user).toMatchObject({ username: 'alice', staff: false })
+    store.user = { ...store.user, staff: true }
+    const login = await auth.login({ username: 'alice', password: 'correct horse battery staple', device })
+    expect(login.user).toMatchObject({ staff: true })
+    const refreshed = await auth.rotate({ refreshToken: login.refreshToken, deviceFingerprint: device.fingerprint })
+    expect(refreshed.user).toMatchObject({ staff: true })
+    expect(await auth.lease(store.user.id, login.deviceId, device.fingerprint, '1.12.5')).toMatchObject({ staff: true })
+    // 令牌里不带这个标记：每次现查库，关掉立刻生效
+    expect(await auth.verifyAccess(login.accessToken)).toMatchObject({ staff: true, deviceHash: hashFingerprint(device.fingerprint) })
+    store.user = { ...store.user, staff: false }
+    expect(await auth.verifyAccess(login.accessToken)).toMatchObject({ staff: false })
+    expect(await auth.lease(store.user.id, login.deviceId, device.fingerprint, '1.12.5')).toMatchObject({ staff: false })
+  })
+})

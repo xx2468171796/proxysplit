@@ -103,6 +103,19 @@ describe('动钱操作的审计与业务同事务', () => {
     expect(bad.verbs()).toEqual(['BEGIN', 'AUDIT', 'ROLLBACK'])
   })
 
+  it('公司员工开关：改动与审计同事务；用户不存在也留一行（not_found）', async () => {
+    const on = fakePool([['UPDATE users SET staff=$2', [{ id: 'u1', staff: true }]]])
+    expect(await storeOn(on).setUserStaff('u1', true, by)).toEqual({ id: 'u1', staff: true })
+    expect(on.verbs()).toEqual(['BEGIN', 'AUDIT', 'COMMIT'])
+    expect(on.audit()?.params).toEqual(['admin-1', 'admin.user.staff', 'user', 'u1', '1.2.3.4', 'success', { staff: true }])
+    const missing = fakePool([])
+    expect(await storeOn(missing).setUserStaff('nope', true, by)).toBeNull()
+    expect(missing.audit()?.params[5]).toBe('not_found')
+    const broken = fakePool([['UPDATE users SET staff=$2', [{ id: 'u1', staff: true }]]], { failAudit: true })
+    await expect(storeOn(broken).setUserStaff('u1', true, by)).rejects.toThrow('audit insert failed')
+    expect(broken.verbs()).toEqual(['BEGIN', 'AUDIT', 'ROLLBACK'])
+  })
+
   it('代理商：标记已结算 / 改分成比例与审计同事务', async () => {
     const settle = fakePool([['UPDATE dealer_commissions SET status', [{ id: 7, commissionCents: 3000, dealerSlug: 'wen' }, { id: 8, commissionCents: 1500, dealerSlug: 'wen' }]]])
     const r = await new DealerAdmin(settle.pool).settle([7, 8, 9], '转账单号 1', by)

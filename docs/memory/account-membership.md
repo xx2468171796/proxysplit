@@ -88,7 +88,7 @@ Ed25519 离线租约绑定账号 / 设备 / 硬件 / 期限；minimumVersion 会
 - 自助改密只吊销其它设备的会话，保留本人正在用的这台。
 - 限流（`apps/api/src/rate-limits.ts`）：Redis 不可用时默认放行（skipOnError），只有发短信、客户端注册、官网注册拒绝并回 503 `RATE_LIMIT_UNAVAILABLE`；键前缀 `proxysplit:rl:`。每台在线客户端都会定时调的接口（刷新、POWER云 同步、订单 / 通知轮询、配置同步、日志上报）统一 `FLEET_LIMIT` 每 IP 每分钟 600，刷新另加每会话 family 每分钟 30 次；人手动触发的接口限额不变。
 - **默认就限流（2026-11-18 第二轮）**：插件改成 `global:true`。没声明限额的路由（后台全部接口、少用的手动接口）**共用**一个每 IP 默认桶 `DEFAULT_LIMIT` 每分钟 600；在线客户端定时调的接口必须各自声明 `FLEET_LIMIT`（各有各的桶，本轮补上 lease、`/v1/me`、`/v1/me/devices`、public-key、logout、`/v1/releases/latest`、`/v1/catalog/plans`、`/v1/announcements`、`/v1/fenxiao/*` 查询）；两个支付回调 `CALLBACK_LIMIT` 每分钟 1200；`/health` 完全豁免。**新加客户端定时接口时要声明 FLEET_LIMIT 并加进 `rate-limits.test.ts` 的 fleetRoutes**，否则它会落进共用桶，被同一出口的其它请求挤掉。
-- 匿名节点上报口：每 IP 每 10 分钟 64 MB、库里没见过的设备号每 IP 每小时 30 个（内部功能，见 docs/节点上报.md）。
+- 节点上报口：只收公司员工账号（`users.staff`，后台超管开关）从自己设备发来的上报，其余回 200 但不读不存；每 IP 每 10 分钟 64 MB（内部功能，见 docs/节点上报.md）。
 - 后台：动管理员账号（改状态 / 重置密码 / 封禁 / 强制下线 / 解绑设备 …）或新建管理员必须是超级管理员（`admin-guard.ts`，`SUPER_ADMIN_USERNAMES`，配成空串按默认 admin）。
 - 会话 / 审计表：迁移 0024 补索引；成功刷新不再写审计；API 进程每小时清过期超过 1 天、或吊销 / 消费超过 7 天的会话行（`session-retention.ts`）。
 

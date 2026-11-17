@@ -7,8 +7,9 @@ import {
 import { cycle, isOnline, licenseStatus, maskPhone, minor, money, orderStatus, platform, tier, userStatus } from '@/lib/format'
 import { useWorkspace } from '@/shell/workspace-context'
 import { currentLicense, type UserDetail, type UserDevice, type UserLicense, type UserOrder } from './types'
+import { StaffSwitch } from './staff-switch'
 
-export function ProfileSection({ detail: d }: { detail: UserDetail }) {
+export function ProfileSection({ detail: d, onChanged }: { detail: UserDetail; onChanged: () => void }) {
   const lic = currentLicense(d.licenses)
   const st = userStatus(d.user.status)
   const phone = maskPhone(d.user.phone)
@@ -28,6 +29,8 @@ export function ProfileSection({ detail: d }: { detail: UserDetail }) {
           { label: '状态', value: <StatusBadge tone={st.tone}>{st.label}</StatusBadge>, ...(d.user.status === 'banned' ? { hint: `${d.user.bannedUntil ? '到期 ' + new Date(d.user.bannedUntil).toLocaleString() : '永久'} · ${d.user.bannedReason ?? ''}` } : {}) },
           { label: '昵称', value: d.user.nickname || '—' },
           { label: '角色', value: d.user.role === 'admin' ? '管理员' : '用户' },
+          { label: '公司员工', value: <StaffSwitch userId={d.user.id} staff={d.user.staff === true} canEdit={d.viewer?.superAdmin === true} onChanged={onChanged} />,
+            hint: d.viewer?.superAdmin ? '打开后，这个账号登录的客户端才会上报节点清单' : '只有超级管理员能改；打开后这个账号的客户端才上报节点清单' },
           { label: '注册时间', value: <DateTimeDisplay value={d.user.createdAt} /> },
           { label: '试用期', value: d.user.trialStartedAt ? <><DateTimeDisplay value={d.user.trialStartedAt} /> 至 <DateTimeDisplay value={d.user.trialEndsAt} /></> : '—' },
           { label: '资料更新', value: <DateTimeDisplay value={d.user.updatedAt} /> },

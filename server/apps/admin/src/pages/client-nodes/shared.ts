@@ -17,6 +17,8 @@ export type Bucket = { key: string; nodes: number; devices: number; dead?: numbe
 export type Stats = {
   devices: number; nodes: number; subs: number; dead: number; deadRate: number; changes24h: number
   byType: Bucket[]; byServer: Bucket[]; canReveal: boolean
+  /** 不属于员工账号的存量（匿名设备 / 账号已删 / 非员工账号），现在已不再接收。 */
+  nonStaff?: { devices: number; nodes: number; subs: number; changes: number }
 }
 
 export type ChangeRow = { id: string; deviceId: string; username: string | null; kind: 'node' | 'sub'; name: string; action: 'add' | 'remove' | 'update'; fields: string[]; at: string }

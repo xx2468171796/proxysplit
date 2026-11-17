@@ -23,7 +23,8 @@ export type PowervpnConfig={baseUrl:string;timeoutMs?:number;fetch?:typeof fetch
 // 短信：配了 apiKey 走云片；没配时开发环境把验证码打到日志，生产返回 503 SMS_UNAVAILABLE。
 export type SmsConfig={apiKey?:string|undefined;tplId:string;production:boolean;showDevCode?:boolean;log?:(msg:string)=>void;fetch?:typeof fetch}
 export type AuthConfig={accessSecret:string;refreshDays:number;licensePrivateKeyPem?:string;licensePublicKeyPem?:string;powervpn?:PowervpnConfig;sms?:SmsConfig}
-const userView=(user:UserRecord)=>({id:user.id,username:user.username,role:user.role,channel:user.channel??'',phoneBound:!!user.phone})
+// staff：公司员工账号（客户端据此决定报不报节点清单，见 docs/节点上报.md）。只加字段，老客户端不认识就忽略。
+const userView=(user:UserRecord)=>({id:user.id,username:user.username,role:user.role,channel:user.channel??'',phoneBound:!!user.phone,staff:user.staff===true})
 const phoneTaken=()=>new AppError('PHONE_TAKEN','该手机号已被其他账号使用',409)
 const identityTaken=()=>new AppError('IDENTITY_TAKEN','用户名或邮箱已被使用',409)
 /** 登录失败的唯一回应（账号不存在 / 密码错 / 被锁定都是它）；文案顺带提醒锁定，被锁的本人看得懂。 */
@@ -383,12 +384,14 @@ export class AuthService{
     const user=await this.store.findUserById(payload.sub)
     if(!user||user.status!=='active')throw new AppError('ACCOUNT_UNAVAILABLE','Account is unavailable',403)
     const deviceId=String(payload.did)
+    let deviceHash:string|null=null
     if(deviceId!=='pending'){
       const device=await this.store.findDevice(deviceId)
       if(!device||device.userId!==user.id||device.revoked)throw new AppError('DEVICE_MISMATCH','Device verification failed',401)
+      deviceHash=device.fingerprintHash
     }
-    // Role is live database state, never stale JWT input.
-    return {userId:user.id,deviceId,role:user.role}
+    // Role / staff are live database state, never stale JWT input. deviceHash = 这台设备的指纹哈希（pending 令牌没有设备 = null）。
+    return {userId:user.id,deviceId,role:user.role,staff:user.staff===true,deviceHash}
   }
   async lease(userId:string,deviceId:string,deviceFingerprint:string,appVersion:string){
     const user=await this.store.findUserById(userId);if(!user||user.status!=='active')throw new AppError('ACCOUNT_UNAVAILABLE','Account is unavailable',403)
@@ -400,6 +403,6 @@ export class AuthService{
     // 最低版本 / 最新版按这台设备的平台取（Windows 与 macOS 各发各的）。
     await this.store.touchDevice(deviceId,appVersion);const release=await this.store.latestRelease('stable',releasePlatform(device.platform));const expires=Math.min(Date.now()+settings.licenseLeaseMinutes*60000,ent.expiresAt.getTime())
     const token=await new SignJWT({typ:'license-lease',lid:ent.licenseId,did:deviceId,fph:device.fingerprintHash,plan:ent.planName,planCode:ent.planCode,tier:ent.tier,maxDevices:ent.maxDevices,features:ent.features,minVersion:release?.minimumVersion??'1.7.2',grace:settings.offlineGraceHours,entitlementExp:Math.floor(ent.expiresAt.getTime()/1000)}).setProtectedHeader({alg:'EdDSA',kid:'proxysplit-license-v1'}).setSubject(userId).setIssuedAt().setExpirationTime(Math.floor(expires/1000)).sign(this.privateKey)
-    return {lease:token,expiresAt:new Date(expires).toISOString(),offlineGraceHours:settings.offlineGraceHours,entitlementExpiresAt:ent.expiresAt.toISOString(),release}
+    return {lease:token,expiresAt:new Date(expires).toISOString(),offlineGraceHours:settings.offlineGraceHours,entitlementExpiresAt:ent.expiresAt.toISOString(),release,staff:user.staff===true}
   }
 }

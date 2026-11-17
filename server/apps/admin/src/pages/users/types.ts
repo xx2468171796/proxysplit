@@ -34,7 +34,7 @@ export type UserDetail = {
   user: {
     id: string; username: string; email: string | null; phone: string | null; role: string; status: UserRow['status']
     note: string | null; createdAt: string; updatedAt: string; trialStartedAt: string | null; trialEndsAt: string | null
-    nickname?: string | null; bannedUntil?: string | null; bannedReason?: string | null
+    nickname?: string | null; bannedUntil?: string | null; bannedReason?: string | null; staff?: boolean
   }
   stats: { activeDevices: number; paidOrders: number; paidAmountCents: number }
   fenxiao: FenxiaoSummary | null
@@ -42,6 +42,8 @@ export type UserDetail = {
   devices: UserDevice[]
   orders: UserOrder[]
   activity: UserActivity[]
+  /** 当前登录的管理员是不是超级管理员（决定能不能改「公司员工」）。 */
+  viewer?: { superAdmin: boolean }
 }
 export type UserCloud = {
   sync: { version: number; size: number; deviceName: string; updatedAt: string } | null

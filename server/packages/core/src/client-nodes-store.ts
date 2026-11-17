@@ -32,7 +32,8 @@ export class LinkCipher {
 }
 
 type Row = Record<string, unknown>
-export type NodeIngestContext = { accountId: string | null; now?: Date }
+/** accountId = 令牌核实过的员工账号（users.id）。 */
+export type NodeIngestContext = { accountId: string; now?: Date }
 export type NodeIngestResult = { nodes: number; subs: number; changes: number; ignored: boolean }
 type Change = { kind: 'node' | 'sub'; item_id: string; name: string; action: 'add' | 'remove' | 'update'; fields: string[] }
 
@@ -90,8 +91,7 @@ export class ClientNodesStore {
       await client.query('BEGIN')
       const prevNodes = await client.query(`SELECT node_id,account_id,removed_at,${NODE_FIELDS.join(',')} FROM client_nodes WHERE device_id=$1 FOR UPDATE`, [report.deviceId])
       const prevSubs = await client.query(`SELECT sub_id,removed_at,${SUB_FIELDS.join(',')} FROM client_subs WHERE device_id=$1 FOR UPDATE`, [report.deviceId])
-      // 用户都是同事、设备号是 64 位不可猜的指纹：清单照收（退出登录 / 换人登录后也要继续实时）。
-      // 账号只在带了有效令牌时更新，匿名上报不会清掉已绑的账号（coalesce）。
+      // 谁能上报在路由里已经定了（员工账号 + 设备相符，client-nodes-routes.ts staffReporter）：到这里的都带着核实过的账号。
       const changes = [
         ...diffInventory('node', 'node_id', NODE_FIELDS, nodes, prevNodes.rows),
         ...diffInventory('sub', 'sub_id', SUB_FIELDS, subs, prevSubs.rows),
@@ -111,12 +111,12 @@ export class ClientNodesStore {
     } finally { client.release() }
   }
 
-  private async replaceNodes(client: DbClient, deviceId: string, accountId: string | null, nodes: Row[], now: string) {
+  private async replaceNodes(client: DbClient, deviceId: string, accountId: string, nodes: Row[], now: string) {
     if (nodes.length) {
       await client.query(`INSERT INTO client_nodes(device_id,node_id,account_id,name,type,server,port,network,security,sni,core,via,sub_id,official,source,latency,tcp_latency,speed,link_enc,link_hash,selected,first_seen,last_seen,removed_at)
         SELECT $2,r.node_id,$3,r.name,r.type,r.server,r.port,r.network,r.security,r.sni,r.core,r.via,r.sub_id,r.official,r.source,r.latency,r.tcp_latency,r.speed,r.link_enc,r.link_hash,r.selected,$4,$4,NULL
         FROM jsonb_to_recordset($1::jsonb) AS r(node_id text,name text,type text,server text,port integer,network text,security text,sni text,core text,via text,sub_id text,official boolean,source text,latency integer,tcp_latency integer,speed double precision,link_enc text,link_hash text,selected boolean)
-        ON CONFLICT(device_id,node_id) DO UPDATE SET account_id=coalesce(EXCLUDED.account_id,client_nodes.account_id),name=EXCLUDED.name,type=EXCLUDED.type,
+        ON CONFLICT(device_id,node_id) DO UPDATE SET account_id=EXCLUDED.account_id,name=EXCLUDED.name,type=EXCLUDED.type,
           server=EXCLUDED.server,port=EXCLUDED.port,network=EXCLUDED.network,security=EXCLUDED.security,sni=EXCLUDED.sni,core=EXCLUDED.core,via=EXCLUDED.via,
           sub_id=EXCLUDED.sub_id,official=EXCLUDED.official,source=EXCLUDED.source,latency=EXCLUDED.latency,tcp_latency=EXCLUDED.tcp_latency,speed=EXCLUDED.speed,
           link_enc=EXCLUDED.link_enc,link_hash=EXCLUDED.link_hash,selected=EXCLUDED.selected,last_seen=EXCLUDED.last_seen,removed_at=NULL`,
@@ -126,24 +126,18 @@ export class ClientNodesStore {
       [deviceId, nodes.map(n => n.node_id), now])
   }
 
-  private async replaceSubs(client: DbClient, deviceId: string, accountId: string | null, subs: Row[], now: string) {
+  private async replaceSubs(client: DbClient, deviceId: string, accountId: string, subs: Row[], now: string) {
     if (subs.length) {
       await client.query(`INSERT INTO client_subs(device_id,sub_id,account_id,name,host,url_enc,url_hash,node_count,auto_update,last_update,first_seen,last_seen,removed_at)
         SELECT $2,r.sub_id,$3,r.name,r.host,r.url_enc,r.url_hash,r.node_count,r.auto_update,r.last_update,$4,$4,NULL
         FROM jsonb_to_recordset($1::jsonb) AS r(sub_id text,name text,host text,url_enc text,url_hash text,node_count integer,auto_update boolean,last_update timestamptz)
-        ON CONFLICT(device_id,sub_id) DO UPDATE SET account_id=coalesce(EXCLUDED.account_id,client_subs.account_id),name=EXCLUDED.name,host=EXCLUDED.host,
+        ON CONFLICT(device_id,sub_id) DO UPDATE SET account_id=EXCLUDED.account_id,name=EXCLUDED.name,host=EXCLUDED.host,
           url_enc=EXCLUDED.url_enc,url_hash=EXCLUDED.url_hash,node_count=EXCLUDED.node_count,auto_update=EXCLUDED.auto_update,last_update=EXCLUDED.last_update,
           last_seen=EXCLUDED.last_seen,removed_at=NULL`,
         [pgJson(subs), deviceId, accountId, now])
     }
     await client.query(`UPDATE client_subs SET removed_at=$3 WHERE device_id=$1 AND removed_at IS NULL AND NOT (sub_id=ANY($2::text[]))`,
       [deviceId, subs.map(s => s.sub_id), now])
-  }
-
-  /** 这台设备以前报过清单没有（上报口匿名、设备号是客户端自己给的：没见过的设备号按 IP 限量，见 client-nodes-routes.ts）。 */
-  async knownDevice(deviceId: string): Promise<boolean> {
-    const r = await this.db.query('SELECT 1 FROM client_nodes WHERE device_id=$1 UNION ALL SELECT 1 FROM client_subs WHERE device_id=$1 LIMIT 1', [deviceId])
-    return r.rows.length > 0
   }
 
   /**
