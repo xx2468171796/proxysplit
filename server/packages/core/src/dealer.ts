@@ -6,6 +6,7 @@ import https from 'node:https'
 import { aigwDealerSchema, DEALER_SLUG_RE } from '@proxysplit/contracts'
 import { insertAudit } from './audit.js'
 import { ipHash } from './trial.js'
+import { coreLog, errorText } from './log.js'
 
 type Db={ query(text:string,params?:unknown[]):Promise<{rows:unknown[];rowCount:number|null}> }
 /** 归属要开事务（改动 + 审计一起成）：服务持有的是连接池。分成函数拿到的是发货事务里的连接（Db）。 */
@@ -161,7 +162,14 @@ export async function recordDealerCommissionInTx(client:Db,orderId:string){
     await client.query('RELEASE SAVEPOINT dealer_commission')
   }catch(e){
     await client.query('ROLLBACK TO SAVEPOINT dealer_commission')
-    console.error('[dealer] commission failed',{orderId,error:(e as Error).message})
+    // 分成没记上要有人看得见：应用日志 error 级别，带订单号（查订单号自己再包一层保存点，查不出来也不能弄坏发货事务）。
+    let orderNo=''
+    try{
+      await client.query('SAVEPOINT dealer_commission_log')
+      orderNo=String(((await client.query('SELECT order_no AS "orderNo" FROM orders WHERE id=$1',[orderId])).rows[0] as {orderNo?:string}|undefined)?.orderNo??'')
+      await client.query('RELEASE SAVEPOINT dealer_commission_log')
+    }catch{await client.query('ROLLBACK TO SAVEPOINT dealer_commission_log').catch(()=>undefined)}
+    coreLog.error({orderNo,orderId,err:errorText(e)},'dealer commission not recorded')
   }
 }
 

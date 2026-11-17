@@ -2,6 +2,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { DealerService, recordDealerCommissionInTx, type DealerHttpGet } from './dealer.js'
 import { ipHash } from './trial.js'
+import { setCoreLogger } from './log.js'
 
 type Q = { text: string; params: unknown[] }
 type Reply = { rows?: unknown[]; rowCount?: number } | Error
@@ -107,11 +108,28 @@ describe('分成入账（recordDealerCommissionInTx）', () => {
     await recordDealerCommissionInTx(two.db, 'order-1')
     expect(inserted(two.calls)?.params.slice(6)).toEqual(['pending', ''])
   })
-  it('中途出错绝不挡发货：回滚到保存点，只记日志', async () => {
-    const { db, calls } = fakeDb(q => (q.text.startsWith('SELECT u.id') ? new Error('boom') : {}))
-    const err = vi.spyOn(console, 'error').mockImplementation(() => {})
-    await expect(recordDealerCommissionInTx(db, 'order-1')).resolves.toBeUndefined()
-    expect(calls.at(-1)?.text).toBe('ROLLBACK TO SAVEPOINT dealer_commission')
-    err.mockRestore()
+  // 以前只 console.error 一行、带的是订单内部 id：不进应用日志的 error 级别，运维对不上是哪张单。
+  it('中途出错绝不挡发货：回滚到保存点，并经应用日志按 error 级别记下订单号', async () => {
+    const { db, calls } = fakeDb(q => (q.text.includes('AS cluster') ? new Error('boom')
+      : q.text.startsWith('SELECT u.id') ? { rows: [order] }
+        : q.text.startsWith('SELECT order_no') ? { rows: [{ orderNo: 'PS20261118001' }] } : {}))
+    const log = { warn: vi.fn(), error: vi.fn() }
+    setCoreLogger(log)
+    try {
+      await expect(recordDealerCommissionInTx(db, 'order-1')).resolves.toBeUndefined()
+    } finally { setCoreLogger(null) }
+    expect(calls.map(c => c.text).filter(t => t.endsWith('SAVEPOINT dealer_commission'))).toEqual(['SAVEPOINT dealer_commission', 'ROLLBACK TO SAVEPOINT dealer_commission'])
+    expect(log.error).toHaveBeenCalledTimes(1)
+    expect(log.error.mock.calls[0]?.[0]).toEqual({ orderNo: 'PS20261118001', orderId: 'order-1', err: 'boom' })
+    expect(log.warn).not.toHaveBeenCalled()
+  })
+  it('连订单号都查不出来时也不抛错，日志里至少有订单 id', async () => {
+    const { db } = fakeDb(q => (q.text.startsWith('SELECT') ? new Error('db down') : {}))
+    const log = { warn: vi.fn(), error: vi.fn() }
+    setCoreLogger(log)
+    try {
+      await expect(recordDealerCommissionInTx(db, 'order-1')).resolves.toBeUndefined()
+    } finally { setCoreLogger(null) }
+    expect(log.error.mock.calls[0]?.[0]).toEqual({ orderNo: '', orderId: 'order-1', err: 'db down' })
   })
 })

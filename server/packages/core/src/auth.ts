@@ -11,6 +11,7 @@ import { PhoneAuth, yunpianSender } from './phone-auth.js'
 import type { SmsCenter, SmsSendContext } from './sms-center.js'
 import { withMinDuration } from './vendor/yanzheng/verify-client/index.js'
 import type { DealerContact, DealerService } from './dealer.js'
+import { coreLog, errorText } from './log.js'
 
 const encoder=new TextEncoder()
 const sha256=(value:string)=>createHash('sha256').update(value).digest('hex')
@@ -312,7 +313,7 @@ export class AuthService{
   private async completeLogin(user:UserRecord,inputDevice:DeviceInput,ip:string,action:string){
     // 官网注册的账号在这里补发试用：注册时没有设备信息，首次客户端登录才知道硬件。
     // 内部已做「一机一次 / 一号一次 / 已有权益不发」判断，失败不阻断登录。
-    try{await this.store.claimTrialOnLogin(user.id,hashFingerprint(inputDevice.hardwareHash??inputDevice.fingerprint),ip)}catch{/* 发放试用失败绝不能挡住登录 */}
+    try{await this.store.claimTrialOnLogin(user.id,hashFingerprint(inputDevice.hardwareHash??inputDevice.fingerprint),ip)}catch(e){coreLog.warn({userId:user.id,err:errorText(e)},'trial claim on login failed') /* 发放试用失败绝不能挡住登录，但要留痕 */}
     // 设备上限 = 免费名额 + 套餐设备数；管理员不限（控制台和发版自动化共用一个号）。
     const eff=await this.effectiveOf(user),license=licenseView(eff),deviceLimit=eff.deviceLimit
     // 不签发租约和刷新令牌：此令牌仅能在 15 分钟内查看/解绑本账号设备，不能启动代理。

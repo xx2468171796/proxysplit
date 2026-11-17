@@ -5,7 +5,7 @@ import { Redis } from 'ioredis'
 import { randomUUID } from 'node:crypto'
 import { AppError, maskPhone, normalizeUsername } from '@proxysplit/shared'
 import { activateDeviceSchema, powervpnLoginSchema, powervpnSyncSchema, adminGrantSchema, adminPowervpnProvisionSchema, selfPasswordSchema, webRegisterSchema, analyticsQuerySchema, auditListQuery, deviceListQuery, downloadStatsQuery, leaseSchema, licenseExtendSchema, loginSchema, orderCreateSchema, orderListQuery, orderRefundSchema, planListQuery, planPatchSchema, planUpsertSchema, providerUpsertSchema, redeemCodeCreateSchema, redeemCodeStatusSchema, redeemListQuery, redeemSchema, refreshSchema, registerSchema, publicReleaseListQuery, releaseCreateSchema, releaseListQuery, settingPatchSchema, trackViewSchema, userCreateSchema, userListQuery, userPasswordSchema, userStaffSchema, userStatusSchema } from '@proxysplit/contracts'
-import { AccelTokens, assertUsernameNotPhone, ClientNodesQuery, ClientNodesStore, ConfigProfilesStore, ConfigSyncStore, LinkCipher, SyncCipher, createAccount, createCommercialCore, freeDevicesOf, paymentMethodsOf, DealerAdmin, DealerService, createNotify, createNotifyEvents, type Notify, licenseView, FenxiaoService, hashPassword, PaymentService, purgeSessions, releasePlatform, createCenterPayFromEnv, createSmsCenterFromEnv, type CenterPayContext, TelemetryQuery, TelemetryStore, type AuthService, type PgStore } from '@proxysplit/core'
+import { setCoreLogger, AccelTokens, assertUsernameNotPhone, ClientNodesQuery, ClientNodesStore, ConfigProfilesStore, ConfigSyncStore, LinkCipher, SyncCipher, createAccount, createCommercialCore, freeDevicesOf, paymentMethodsOf, DealerAdmin, DealerService, createNotify, createNotifyEvents, type Notify, licenseView, FenxiaoService, hashPassword, PaymentService, purgeSessions, releasePlatform, createCenterPayFromEnv, createSmsCenterFromEnv, type CenterPayContext, TelemetryQuery, TelemetryStore, type AuthService, type PgStore } from '@proxysplit/core'
 import type { ApiConfig } from './config.js'
 import { registerFenxiaoRoutes } from './fenxiao-routes.js'
 import { registerDealerRoutes } from './dealer-routes.js'
@@ -31,6 +31,9 @@ export async function buildApp(config:ApiConfig,provided?:Core){
   // overwrites (rather than appends) X-Forwarded-For, so client-supplied hops
   // cannot become req.ip even though Docker changes the proxy source address.
   const app=Fastify({logger:{level:config.NODE_ENV==='test'?'silent':'info'},trustProxy:(_addr:string,hop:number)=>hop<1})
+  // core 里「出错但不挡主流程」的地方（登录补发试用、记代理商分成）经应用日志输出（core log.ts）
+  setCoreLogger(app.log)
+  app.addHook('onClose',async()=>{setCoreLogger(null)})
   // v1.9.20 and older clients sent Content-Type: application/json on a
   // bodyless DELETE. Fastify rejects that before routing, so normalize these
   // legacy requests while new clients stop sending the incorrect header.

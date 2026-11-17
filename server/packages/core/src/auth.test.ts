@@ -406,4 +406,19 @@ describe('free tier and phone login', () => {
     expect(await auth.verifyAccess(login.accessToken)).toMatchObject({ staff: false })
     expect(await auth.lease(store.user.id, login.deviceId, device.fingerprint, '1.12.5')).toMatchObject({ staff: false })
   })
+
+  // 以前是空 catch：补发试用的 SQL 出错（比如迁移没跑）完全没有痕迹。登录照常，但要留一行 warn，只带账号 id。
+  it('logs a warning when the trial claim on login fails, without blocking the login or leaking PII', async () => {
+    const { store, auth, device } = await fixture()
+    store.claimTrialOnLogin = async () => { throw new Error('relation "trial_identity_claims" does not exist') }
+    const { setCoreLogger } = await import('./log.js')
+    const warn: Array<[object, string]> = []
+    setCoreLogger({ warn: (obj, msg) => { warn.push([obj, msg]) }, error: () => {} })
+    try {
+      const login = await auth.login({ username: 'alice', password: 'correct horse battery staple', device })
+      expect(login.accessToken).toBeTruthy()
+    } finally { setCoreLogger(null) }
+    expect(warn).toEqual([[{ userId: store.user.id, err: 'relation "trial_identity_claims" does not exist' }, 'trial claim on login failed']])
+    expect(JSON.stringify(warn)).not.toContain('alice')
+  })
 })
