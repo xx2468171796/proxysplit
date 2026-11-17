@@ -26,7 +26,7 @@ var (
 	reJWT     = regexp.MustCompile(`\beyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}`)
 	reAuthHdr = regexp.MustCompile(`(?i)\b(authorization|proxy-authorization)(\s*[:=]\s*)("?)(bearer|basic)?\s*[^\s",}]+`)
 	reBearer  = regexp.MustCompile(`(?i)\b(bearer|basic)\s+[A-Za-z0-9._~+/=-]{8,}`)
-	reKV      = regexp.MustCompile(`(?i)("?)\b(password|passwd|pass|pwd|secret|token|access_?token|refresh_?token|api_?token|private_?key|public_?key|short_?id|uuid|psk|pre_?shared_?key|auth_?str|auth|obfs_?password|lan_?pass|lan_?user|username|user)("?)(\s*[:=]\s*)("?)([^\s",;&}]+)`)
+	reKV      = regexp.MustCompile(`(?i)("?)\b(` + kvSecretPattern() + `)("?)(\s*[:=]\s*)("?)([^\s",;&}]+)`)
 	reUUID    = regexp.MustCompile(`(?i)\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b`)
 	reEmail   = regexp.MustCompile(`\b([A-Za-z0-9._%+-])[A-Za-z0-9._%+-]*@([A-Za-z0-9.-]+\.[A-Za-z]{2,})\b`)
 	// Long base64 / base64url / hex runs: Reality public keys (43 chars), PSKs,
@@ -47,6 +47,34 @@ var (
 	// not embedded in a longer digit run.
 	reMobile = regexp.MustCompile(`(^|[^0-9])((?:\+?86)?1[3-9][0-9])([0-9]{6})([0-9]{2})($|[^0-9])`)
 )
+
+// kvSecretNames are the field names whose value is a secret wherever it shows
+// up: as key=value / "key":"value" in a log line (reKV) and as a key of the
+// generated core config (SecretField, used by the diagnostics snapshot). One
+// list, so the two can never disagree. "_" also matches no separator.
+var kvSecretNames = []string{
+	"password", "passwd", "pass", "pwd", "secret", "token", "access_token", "refresh_token", "api_token",
+	"private_key_passphrase", "passphrase", "private_key", "public_key", "short_id", "uuid", "psk", "pre_shared_key",
+	"auth_str", "auth", "obfs_password", "plugin_opts", "lan_pass", "lan_user", "username", "user",
+}
+
+func kvSecretPattern() string {
+	return strings.ReplaceAll(strings.Join(kvSecretNames, "|"), "_", "_?")
+}
+
+var kvSecretSet = func() map[string]bool {
+	m := make(map[string]bool, len(kvSecretNames))
+	for _, n := range kvSecretNames {
+		m[strings.ReplaceAll(n, "_", "")] = true
+	}
+	return m
+}()
+
+// SecretField reports whether a config field name (any case, "_" or "-"
+// separated) is one whose value Sanitize would redact in a log line.
+func SecretField(name string) bool {
+	return kvSecretSet[strings.NewReplacer("_", "", "-", "").Replace(strings.ToLower(name))]
+}
 
 // sharedHome lists profile folders that are not a person.
 var sharedHome = map[string]bool{"public": true, "shared": true, "default": true, "all users": true, "default user": true}

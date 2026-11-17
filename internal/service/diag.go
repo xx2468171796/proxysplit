@@ -11,6 +11,7 @@ import (
 
 	"proxysplit/internal/core"
 	"proxysplit/internal/nodewarm"
+	"proxysplit/internal/telemetry"
 )
 
 // Self-diagnostics for AI / remote troubleshooting (exposed through the local
@@ -200,11 +201,18 @@ func readAppLists(dir string) map[string][]string {
 	return out
 }
 
-// secretKeys are core-config fields whose values never leave the machine.
-var secretKeys = map[string]bool{
-	"password": true, "uuid": true, "private_key": true, "secret": true, "short_id": true,
-	"pre_shared_key": true, "auth": true, "auth_str": true, "token": true, "users": true,
-	"obfs": true, "headers": true,
+// secretContainers are core-config objects that hold credentials under
+// arbitrary keys (inbound users, obfs settings, HTTP headers): masked whole.
+var secretContainers = map[string]bool{"users": true, "obfs": true, "headers": true}
+
+// secretKey reports whether a core-config field never leaves the machine. The
+// field names are telemetry.SecretField — the same list the log sanitiser
+// uses (password, uuid, private_key, private_key_passphrase, plugin_opts,
+// short_id, …) — with one deliberate exception: a Reality / WireGuard
+// public_key opens nothing without the uuid / private key next to it (both
+// masked) and is what a mismatch diagnosis needs to see.
+func secretKey(k string) bool {
+	return secretContainers[k] || (k != "public_key" && telemetry.SecretField(k))
 }
 
 func redactCoreConfig(b []byte) json.RawMessage {
@@ -220,7 +228,7 @@ func redact(v any) any {
 	switch t := v.(type) {
 	case map[string]any:
 		for k, val := range t {
-			if secretKeys[k] {
+			if secretKey(k) {
 				t[k] = "***"
 				continue
 			}

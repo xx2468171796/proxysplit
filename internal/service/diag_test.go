@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"proxysplit/internal/core"
+	"proxysplit/internal/telemetry"
 )
 
 func TestLogRingSinceAcrossTrim(t *testing.T) {
@@ -34,15 +35,37 @@ func TestLogRingSinceAcrossTrim(t *testing.T) {
 }
 
 func TestRedactCoreConfig(t *testing.T) {
-	in := `{"outbounds":[{"type":"vless","uuid":"u-1","password":"p","tls":{"reality":{"public_key":"pk","short_id":"s"}},"server":"h"}],"experimental":{"clash_api":{"secret":"c"}}}`
+	in := `{"outbounds":[{"type":"vless","uuid":"u-1","password":"p","tls":{"reality":{"public_key":"pk","short_id":"s"}},"server":"h"},
+	 {"type":"shadowsocks","plugin":"obfs-local","plugin_opts":"obfs=http;obfs-host=po"},
+	 {"type":"ssh","user":"root-u","private_key_passphrase":"pp","private_key":"pkey"},
+	 {"type":"socks","username":"su","password":"sp"}],"experimental":{"clash_api":{"secret":"c"}}}`
 	out := string(redactCoreConfig([]byte(in)))
-	for _, secret := range []string{"u-1", `"p"`, `"s"`, `"c"`} {
+	for _, secret := range []string{"u-1", `"p"`, `"s"`, `"c"`, "obfs-host=po", `"pp"`, "pkey", "root-u", `"su"`, `"sp"`} {
 		if strings.Contains(out, secret) {
 			t.Fatalf("%s leaked: %s", secret, out)
 		}
 	}
-	if !strings.Contains(out, `"server":"h"`) || !strings.Contains(out, `"public_key":"pk"`) {
+	if !strings.Contains(out, `"server":"h"`) || !strings.Contains(out, `"public_key":"pk"`) || !strings.Contains(out, `"plugin":"obfs-local"`) {
 		t.Fatalf("non-secret fields lost: %s", out)
+	}
+}
+
+// The snapshot and the log sanitiser decide by the same field list: a field
+// the sanitiser redacts in a log line is masked in the core config too (the
+// Reality public key is the one documented exception).
+func TestCoreConfigRedactionFollowsLogSanitiser(t *testing.T) {
+	for _, k := range []string{"password", "uuid", "private_key", "private_key_passphrase", "plugin_opts", "short_id", "pre_shared_key", "auth_str", "token", "secret", "username"} {
+		if !secretKey(k) {
+			t.Errorf("%s is not masked in the core config", k)
+		}
+		if line := telemetry.Sanitize(k + "=PLANTED-value-1"); strings.Contains(line, "PLANTED-value-1") {
+			t.Errorf("%s is not redacted in log lines: %s", k, line)
+		}
+	}
+	for _, k := range []string{"server", "server_port", "type", "tag", "method", "plugin", "public_key"} {
+		if secretKey(k) {
+			t.Errorf("%s must stay visible for diagnosis", k)
+		}
 	}
 }
 

@@ -28,12 +28,15 @@ var plantedSecrets = []string{
 	"PLANTED-control-token",
 	"PLANTED-core-config-password",
 	"PLANTED-log-secret",
+	"PLANTED-plugin-opts",
+	"PLANTED-key-passphrase",
 }
 
 const leakFixtureConfig = `{
  "nodes": [
   {"id":"n-trojan","name":"t1","type":"trojan","server":"node1.proxysplit.test","port":443,
-   "password":"PLANTED-trojan-password","raw":"trojan://PLANTED-share-link@node1.proxysplit.test:443#t1"},
+   "password":"PLANTED-trojan-password","raw":"trojan://PLANTED-share-link@node1.proxysplit.test:443#t1",
+   "plugin":"obfs-local","pluginOpts":"obfs=http;obfs-host=PLANTED-plugin-opts"},
   {"id":"n-vless","name":"v1","type":"vless","server":"node2.proxysplit.test","port":443,
    "uuid":"0f1e2d3c-4b5a-4978-8695-a4b3c2d1e0f9","security":"reality","shortId":"PLANTED-reality-short-id",
    "official":true,"accountId":"acct-1","officialKey":"acct-1/relay:1"},
@@ -52,7 +55,11 @@ const leakFixtureConfig = `{
 const leakFixtureCoreConfig = `{"outbounds":[
  {"type":"trojan","tag":"node-n-trojan","server":"node1.proxysplit.test","server_port":443,"password":"PLANTED-core-config-password"},
  {"type":"vless","tag":"node-n-vless","server":"node2.proxysplit.test","uuid":"0f1e2d3c-4b5a-4978-8695-a4b3c2d1e0f9",
-  "tls":{"reality":{"enabled":true,"short_id":"PLANTED-reality-short-id"}}}],
+  "tls":{"reality":{"enabled":true,"short_id":"PLANTED-reality-short-id"}}},
+ {"type":"shadowsocks","tag":"ss-plugin","server":"node4.proxysplit.test","method":"aes-128-gcm","password":"PLANTED-core-config-password",
+  "plugin":"obfs-local","plugin_opts":"obfs=http;obfs-host=PLANTED-plugin-opts"},
+ {"type":"ssh","tag":"ssh-key","server":"node5.proxysplit.test","user":"root","private_key_path":"key.pem",
+  "private_key_passphrase":"PLANTED-key-passphrase"}],
  "inbounds":[{"type":"mixed","users":[{"username":"lan","password":"PLANTED-lan-password"}]}]}`
 
 // leakFixtureApp is an App whose stored state is full of planted secrets.
@@ -75,6 +82,8 @@ func leakFixtureApp(t *testing.T) *App {
 	// What the core and the subscription updater really write to the log.
 	svc.LogLine(`[sub] 订阅更新失败: Get "https://sub.proxysplit.test/link/PLANTED-log-secret?token=PLANTED-log-secret": timeout`)
 	svc.LogLine(`[core] outbound trojan://PLANTED-log-secret@node1.proxysplit.test:443 failed, password=PLANTED-log-secret`)
+	svc.LogLine(`[core] outbound/shadowsocks[ss-plugin]: plugin_opts=PLANTED-plugin-opts rejected`)
+	svc.LogLine(`[core] outbound/ssh[ssh-key]: "private_key_passphrase":"PLANTED-key-passphrase" wrong`)
 	a := &App{svc: svc, ready: make(chan struct{}), pv: powervpn.New(dir, appVersion)}
 	close(a.ready)
 	return a
