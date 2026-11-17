@@ -43,6 +43,11 @@ const (
 	// few bytes, so staying under the gzip cap before compression means the
 	// request can never be rejected for size.
 	mergeBytes = limitGzipBodyBytes - 64<<10
+	// mergeSegments bounds how many files one request may cover.
+	mergeSegments = 64
+	// maxRequestsPerRound: uploads per tick / kick, so a long backlog is sent
+	// over several rounds instead of as one burst.
+	maxRequestsPerRound = 20
 )
 
 const truncatedSuffix = "…[truncated]"

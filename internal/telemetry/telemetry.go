@@ -224,17 +224,6 @@ func (r *recorder) loop(interval time.Duration) {
 	defer flush.Stop()
 	conns := time.NewTicker(connSummaryEvery)
 	defer conns.Stop()
-	upload := func() {
-		_ = r.spool.Seal()
-		if r.uploading.CompareAndSwap(false, true) {
-			r.upWG.Add(1)
-			go func() {
-				defer r.upWG.Done()
-				defer r.uploading.Store(false)
-				r.up.Drain(r.ctx, r.spool.Segments(), 20)
-			}()
-		}
-	}
 	for {
 		select {
 		case rec := <-r.logs:
@@ -244,9 +233,9 @@ func (r *recorder) loop(interval time.Duration) {
 		case <-conns.C:
 			r.emitConnSummary(true)
 		case <-tick.C:
-			upload()
+			r.upload()
 		case <-r.kick:
-			upload()
+			r.upload()
 		case <-r.stop:
 			for {
 				select {
@@ -259,6 +248,24 @@ func (r *recorder) loop(interval time.Duration) {
 			}
 		}
 	}
+}
+
+// upload seals what has been written and starts one drain — only when an
+// upload can actually happen. While the uploader is backing off (offline) or
+// a drain is still running, records keep going to the current segment: it
+// still rotates at its size limit, but ticks and failure events no longer
+// leave one tiny file each.
+func (r *recorder) upload() {
+	if !r.up.Ready() || !r.uploading.CompareAndSwap(false, true) {
+		return
+	}
+	_ = r.spool.Seal()
+	r.upWG.Add(1)
+	go func() {
+		defer r.upWG.Done()
+		defer r.uploading.Store(false)
+		r.up.Drain(r.ctx, r.spool.Segments(), maxRequestsPerRound)
+	}()
 }
 
 // emitConnSummary reports the connection window (nothing when idle). async:

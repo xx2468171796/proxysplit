@@ -125,8 +125,8 @@ func TestStillRejectedSegmentIsQuarantinedNotDeleted(t *testing.T) {
 	if sent := u.Drain(t.Context(), sp.Segments(), 10); sent != 1 || !u.Ready() {
 		t.Fatalf("the queue must move on past a bad segment (sent %d, ready %v)", sent, u.Ready())
 	}
-	if cs.requests != 3 {
-		t.Fatalf("bad segment: normal + strict attempt, then the healthy one = 3 requests, got %d", cs.requests)
+	if cs.requests != 4 {
+		t.Fatalf("merged request, then the bad segment alone + strict, then the healthy one = 4 requests, got %d", cs.requests)
 	}
 	if globCount(t, dir, "seg-*.jsonl") != 0 || globCount(t, dir, "bad-*.jsonl") != 1 {
 		t.Fatalf("rejected segment must be set aside as bad-*: seg %d bad %d", globCount(t, dir, "seg-*.jsonl"), globCount(t, dir, "bad-*.jsonl"))

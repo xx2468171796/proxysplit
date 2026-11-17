@@ -13,6 +13,7 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -45,7 +46,8 @@ type Batch struct {
 	Logs   []LogChunk `json:"logs"`
 }
 
-// Uploader sends sealed spool segments, oldest first, one segment per request.
+// Uploader sends sealed spool segments, oldest first. Small segments share a
+// request (mergeBytes / mergeSegments and the per-batch counts permitting).
 type Uploader struct {
 	Endpoint string
 	Client   *http.Client
@@ -56,6 +58,7 @@ type Uploader struct {
 	// Quarantine sets aside a segment the server keeps rejecting (Spool.Quarantine).
 	Quarantine func(path string)
 
+	mu        sync.Mutex // guards failures / nextAfter: Ready is asked from the recorder loop while a drain runs
 	failures  int
 	nextAfter time.Time
 	now       func() time.Time
@@ -69,10 +72,22 @@ func (u *Uploader) clock() time.Time {
 }
 
 // Ready reports whether the backoff window has passed.
-func (u *Uploader) Ready() bool { return !u.clock().Before(u.nextAfter) }
+func (u *Uploader) Ready() bool {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	return !u.clock().Before(u.nextAfter)
+}
+
+func (u *Uploader) succeeded() {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	u.failures, u.nextAfter = 0, time.Time{}
+}
 
 // backoff schedules the next attempt: MinWait·2^n with ±20 % jitter, capped.
 func (u *Uploader) backoff() {
+	u.mu.Lock()
+	defer u.mu.Unlock()
 	u.failures++
 	wait := u.MinWait << min(u.failures-1, 16)
 	if wait > u.MaxWait || wait <= 0 {
@@ -101,41 +116,116 @@ func outcomeOf(status int, err error) outcome {
 	return retry
 }
 
-// Drain uploads up to max segments. It stops at the first failure that may
-// pass later and backs off. A segment the server rejects (400 / 413) is sent
-// once more with every field re-cut and unusable records dropped; if that is
-// rejected too it is quarantined, so one bad segment never blocks the queue
-// and is never silently deleted either.
+// part is one sealed segment prepared for upload.
+type part struct {
+	path   string
+	size   int64
+	events []Event
+	chunks []LogChunk
+	bad    bool // unreadable: can only be set aside
+}
+
+func loadPart(meta Meta, path string, strict bool) part {
+	p := part{path: path}
+	if st, err := os.Stat(path); err == nil {
+		p.size = st.Size()
+	}
+	recs, err := readSegment(path)
+	if os.IsNotExist(err) {
+		return p // purged meanwhile: nothing left to send
+	}
+	if err != nil && len(recs) == 0 {
+		p.bad = true
+		return p
+	}
+	p.events, p.chunks = segmentParts(meta, path, recs, strict)
+	return p
+}
+
+// nextGroup takes the oldest segments that fit one request together: file
+// sizes within mergeBytes and event / chunk counts within the batch limits.
+// The first segment always goes, whatever its size.
+func nextGroup(meta Meta, segments []string) []part {
+	var group []part
+	var size int64
+	events, chunks := 0, 0
+	for _, path := range segments {
+		p := loadPart(meta, path, false)
+		fits := !p.bad && len(group) < mergeSegments && size+p.size <= mergeBytes &&
+			events+len(p.events) <= limitBatchEvents && chunks+len(p.chunks) <= limitBatchLogs
+		if len(group) > 0 && !fits {
+			break
+		}
+		group = append(group, p)
+		size, events, chunks = size+p.size, events+len(p.events), chunks+len(p.chunks)
+		if p.bad {
+			break
+		}
+	}
+	return group
+}
+
+// Drain uploads sealed segments in at most max requests. It stops at the
+// first failure that may pass later and backs off. Content the server rejects
+// (400 / 413) is narrowed down: a merged request is repeated segment by
+// segment, and a single rejected segment is sent once more with every field
+// re-cut and unusable records dropped; if that is rejected too it is
+// quarantined. So one bad segment never blocks the queue, never takes its
+// neighbours with it, and is never silently deleted.
 func (u *Uploader) Drain(ctx context.Context, segments []string, max int) (sent int) {
-	for i, path := range segments {
-		if i >= max || !u.Ready() {
+	meta := clampMeta(u.Meta())
+	for requests := 0; len(segments) > 0; requests++ {
+		if requests >= max || !u.Ready() {
 			return sent
 		}
-		switch u.deliver(ctx, path) {
-		case accepted:
-			sent++
-			u.failures, u.nextAfter = 0, time.Time{}
-		case rejected:
-			u.setAside(path)
-		default:
+		group := nextGroup(meta, segments)
+		segments = segments[len(group):]
+		res := u.send(ctx, meta, group)
+		if res == rejected {
+			n, stop := u.oneByOne(ctx, meta, group)
+			sent += n
+			if stop {
+				return sent
+			}
+			continue
+		}
+		if res != accepted {
 			u.backoff()
 			return sent
 		}
+		for _, p := range group {
+			_ = os.Remove(p.path)
+		}
+		sent += len(group)
+		u.succeeded()
 	}
 	return sent
 }
 
-// deliver sends one segment and removes it once the server has it. A rejected
-// segment gets exactly one strict second attempt.
-func (u *Uploader) deliver(ctx context.Context, path string) outcome {
-	res := u.sendSegment(ctx, path, false)
-	if res == rejected {
-		res = u.sendSegment(ctx, path, true)
+// oneByOne handles a rejected request: each of its segments alone (already
+// tried when the request held just one), then strict, then quarantine.
+func (u *Uploader) oneByOne(ctx context.Context, meta Meta, group []part) (sent int, stop bool) {
+	for _, p := range group {
+		res := rejected
+		if len(group) > 1 {
+			res = u.send(ctx, meta, []part{p})
+		}
+		if res == rejected {
+			res = u.send(ctx, meta, []part{loadPart(meta, p.path, true)})
+		}
+		switch res {
+		case accepted:
+			_ = os.Remove(p.path)
+			sent++
+			u.succeeded()
+		case rejected:
+			u.setAside(p.path)
+		default:
+			u.backoff()
+			return sent, true
+		}
 	}
-	if res == accepted {
-		_ = os.Remove(path)
-	}
-	return res
+	return sent, false
 }
 
 func (u *Uploader) setAside(path string) {
@@ -146,16 +236,17 @@ func (u *Uploader) setAside(path string) {
 	quarantine(path)
 }
 
-func (u *Uploader) sendSegment(ctx context.Context, path string, strict bool) outcome {
-	recs, err := readSegment(path)
-	if os.IsNotExist(err) {
-		return accepted // purged meanwhile: nothing left to send
+// send uploads the parts as one request (more only when a single segment
+// alone exceeds the per-batch counts).
+func (u *Uploader) send(ctx context.Context, meta Meta, group []part) outcome {
+	var events []Event
+	var chunks []LogChunk
+	for _, p := range group {
+		if p.bad {
+			return rejected
+		}
+		events, chunks = append(events, p.events...), append(chunks, p.chunks...)
 	}
-	if err != nil && len(recs) == 0 {
-		return rejected // unreadable: set it aside instead of retrying forever
-	}
-	meta := clampMeta(u.Meta())
-	events, chunks := segmentParts(meta, path, recs, strict)
 	for _, batch := range splitBatches(meta, events, chunks) {
 		if res := outcomeOf(u.post(ctx, batch)); res != accepted {
 			return res
