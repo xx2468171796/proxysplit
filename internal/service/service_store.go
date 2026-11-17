@@ -76,8 +76,8 @@ func (s *Service) retireLegacyExeCopy(dataDirConfigGood bool) {
 func newAPIToken() string { return genSecret() + genSecret() }
 
 // RegenerateAPIToken replaces the stored control-API token and returns the new
-// one; the old token stops working with the next request. Factory reset must
-// rotate it too (resetFactory: store newAPIToken() instead of the old token).
+// one; the old token stops working with the next request. Factory reset
+// rotates it the same way (resetFactory).
 func (s *Service) RegenerateAPIToken() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()

@@ -329,7 +329,7 @@ func (s *Service) APIToken() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.cfg.APIToken == "" {
-		s.cfg.APIToken = genSecret() + genSecret()
+		s.cfg.APIToken = newAPIToken()
 		s.save()
 	}
 	return s.cfg.APIToken

@@ -216,12 +216,14 @@ func (s *Service) resetFactory(context.Context) (string, error) {
 		Settings: def, RuleMode: engine.ModeWhitelist, DefaultLine: LineRule,
 		LogLevel: "info", ClashMode: "rule", RuleSets: normalizeRuleSetConfig(nil),
 		ConnectivityProbeVersion: old.ConnectivityProbeVersion,
-		SysProxyLast:             old.SysProxyLast, APIToken: old.APIToken,
+		// Factory = start over: AI tools set up with the old control token stop
+		// working until they are given the new one (设置 → AI 控制).
+		SysProxyLast: old.SysProxyLast, APIToken: newAPIToken(),
 	}
 	s.clashMode = "rule"
 	s.save()
 	s.mu.Unlock()
-	s.log("[store] 已恢复出厂配置（账号、授权与 AI 劫持状态保留）")
+	s.log("[store] 已恢复出厂配置（账号、授权与 AI 劫持状态保留；AI 控制令牌已更换）")
 	if wasRunning {
 		return "已恢复出厂，代理已停止；请重新添加节点", nil
 	}

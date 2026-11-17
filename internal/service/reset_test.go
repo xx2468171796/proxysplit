@@ -83,7 +83,7 @@ func TestFactoryNeedsConfirmAndKeepsIdentity(t *testing.T) {
 	if r := result(t, s.RunReset(context.Background(), []string{"factory"}, FactoryConfirmText), "factory"); !r.OK {
 		t.Fatalf("factory: %+v", r)
 	}
-	if len(s.Nodes()) != 0 || len(s.GetSubs()) != 0 || s.APIToken() != "tok" {
+	if len(s.Nodes()) != 0 || len(s.GetSubs()) != 0 {
 		t.Fatal("factory reset state wrong")
 	}
 	if b, _ := os.ReadFile(hijack); string(b) != "on\n" {
@@ -130,5 +130,55 @@ func TestRegistryAndReservedItems(t *testing.T) {
 	rep := s.RunReset(context.Background(), []string{ResetNodeResolveCache, "x-test"}, "")
 	if !called || !avail(ResetNodeResolveCache) || rep.OK != 1 || rep.Failed != 1 {
 		t.Fatalf("registry: %+v", rep)
+	}
+}
+
+// Factory reset means starting over: an AI tool that was given the old control
+// token must not keep its access, and undoing the reset must not hand it back.
+func TestFactoryResetRotatesControlToken(t *testing.T) {
+	s, _ := newResetSvc(t)
+	if r := result(t, s.RunReset(context.Background(), []string{"factory"}, FactoryConfirmText), "factory"); !r.OK {
+		t.Fatalf("factory: %+v", r)
+	}
+	rotated := s.APIToken()
+	if rotated == "tok" || len(rotated) < 32 {
+		t.Fatalf("control token was not rotated: %q", rotated)
+	}
+	if _, err := s.UndoReset(); err != nil {
+		t.Fatal(err)
+	}
+	if len(s.Nodes()) != 1 {
+		t.Fatal("undo did not restore the configuration")
+	}
+	if s.APIToken() != rotated {
+		t.Fatal("undo brought the old control token back")
+	}
+}
+
+// No reset item may delete the device identity (device.dat: losing it costs
+// the user a device slot) or the control-API endpoint file of the running app.
+// Items that touch the OS (system proxy, DNS flush, stray processes) and the
+// host-registered ones are not run here: none of them works on files in the
+// data dir (log-spool: telemetry.TestPurgeWithRecorderOff).
+func TestResetsKeepDeviceIdentityAndControlEndpoint(t *testing.T) {
+	s, dir := newResetSvc(t)
+	keep := []string{"device.dat", "control-api.json"}
+	for _, name := range keep {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("keep"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ids := []string{"core-dns-cache", ResetNodeResolveCache, ResetDNSPrewarm, "node-cores", "routing", "app-rules", "all-settings", "factory"}
+	rep := s.RunReset(context.Background(), ids, FactoryConfirmText)
+	if rep.Failed != 0 || rep.OK != len(ids) {
+		t.Fatalf("resets failed: %+v", rep)
+	}
+	if _, err := s.UndoReset(); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range keep {
+		if b, err := os.ReadFile(filepath.Join(dir, name)); err != nil || string(b) != "keep" {
+			t.Fatalf("%s was deleted or changed by a reset: %v", name, err)
+		}
 	}
 }

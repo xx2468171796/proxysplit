@@ -113,7 +113,43 @@ func (s *Service) validateImportedConfigLocked(cfg *Config) error {
 	if lineByID(s.allLinesLocked(), s.cfg.DefaultLine) == nil {
 		return fmt.Errorf("default line does not exist: %s", s.cfg.DefaultLine)
 	}
+	if err := s.validateImportedEditablesLocked(); err != nil {
+		return err
+	}
+	// The control token belongs to this install, not to a file: a backup from
+	// elsewhere must not choose it, and undoing a factory reset must not bring
+	// a rotated token back.
+	s.cfg.APIToken = previous.APIToken
 	*cfg = s.cfg
+	return nil
+}
+
+// validateImportedEditablesLocked runs the validators of the UI save paths
+// (SetNetSettings, SaveProxyPort, SaveSub) over the candidate installed in
+// s.cfg, so a backup cannot carry values the UI would reject. Caller holds s.mu.
+func (s *Service) validateImportedEditablesLocked() error {
+	if err := s.cfg.Settings.Net.validate(); err != nil {
+		return fmt.Errorf("invalid network settings: %w", err)
+	}
+	seenPorts := make(map[string]bool, len(s.cfg.ProxyPorts))
+	for i := range s.cfg.ProxyPorts {
+		p := &s.cfg.ProxyPorts[i]
+		if strings.TrimSpace(p.ID) == "" || seenPorts[p.ID] {
+			return fmt.Errorf("proxy port %d has a missing or duplicate ID", i+1)
+		}
+		seenPorts[p.ID] = true
+		if err := s.normalizePortLocked(p); err != nil {
+			return fmt.Errorf("invalid proxy port %d: %w", i+1, err)
+		}
+	}
+	for i := range s.cfg.Subs {
+		sub := &s.cfg.Subs[i]
+		o, err := normalizeSubOptions(SubOptions{UserAgent: sub.UserAgent, Include: sub.Include, Exclude: sub.Exclude, IntervalMin: sub.IntervalMin})
+		if err != nil {
+			return fmt.Errorf("invalid subscription %q: %w", sub.Name, err)
+		}
+		sub.UserAgent, sub.Include, sub.Exclude, sub.IntervalMin = o.UserAgent, o.Include, o.Exclude, o.IntervalMin
+	}
 	return nil
 }
 

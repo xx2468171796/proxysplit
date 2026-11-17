@@ -55,8 +55,8 @@ func resetCatalog() []resetDef {
 			action: (*Service).resetAllSettings},
 		{item: ResetItem{ID: "factory", Group: ResetGroupConfig, Title: "恢复出厂",
 			Effect: "清空全部配置，相当于重新安装；代理会停止", Danger: DangerHigh, Restarts: true, Backup: true, Confirm: FactoryConfirmText,
-			Lost: []string{"全部节点与订阅", "端口代理与自定义应用", "应用名单、自定义线路与域名规则", "所有开关设置"},
-			Kept: []string{"账号、会员与本机授权（设备身份）", "AI 劫持开关与锁", "Windows 环境配置记录", "本机诊断接口令牌"}},
+			Lost: []string{"全部节点与订阅", "端口代理与自定义应用", "应用名单、自定义线路与域名规则", "所有开关设置", "AI 控制令牌（换成新的，接过的 AI 工具要重新配置）"},
+			Kept: []string{"账号、会员与本机授权（设备身份）", "AI 劫持开关与锁", "Windows 环境配置记录"}},
 			action: (*Service).resetFactory, count: countNodes},
 	}
 }
