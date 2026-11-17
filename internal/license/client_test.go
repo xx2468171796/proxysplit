@@ -205,7 +205,7 @@ func TestReconcileSessionClearsRejectedSessionButKeepsLease(t *testing.T) {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusUnauthorized)
-		_, _ = w.Write([]byte(`{"error":{"message":"session revoked"}}`))
+		_, _ = w.Write([]byte(`{"error":{"code":"REFRESH_INVALID","message":"session revoked"}}`))
 	}))
 	defer server.Close()
 
@@ -242,7 +242,7 @@ func TestEnsureEntitledSignsOutOnRejectedRefresh(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusUnauthorized)
-		_, _ = w.Write([]byte(`{"error":{"message":"登录状态已失效，请重新登录"}}`))
+		_, _ = w.Write([]byte(`{"error":{"code":"REFRESH_REPLAY","message":"登录状态已失效，请重新登录"}}`))
 	}))
 	defer server.Close()
 

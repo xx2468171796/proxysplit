@@ -597,8 +597,7 @@ func (c *Client) authedRequestLocked(ctx context.Context, method, path string, i
 		// license. If the server definitively rejects it, stop presenting the
 		// cached session as "signed in". Keep the signed lease so temporary
 		// offline entitlement can still be evaluated independently.
-		var refreshErr *APIError
-		if errors.As(err, &refreshErr) && refreshErr.Status >= 400 && refreshErr.Status < 500 {
+		if isDefinitiveRejection(err) {
 			c.clearOnlineSessionLocked()
 			_ = c.saveLocked()
 		}
@@ -688,7 +687,8 @@ func (c *Client) refreshLocked(ctx context.Context) error {
 
 // ReconcileSession validates cached online credentials against the server
 // before the first UI snapshot is rendered. Network failures keep the cache
-// for offline use; a definitive 4xx rejection clears only the online session,
+// for offline use, and so do transient answers (rate limit, WAF page); only a
+// definitive rejection (isDefinitiveRejection) clears the online session,
 // never the independently signed offline lease.
 func (c *Client) ReconcileSession(ctx context.Context) error {
 	c.mu.Lock()
@@ -700,8 +700,7 @@ func (c *Client) ReconcileSession(ctx context.Context) error {
 	if err == nil {
 		return nil
 	}
-	var apiErr *APIError
-	if errors.As(err, &apiErr) && apiErr.Status >= 400 && apiErr.Status < 500 {
+	if isDefinitiveRejection(err) {
 		c.clearOnlineSessionLocked()
 		_ = c.saveLocked()
 	}
@@ -870,8 +869,7 @@ func (c *Client) EnsureEntitled() error {
 			// A rejected refresh token means the session is gone, not the
 			// membership: send the user back to sign-in instead of telling a
 			// paying customer "暂无有效会员".
-			var apiErr *APIError
-			if errors.As(err, &apiErr) && apiErr.Status == http.StatusUnauthorized {
+			if isDefinitiveRejection(err) {
 				c.clearOnlineSessionLocked()
 			}
 		} else if err := c.acquireLeaseLocked(ctx); err != nil {
@@ -884,11 +882,11 @@ func (c *Client) EnsureEntitled() error {
 			return nil
 		}
 	}
-	var apiErr *APIError
-	if errors.As(onlineErr, &apiErr) && apiErr.Status >= 400 && apiErr.Status < 500 {
-		// A definitive authenticated rejection (expired membership, suspended
-		// account, unbound device) must stop immediately. Offline grace is only
-		// for network/server outages, never for an explicit revocation.
+	if isDefinitiveRejection(onlineErr) || isDeviceLimit(onlineErr) {
+		// A definitive authenticated rejection (suspended account, unbound
+		// device, revoked session, device slots full) must stop immediately.
+		// Offline grace is for network / server outages and transient answers
+		// (rate limit, WAF page), never for an explicit revocation.
 		c.state.Lease = ""
 		_ = c.saveLocked()
 		return onlineErr
