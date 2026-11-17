@@ -94,6 +94,7 @@ func assertNoPlantedSecret(t *testing.T, where, body string) {
 // quote logs are covered by TestProbeResultsAreSanitized.
 var (
 	leakSweepSkipHTTP = map[string]string{
+		"GET /api/hello":            "open handshake path, covered by TestHelloProvesTheNonceWithoutAToken",
 		"POST /api/start":           "launches the core",
 		"POST /api/restart":         "launches the core",
 		"POST /api/stop":            "touches system proxy state",

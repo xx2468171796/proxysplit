@@ -59,6 +59,7 @@ type controlRoute struct {
 	path string
 	get  http.HandlerFunc
 	post http.HandlerFunc
+	open bool // served without the token: only /api/hello (apihello.go)
 }
 
 func writeJSON(w http.ResponseWriter, code int, v any) {
@@ -167,6 +168,8 @@ func (a *App) controlRoutes() []controlRoute {
 		// POST /mcp — a real Model Context Protocol server (JSON-RPC 2.0 over HTTP)
 		// so Claude Code / Codex can use ProxySplit as native MCP tools.
 		{path: "/mcp", post: a.handleMCP},
+		// GET /api/hello?challenge= — lets the --mcp bridge check who is listening.
+		a.helloRoute(),
 	}
 	return append(routes, a.diagRoutes()...)
 }
@@ -180,8 +183,17 @@ func (a *App) startAPIServer() {
 	a.svc.APIToken() // create the token on first run, before the first request
 	ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", apiPort))
 	if err != nil {
+		// Whoever holds the port is not this app: leave nothing published that
+		// would let the --mcp bridge trust it.
+		retractControlEndpoint(dataDir())
 		a.svc.LogLine(fmt.Sprintf("[api] 控制 API 未能监听 127.0.0.1:%d: %v", apiPort, err))
 		return
+	}
+	if ep, perr := publishControlEndpoint(dataDir(), apiPort); perr != nil {
+		retractControlEndpoint(dataDir())
+		a.svc.LogLine("[api] 未能写入控制接口标识，MCP（--mcp）暂不可用: " + perr.Error())
+	} else {
+		a.apiNonce = ep.Nonce
 	}
 	a.apiUp = true
 	a.svc.LogLine(fmt.Sprintf("[api] AI 控制 API 已就绪: http://127.0.0.1:%d", apiPort))

@@ -46,6 +46,7 @@ type App struct {
 	installing   atomic.Bool // an update install is in progress (auto and manual must not race)
 	trayUp       bool        // the tray icon initialized OK (only then may we hide to it)
 	apiUp        bool        // the local AI-control HTTP API is listening
+	apiNonce     string      // secret the control API proves to the --mcp bridge (apihello.go)
 	background   bool        // started with --background: window hidden, tray only
 	ready        chan struct{}
 	readyOnce    sync.Once
@@ -303,6 +304,9 @@ func (a *App) domReady(ctx context.Context) {
 // system proxy we set, so exiting never orphans sing-box or leaves the OS
 // pointing at a now-dead proxy.
 func (a *App) shutdown(ctx context.Context) {
+	if a.apiUp {
+		retractControlEndpoint(dataDir()) // the control API goes away with this process
+	}
 	a.quitTray()
 	a.stopAccel() // 先把 Claude Code 配置还原成官方默认，再停内核
 	if a.svc != nil {

@@ -24,7 +24,9 @@ import (
 //     attach Origin to cross-site requests, and nothing in a browser is meant
 //     to use this API.
 //   - The token comes in the Authorization header only (a URL token leaks into
-//     history, logs and Referer) and is compared in constant time.
+//     history, logs and Referer) and is compared in constant time. The single
+//     route served without it is /api/hello (apihello.go), which the --mcp
+//     bridge uses to check the listener before it sends the token.
 //   - GET never changes anything; a change is a POST with a JSON content type
 //     (which an HTML form cannot send) and a bounded body.
 
@@ -81,7 +83,7 @@ func (a *App) guard(rt controlRoute) http.HandlerFunc {
 			writeJSON(w, http.StatusForbidden, map[string]string{"error": "forbidden: browser requests (Origin header) are not accepted"})
 			return
 		}
-		if !sameToken(bearerToken(r), a.svc.APIToken()) {
+		if !rt.open && !sameToken(bearerToken(r), a.svc.APIToken()) {
 			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized: send the header Authorization: Bearer <token>"})
 			return
 		}
