@@ -39,7 +39,7 @@ AI 编程官网（aigw）客户不显示作者联系方式（QQ 群 / 微信 / �
 - 手机号存 users.phone（11 位）；登录框纯 11 位 1 开头先按手机号查、查不到当用户名。老客户端只发邮箱注册仍接受。
 - 云同步 / 云端配置 / 分享导入在 core config-sync.ts / config-profiles.ts，路由 api sync-routes.ts；份数免费 0 / 普通（含试用）1 / 超级 5。
 
-## 短信验证码走雷池验证中心（分支 feat/center-sms，2026-11-17，未上线）
+## 短信验证码走雷池验证中心（2026-11-17 随 v1.12.5 上线）
 业主定：注册 / 找回密码 / 绑定手机号的短信验证码与开箱站一样，只走公司验证中心 leichiwaf-verify（参考实现 V7），不再由本站直连云片。起因：用户反馈「注册不了」，本站直发时通道拒发一律显示「短信发送失败」且没有日志。
 - **两种模式，没有第三种**：`LCV_SITE_ID` / `LCV_HOST` / `LCV_SITE_SECRET` 三项都配 = 中心模式；都不配 = 本地模式（原来的云片 + sms_codes 表，开发 / 测试 / 回退用，行为不变，只多了一行失败日志）。只配一部分、或中心模式没配 REDIS_URL：启动直接报错。启动日志有一行 `sms mode: center|local`。
 - **代码**：core `sms-center.ts`（公司包 yanzheng/verify-client 的 createSiteOtp，vendor 在 core/src/vendor/yanzheng，tag yanzheng-v2.43.0，`node scripts/vendor-company.mjs <yanzheng 仓> yanzheng` 升级）；AuthService `setSmsCenter` / `sendSmsCode`；api `phone-routes.ts`。站点 KV 用 API 现有的 Redis，键 `proxysplit:lcvotp:{vid|ok|miss}:sms:<用途>:<手机号>`（只用 get / set / del / incr / expire）；暂存哈希密钥 stashSecret = LCV_SITE_SECRET。

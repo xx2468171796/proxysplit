@@ -4,6 +4,13 @@
 > 结论与坑已提炼到 `docs/memory/<主题>.md`；这里是事实存档，按标题取（`node ~/.ankotti/ai-kit/mem.mjs <关键词>`），不要整份读。
 > 约定：sz = 深圳生产机；incoming = sz `/opt/proxysplit/incoming/`；客户端回滚 = 该版本 incoming 目录 `python3 publish-client.py rollback` 并删 releases 表里该版本那行。
 
+## v1.12.5（2026-11-17 18:57，全站发布，强制；只发 Windows）
+- 内容：短信验证码（注册 / 找回密码 / 绑定手机号）改走公司雷池验证中心，发码前先过滑块（客户端中继页 ?action=sms，官网同源直接调）；堵住邮箱注册绕过短信、手机号形用户名、绑定发码探号等评审问题（b506525 + 48e4896，合并 7b7cf2d）。
+- 构建提交 34e7a3b；release id 20261117-185156-34e7a3b-v1.12.5（incoming 同名目录）；exe SHA256 39b4003d5247f094c87a8cbdb4cae70548f7eb44432bb50e717d92f4e08d03bd（EV Sign）；服务端包 c91ef253…；备份 backups/postgres-20261117-185156-34e7a3b-v1.12.5.sql.gz。无迁移。
+- sz 配置同时改：验证中心 sites.json 新增站点 proxysplit（yunpian-main + 备用 tencent-main，同号每天 5 条，屏蔽 170/171/162/165/167，AI 测试通行码 = 资产 850，站点密钥 = 资产 851）；proxysplit-hv-bridge.conf 加 172.20.0.1:18977 → 127.0.0.1:8977；runtime.env 加 LCV_SITE_ID / LCV_HOST / LCV_URL / LCV_SITE_SECRET（备份 runtime.env.bak-20261117-lcv）。回退到本地云片直发 = 删这 4 行并重建 api 容器。
+- 验收：启动日志 `sms mode: center`；/health 200；不带凭证 → CLIENT_UPGRADE_REQUIRED，带 Origin 不带凭证 → PAGE_REFRESH_REQUIRED，伪造凭证 → CAPTCHA_REQUIRED；AI 通行码换的真凭证发找回码（未注册号，不真发短信）→ 200，同一凭证再用 → 403；付款验证旧接口对伪造凭证仍回 ok:false；飞牛 latest = 1.12.5 强制，versioned / latest / ai-latest 整包 SHA256 一致。中继页在 localhost:34115（Wails 允许的来源）跨站嵌入实测：ready 消息带 nonce + action=sms 回到父页，滑块正常显示。
+- 未做：真手机收到中心发出的验证码并注册成功（没有测试手机号，上线后看中心统计）；真实 WebView2 / WKWebView 里真人拖滑块（办公室电脑上业主的客户端在运行，单实例锁挡住第二个实例）；macOS 仍 1.12.2，中心模式下发码会提示升级。
+
 ## v1.12.4（2026-11-17 15:35，全站发布，强制；只发 Windows）
 - 内容：付款前人机验证（中心每单强制滑块）：客户端 /pay-verify.html 中继 + 服务端兑换 hvToken；官网带 pay-verify.html。
 - 构建提交 9d7d6a3；release id 20261117-153032-9d7d6a3-v1.12.4（incoming 同名目录）；exe SHA256 07c60a1ac8f8eb57b833c970b0c03e047ab7fcefc27bd3afe8e5f3c90e637403（EV Sign）；服务端包 b65c44bd…；备份 backups/postgres-20261117-153032-9d7d6a3-v1.12.4.sql.gz。
