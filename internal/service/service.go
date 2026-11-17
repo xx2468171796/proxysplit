@@ -188,6 +188,9 @@ type Service struct {
 	tap    logTap        // 客户端日志上报（telemetry_tap.go）
 	warm   warmState     // 节点保活 + DNS 预热（warm_svc.go）
 
+	uiHidden atomic.Bool // no window is showing our data: background polls slow down (health.go)
+	uiWake   atomic.Bool // the window just came back: refresh line health at once
+
 	quit      chan struct{} // closed by Close: stops the background loops
 	closeOnce sync.Once
 }
