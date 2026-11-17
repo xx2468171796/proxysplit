@@ -13,6 +13,7 @@ describe('orderCreateSchema', () => {
   })
   it('空串 / 超长凭证拒绝', () => {
     expect(orderCreateSchema.safeParse({ planId, hvToken: '' }).success).toBe(false)
-    expect(orderCreateSchema.safeParse({ planId, hvToken: 'x'.repeat(513) }).success).toBe(false)
+    expect(orderCreateSchema.safeParse({ planId, hvToken: 'x'.repeat(2048) }).success).toBe(true)
+    expect(orderCreateSchema.safeParse({ planId, hvToken: 'x'.repeat(2049) }).success).toBe(false)
   })
 })

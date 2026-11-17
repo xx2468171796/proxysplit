@@ -29,12 +29,18 @@ describe('POST /v1/auth/sms/send', () => {
     expect(calls[0]).toMatchObject({ input: { phone: '13800138000', purpose: 'register' }, userId: null, ctx: { captchaTicket: 'tk', clientIp: '203.0.113.9', deviceFp: 'fp-body' } })
     await app.close()
   })
-  it('keeps "no ticket field" (released clients) apart from an empty ticket and falls back to the device header', async () => {
+  it('keeps "no ticket field" (released clients) apart from an empty ticket and never forwards the fingerprint header', async () => {
     const { app, calls } = await appWith(() => ({ ok: true, cooldownSeconds: 60 }))
-    await app.inject({ method: 'POST', url: '/v1/auth/sms/send', headers: { 'x-device-fingerprint': 'fp-header' }, payload: { phone: '13800138000', purpose: 'reset' } })
+    await app.inject({ method: 'POST', url: '/v1/auth/sms/send', headers: { 'x-device-fingerprint': 'raw-fingerprint' }, payload: { phone: '13800138000', purpose: 'reset' } })
     await app.inject({ method: 'POST', url: '/v1/auth/sms/send', payload: { phone: '13800138000', purpose: 'reset', captchaTicket: '' } })
-    expect(calls[0]?.ctx).toMatchObject({ captchaTicket: undefined, deviceFp: 'fp-header' })
-    expect(calls[1]?.ctx).toMatchObject({ captchaTicket: '', deviceFp: null })
+    expect(calls[0]?.ctx).toEqual({ captchaTicket: undefined, clientIp: '127.0.0.1', deviceFp: null, web: false })
+    expect(calls[1]?.ctx).toMatchObject({ captchaTicket: '', deviceFp: null, web: false })
+    await app.close()
+  })
+  it('marks browser requests (Origin header) so a stale page gets the refresh wording', async () => {
+    const { app, calls } = await appWith(() => ({ ok: true, cooldownSeconds: 60 }))
+    await app.inject({ method: 'POST', url: '/v1/auth/sms/send', headers: { origin: 'https://proxysplit.zygskins.cn' }, payload: { phone: '13800138000', purpose: 'register' } })
+    expect(calls[0]?.ctx).toMatchObject({ captchaTicket: undefined, web: true })
     await app.close()
   })
   it('bind needs a session and passes the user id', async () => {
@@ -55,6 +61,20 @@ describe('POST /v1/auth/sms/send', () => {
     const r = await app.inject({ method: 'POST', url: '/v1/auth/sms/send', payload: { phone: '13800138000', purpose: 'register', captchaTicket: 'x'.repeat(2049) } })
     expect(r.statusCode).toBe(400)
     expect(calls).toEqual([])
+    await app.close()
+  })
+})
+
+describe('startup SMS mode', () => {
+  const lcvConfig: ApiConfig = { ...config, REDIS_URL: 'redis://127.0.0.1:1', LCV_SITE_ID: 'proxysplit', LCV_HOST: 'proxysplit.zygskins.cn', LCV_SITE_SECRET: 's'.repeat(32) }
+  it('refuses to start when env asks for center mode but the core did not switch', async () => {
+    await expect(buildApp(lcvConfig, { auth: { publicKeyPem: 'K' }, store: {}, close: async () => {} } as never)).rejects.toThrow(/center SMS mode/)
+  })
+  it('starts when the core really is in center mode', async () => {
+    let mode: 'local' | 'center' = 'local'
+    const auth = { publicKeyPem: 'K', setSmsCenter: () => { mode = 'center' }, get smsMode() { return mode } }
+    const app = await buildApp(lcvConfig, { auth, store: {}, close: async () => {} } as never)
+    expect(mode).toBe('center')
     await app.close()
   })
 })

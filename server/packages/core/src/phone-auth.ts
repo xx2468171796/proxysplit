@@ -85,6 +85,10 @@ export class PhoneAuth {
     const r = await this.db.query('SELECT 1 FROM users WHERE (phone=$1 OR username=$1) AND ($2::uuid IS NULL OR id<>$2::uuid) LIMIT 1', [phone, exceptUserId])
     return r.rows.length > 0
   }
+  async emailTaken(email: string): Promise<boolean> {
+    const r = await this.db.query('SELECT 1 FROM users WHERE lower(email)=$1 LIMIT 1', [email.toLowerCase()])
+    return r.rows.length > 0
+  }
   async resetUsedToday(phone: string, now = new Date()) {
     const r = await this.db.query('SELECT 1 FROM password_reset_daily WHERE phone=$1 AND day=$2', [phone, beijingDay(now)])
     return r.rows.length > 0

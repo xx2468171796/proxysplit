@@ -11,6 +11,8 @@ import { createSecurityClient, createSiteOtp, type OtpCheckResult, type OtpSendR
 export const LCV_KEY_PREFIX = 'proxysplit:lcvotp:'
 /** 已发版老客户端（≤ v1.12.4）发码不带人机凭证：给一句看得懂的话 */
 export const SMS_UPGRADE_MESSAGE = '请升级到最新版本后再获取验证码'
+/** 浏览器里缓存的旧官网页面发码同样不带凭证字段：让用户刷新页面，而不是「升级」 */
+export const SMS_REFRESH_MESSAGE = '请刷新页面后重试'
 /** 找回密码发码：已注册 / 未注册对外同一句话（防枚举） */
 export const RESET_SENT_MESSAGE = '若该手机号已绑定账号，验证码已发送，5 分钟内有效'
 /** 找回发码两条路统一最短耗时：必须大于 SDK 单次调用超时（2 秒） */
@@ -57,6 +59,8 @@ export type SmsSendContext = {
   /** 用户真实 IP（中心必填） */
   clientIp: string
   deviceFp?: string | null | undefined
+  /** 请求来自浏览器页面（带 Origin 头）；客户端的请求由 Go 发出，不带 */
+  web?: boolean | undefined
 }
 export type SmsSent = { ok: true; cooldownSeconds: number; message?: string }
 
@@ -109,15 +113,16 @@ export class SmsCenter {
     return { ok: true, cooldownSeconds: r.retryAfterSec && r.retryAfterSec > 0 ? Math.ceil(r.retryAfterSec) : DEFAULT_COOLDOWN, message: message ?? r.message }
   }
   private guardOldClient(c: SmsSendContext) {
-    if (c.captchaTicket === undefined) throw new AppError('CLIENT_UPGRADE_REQUIRED', SMS_UPGRADE_MESSAGE, 400)
+    if (c.captchaTicket !== undefined) return
+    throw c.web ? new AppError('PAGE_REFRESH_REQUIRED', SMS_REFRESH_MESSAGE, 400) : new AppError('CLIENT_UPGRADE_REQUIRED', SMS_UPGRADE_MESSAGE, 400)
   }
   /**
-   * 注册 / 绑定发码。注册不传 refuse：过了人机验证就对每个号照常发（「已注册」只在注册那一步核码之后才说）。
-   * refuse 只给登录后的绑定用：返回拒发原因时不发码，但仍先核销同一张人机凭证。
+   * 注册 / 绑定发码：过了人机验证就对每个号照常发，不在这一步说「已注册 / 已被占用」
+   * （那只在注册 / 绑定提交、核码之后才说，否则发码接口就是探号口子）。
    */
-  async send(phone: string, purpose: 'register' | 'bind', c: SmsSendContext, refuse?: () => Promise<string | null>): Promise<SmsSent> {
+  async send(phone: string, purpose: 'register' | 'bind', c: SmsSendContext): Promise<SmsSent> {
     this.guardOldClient(c)
-    return this.scope.run(maskPhone(phone) ?? '-', async () => this.outcome(phone, purpose, await this.otp.send(this.input(phone, purpose, c), refuse)))
+    return this.scope.run(maskPhone(phone) ?? '-', async () => this.outcome(phone, purpose, await this.otp.send(this.input(phone, purpose, c))))
   }
   /** 找回密码发码：没注册的号只核人机凭证、不发码；两条路同一句话、同样耗时。 */
   async sendReset(phone: string, c: SmsSendContext, exists: () => Promise<boolean>): Promise<SmsSent> {

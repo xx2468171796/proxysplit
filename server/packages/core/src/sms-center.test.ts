@@ -6,7 +6,7 @@ import { smsSendSchema } from '@proxysplit/contracts'
 import { normalizePhone } from '@proxysplit/shared'
 import { AuthService } from './auth.js'
 import { PhoneAuth } from './phone-auth.js'
-import { LCV_KEY_PREFIX, RESET_SENT_MESSAGE, SMS_UPGRADE_MESSAGE, SmsCenter, createSmsCenterFromEnv, type SmsCenterRedis } from './sms-center.js'
+import { LCV_KEY_PREFIX, RESET_SENT_MESSAGE, SMS_REFRESH_MESSAGE, SMS_UPGRADE_MESSAGE, SmsCenter, createSmsCenterFromEnv, type SmsCenterRedis } from './sms-center.js'
 import { PgStore } from './store.js'
 import type { Db, QueryResult } from './telemetry-store.js'
 import { DEFAULT_OTP_MESSAGES, type CallResult, type OtpSendBody, type SecurityClient } from './vendor/yanzheng/verify-client/index.js'
@@ -132,11 +132,12 @@ describe('center mode: send', () => {
     await expect(sms.send(PHONE, 'register', ctx())).rejects.toMatchObject({ code: 'SMS_BUSY', status: 503, message: DEFAULT_OTP_MESSAGES.busy })
     expect(logs.some(l => l.includes('result=busy') && l.includes('reason=center-unavailable'))).toBe(true)
   })
-  it('bind: a taken number is refused only after the ticket was redeemed, and no SMS goes out', async () => {
+  it('a stale website page (browser request without the ticket field) is told to refresh, not to upgrade', async () => {
     const { sms, center } = setup()
-    await expect(sms.send(PHONE, 'bind', ctx(), async () => '该手机号已被其他账号使用')).rejects.toMatchObject({ code: 'PHONE_TAKEN', status: 409 })
-    expect(center.ops()).toEqual(['captcha.verify'])
-    expect(center.calls[0]?.body).toMatchObject({ token: TICKET, action: 'sms', remoteIp: '203.0.113.9' })
+    await expect(sms.send(PHONE, 'register', { clientIp: '203.0.113.9', web: true })).rejects.toMatchObject({ code: 'PAGE_REFRESH_REQUIRED', message: SMS_REFRESH_MESSAGE, status: 400 })
+    await expect(sms.sendReset(PHONE, { clientIp: '203.0.113.9', web: true }, async () => true)).rejects.toMatchObject({ code: 'PAGE_REFRESH_REQUIRED' })
+    expect(SMS_REFRESH_MESSAGE).toBe('请刷新页面后重试')
+    expect(center.calls).toEqual([])
   })
 })
 
@@ -207,11 +208,12 @@ describe('center mode: check', () => {
 
 const ACCESS = 'test-secret-must-be-at-least-32-bytes-long'
 /** AuthService + 假 store：registerWebUser 照真 store 的顺序（闸门 → beforeInsert → 插入）。 */
-async function authFixture(over: { gate?: string; takenPhone?: boolean; usernameTaken?: boolean } = {}) {
+async function authFixture(over: { gate?: string; takenPhone?: boolean; usernameTaken?: boolean; emailTaken?: boolean } = {}) {
   const t = setup(), events: string[] = []
   const { db, calls } = fakeDb((sql) => {
     if (sql.startsWith('SELECT 1 FROM users WHERE (phone=$1 OR username=$1)')) return { rows: over.takenPhone ? [{}] : [], rowCount: over.takenPhone ? 1 : 0 }
     if (sql.startsWith('SELECT id FROM users WHERE phone')) return { rows: [], rowCount: 0 }
+    if (sql.startsWith('SELECT 1 FROM users WHERE lower(email)')) return { rows: over.emailTaken ? [{}] : [], rowCount: over.emailTaken ? 1 : 0 }
     return undefined
   })
   const store = {
@@ -244,12 +246,12 @@ describe('center mode: register follows check → gates → consume → insert',
   })
   it('does not consume the code when a gate fails, so the same code still works afterwards', async () => {
     for (const [over, want] of [
-      [{ takenPhone: true }, 'PHONE_TAKEN'], [{ usernameTaken: true }, 'IDENTITY_TAKEN'],
+      [{ takenPhone: true }, 'PHONE_TAKEN'], [{ usernameTaken: true }, 'IDENTITY_TAKEN'], [{ emailTaken: true }, 'IDENTITY_TAKEN'],
       [{ gate: 'REGISTRATION_DISABLED' }, 'REGISTRATION_DISABLED'], [{ gate: 'IP_ACCOUNT_LIMIT' }, 'IP_ACCOUNT_LIMIT'],
     ] as const) {
       const f = await authFixture(over)
       await f.auth.sendSmsCode({ phone: PHONE, purpose: 'register' }, null, ctx())
-      await expect(f.auth.registerWeb(webInput), want).rejects.toMatchObject({ code: want })
+      await expect(f.auth.registerWeb({ ...webInput, email: 'Alice@Example.cn' }), want).rejects.toMatchObject({ code: want })
       expect(f.center.ops(), want).not.toContain('ticket.redeem')
       expect(f.events).toEqual([])
       await expect(f.sms.check(PHONE, 'register', CODE, true), want).resolves.toBeUndefined()
@@ -262,6 +264,71 @@ describe('center mode: register follows check → gates → consume → insert',
     expect(f.center.ops()).toEqual(['otp.send'])
     await expect(f.auth.registerWeb({ ...webInput, code: '000000' })).rejects.toMatchObject({ code: 'SMS_CODE_INVALID' })
     await expect(f.auth.registerWeb(webInput)).rejects.toMatchObject({ code: 'PHONE_TAKEN' })
+  })
+  it('refuses registration without phone + code in center mode (no e-mail-only bypass of SMS and slider)', async () => {
+    const f = await authFixture()
+    const device = { fingerprint: 'f'.repeat(64), name: 'pc', platform: 'windows' as const, appVersion: '1.12.4' }
+    await expect(f.auth.register({ username: 'alice', email: 'a@b.cn', password: 'password123', device })).rejects.toMatchObject({ code: 'CLIENT_UPGRADE_REQUIRED', message: '请升级到最新版本后再注册', status: 400 })
+    await expect(f.auth.registerWeb({ username: 'alice', email: 'a@b.cn', password: 'password123' })).rejects.toMatchObject({ code: 'PHONE_REQUIRED', message: '请使用手机号注册', status: 400 })
+    expect(f.center.calls).toEqual([])
+    expect(f.events).toEqual([])
+  })
+  it('local mode still accepts the legacy e-mail-only registration', async () => {
+    const inserted: string[] = []
+    const { db } = fakeDb((sql) => sql.startsWith('SELECT') ? { rows: [], rowCount: 0 } : undefined)
+    const store = { pool: db, audit: async () => {}, registerWebUser: async (i: { username: string }) => { inserted.push(i.username); return { id: 'u1', username: i.username } } }
+    const auth = await AuthService.create(store as unknown as PgStore, { accessSecret: ACCESS, refreshDays: 30 })
+    await expect(auth.registerWeb({ username: 'alice', email: 'a@b.cn', password: 'password123' })).resolves.toEqual({ ok: true, username: 'alice' })
+    expect(inserted).toEqual(['alice'])
+    // 像手机号的用户名两种模式都拒（这里是本地模式）
+    await expect(auth.registerWeb({ username: '13900139000', email: 'a@b.cn', password: 'password123' })).rejects.toMatchObject({ code: 'USERNAME_IS_PHONE', message: '用户名不能是手机号', status: 400 })
+    expect(inserted).toEqual(['alice'])
+  })
+  it('rejects a phone-shaped username unless it is the phone being verified', async () => {
+    const f = await authFixture()
+    await f.auth.sendSmsCode({ phone: PHONE, purpose: 'register' }, null, ctx())
+    await expect(f.auth.registerWeb({ ...webInput, username: '13900139000' })).rejects.toMatchObject({ code: 'USERNAME_IS_PHONE' })
+    await expect(f.auth.registerWeb({ ...webInput, username: ' 13900139000 ' })).rejects.toMatchObject({ code: 'USERNAME_IS_PHONE' })
+    // 输入校验，不碰验证码
+    expect(f.center.ops()).toEqual(['otp.send'])
+    await expect(f.auth.registerWeb({ ...webInput, username: PHONE })).resolves.toEqual({ ok: true, username: PHONE })
+    // 12 位数字、10 开头的数字串不是手机号
+    const g = await authFixture()
+    await g.auth.sendSmsCode({ phone: PHONE, purpose: 'register' }, null, ctx())
+    await expect(g.auth.registerWeb({ ...webInput, username: '10900139000' })).resolves.toMatchObject({ ok: true })
+  })
+  it('bind send never says the number is taken; PHONE_TAKEN only comes at submit, after the code check', async () => {
+    const f = await authFixture({ takenPhone: true })
+    await expect(f.auth.sendSmsCode({ phone: PHONE, purpose: 'bind' }, 'u1', ctx())).resolves.toMatchObject({ ok: true, cooldownSeconds: 60 })
+    expect(f.center.ops()).toEqual(['otp.send'])
+    await expect(f.auth.sendSmsCode({ phone: PHONE, purpose: 'bind' }, null, ctx())).rejects.toMatchObject({ code: 'ACCESS_INVALID', status: 401 })
+    const phone = new PhoneAuth(f.auth.phone['db' as never] as Db, { sender: null, production: true })
+    await expect(phone.bindPhone('u1', PHONE, '000000', consume => f.sms.check(PHONE, 'bind', '000000', consume))).rejects.toMatchObject({ code: 'SMS_CODE_INVALID' })
+    await expect(phone.bindPhone('u1', PHONE, CODE, consume => f.sms.check(PHONE, 'bind', CODE, consume))).rejects.toMatchObject({ code: 'PHONE_TAKEN' })
+    expect(f.center.ops()).not.toContain('ticket.redeem')
+  })
+  it('the real store looks up the trial plan before beforeInsert, so a missing plan cannot burn the code', async () => {
+    const run = async (planExists: boolean) => {
+      const order: string[] = []
+      const { db } = fakeDb((sql) => {
+        if (sql.includes('FROM system_settings')) return { rows: [], rowCount: 0 }
+        if (sql.includes('count(*)')) return { rows: [{ n: 0 }], rowCount: 1 }
+        if (sql.includes('FROM trial_claims')) return { rows: [], rowCount: 0 }
+        if (sql.includes('FROM plans')) { order.push('plan'); return { rows: planExists ? [{ id: 'p1' }] : [], rowCount: planExists ? 1 : 0 } }
+        if (sql.includes('INSERT INTO users')) { order.push('insert'); return { rows: [{ id: 'u1', username: 'alice' }], rowCount: 1 } }
+        if (sql === 'ROLLBACK' || sql === 'COMMIT') order.push(sql)
+        return undefined
+      })
+      const store = Object.assign(Object.create(PgStore.prototype) as PgStore, { pool: db })
+      const done = store.registerTrialUser({ username: 'alice', email: null, phone: PHONE, passwordHash: 'h', hardwareHash: 'hw', ip: '203.0.113.9', beforeInsert: async () => { order.push('consume') } })
+      return { order, done }
+    }
+    const ok = await run(true)
+    await expect(ok.done).resolves.toMatchObject({ trialGranted: true })
+    expect(ok.order).toEqual(['plan', 'consume', 'insert', 'COMMIT'])
+    const missing = await run(false)
+    await expect(missing.done).rejects.toThrow('TRIAL_PLAN_NOT_FOUND')
+    expect(missing.order).toEqual(['plan', 'ROLLBACK'])
   })
   it('the real store calls beforeInsert after its gates and before inserting the user', async () => {
     const run = async (maxPerIp: number, existing: number) => {
@@ -319,6 +386,21 @@ describe('center mode: reset and bind', () => {
       seen.add(`${err.code}|${err.status}|${err.message}`)
     }
     expect([...seen]).toEqual(['SMS_CODE_INVALID|400|验证码错误'])
+  })
+  it('reset: a center outage is hidden from the user but the server log says it was an outage, with the reason', async () => {
+    // 核码那一下中心不可用
+    const a = await authFixture()
+    await a.sms.sendReset(PHONE, ctx(), async () => true)
+    a.center.s.down = true
+    await expect(a.auth.resetPasswordByPhone({ phone: PHONE, code: CODE, password: 'new-password-1' })).rejects.toMatchObject({ code: 'SMS_CODE_INVALID', message: '验证码错误' })
+    expect(a.logs.some(l => l.startsWith('[warn] sms center check unavailable') && l.includes('fail-closed') && l.includes('"reason":"timeout"') && l.includes('phone=138****8000'))).toBe(true)
+    expect(a.logs.some(l => l === '[warn] sms center check unavailable purpose=reset phone=138****8000 consume=false')).toBe(true)
+    // 错码不是故障：不能记成 unavailable
+    const b = await authFixture()
+    await b.sms.sendReset(PHONE, ctx(), async () => true)
+    await expect(b.auth.resetPasswordByPhone({ phone: PHONE, code: '000000', password: 'new-password-1' })).rejects.toMatchObject({ message: '验证码错误' })
+    expect(b.logs.some(l => l.includes('unavailable'))).toBe(false)
+    for (const logs of [a.logs, b.logs]) expect(logs.join('\n')).not.toContain(CODE)
   })
   it('bind: a number taken by someone else is refused without consuming the code', async () => {
     const { sms, center } = setup()

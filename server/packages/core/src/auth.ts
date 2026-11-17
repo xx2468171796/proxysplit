@@ -63,18 +63,31 @@ export class AuthService{
     if(purpose==='reset')return center.sendReset(phone,ctx,async()=>!!await this.phone.phoneOwner(phone))
     if(purpose==='register')return center.send(phone,'register',ctx)
     if(!userId)throw new AppError('ACCESS_INVALID','Authentication required',401)
-    return center.send(phone,'bind',ctx,async()=>await this.phone.phoneTaken(phone,userId)?'该手机号已被其他账号使用':null)
+    // 绑定发码也不说「号已被占用」（否则登录后就能逐个探号）：占用只在提交绑定、核码之后才报 PHONE_TAKEN。
+    return center.send(phone,'bind',ctx)
+  }
+  /** 用户名不能长得像手机号（登录框会和别人的手机号撞），除非就是本次验证的这个手机号。两种模式都查；老账号登录不受影响。 */
+  private assertUsernameNotPhone(username:string,phone:string|undefined){
+    const name=normalizeUsername(username)
+    if(/^1[3-9]\d{9}$/.test(name)&&name!==phone)throw new AppError('USERNAME_IS_PHONE','用户名不能是手机号',400)
   }
   /**
-   * 中心模式注册的前半段（顺序同 V7）：只读核码 → 撞号 / 用户名占用；返回建号事务里「其它闸门都过了、插入用户之前」调的消费函数。
-   * 本地模式或没带手机号（老客户端邮箱注册）返回 null，走原流程。
+   * 中心模式注册的前半段（顺序同 V7）：只读核码 → 撞号 / 用户名 / 邮箱占用；返回建号事务里「其它闸门都过了、插入用户之前」调的消费函数。
+   * 本地模式返回 null，走原流程。中心模式必须带手机号 + 验证码：只带邮箱的注册（老客户端 / 绕过页面直接调接口）
+   * 一律拒绝，否则短信和滑块都能被绕开；邮箱只是可选的附加字段。
    */
-  private async centerRegisterGate(input:{username:string;phone?:string|undefined;code?:string|undefined}){
+  private async centerRegisterGate(input:{username:string;phone?:string|undefined;code?:string|undefined;email?:string|undefined},via:'client'|'web'){
     const center=this.smsCenter,{phone,code}=input
-    if(!center||!phone||!code)return null
+    if(!center)return null
+    if(!phone||!code)throw via==='client'
+      ?new AppError('CLIENT_UPGRADE_REQUIRED','请升级到最新版本后再注册',400)
+      :new AppError('PHONE_REQUIRED','请使用手机号注册',400)
     await center.check(phone,'register',code,false)
     await this.assertIdentityFree(input.username,phone)
     if(await this.store.findUser(normalizeUsername(input.username)))throw identityTaken()
+    // 邮箱占用也在消费之前查：消费之后能预见的失败都要提前挡掉，码才不会白烧
+    const email=input.email?.trim().toLowerCase()
+    if(email&&await this.phone.emailTaken(email))throw identityTaken()
     return ()=>center.check(phone,'register',code,true)
   }
   private async contactOf(userId:string):Promise<DealerContact|null>{
@@ -116,7 +129,8 @@ export class AuthService{
     if(asPhone&&await this.phone.phoneOwner(asPhone))throw new AppError('IDENTITY_TAKEN','用户名或邮箱已被使用',409)
   }
   async register(input:RegisterInput,ip=''){
-    const consume=await this.centerRegisterGate(input)
+    this.assertUsernameNotPhone(input.username,input.phone)
+    const consume=await this.centerRegisterGate(input,'client')
     if(!consume)await this.assertIdentityFree(input.username,input.phone)
     const codeId=!consume&&input.phone&&input.code?await this.phone.verify(input.phone,'register',input.code):null
     const passwordHash=await hashPassword(input.password)
@@ -139,7 +153,8 @@ export class AuthService{
   }
   // 官网注册：只建账号，不绑定设备、不发试用（试用在首次客户端登录时发放）。
   async registerWeb(input:WebRegisterInput,ip=''){
-    const consume=await this.centerRegisterGate(input)
+    this.assertUsernameNotPhone(input.username,input.phone)
+    const consume=await this.centerRegisterGate(input,'web')
     if(!consume)await this.assertIdentityFree(input.username,input.phone)
     const codeId=!consume&&input.phone&&input.code?await this.phone.verify(input.phone,'register',input.code):null
     const passwordHash=await hashPassword(input.password)

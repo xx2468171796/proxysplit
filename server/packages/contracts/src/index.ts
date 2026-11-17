@@ -156,7 +156,7 @@ export const planUpsertSchema = planBaseSchema.superRefine((v,ctx)=>{
 })
 export const planPatchSchema = planBaseSchema.partial().omit({code:true})
 // hvToken：付款前人机验证（LcVerify action=pay）的一次性凭证，原样交给支付中心 SDK 兑换；老客户端不带。
-export const orderCreateSchema = z.object({planId:z.string().uuid(),hvToken:z.string().trim().min(1).max(512).optional()})
+export const orderCreateSchema = z.object({planId:z.string().uuid(),hvToken:z.string().trim().min(1).max(2048).optional()})
 // Admin refund: the money goes back in the merchant back office; this records
 // it and takes back the unused membership time.
 export const orderRefundSchema = z.object({reason:z.string().trim().min(2).max(200)})

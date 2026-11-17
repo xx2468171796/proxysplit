@@ -42,7 +42,10 @@ export async function buildApp(config:ApiConfig,provided?:Core){
   // 短信验证码：配了 LCV_* 走雷池验证中心（KV 用上面的 Redis，键前缀 proxysplit:lcvotp:），没配留在本地模式。
   const smsCenter=createSmsCenterFromEnv(config,redis,msg=>app.log.warn(msg))
   if(smsCenter&&typeof core.auth.setSmsCenter==='function')core.auth.setSmsCenter(smsCenter)
-  app.log.info(`sms mode: ${smsCenter?'center':'local'}`)
+  // 记实际生效的模式（不是按 env 猜的）；env 要中心模式而 core 没切过去 = 启动失败，不能悄悄回落到本地直发。
+  const smsMode=core.auth.smsMode==='center'?'center':'local'
+  if(smsCenter&&smsMode!=='center'){redis?.disconnect();throw new Error('LCV_* is configured but the auth core is not in center SMS mode')}
+  app.log.info(`sms mode: ${smsMode}`)
   await app.register(cors,{origin:[config.ADMIN_ORIGIN],credentials:false})
   await app.register(rateLimit,{global:false,max:10,timeWindow:'1 minute',...(redis?{redis}:{})})
   app.setErrorHandler((error,_req,reply)=>{
