@@ -31,7 +31,7 @@ AI 编程官网（aigw）客户不显示作者联系方式（QQ 群 / 微信 / �
 ## 刷新令牌丢响应容错（服务端 0a3cfc9）
 旧令牌已轮换、其后继（同事务 created_at = 父 consumed_at）从没用过、同设备、10 分钟内，视为重试：作废后继再轮换；否则仍按重放整条作废（`classifyRefresh`，store.ts）。
 - 起因 cpcc00004：刷新 200 后客户端没接住，下一分钟旧令牌 → REFRESH_REPLAY，一上午被踢 5 次，付了款还显示「暂无有效会员」。
-- 客户端配套：刷新 401 清在线会话回登录页（只进 main，随后续发版）。
+- 客户端配套：只有明确的吊销错误码才清会话（见下「授权与租约」），不再是「刷新 401 就回登录页」。
 
 ## 免费档 / 手机号 / 云同步（服务端，迁移 0019）
 - 权益只认 core `entitlement.ts` 的 `effective()`：无会员 = 免费版（tier free、设备数 = default_device_limit，现为 1），会员 = 1 + 套餐 max_devices，管理员不限。免费也签租约。
@@ -78,14 +78,29 @@ AI 编程官网（aigw）客户不显示作者联系方式（QQ 群 / 微信 / �
 Ed25519 离线租约绑定账号 / 设备 / 硬件 / 期限；minimumVersion 会进租约 minVersion，别随手调高。
 - 离线授权防调早时钟：lease iat + LastSeenAt 高水位，容差 10 分钟。
 - 试用硬件摘要依赖客户端上报；离线租约仍存在系统时间回拨 / 快照风险（见 known-issues.md）。
+- **吊销只认错误码（2026-11-18 审计，`internal/license/rejection.go`）**：`ACCOUNT_UNAVAILABLE / DEVICE_MISMATCH / REFRESH_INVALID / REFRESH_REPLAY` 才清会话，而且会话和租约一起清（`applyRejectionLocked` 是唯一改状态的入口）；`DEVICE_LIMIT` 只清租约、留会话去解绑；408 / 425 / 429、WAF 或上网认证页（没有本站 JSON 错误码的 4xx）、断网都按临时故障，保留会话与租约走离线宽限。POWER云 那边是另一套协议：只有 OAuth `invalid_grant` 才丢授权（`powervpn.grantRejected`），两处各管各的服务端，不合并。
+- 刷新节奏：巡检每 60 秒只取租约（不轮换凭据，封号 / 解绑 / 套餐变化仍在一个周期内生效）；访问令牌剩余不足 2 分钟或年龄未知才刷新（`renewOnlineLocked`，按本机收到时间 + 服务端有效期算，不受时钟不准影响）；租约 401 且不是吊销码时补一次刷新。巡检条件 = 有会话 / 租约仍有效 / 代理在跑 任一成立（未登录但代理在跑会被停）。没有会话的租约加载时丢弃。
+- 设备指纹：成分第一次完整算出后用 DPAPI 封存到数据目录 `device.dat`（`machine_store.go`，唯一来源），之后直接复用不再探测；老用户首次按 4 / 8 / 15 秒重试探测成功才落盘（指纹不变），连续 3 次启动都失败才把注册表成分定为指纹。**device.dat 不能删**（指纹变 = DEVICE_MISMATCH + 多占一个名额），清除与重置任何一项都不碰它。powervpn 的设备 ID 取同一份。
+- 签租约按设备自己的平台取最低版本与最新版（macOS 不再拿到 Windows 的版本线）。
+
+## 登录、限流与后台权限（服务端，2026-11-18 审计）
+- 登录：账号不存在 / 密码错 / 被锁定统一回 `AUTH_INVALID` 401 和同一句文案（锁定期间不验密码，也花一次哈希时间，区别只进审计）。锁定规则在 `core/login-lockout.ts`：最长 30 分钟，成功登录或 24 小时没再被锁则级别归零，自助改密也清零；手机号形状的输入有人绑定就只认绑定者，没人绑定才按用户名找。
+- 自助改密只吊销其它设备的会话，保留本人正在用的这台。
+- 限流（`apps/api/src/rate-limits.ts`）：Redis 不可用时默认放行（skipOnError），只有发短信、客户端注册、官网注册拒绝并回 503 `RATE_LIMIT_UNAVAILABLE`；键前缀 `proxysplit:rl:`。每台在线客户端都会定时调的接口（刷新、POWER云 同步、订单 / 通知轮询、配置同步、日志上报）统一 `FLEET_LIMIT` 每 IP 每分钟 600，刷新另加每会话 family 每分钟 30 次；人手动触发的接口限额不变。
+- 匿名节点上报口：每 IP 每 10 分钟 64 MB、库里没见过的设备号每 IP 每小时 30 个（内部功能，见 docs/节点上报.md）。
+- 后台：动管理员账号（改状态 / 重置密码 / 封禁 / 强制下线 / 解绑设备 …）或新建管理员必须是超级管理员（`admin-guard.ts`，`SUPER_ADMIN_USERNAMES`，配成空串按默认 admin）。
+- 会话 / 审计表：迁移 0024 补索引；成功刷新不再写审计；API 进程每小时清过期超过 1 天、或吊销 / 消费超过 7 天的会话行（`session-retention.ts`）。
 
 ## 收款与退款（服务端）
 **2026-11-17 起改走公司统一支付中心 zhifu-service（分支 feat/zhifu-center，未上线）**：迁移 0022 加通道 `zhifu-center`（adapter `center`）并设为当前通道；中心按站点路由通道（目前只有微信 zyg1103wx），本站不选通道、**不拆单**（createOrders 对 center 只建一笔）。
 - 代码：core/pay-center.ts（CenterPay，公司包 zhifu 6.17.1 的 zhifu/site，vendor 在 core/src/vendor/zhifu，只拷 site + center 用到的文件；运行时依赖 zod）、pay-center-book.ts（订单簿 pay_center_orders、回调去重 pay_center_notifies）；PaymentService 按 adapter 分 zhongzhuan / center。
 - 下单：本地订单号作 requestId → 中心站点单号 `PR…`（同一本地单重试幂等），写进 orders.provider_order_no，pay_url = 中心给的码，expires_at 改成中心截止时间。subject 用 SDK 默认「充值」，不带站名 / 域名（业主红线）。中心拒单（COOLDOWN / QUEUE_FULL / QUEUED / PAY_BANNED / AMOUNT_INVALID / COLLECTION_OFF / CHANNEL_BUSY / CHALLENGE_REQUIRED / OPEN_ORDER / TRUST_REQUIRED）→ 错误码 `PAY_<码>`，中心的中文原因原样给客户端，本地单标 failed。本站自己另一笔未付单（OPEN_ORDER 同站）自动「取消后重新下单」。
-- 回调：POST /v1/pay/center/notify（作用域内 JSON 按原始字符串收，验签要原字节），回复原样（2xx `{"code":0}` 才算收到，中心退避重试 72 小时）。SDK 核对用户与金额 → fulfillPaidOrder（事件号 `center:<站点单号>`，payment_events 去重、grantWithinTx、分销结算、到账通知），notify_id 去重落库。
-- 查单（对账定时器 / 客户端轮询）只做展示：中心 expired / cancelled → 本地标 failed；已付**不从查单入账**，等签名回调（SDK 规定）。
-- 退款：同下面老流程，只在本地标记 + 扣时长；钱在商户后台原路退（中心 refund 接口暂不接）。
+- 回调：POST /v1/pay/center/notify（作用域内 JSON 按原始字符串收，验签要原字节），回复原样（2xx `{"code":0}` 才算收到，中心退避重试 72 小时）。SDK 核对用户与金额 → fulfillPaidOrder（事件号 `center:<站点单号>`，payment_events 唯一键 = 恰好一次落地、grantWithinTx、分销结算、到账通知）。**去重顺序（2026-11-18 审计）：seen → 发放 → mark**，发放成功后才把 notify_id 记成已处理（以前先记后发，进程在两步之间重启就再也不发放）；发放至少一次、落地恰好一次。
+- 查单 / 对账（对账定时器 / 客户端轮询，`syncCenterOrder`）：中心 expired / cancelled → 本地标 failed；**中心已付而本地还是 pending / failed → 走同一个 fulfilCenter 补发并记 warn**（事件号与回调相同，两条路互相去重），被卡住的历史订单也由对账补上。
+- 中心还回旧未付单（reused）时的接管规则只在 `core/order-reuse.ts`：同用户、同套餐、同金额、同通道、非拆单、且旧单是 pending / failed 才接管（已付的旧单绝不接管），并在与 createOrders 相同的事务 / 锁 / 在售 / 限购检查里作废新单、恢复旧单；不能接管就让中心取消旧单再开新码（重下成功后才清订单簿的 reused 标记），仍拿回旧单则明确报错。
+- 退款：后台退款同下面老流程（本地标记 + 扣时长，钱在商户后台原路退）。**中心侧退款会同步回来**（onRefunded → `PaymentService.refundCenter` → `store.refundOrder`，原因「支付中心退款」，审计 `payment.center.refund` 写在退款事务里）：已退直接确认；本地还没发放则不确认、让中心重试；部分退款不自动收回整笔会员，记 warn + 审计交人工。动钱 / 动会员的后台操作（退款、手动确认、发放 / 续期、代理商结算 / 改比例）审计行都与业务同一事务（`core/audit.ts insertAudit`）。
+- 付款前人机验证服务不可达时按通过放行，但记 warn 并累计 `CenterPay.stats.hvUnavailable`。老网关回调对「订单不存在 / 通道不符 / 签名错误」统一回 401 `PAYMENT_SIGNATURE_INVALID`（不让人按状态码探订单号）。
+- 套餐目录 `GET /v1/catalog/plans`（免登录）除套餐外带 `freeDevices`（= 运营设置 defaultDeviceLimit）和 `paymentMethods`（按当前收款通道：通道 config.methods 优先，center = `wechat`，直连网关 = 设置项；`core/catalog.ts`）。官网与客户端的「免费版 N 台」「用微信扫码」都读它；后台「支付通道」页显示的也是这个。
 - 运行时 env（不进仓，值在堡垒机资产）：PAY_MODE=center、PAY_CENTER_URL=https://zfzx.zygskins.cn、PAY_CENTER_APP_ID、PAY_CENTER_SECRET，PAY_HV_HOST=proxysplit.zygskins.cn（付款前人机验证，见下节）。不全 = 下单 503「统一支付中心尚未配置」。上线前在中心「站点」登记回调地址 https://<API 域名>/v1/pay/center/notify，WAF 放行该路径。
 - 客户端：微信电脑码是 `weixin://wxpay/bizpayurl?…`，老客户端 validPaymentURL 只认 https / alipays 会报「支付链接格式无效」→ 需发带 wechatNativePayURL 的新客户端（只画二维码，不本机打开）；付款框按链接显示「微信 / 支付宝」。
 
@@ -115,7 +130,7 @@ Ed25519 离线租约绑定账号 / 设备 / 硬件 / 期限；minimumVersion 会
 - 退款：后台订单「退款」→ POST /v1/admin/orders/:no/refund {reason}，整组拆单一起退，只扣未用时长（权益流水 license_grants 记录每次发放的 start/end；refundedLicense 纯函数有单测）；2026-09-26 之前的订单无流水，只标退款不动会员，需手动调；钱在支付宝商户后台原路退。
 - 单笔回调到账走 grantWithinTx（以前漏了试用剩余时长合并）。
 - 拆单续付（2026-10-23）：拆单各笔共用一个过期时间，付了一部分、其余过期时，再买同一套餐会续付这一组（resumeSplitInTx）：还有效的那笔原样返回、不重复下单，过期的标 closed 并换新单号重发；「全部付齐」只数非 closed 的笔。旧二维码迟到付款照样算（closed 的笔仍对账、可到账，同序号的替补自动关掉）；后台手动确认拆单子单只确认这一笔、付齐才发（payGroupPieceInTx，与回调同一组级事件防重复发放）。真库场景脚本在 pve-pg-proxysplit-paytest 跑过 14 项全过。
-- 客户端接着付（2026-11-18 审计）：付款状态只在内存里，没付完的订单由 `frontend/src/state/payment-resume.ts` 的 `findResumable` 从 /v1/me/orders 认出来（启动时和打开会员页都会读订单）——剩下的几笔都没过期就直接出码，有过期的按同一套餐重新下单走上面的续付。入口是套餐区的「继续支付」提示；已经付过一部分时主界面顶部也出横幅。二维码生成失败显示原因 +「重新生成二维码」。Go 的 license.Order 还没带 groupId（接口有返回），客户端暂按「套餐名 + 总笔数」认组。
+- 客户端接着付（2026-11-18 审计）：付款状态只在内存里，没付完的订单由 `frontend/src/state/payment-resume.ts` 的 `findResumable` 从 /v1/me/orders 认出来（启动时和打开会员页都会读订单）——剩下的几笔都没过期就直接出码，有过期的按同一套餐重新下单走上面的续付。入口是套餐区的「继续支付」提示；已经付过一部分时主界面顶部也出横幅。二维码生成失败显示原因 +「重新生成二维码」。拆单按订单的 groupId 认组（`license.Order.GroupID`）；服务端没给组号时才按「套餐名 + 总笔数」认。
 
 ## 免费档 / 手机号 / 配置同步（客户端，2026-10-29，docs/plan-2026-10-29-free-sync-phone.md）
 - license.Status 增 member / freeDevices / planDevices / phoneBound；tier=free 照常签租约、全部功能可用；租约 409 DEVICE_LIMIT → PendingDevice（只有这时出整页闸门）。APIError 带服务端 code。

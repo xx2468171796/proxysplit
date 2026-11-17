@@ -51,6 +51,7 @@
 | 站内通知/公告 | docs/memory/notify.md | 公司包 tongzhi、老公告迁移、到账 / 到期 / 佣金通知、TZ_AI_TOKEN |
 | 账号（zhanghao） | docs/memory/account.md | 封禁 / 解封 / 强制下线 / 昵称、会话仍自管的原因、userStatusSql |
 | 已知限制/待办 | docs/memory/known-issues.md | 无代码签名、Defender 误报、权益风险、待办 |
+| 2026-11 审计整改 | docs/memory/audit-2026-11.md | 分支 fix/audit-1118：四组各修了什么（提交号）、集成接线与去重、有意没做的、待定 |
 | 逐版发布史 | docs/decisions.md | commit、SHA256、releases id、incoming 目录 |
 
 ## 其它入口

@@ -20,6 +20,7 @@
 - `?tier=free` 免费用户（侧栏「会员」页，`&intro=1` 重新弹会员介绍）、`?phone=0` 绑定手机号弹框、`?sync=conflict` 同步冲突、`?profiles=full` 云端配置份数已满（mock-sync.ts）。
 - `?split=1` 应用分流页。
 - `?update=1|force` 更新提示 / 强制更新。
+- `?run=recovering|failed` 运行阶段：内核自动重启中 / 代理自己停了（带原因）。
 - `?page=apps` 指定页、`?look=1` 外观面板、`?donate=0` 自动关赞赏码。
 
 ## 设置分节（2026-10-28，docs/ui-audit-2026-10.md）
@@ -47,3 +48,11 @@ Wails 构建会重新生成 frontend/wailsjs 绑定，需随提交带上；正�
 - 登录状态只经 `state/account.ts` 的 `setLicenseStatus` 写入；登录账号一变（退出 / 换人登录 / 被踢下线）自动调 `resetAccountScopedState()`。
 - 新加只属于某个账号的 store（余额、订单、个人列表…）：模块里 `onAccountReset(() => store.set(初始值))` 登记清空；异步读取在 await 后用 `accountEpoch()` 比对，换过账号就丢弃结果。
 - 本机「看过了」一类标记按账号存（如 `member-intro-seen:<用户名>`），不用全机共用的 key。
+
+## 运行阶段与自动恢复（2026-11-18 审计）
+- Go 的 `Status` 带 `runState`（stopped / running / restarting / recovering）、`stopReason`、`captureState`（ok / restarting）；规则见 routing.md「仅接管选中程序」的看门狗与生命周期两条。
+- 判断只在 `state/runtime.ts`：`isRunning`（恢复期间也算开着 → 主按钮是「停止」，点了就取消恢复，不会再启动一次）、`isRecovering`、`runLabel`（运行中 / 恢复中 / 重新连接中 / 已停止）、`selfStopReason`。标题栏状态点、概览大开关、顶部横幅都读它们，不各自判断。
+- Go 推 `run-event {kind, message}`（app.go 把 `Service.SetRunEventSink` 转成 Wails 事件）：界面立即刷新状态并提示一句；`*-failed` 按出错提示。代理自己停下时顶部横幅「代理已自动停止」给出原因，下次启动 / 停止后消失。
+- 窗口收进托盘 / 后台启动时 Go 调 `Service.SetUIVisible(false)`，线路探测与逐应用监测降频；窗口回来立即刷新。
+- AI 控制页有「重新生成令牌」（确认框说明旧令牌立即失效、粘贴过提示词的要重新复制、MCP 方式不用改）。
+- 会员页的「免费版 N 台」「用微信扫码」来自套餐接口（`license.catalog`，本人授权里有 freeDevices 时以授权为准）。
