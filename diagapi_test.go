@@ -22,12 +22,9 @@ func TestDiagAPIRemoteControl(t *testing.T) {
 	a := &App{svc: svc, ready: make(chan struct{}), pv: powervpn.New(dir, appVersion)}
 	close(a.ready)
 	mux := http.NewServeMux()
-	pass := func(h func(http.ResponseWriter, *http.Request)) http.HandlerFunc { return h }
-	writeJSON := func(w http.ResponseWriter, code int, v any) {
-		w.WriteHeader(code)
-		_ = json.NewEncoder(w).Encode(v)
+	for _, route := range a.diagRoutes() {
+		mux.HandleFunc(route.path, route.serve)
 	}
-	a.registerDiagAPI(mux, pass, writeJSON)
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 

@@ -2,7 +2,9 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"os"
@@ -40,6 +42,133 @@ func (a *App) GetAIControlInfo() AIControlInfo {
 	}
 }
 
+// controlRoute is one path of the control API: get is its read-only handler,
+// post its mutating one; nil = the path does not offer that method. Handlers
+// call the shared operations in apiops.go.
+type controlRoute struct {
+	path string
+	get  http.HandlerFunc
+	post http.HandlerFunc
+}
+
+func (rt controlRoute) serve(w http.ResponseWriter, r *http.Request) {
+	if rt.post == nil || (r.Method == http.MethodGet && rt.get != nil) {
+		rt.get(w, r)
+		return
+	}
+	rt.post(w, r)
+}
+
+func writeJSON(w http.ResponseWriter, code int, v any) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(code)
+	_ = json.NewEncoder(w).Encode(v)
+}
+
+// readJSON decodes the request body into v; an empty body leaves v untouched.
+func readJSON(r *http.Request, v any) error {
+	err := json.NewDecoder(r.Body).Decode(v)
+	if errors.Is(err, io.EOF) {
+		return nil
+	}
+	return err
+}
+
+// controlRoutes is the whole control API: every path the server registers.
+func (a *App) controlRoutes() []controlRoute {
+	routes := []controlRoute{
+		// GET /api/status — running state, active node, strategy, app rules.
+		{path: "/api/status", get: func(w http.ResponseWriter, r *http.Request) { writeJSON(w, 200, a.apiStatus()) }},
+		// GET /api/nodes — available nodes (no credentials).
+		{path: "/api/nodes", get: func(w http.ResponseWriter, r *http.Request) { writeJSON(w, 200, a.apiNodes()) }},
+		// POST /api/node/select {"id":"..."}
+		{path: "/api/node/select", post: func(w http.ResponseWriter, r *http.Request) {
+			var b struct {
+				ID string `json:"id"`
+			}
+			_ = readJSON(r, &b)
+			if strings.TrimSpace(b.ID) == "" {
+				writeJSON(w, 400, map[string]string{"error": "id required"})
+				return
+			}
+			writeJSON(w, 200, okOr(a.svc.SelectNode(b.ID)))
+		}},
+		// GET /api/apps ; POST /api/apps upsert {"match","path","line","enabled"}
+		{path: "/api/apps",
+			get: func(w http.ResponseWriter, r *http.Request) { writeJSON(w, 200, a.svc.GetAppRules()) },
+			post: func(w http.ResponseWriter, r *http.Request) {
+				var b struct {
+					Match   string `json:"match"`
+					Path    string `json:"path"`
+					Line    string `json:"line"`
+					Node    string `json:"node"`
+					Enabled *bool  `json:"enabled"`
+				}
+				_ = readJSON(r, &b)
+				if strings.TrimSpace(b.Match) == "" {
+					writeJSON(w, 400, map[string]string{"error": "match required (e.g. chrome.exe)"})
+					return
+				}
+				a.svc.UpsertAppRule(b.Match, b.Path, b.Line, b.Node, b.Enabled == nil || *b.Enabled)
+				writeJSON(w, 200, map[string]any{"ok": true, "apps": a.svc.GetAppRules()})
+			}},
+		// POST /api/apps/remove {"match":"..."}
+		{path: "/api/apps/remove", post: func(w http.ResponseWriter, r *http.Request) {
+			var b struct {
+				Match string `json:"match"`
+			}
+			_ = readJSON(r, &b)
+			if strings.TrimSpace(b.Match) == "" {
+				writeJSON(w, 400, map[string]string{"error": "match required"})
+				return
+			}
+			a.svc.RemoveAppRule(b.Match)
+			writeJSON(w, 200, map[string]any{"ok": true, "apps": a.svc.GetAppRules()})
+		}},
+		// POST /api/mode {"clash":"rule|global|direct"}
+		{path: "/api/mode", post: func(w http.ResponseWriter, r *http.Request) {
+			var b struct {
+				Clash string `json:"clash"`
+			}
+			_ = readJSON(r, &b)
+			switch b.Clash {
+			case "rule", "global", "direct":
+				if err := a.svc.SetClashMode(b.Clash); err != nil {
+					writeJSON(w, 500, map[string]string{"error": err.Error()})
+					return
+				}
+				writeJSON(w, 200, map[string]any{"ok": true, "mode": b.Clash})
+			default:
+				writeJSON(w, 400, map[string]string{"error": "clash must be rule|global|direct"})
+			}
+		}},
+		// POST /api/start ; POST /api/stop ; POST /api/restart
+		{path: "/api/start", post: func(w http.ResponseWriter, r *http.Request) {
+			if err := a.startService(); err != nil {
+				writeJSON(w, 500, map[string]string{"error": err.Error()})
+				return
+			}
+			writeJSON(w, 200, map[string]any{"ok": true})
+		}},
+		{path: "/api/stop", post: func(w http.ResponseWriter, r *http.Request) {
+			a.svc.Stop()
+			writeJSON(w, 200, map[string]any{"ok": true})
+		}},
+		{path: "/api/restart", post: func(w http.ResponseWriter, r *http.Request) {
+			a.svc.Stop()
+			if err := a.startService(); err != nil {
+				writeJSON(w, 500, map[string]string{"error": err.Error()})
+				return
+			}
+			writeJSON(w, 200, map[string]any{"ok": true})
+		}},
+		// POST /mcp — a real Model Context Protocol server (JSON-RPC 2.0 over HTTP)
+		// so Claude Code / Codex can use ProxySplit as native MCP tools.
+		{path: "/mcp", post: a.handleMCP},
+	}
+	return append(routes, a.diagRoutes()...)
+}
+
 // startAPIServer starts the loopback control API. Failure (e.g. port busy) is
 // non-fatal — the app runs fine without it.
 func (a *App) startAPIServer() {
@@ -48,13 +177,7 @@ func (a *App) startAPIServer() {
 	}
 	token := a.svc.APIToken()
 	mux := http.NewServeMux()
-
-	writeJSON := func(w http.ResponseWriter, code int, v any) {
-		w.Header().Set("Content-Type", "application/json; charset=utf-8")
-		w.WriteHeader(code)
-		_ = json.NewEncoder(w).Encode(v)
-	}
-	auth := func(h func(http.ResponseWriter, *http.Request)) http.HandlerFunc {
+	auth := func(h http.HandlerFunc) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
 			t := strings.TrimSpace(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "))
 			if t == "" {
@@ -67,134 +190,9 @@ func (a *App) startAPIServer() {
 			h(w, r)
 		}
 	}
-
-	// GET /api/status — running state, active node, strategy, rule counts.
-	mux.HandleFunc("/api/status", auth(func(w http.ResponseWriter, r *http.Request) {
-		st := a.svc.Status()
-		writeJSON(w, 200, map[string]any{
-			"running": st.CoreRunning || st.EngineRunning,
-			"node":    st.NodeName,
-			"nodeId":  st.SelectedID,
-			"mode":    a.svc.GetClashMode(),
-			"apps":    a.svc.GetAppRules(),
-		})
-	}))
-
-	// GET /api/nodes — available nodes.
-	mux.HandleFunc("/api/nodes", auth(func(w http.ResponseWriter, r *http.Request) {
-		type nodeLite struct {
-			ID     string `json:"id"`
-			Name   string `json:"name"`
-			Type   string `json:"type"`
-			Server string `json:"server"`
-		}
-		var out []nodeLite
-		for _, n := range a.svc.Nodes() {
-			out = append(out, nodeLite{ID: n.ID, Name: n.Name, Type: n.Type, Server: n.Server})
-		}
-		writeJSON(w, 200, out)
-	}))
-
-	// POST /api/node/select {"id":"..."}
-	mux.HandleFunc("/api/node/select", auth(func(w http.ResponseWriter, r *http.Request) {
-		var b struct {
-			ID string `json:"id"`
-		}
-		_ = json.NewDecoder(r.Body).Decode(&b)
-		if strings.TrimSpace(b.ID) == "" {
-			writeJSON(w, 400, map[string]string{"error": "id required"})
-			return
-		}
-		if msg := a.svc.SelectNode(b.ID); msg != "" {
-			writeJSON(w, 200, map[string]any{"ok": false, "error": msg})
-			return
-		}
-		writeJSON(w, 200, map[string]any{"ok": true})
-	}))
-
-	// GET /api/apps ; POST /api/apps upsert {"match","path","line","enabled"}
-	mux.HandleFunc("/api/apps", auth(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == http.MethodGet {
-			writeJSON(w, 200, a.svc.GetAppRules())
-			return
-		}
-		var b struct {
-			Match   string `json:"match"`
-			Path    string `json:"path"`
-			Line    string `json:"line"`
-			Node    string `json:"node"`
-			Enabled *bool  `json:"enabled"`
-		}
-		_ = json.NewDecoder(r.Body).Decode(&b)
-		if strings.TrimSpace(b.Match) == "" {
-			writeJSON(w, 400, map[string]string{"error": "match required (e.g. chrome.exe)"})
-			return
-		}
-		en := b.Enabled == nil || *b.Enabled
-		a.svc.UpsertAppRule(b.Match, b.Path, b.Line, b.Node, en)
-		writeJSON(w, 200, map[string]any{"ok": true, "apps": a.svc.GetAppRules()})
-	}))
-
-	// POST /api/apps/remove {"match":"..."}
-	mux.HandleFunc("/api/apps/remove", auth(func(w http.ResponseWriter, r *http.Request) {
-		var b struct {
-			Match string `json:"match"`
-		}
-		_ = json.NewDecoder(r.Body).Decode(&b)
-		if strings.TrimSpace(b.Match) == "" {
-			writeJSON(w, 400, map[string]string{"error": "match required"})
-			return
-		}
-		a.svc.RemoveAppRule(b.Match)
-		writeJSON(w, 200, map[string]any{"ok": true, "apps": a.svc.GetAppRules()})
-	}))
-
-	// POST /api/mode {"clash":"rule|global|direct"}
-	mux.HandleFunc("/api/mode", auth(func(w http.ResponseWriter, r *http.Request) {
-		var b struct {
-			Clash string `json:"clash"`
-		}
-		_ = json.NewDecoder(r.Body).Decode(&b)
-		switch b.Clash {
-		case "rule", "global", "direct":
-			if err := a.svc.SetClashMode(b.Clash); err != nil {
-				writeJSON(w, 500, map[string]string{"error": err.Error()})
-				return
-			}
-			writeJSON(w, 200, map[string]any{"ok": true, "mode": b.Clash})
-		default:
-			writeJSON(w, 400, map[string]string{"error": "clash must be rule|global|direct"})
-		}
-	}))
-
-	// POST /api/start ; POST /api/stop
-	mux.HandleFunc("/api/start", auth(func(w http.ResponseWriter, r *http.Request) {
-		if err := a.startService(); err != nil {
-			writeJSON(w, 500, map[string]string{"error": err.Error()})
-			return
-		}
-		writeJSON(w, 200, map[string]any{"ok": true})
-	}))
-	mux.HandleFunc("/api/stop", auth(func(w http.ResponseWriter, r *http.Request) {
-		a.svc.Stop()
-		writeJSON(w, 200, map[string]any{"ok": true})
-	}))
-	mux.HandleFunc("/api/restart", auth(func(w http.ResponseWriter, r *http.Request) {
-		a.svc.Stop()
-		if err := a.startService(); err != nil {
-			writeJSON(w, 500, map[string]string{"error": err.Error()})
-			return
-		}
-		writeJSON(w, 200, map[string]any{"ok": true})
-	}))
-
-	a.registerDiagAPI(mux, auth, writeJSON)
-
-	// POST /mcp — a real Model Context Protocol server (JSON-RPC 2.0 over HTTP)
-	// so Claude Code / Codex can use ProxySplit as native MCP tools.
-	mux.HandleFunc("/mcp", auth(func(w http.ResponseWriter, r *http.Request) {
-		a.handleMCP(w, r)
-	}))
+	for _, route := range a.controlRoutes() {
+		mux.HandleFunc(route.path, auth(route.serve))
+	}
 
 	ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", apiPort))
 	if err != nil {
@@ -211,7 +209,7 @@ func mcpTools() []map[string]any {
 	strProp := func(desc string) map[string]any { return map[string]any{"type": "string", "description": desc} }
 	return append([]map[string]any{
 		{"name": "proxysplit_status", "description": "查看 ProxySplit 代理当前状态(是否运行、活动节点、策略、应用规则)。", "inputSchema": map[string]any{"type": "object", "properties": map[string]any{}}},
-		{"name": "proxysplit_list_nodes", "description": "列出所有可用节点(含 id/名称)。", "inputSchema": map[string]any{"type": "object", "properties": map[string]any{}}},
+		{"name": "proxysplit_list_nodes", "description": "列出所有可用节点(id、名称、类型、地址、端口；不含密码等凭据)。", "inputSchema": map[string]any{"type": "object", "properties": map[string]any{}}},
 		{"name": "proxysplit_select_node", "description": "选择活动节点。", "inputSchema": map[string]any{"type": "object", "properties": map[string]any{"id": strProp("节点 id(来自 proxysplit_list_nodes)")}, "required": []string{"id"}}},
 		{"name": "proxysplit_set_app", "description": "把某个程序设为走代理/直连/全局/拦截(会自动新增或更新规则)。可选 node 指定走哪个节点。", "inputSchema": map[string]any{"type": "object", "properties": map[string]any{
 			"match": strProp("程序名或完整路径,如 chrome.exe"),
@@ -278,10 +276,9 @@ func (a *App) mcpCall(name string, args json.RawMessage) string {
 	j := func(v any) string { b, _ := json.Marshal(v); return string(b) }
 	switch name {
 	case "proxysplit_status":
-		st := a.svc.Status()
-		return j(map[string]any{"running": st.CoreRunning || st.EngineRunning, "node": st.NodeName, "mode": a.svc.GetClashMode(), "apps": a.svc.GetAppRules()})
+		return j(a.apiStatus())
 	case "proxysplit_list_nodes":
-		return j(a.svc.Nodes())
+		return j(a.apiNodes())
 	case "proxysplit_select_node":
 		if str("id") == "" {
 			return "错误: 需要 id"

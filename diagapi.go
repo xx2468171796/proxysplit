@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -13,189 +14,174 @@ import (
 // Diagnostics / test endpoints of the local control API (and the matching MCP
 // tools), so an AI can inspect and verify routing on any machine.
 
-func (a *App) registerDiagAPI(mux *http.ServeMux, auth func(func(http.ResponseWriter, *http.Request)) http.HandlerFunc, writeJSON func(http.ResponseWriter, int, any)) {
-	// GET /api/diag — redacted state snapshot + core config + hints.
-	mux.HandleFunc("/api/diag", auth(func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, 200, a.diagSnapshot())
-	}))
-	// GET /api/diag/logs?n=300&grep=baidu
-	mux.HandleFunc("/api/diag/logs", auth(func(w http.ResponseWriter, r *http.Request) {
-		n, _ := strconv.Atoi(r.URL.Query().Get("n"))
-		writeJSON(w, 200, a.svc.RecentLogs(n, r.URL.Query().Get("grep")))
-	}))
-	// POST /api/diag/route-test {"process":"chrome.exe","url":"https://www.baidu.com"}
-	mux.HandleFunc("/api/diag/route-test", auth(func(w http.ResponseWriter, r *http.Request) {
-		var b struct {
-			Process string `json:"process"`
-			URL     string `json:"url"`
-		}
-		_ = json.NewDecoder(r.Body).Decode(&b)
-		writeJSON(w, 200, a.svc.RouteTest(b.Process, b.URL))
-	}))
-	// POST /api/diag/selftest — listed + unlisted programs × mainland / foreign sites.
-	mux.HandleFunc("/api/diag/selftest", auth(func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, 200, tmSelfTestRun(a.svc.SelfTest))
-	}))
-	// GET /api/ai-hijack — 劫持模式状态（只读：恢复只能在软件界面里点）
-	mux.HandleFunc("/api/ai-hijack", auth(func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, 200, a.GetAIHijack())
-	}))
-	// GET /api/exits — AI 页实时出口：本机 / 分应用代理 / AI 线路（exits_app.go）
-	mux.HandleFunc("/api/exits", auth(func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, 200, a.GetExits())
-	}))
-	// GET /api/ai-env — AI 环境检测; POST /api/ai-env/fix {"id":"guard|timezone|clock|autostart|all"}
-	mux.HandleFunc("/api/ai-env", auth(func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, 200, a.CheckAIEnv())
-	}))
-	mux.HandleFunc("/api/ai-env/fix", auth(func(w http.ResponseWriter, r *http.Request) {
-		var b struct {
-			ID string `json:"id"`
-		}
-		_ = json.NewDecoder(r.Body).Decode(&b)
-		writeJSON(w, 200, okOr(a.FixAIEnv(b.ID)))
-	}))
-	// GET /api/custom-rules ; POST {"rules":[{"type":"suffix","value":"x.com","action":"proxy"}]}
-	mux.HandleFunc("/api/custom-rules", auth(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == http.MethodGet {
-			writeJSON(w, 200, a.svc.GetCustomRules())
-			return
-		}
-		var b struct {
-			Rules []core.RouteRule `json:"rules"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
-			writeJSON(w, 400, map[string]string{"error": "body must be {\"rules\":[...]}"})
-			return
-		}
-		writeJSON(w, 200, okOr(a.svc.SetCustomRules(b.Rules)))
-	}))
-	// POST /api/nodes/core {"id":"<node id>","core":"auto|sing-box|xray"}
-	mux.HandleFunc("/api/nodes/core", auth(func(w http.ResponseWriter, r *http.Request) {
-		var b struct {
-			ID   string `json:"id"`
-			Core string `json:"core"`
-		}
-		if r.Method != http.MethodPost || json.NewDecoder(r.Body).Decode(&b) != nil || b.ID == "" {
-			writeJSON(w, 400, map[string]string{"error": "POST {\"id\":\"<节点 id>\",\"core\":\"auto|sing-box|xray\"}"})
-			return
-		}
-		writeJSON(w, 200, okOr(a.SetNodeCore(b.ID, b.Core)))
-	}))
-	// POST /api/nodes/via {"id","via"} — 前置代理: dial node id through via ("" = off).
-	mux.HandleFunc("/api/nodes/via", auth(func(w http.ResponseWriter, r *http.Request) {
-		var b struct {
-			ID  string `json:"id"`
-			Via string `json:"via"`
-		}
-		if r.Method != http.MethodPost || json.NewDecoder(r.Body).Decode(&b) != nil || b.ID == "" {
-			writeJSON(w, 400, map[string]string{"error": "POST {\"id\":\"<节点 id>\",\"via\":\"<前置节点 id，空 = 关闭>\"}"})
-			return
-		}
-		writeJSON(w, 200, okOr(a.SetNodeVia(b.ID, b.Via)))
-	}))
-	// GET / POST /api/settings/net — DNS 与高级 (validated like the UI).
-	mux.HandleFunc("/api/settings/net", auth(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == http.MethodGet {
-			writeJSON(w, 200, a.GetSettings().Net)
-			return
-		}
-		var n service.NetSettings
-		if err := json.NewDecoder(r.Body).Decode(&n); err != nil {
-			writeJSON(w, 400, map[string]string{"error": "body must be NetSettings JSON"})
-			return
-		}
-		writeJSON(w, 200, okOr(a.SetNetSettings(n)))
-	}))
-	// POST /api/split-mode {"mode":"whitelist|blacklist"}
-	mux.HandleFunc("/api/split-mode", auth(func(w http.ResponseWriter, r *http.Request) {
-		var b struct {
-			Mode string `json:"mode"`
-		}
-		_ = json.NewDecoder(r.Body).Decode(&b)
-		writeJSON(w, 200, okOr(a.svc.SetRuleMode(b.Mode)))
-	}))
-	// GET /api/account — login / membership state (ProxySplit account + POWER云).
-	mux.HandleFunc("/api/account", auth(func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, 200, map[string]any{"license": a.GetLicenseStatus(), "powervpn": a.GetPowerVPNStatus()})
-	}))
-	// POST /api/account/login {"username","password"} — ProxySplit account login.
-	mux.HandleFunc("/api/account/login", auth(func(w http.ResponseWriter, r *http.Request) {
-		var b struct {
-			Username string `json:"username"`
-			Password string `json:"password"`
-		}
-		_ = json.NewDecoder(r.Body).Decode(&b)
-		if strings.TrimSpace(b.Username) == "" || b.Password == "" {
-			writeJSON(w, 400, map[string]string{"error": "username and password required"})
-			return
-		}
-		writeJSON(w, 200, okOr(a.Login(strings.TrimSpace(b.Username), b.Password)))
-	}))
-	// GET /api/settings ; POST a partial object, e.g. {"tunMode":true,"blockQUIC":false}
-	mux.HandleFunc("/api/settings", auth(func(w http.ResponseWriter, r *http.Request) {
-		set := a.GetSettings()
-		if r.Method == http.MethodGet {
-			if set.LanPass != "" {
-				set.LanPass = "***"
+func (a *App) diagRoutes() []controlRoute {
+	return []controlRoute{
+		// GET /api/diag — redacted state snapshot + core config + hints.
+		{path: "/api/diag", get: func(w http.ResponseWriter, r *http.Request) { writeJSON(w, 200, a.diagSnapshot()) }},
+		// GET /api/diag/logs?n=300&grep=baidu
+		{path: "/api/diag/logs", get: func(w http.ResponseWriter, r *http.Request) {
+			n, _ := strconv.Atoi(r.URL.Query().Get("n"))
+			writeJSON(w, 200, a.apiLogs(n, r.URL.Query().Get("grep")))
+		}},
+		// POST /api/diag/route-test {"process":"chrome.exe","url":"https://www.baidu.com"}
+		{path: "/api/diag/route-test", post: func(w http.ResponseWriter, r *http.Request) {
+			var b struct {
+				Process string `json:"process"`
+				URL     string `json:"url"`
 			}
-			writeJSON(w, 200, set)
-			return
-		}
-		if err := json.NewDecoder(r.Body).Decode(&set); err != nil { // overlays only the given fields
-			writeJSON(w, 400, map[string]string{"error": "body must be a JSON object of settings fields"})
-			return
-		}
-		writeJSON(w, 200, okOr(a.SetSettings(set)))
-	}))
-	// POST /api/nodes/add {"text":"<share links, one per line>"} ; POST /api/nodes/remove {"id"}
-	mux.HandleFunc("/api/nodes/add", auth(func(w http.ResponseWriter, r *http.Request) {
-		var b struct {
-			Text string `json:"text"`
-		}
-		_ = json.NewDecoder(r.Body).Decode(&b)
-		writeJSON(w, 200, a.AddNodes(b.Text))
-	}))
-	mux.HandleFunc("/api/nodes/remove", auth(func(w http.ResponseWriter, r *http.Request) {
-		var b struct {
-			ID string `json:"id"`
-		}
-		_ = json.NewDecoder(r.Body).Decode(&b)
-		writeJSON(w, 200, okOr(a.RemoveNode(b.ID)))
-	}))
-	// POST /api/log-level {"level":"info|debug|warn"}
-	mux.HandleFunc("/api/log-level", auth(func(w http.ResponseWriter, r *http.Request) {
-		var b struct {
-			Level string `json:"level"`
-		}
-		_ = json.NewDecoder(r.Body).Decode(&b)
-		writeJSON(w, 200, okOr(a.svc.SetLogLevel(b.Level)))
-	}))
-	// GET /api/reset — 清除与重置清单；POST {"items":["core-dns-cache",...],"confirm":"确认重置"}
-	// 没有任何一项会解除 AI 劫持（解除只能在界面点「恢复」）。
-	mux.HandleFunc("/api/reset", auth(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == http.MethodGet {
-			writeJSON(w, 200, a.GetResetCenter())
-			return
-		}
-		var b struct {
-			Items   []string `json:"items"`
-			Confirm string   `json:"confirm"`
-		}
-		if r.Method != http.MethodPost || json.NewDecoder(r.Body).Decode(&b) != nil || len(b.Items) == 0 {
-			writeJSON(w, 400, map[string]string{"error": "POST {\"items\":[\"<id>\",...],\"confirm\":\"恢复出厂时填 确认重置\"}"})
-			return
-		}
-		writeJSON(w, 200, a.RunReset(b.Items, b.Confirm))
-	}))
-	// POST /api/reset/undo — 撤销上次配置重置（恢复最近一份重置前备份）。
-	mux.HandleFunc("/api/reset/undo", auth(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			writeJSON(w, 405, map[string]string{"error": "POST only"})
-			return
-		}
-		writeJSON(w, 200, okOr(a.UndoReset()))
-	}))
+			_ = readJSON(r, &b)
+			writeJSON(w, 200, a.apiRouteTest(b.Process, b.URL))
+		}},
+		// POST /api/diag/selftest — listed + unlisted programs × mainland / foreign sites.
+		{path: "/api/diag/selftest", post: func(w http.ResponseWriter, r *http.Request) { writeJSON(w, 200, a.apiSelfTest()) }},
+		// GET /api/ai-hijack — 劫持模式状态（只读：恢复只能在软件界面里点）
+		{path: "/api/ai-hijack", get: func(w http.ResponseWriter, r *http.Request) { writeJSON(w, 200, a.GetAIHijack()) }},
+		// GET /api/exits — AI 页实时出口：本机 / 分应用代理 / AI 线路（exits_app.go）
+		{path: "/api/exits", get: func(w http.ResponseWriter, r *http.Request) { writeJSON(w, 200, a.GetExits()) }},
+		// GET /api/ai-env — AI 环境检测; POST /api/ai-env/fix {"id":"guard|timezone|clock|autostart|all"}
+		{path: "/api/ai-env", get: func(w http.ResponseWriter, r *http.Request) { writeJSON(w, 200, a.CheckAIEnv()) }},
+		{path: "/api/ai-env/fix", post: func(w http.ResponseWriter, r *http.Request) {
+			var b struct {
+				ID string `json:"id"`
+			}
+			_ = readJSON(r, &b)
+			writeJSON(w, 200, okOr(a.FixAIEnv(b.ID)))
+		}},
+		// GET /api/custom-rules ; POST {"rules":[{"type":"suffix","value":"x.com","action":"proxy"}]}
+		{path: "/api/custom-rules",
+			get: func(w http.ResponseWriter, r *http.Request) { writeJSON(w, 200, a.svc.GetCustomRules()) },
+			post: func(w http.ResponseWriter, r *http.Request) {
+				var b struct {
+					Rules []core.RouteRule `json:"rules"`
+				}
+				if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
+					writeJSON(w, 400, map[string]string{"error": "body must be {\"rules\":[...]}"})
+					return
+				}
+				writeJSON(w, 200, okOr(a.svc.SetCustomRules(b.Rules)))
+			}},
+		// POST /api/nodes/core {"id":"<node id>","core":"auto|sing-box|xray"}
+		{path: "/api/nodes/core", post: func(w http.ResponseWriter, r *http.Request) {
+			var b struct {
+				ID   string `json:"id"`
+				Core string `json:"core"`
+			}
+			if r.Method != http.MethodPost || json.NewDecoder(r.Body).Decode(&b) != nil || b.ID == "" {
+				writeJSON(w, 400, map[string]string{"error": "POST {\"id\":\"<节点 id>\",\"core\":\"auto|sing-box|xray\"}"})
+				return
+			}
+			writeJSON(w, 200, okOr(a.SetNodeCore(b.ID, b.Core)))
+		}},
+		// POST /api/nodes/via {"id","via"} — 前置代理: dial node id through via ("" = off).
+		{path: "/api/nodes/via", post: func(w http.ResponseWriter, r *http.Request) {
+			var b struct {
+				ID  string `json:"id"`
+				Via string `json:"via"`
+			}
+			if r.Method != http.MethodPost || json.NewDecoder(r.Body).Decode(&b) != nil || b.ID == "" {
+				writeJSON(w, 400, map[string]string{"error": "POST {\"id\":\"<节点 id>\",\"via\":\"<前置节点 id，空 = 关闭>\"}"})
+				return
+			}
+			writeJSON(w, 200, okOr(a.SetNodeVia(b.ID, b.Via)))
+		}},
+		// GET / POST /api/settings/net — DNS 与高级 (validated like the UI).
+		{path: "/api/settings/net",
+			get: func(w http.ResponseWriter, r *http.Request) { writeJSON(w, 200, a.GetSettings().Net) },
+			post: func(w http.ResponseWriter, r *http.Request) {
+				var n service.NetSettings
+				if err := json.NewDecoder(r.Body).Decode(&n); err != nil {
+					writeJSON(w, 400, map[string]string{"error": "body must be NetSettings JSON"})
+					return
+				}
+				writeJSON(w, 200, okOr(a.SetNetSettings(n)))
+			}},
+		// POST /api/split-mode {"mode":"whitelist|blacklist"}
+		{path: "/api/split-mode", post: func(w http.ResponseWriter, r *http.Request) {
+			var b struct {
+				Mode string `json:"mode"`
+			}
+			_ = readJSON(r, &b)
+			writeJSON(w, 200, okOr(a.svc.SetRuleMode(b.Mode)))
+		}},
+		// GET /api/account — login / membership state (ProxySplit account + POWER云).
+		{path: "/api/account", get: func(w http.ResponseWriter, r *http.Request) { writeJSON(w, 200, a.apiAccount()) }},
+		// POST /api/account/login {"username","password"} — ProxySplit account login.
+		{path: "/api/account/login", post: func(w http.ResponseWriter, r *http.Request) {
+			var b struct {
+				Username string `json:"username"`
+				Password string `json:"password"`
+			}
+			_ = readJSON(r, &b)
+			if strings.TrimSpace(b.Username) == "" || b.Password == "" {
+				writeJSON(w, 400, map[string]string{"error": "username and password required"})
+				return
+			}
+			writeJSON(w, 200, okOr(a.Login(strings.TrimSpace(b.Username), b.Password)))
+		}},
+		// GET /api/settings ; POST a partial object, e.g. {"tunMode":true,"blockQUIC":false}
+		{path: "/api/settings",
+			get: func(w http.ResponseWriter, r *http.Request) { writeJSON(w, 200, a.apiSettings()) },
+			post: func(w http.ResponseWriter, r *http.Request) {
+				const bad = "body must be a JSON object of settings fields"
+				patch, err := io.ReadAll(r.Body)
+				if err != nil {
+					writeJSON(w, 400, map[string]string{"error": bad})
+					return
+				}
+				msg, err := a.apiSetSettings(patch) // overlays only the given fields
+				if err != nil {
+					writeJSON(w, 400, map[string]string{"error": bad})
+					return
+				}
+				writeJSON(w, 200, okOr(msg))
+			}},
+		// POST /api/nodes/add {"text":"<share links, one per line>"} ; POST /api/nodes/remove {"id"}
+		{path: "/api/nodes/add", post: func(w http.ResponseWriter, r *http.Request) {
+			var b struct {
+				Text string `json:"text"`
+			}
+			_ = readJSON(r, &b)
+			writeJSON(w, 200, a.AddNodes(b.Text))
+		}},
+		{path: "/api/nodes/remove", post: func(w http.ResponseWriter, r *http.Request) {
+			var b struct {
+				ID string `json:"id"`
+			}
+			_ = readJSON(r, &b)
+			writeJSON(w, 200, okOr(a.RemoveNode(b.ID)))
+		}},
+		// POST /api/log-level {"level":"info|debug|warn"}
+		{path: "/api/log-level", post: func(w http.ResponseWriter, r *http.Request) {
+			var b struct {
+				Level string `json:"level"`
+			}
+			_ = readJSON(r, &b)
+			writeJSON(w, 200, okOr(a.svc.SetLogLevel(b.Level)))
+		}},
+		// GET /api/reset — 清除与重置清单；POST {"items":["core-dns-cache",...],"confirm":"确认重置"}
+		// 没有任何一项会解除 AI 劫持（解除只能在界面点「恢复」）。
+		{path: "/api/reset",
+			get: func(w http.ResponseWriter, r *http.Request) { writeJSON(w, 200, a.GetResetCenter()) },
+			post: func(w http.ResponseWriter, r *http.Request) {
+				var b struct {
+					Items   []string `json:"items"`
+					Confirm string   `json:"confirm"`
+				}
+				if r.Method != http.MethodPost || json.NewDecoder(r.Body).Decode(&b) != nil || len(b.Items) == 0 {
+					writeJSON(w, 400, map[string]string{"error": "POST {\"items\":[\"<id>\",...],\"confirm\":\"恢复出厂时填 确认重置\"}"})
+					return
+				}
+				writeJSON(w, 200, a.RunReset(b.Items, b.Confirm))
+			}},
+		// POST /api/reset/undo — 撤销上次配置重置（恢复最近一份重置前备份）。
+		{path: "/api/reset/undo", post: func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodPost {
+				writeJSON(w, 405, map[string]string{"error": "POST only"})
+				return
+			}
+			writeJSON(w, 200, okOr(a.UndoReset()))
+		}},
+	}
 }
 
 func okOr(msg string) map[string]any {
@@ -267,23 +253,23 @@ func (a *App) diagMCPCall(name string, args json.RawMessage) (string, bool) {
 	_ = json.Unmarshal(args, &m)
 	switch name {
 	case "proxysplit_account":
-		return j(map[string]any{"license": a.GetLicenseStatus(), "powervpn": a.GetPowerVPNStatus()}), true
+		return j(a.apiAccount()), true
 	case "proxysplit_set_settings":
-		set := a.GetSettings()
-		if err := json.Unmarshal(m.Settings, &set); err != nil {
+		msg, err := a.apiSetSettings(m.Settings)
+		if err != nil {
 			return "错误: settings 必须是对象", true
 		}
-		return j(okOr(a.SetSettings(set))), true
+		return j(okOr(msg)), true
 	case "proxysplit_add_nodes":
 		return j(a.AddNodes(m.Text)), true
 	case "proxysplit_diagnose":
 		return j(a.diagSnapshot()), true
 	case "proxysplit_route_test":
-		return j(a.svc.RouteTest(m.Process, strings.TrimSpace(m.URL))), true
+		return j(a.apiRouteTest(m.Process, m.URL)), true
 	case "proxysplit_selftest":
-		return j(tmSelfTestRun(a.svc.SelfTest)), true
+		return j(a.apiSelfTest()), true
 	case "proxysplit_logs":
-		return strings.Join(a.svc.RecentLogs(m.N, m.Grep), "\n"), true
+		return strings.Join(a.apiLogs(m.N, m.Grep), "\n"), true
 	case "proxysplit_set_custom_rules":
 		return j(okOr(a.svc.SetCustomRules(m.Rules))), true
 	case "proxysplit_set_split_mode":
