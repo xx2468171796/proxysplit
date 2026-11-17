@@ -46,6 +46,7 @@ type App struct {
 	installing   atomic.Bool // an update install is in progress (auto and manual must not race)
 	trayUp       bool        // the tray icon initialized OK (only then may we hide to it)
 	apiUp        bool        // the local AI-control HTTP API is listening
+	apiNonce     string      // secret the control API proves to the --mcp bridge (apihello.go)
 	background   bool        // started with --background: window hidden, tray only
 	ready        chan struct{}
 	readyOnce    sync.Once
@@ -170,6 +171,16 @@ func (a *App) commercialStartGuard() error {
 	return nil
 }
 
+// watchdogMustCheck decides whether a watchdog tick enforces the licence. It
+// gates on anything that could still be used without entitlement — a session,
+// a lease that still authenticates, or a running proxy — not on "signed in":
+// a session cleared by a rejected refresh used to switch enforcement off while
+// the proxy kept running. Only a signed-out client with nothing running is
+// left alone (no licence-server calls from the sign-in screen).
+func watchdogMustCheck(st license.Status, proxyRunning bool) bool {
+	return st.SignedIn || st.Authenticated || proxyRunning
+}
+
 // licenseWatchdog stops a running core shortly after expiry, account
 // suspension, payment revocation or device unbinding. The same validation is
 // also installed directly on Service.Start for every restart path.
@@ -187,14 +198,18 @@ func (a *App) licenseWatchdog() {
 			if a.svc != nil && a.lic != nil {
 				a.syncAIGuard() // channel learned from the server / lock removed by someone
 			}
-			if a.svc == nil || a.lic == nil || !a.lic.Enabled() || !a.lic.Status().SignedIn {
+			if a.svc == nil || a.lic == nil || !a.lic.Enabled() {
+				continue
+			}
+			running := a.svc.Status()
+			if !watchdogMustCheck(a.lic.Status(), running.CoreRunning || running.EngineRunning) {
 				continue
 			}
 			err := a.lic.EnsureEntitled()
 			if err != nil {
 				// Revoked session / expired or removed membership: stop the proxy
 				// (if running) and send the user back to the login/purchase gate.
-				if a.svc.Status().CoreRunning {
+				if st := a.svc.Status(); st.CoreRunning || st.EngineRunning {
 					a.svc.Stop()
 				}
 				runtime.EventsEmit(a.ctx, "license-expired", err.Error())
@@ -289,6 +304,9 @@ func (a *App) domReady(ctx context.Context) {
 // system proxy we set, so exiting never orphans sing-box or leaves the OS
 // pointing at a now-dead proxy.
 func (a *App) shutdown(ctx context.Context) {
+	if a.apiUp {
+		retractControlEndpoint(dataDir()) // the control API goes away with this process
+	}
 	a.quitTray()
 	a.stopAccel() // 先把 Claude Code 配置还原成官方默认，再停内核
 	if a.svc != nil {

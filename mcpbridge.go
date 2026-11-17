@@ -4,6 +4,8 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -30,7 +32,8 @@ const (
 )
 
 type mcpBridge struct {
-	apiURL       string                 // http://127.0.0.1:18088
+	endpoint     func() (controlEndpoint, error) // what the running app published (apihello.go)
+	pidAlive     func(pid int) bool
 	token        func() (string, error) // current control-API token
 	launch       func() error           // start the app in the background
 	client       *http.Client
@@ -43,9 +46,10 @@ func newMCPBridge() *mcpBridge {
 	// .old, and a later launch must start the new version at the original path.
 	exe, _ := os.Executable()
 	return &mcpBridge{
-		apiURL: fmt.Sprintf("http://127.0.0.1:%d", apiPort),
-		token:  readAPIToken,
-		launch: func() error { return launchBackground(exe) },
+		endpoint: func() (controlEndpoint, error) { return readControlEndpoint(dataDir()) },
+		pidAlive: processAlive,
+		token:    readAPIToken,
+		launch:   func() error { return launchBackground(exe) },
 		// loopback only: never send the token through a system / env proxy
 		client:       &http.Client{Timeout: 30 * time.Second, Transport: &http.Transport{Proxy: nil}},
 		readyTimeout: bridgeReadyTimeout,
@@ -123,11 +127,11 @@ func (b *mcpBridge) handle(line []byte) []byte {
 
 // forward makes sure the app is up, then relays the request to its /mcp.
 func (b *mcpBridge) forward(line []byte) ([]byte, error) {
-	token, err := b.ensureRunning()
+	base, token, err := b.ensureRunning()
 	if err != nil {
 		return nil, err
 	}
-	req, err := http.NewRequest(http.MethodPost, b.apiURL+"/mcp", bytes.NewReader(line))
+	req, err := http.NewRequest(http.MethodPost, base+"/mcp", bytes.NewReader(line))
 	if err != nil {
 		return nil, err
 	}
@@ -152,46 +156,87 @@ func (b *mcpBridge) forward(line []byte) ([]byte, error) {
 	return compact.Bytes(), nil
 }
 
-// ensureRunning returns the control token once the app's API answers,
-// launching the app in the background when it does not.
-func (b *mcpBridge) ensureRunning() (string, error) {
-	if token, ok := b.alive(); ok {
-		return token, nil
+// ensureRunning returns the control API's address and token once the app's
+// API answers, launching the app in the background when it does not.
+func (b *mcpBridge) ensureRunning() (base, token string, err error) {
+	if base, token, ok := b.alive(); ok {
+		return base, token, nil
 	}
 	if err := b.launch(); err != nil {
-		return "", fmt.Errorf("无法启动 ProxySplit：%w", err)
+		return "", "", fmt.Errorf("无法启动 ProxySplit：%w", err)
 	}
 	deadline := time.Now().Add(b.readyTimeout)
 	for time.Now().Before(deadline) {
 		time.Sleep(b.pollEvery)
-		if token, ok := b.alive(); ok {
-			return token, nil
+		if base, token, ok := b.alive(); ok {
+			return base, token, nil
 		}
 	}
-	return "", fmt.Errorf("已在后台启动 ProxySplit，但 %d 秒内控制接口 %s 没有就绪（端口 %d 被占用，或程序在等待登录，请看 ProxySplit 窗口）", int(b.readyTimeout.Seconds()), b.apiURL, apiPort)
+	return "", "", fmt.Errorf("已在后台启动 ProxySplit，但 %d 秒内控制接口没有就绪（端口 %d 被别的程序占用，或程序在等待登录，请看 ProxySplit 窗口）", int(b.readyTimeout.Seconds()), apiPort)
 }
 
-// alive reports whether the app's control API accepts the current token. The
-// token is re-read every time: the first launch creates it.
-func (b *mcpBridge) alive() (string, bool) {
-	token, err := b.token()
-	if err != nil || token == "" {
+// verifiedListener returns the address of the control API once the listener
+// has proved it is the app: the app published its port, pid and a nonce in the
+// data dir, that pid is running, and the listener answers a fresh challenge
+// with HMAC(nonce, challenge). Nothing secret is sent to get there.
+func (b *mcpBridge) verifiedListener() (string, bool) {
+	ep, err := b.endpoint()
+	if err != nil || !b.pidAlive(ep.PID) {
 		return "", false
 	}
+	random := make([]byte, 16)
+	if _, err := rand.Read(random); err != nil {
+		return "", false
+	}
+	challenge := hex.EncodeToString(random)
+	base := fmt.Sprintf("http://127.0.0.1:%d", ep.Port)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, b.apiURL+"/api/status", nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+"/api/hello?challenge="+challenge, nil)
 	if err != nil {
 		return "", false
 	}
-	req.Header.Set("Authorization", "Bearer "+token)
 	resp, err := b.client.Do(req)
 	if err != nil {
 		return "", false
 	}
+	defer resp.Body.Close()
+	var answer struct {
+		Proof string `json:"proof"`
+	}
+	if resp.StatusCode != http.StatusOK || json.NewDecoder(io.LimitReader(resp.Body, 4<<10)).Decode(&answer) != nil {
+		return "", false
+	}
+	return base, helloProofValid(ep.Nonce, challenge, answer.Proof)
+}
+
+// alive reports whether the app's control API is up and accepts the current
+// token. The token goes only to a verified listener (the port is fixed, so
+// anything may be listening there while the app is not running), and it is
+// re-read every time: the first launch creates it.
+func (b *mcpBridge) alive() (base, token string, ok bool) {
+	base, ok = b.verifiedListener()
+	if !ok {
+		return "", "", false
+	}
+	token, err := b.token()
+	if err != nil || token == "" {
+		return "", "", false
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+"/api/status", nil)
+	if err != nil {
+		return "", "", false
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := b.client.Do(req)
+	if err != nil {
+		return "", "", false
+	}
 	_, _ = io.Copy(io.Discard, resp.Body)
 	resp.Body.Close()
-	return token, resp.StatusCode == http.StatusOK
+	return base, token, resp.StatusCode == http.StatusOK
 }
 
 // readAPIToken reads the control-API token the app persisted in config.json.

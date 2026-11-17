@@ -14,24 +14,76 @@ import (
 
 func (s *Service) configPath() string { return filepath.Join(s.dataDir, "config.json") }
 
-// altConfigPath is a redundant copy of the config kept next to the .exe, so the
-// user's nodes/rules survive even if %APPDATA% is wiped by a cleaner tool. It is
-// best-effort: "" when the exe dir can't be determined; writes are ignored if
-// the folder is read-only (e.g. Program Files).
-func (s *Service) altConfigPath() string {
+// Until v1.12.5 every save also wrote the whole config in plaintext next to the
+// exe ("proxysplit-data.json") and load() trusted that file when the data dir
+// had no usable config. The exe usually sits in Downloads: the copy exposed the
+// control token, node credentials and subscription URLs to anything that can
+// read that folder, and a file planted there became the configuration of a
+// fresh install. Nothing writes or loads it any more; retireLegacyExeCopy
+// removes what old versions left behind. Recovery copies live in the data dir
+// only (config.json.bak).
+
+// legacyExeCopyPath is where old versions kept that copy; "" = none.
+var legacyExeCopyPath = func() string {
 	exe, err := os.Executable()
 	if err != nil {
 		return ""
 	}
-	// `go test` runs every case from the same temporary *.test executable.
-	// Writing a portable backup beside that binary leaks one test's nodes into
-	// the next test's otherwise-isolated dataDir.  Production binaries never use
-	// this suffix, so disable the exe-adjacent store only for test executables.
-	if strings.HasSuffix(strings.ToLower(filepath.Base(exe)), ".test.exe") ||
-		strings.HasSuffix(strings.ToLower(filepath.Base(exe)), ".test") {
+	// `go test` binaries share one temp folder: never touch files beside them.
+	if base := strings.ToLower(filepath.Base(exe)); strings.HasSuffix(base, ".test.exe") || strings.HasSuffix(base, ".test") {
 		return ""
 	}
 	return filepath.Join(filepath.Dir(exe), "proxysplit-data.json")
+}
+
+// retiredExeCopyName is the data-dir name under which an exe-side copy is kept
+// when it may be the user's only copy. It is never loaded automatically.
+const retiredExeCopyName = "config.from-exe-folder.json"
+
+// retiredExeCopyMax bounds what is carried over (a real config is far smaller).
+const retiredExeCopyMax = 32 << 20
+
+// retireLegacyExeCopy takes the plaintext copy out of the exe folder.
+// dataDirConfigGood says the data dir holds a valid config (the copy is then
+// only a leak and is deleted); otherwise the copy may be all that is left of
+// the user's nodes after a cleaner wiped the data dir, so it is moved into the
+// data dir — unloaded, for the user to import by hand.
+func (s *Service) retireLegacyExeCopy(dataDirConfigGood bool) {
+	path := legacyExeCopyPath()
+	if path == "" {
+		return
+	}
+	info, err := os.Lstat(path)
+	if err != nil {
+		return // no copy (the usual case after the first start)
+	}
+	if !dataDirConfigGood && info.Mode().IsRegular() && info.Size() <= retiredExeCopyMax {
+		if data, rerr := os.ReadFile(path); rerr == nil {
+			kept := filepath.Join(s.dataDir, retiredExeCopyName)
+			if werr := os.WriteFile(kept, data, 0o600); werr != nil {
+				s.log("[store] 程序旁的旧配置副本未能移入数据目录，暂时保留在原处: " + werr.Error())
+				return
+			}
+			s.log("[store] 程序旁的旧配置副本 proxysplit-data.json 不再自动加载，已移到数据目录 " + retiredExeCopyName + "，需要时请用「导入配置」手动恢复")
+		}
+	}
+	if err := os.Remove(path); err != nil {
+		s.log("[store] 删除程序旁的旧配置副本失败（请手动删除 " + path + "）: " + err.Error())
+	}
+}
+
+// newAPIToken is a fresh random token for the local control API.
+func newAPIToken() string { return genSecret() + genSecret() }
+
+// RegenerateAPIToken replaces the stored control-API token and returns the new
+// one; the old token stops working with the next request. Factory reset must
+// rotate it too (resetFactory: store newAPIToken() instead of the old token).
+func (s *Service) RegenerateAPIToken() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.cfg.APIToken = newAPIToken()
+	s.save()
+	return s.cfg.APIToken
 }
 
 // isCoreConfig reports whether data is a sing-box config (which has outbounds /
@@ -65,7 +117,7 @@ func (s *Service) load() {
 	decoded, ok := decodeAppConfig(data)
 	bad := err != nil || !ok
 	if bad {
-		// Recovery chain: .bak (same dir) → the redundant copy next to the exe.
+		// Recovery: the .bak in the data dir, and nothing outside the data dir.
 		recovered := false
 		if bak, berr := os.ReadFile(s.configPath() + ".bak"); berr == nil {
 			if candidate, valid := decodeAppConfig(bak); valid {
@@ -79,27 +131,13 @@ func (s *Service) load() {
 			}
 		}
 		if !recovered {
-			if alt := s.altConfigPath(); alt != "" {
-				if ad, aerr := os.ReadFile(alt); aerr == nil {
-					if candidate, valid := decodeAppConfig(ad); valid {
-						data = ad
-						decoded = candidate
-						s.log("[store] 从 exe 旁的备份 proxysplit-data.json 恢复节点/规则")
-						if werr := os.WriteFile(s.configPath(), ad, 0o600); werr != nil {
-							s.log("[config] 写回从 exe 旁备份恢复的主配置失败: " + werr.Error())
-						}
-						recovered = true
-					}
-				}
-			}
-		}
-		if !recovered {
 			data = nil // nothing usable — start clean rather than importing junk
 		}
 	}
 	if len(data) > 0 {
 		s.cfg = decoded
 	}
+	s.retireLegacyExeCopy(len(data) > 0)
 	// Defaults / migration.
 	if s.cfg.LogLevel == "" {
 		s.cfg.LogLevel = "info"
@@ -208,8 +246,8 @@ func (s *Service) save() {
 // effort; configuration restore calls it directly, since an import must never
 // claim success unless the new snapshot is already durable on disk. Caller holds
 // s.mu. The current valid app-config file (never a core-config, so .bak always
-// holds real nodes/rules) is snapshotted first; the copy next to the exe is
-// best-effort (read-only folders are ignored).
+// holds real nodes/rules) is snapshotted first. Nothing is written outside the
+// data dir.
 func (s *Service) persistLocked() error {
 	data, err := json.MarshalIndent(&s.cfg, "", "  ")
 	if err != nil {
@@ -230,9 +268,6 @@ func (s *Service) persistLocked() error {
 	if err := os.Rename(tmp, path); err != nil {
 		_ = os.Remove(tmp)
 		return fmt.Errorf("activate imported config: %w", err)
-	}
-	if alt := s.altConfigPath(); alt != "" {
-		_ = os.WriteFile(alt, data, 0o600)
 	}
 	return nil
 }

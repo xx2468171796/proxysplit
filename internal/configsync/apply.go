@@ -102,23 +102,25 @@ func merge(current string, b Bundle, sections []string, mode mergeMode) (string,
 		return "", errors.New("请至少选择一项要恢复的内容")
 	}
 	manual, subNodes, account := split(cfg)
+	accountIDs := idSet(account)
 	if want[SecNodes] {
 		in := section(b, SecNodes)
-		manual = list(in["nodes"])
+		manual = foreignNodes(list(in["nodes"]), accountIDs, nil)
 		if sel, ok := in["selectedId"].(string); ok && sel != "" && mode == modeImport {
 			cfg["selectedId"] = sel
 		}
 	}
 	if want[SecSubs] {
 		in := section(b, SecSubs)
-		subs := list(in["subs"])
+		var kept []obj // this machine's POWER云 profile subscription
 		for _, s := range list(cfg["subs"]) {
 			if str(s, "url") == officialSubURL {
-				subs = append(subs, s)
+				kept = append(kept, s)
 			}
 		}
-		cfg["subs"] = toAny(subs)
-		subNodes = list(in["nodes"])
+		subs := foreignSubs(list(in["subs"]), idSet(kept))
+		subNodes = foreignNodes(list(in["nodes"]), accountIDs, idSet(subs))
+		cfg["subs"] = toAny(append(subs, kept...))
 	}
 	for sec, keys := range sectionKeys {
 		if !want[sec] {
@@ -133,6 +135,7 @@ func merge(current string, b Bundle, sections []string, mode mergeMode) (string,
 			}
 		}
 	}
+	keepLocalExposure(cfg, prev, want[SecSettings], want[SecProxyPorts])
 	cfg["nodes"] = toAny(dedupe(append(append(manual, subNodes...), account...)))
 	fixReferences(cfg, prev)
 	raw, err := json.MarshalIndent(cfg, "", "  ")
