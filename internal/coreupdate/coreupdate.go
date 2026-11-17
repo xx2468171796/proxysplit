@@ -16,6 +16,8 @@ import (
 	"time"
 
 	"golang.org/x/net/proxy"
+
+	"proxysplit/internal/download"
 )
 
 var installMu sync.Mutex
@@ -32,10 +34,31 @@ const maxExeBytes = 160 << 20 // 160MB
 // smaller "MZ" file is almost certainly a stub or corruption.
 const minExeBytes = 1 << 20 // 1MB
 
-// newClient builds an *http.Client with a bounded download timeout. When viaProxy
-// (host:port SOCKS5) is non-empty, requests are routed THROUGH it (the
-// fallback when the download host is unreachable directly).
+// newClient builds an *http.Client for small requests (panel queries): the
+// whole exchange is bounded to 5 minutes. When viaProxy (host:port SOCKS5) is
+// non-empty, requests are routed THROUGH it (the fallback when the host is
+// unreachable directly).
 func newClient(viaProxy string) (*http.Client, error) {
+	tr, err := proxyTransport(viaProxy)
+	if err != nil {
+		return nil, err
+	}
+	return &http.Client{Transport: tr, Timeout: 5 * time.Minute}, nil
+}
+
+// downloadClient builds the client for artifact downloads: no overall timeout
+// (a large file on a slow line must be able to finish); connect / TLS /
+// response headers are bounded and the body is policed by the download
+// watchdog (internal/download).
+func downloadClient(viaProxy string) (*http.Client, error) {
+	tr, err := proxyTransport(viaProxy)
+	if err != nil {
+		return nil, err
+	}
+	return &http.Client{Transport: download.WithPhaseTimeouts(tr)}, nil
+}
+
+func proxyTransport(viaProxy string) (*http.Transport, error) {
 	tr := &http.Transport{}
 	if viaProxy != "" {
 		d, err := proxy.SOCKS5("tcp", viaProxy, nil, proxy.Direct)
@@ -46,11 +69,11 @@ func newClient(viaProxy string) (*http.Client, error) {
 		if !ok {
 			return nil, fmt.Errorf("socks dialer lacks DialContext")
 		}
-		// Use the context-aware dial so the client Timeout can cancel a stalled
-		// SOCKS handshake (otherwise the dial goroutine/conn would leak).
+		// Use the context-aware dial so a timeout / the watchdog can cancel a
+		// stalled SOCKS handshake (otherwise the dial goroutine/conn would leak).
 		tr.DialContext = cd.DialContext
 	}
-	return &http.Client{Transport: tr, Timeout: 5 * time.Minute}, nil
+	return tr, nil
 }
 
 // installBinary atomically replaces destDir/sing-box.exe with exe. The
@@ -102,34 +125,6 @@ func installBinary(destDir string, exe []byte, keepBackup bool) error {
 		_ = os.Remove(old)
 	}
 	return nil
-}
-
-// download fetches url through client and returns the body (bounded to
-// maxZipBytes).
-func download(client *http.Client, url string) ([]byte, error) {
-	req, err := http.NewRequest(http.MethodGet, url, nil)
-	if err != nil {
-		return nil, fmt.Errorf("build request: %w", err)
-	}
-	req.Header.Set("User-Agent", "ProxySplit")
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("download %q: %w", url, err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("download %q: unexpected status %s", url, resp.Status)
-	}
-
-	body, err := io.ReadAll(io.LimitReader(resp.Body, maxZipBytes+1))
-	if err != nil {
-		return nil, fmt.Errorf("read download body: %w", err)
-	}
-	if len(body) > maxZipBytes {
-		return nil, fmt.Errorf("release zip exceeds %d bytes", maxZipBytes)
-	}
-	return body, nil
 }
 
 // extractExe opens the release zip and returns the bytes of the single entry

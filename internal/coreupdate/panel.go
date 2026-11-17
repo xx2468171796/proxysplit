@@ -61,25 +61,16 @@ func InstallRelease(destDir, installed string, r Release, viaProxy string) (stri
 		return installed, fmt.Errorf("当前内核 %s 不低于服务器版本 %s，无需更新", installed, r.Version)
 	}
 
-	installMu.Lock()
-	defer installMu.Unlock()
-	if err := clearBackupLocked(destDir); err != nil {
+	// A leftover backup that is still locked fails here, before the download.
+	if err := ClearBackup(destDir); err != nil {
 		return "", err
 	}
-	var body []byte
-	if mirrors := candidateURLs(r.URLs, r.URL); len(mirrors) > 0 {
-		// Mirrors first (fastest first, resumable), origin always last.
-		if body, err = fetchMultiSource(destDir, mirrors, r.URL, expected, viaProxy); err != nil {
-			return "", err
-		}
-	} else {
-		body, err = fetchArtifact(r.URL, "")
-		if err != nil && viaProxy != "" {
-			body, err = fetchArtifact(r.URL, viaProxy)
-		}
-		if err != nil {
-			return "", err
-		}
+	// The download runs WITHOUT installMu: it can take minutes, and the lock
+	// also guards Rollback / ClearBackup / the bundled-core check.
+	// Mirrors first (fastest first, resumable), origin always last.
+	body, err := fetchMultiSource(destDir, candidateURLs(r.URLs, r.URL), r.URL, expected, viaProxy)
+	if err != nil {
+		return "", err
 	}
 	sum := sha256.Sum256(body)
 	if hex.EncodeToString(sum[:]) != expected {
@@ -97,6 +88,17 @@ func InstallRelease(destDir, installed string, r Release, viaProxy string) (stri
 	if len(exe) <= minExeBytes {
 		return "", fmt.Errorf("invalid sing-box.exe: only %d bytes (expected > %d)", len(exe), minExeBytes)
 	}
+	installMu.Lock()
+	defer installMu.Unlock()
+	if InstalledVersion(destDir) == r.Version {
+		// Another install of the same release finished while this one was
+		// downloading: installing again would overwrite the backup of the
+		// previous core with a copy of the new one.
+		return r.Version, nil
+	}
+	if err := clearBackupLocked(destDir); err != nil {
+		return "", err
+	}
 	backupMarkerLocked(destDir)
 	if err := installBinary(destDir, exe, true); err != nil {
 		return "", err
@@ -104,13 +106,4 @@ func InstallRelease(destDir, installed string, r Release, viaProxy string) (stri
 	exeSum := sha256.Sum256(exe)
 	_ = writeMarker(destDir, r.Version, exeSum[:])
 	return r.Version, nil
-}
-
-func fetchArtifact(url, viaProxy string) ([]byte, error) {
-	client, err := newClient(viaProxy)
-	if err != nil {
-		return nil, err
-	}
-	defer client.CloseIdleConnections()
-	return download(client, url)
 }

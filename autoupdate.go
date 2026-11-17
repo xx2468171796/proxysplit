@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"math/rand"
 	"os"
 	"path/filepath"
 	"time"
@@ -28,6 +29,7 @@ import (
 const (
 	autoUpdateFirstDelay = 5 * time.Second
 	autoUpdateInterval   = time.Hour
+	autoUpdateRetryBase  = 2 * time.Minute // first wait after a failed download / install
 	resumeFileName       = "resume-after-update.json"
 	resumeMaxAge         = 10 * time.Minute
 	failedUpdateFileName = "update-failed.json"
@@ -80,29 +82,54 @@ func (a *App) autoUpdateLoop() {
 		return
 	}
 	time.Sleep(autoUpdateFirstDelay)
+	failures := 0
 	for {
-		a.tryAutoUpdate()
-		time.Sleep(autoUpdateInterval)
+		if a.tryAutoUpdate() {
+			failures = 0
+		} else {
+			failures++
+		}
+		time.Sleep(nextAutoUpdateDelay(failures, rand.Float64()))
 	}
 }
 
-func (a *App) tryAutoUpdate() {
+// nextAutoUpdateDelay is the wait before the next automatic check. After a
+// failed download it comes back soon — the partial file is continued, not
+// started over — doubling from autoUpdateRetryBase up to the normal interval.
+// jitter (0..1) spreads every wait, so a forced release that many clients fail
+// to fetch is not retried by the whole fleet at the same minute.
+func nextAutoUpdateDelay(failures int, jitter float64) time.Duration {
+	if failures <= 0 {
+		return time.Duration(float64(autoUpdateInterval) * (0.9 + 0.2*jitter)) // 54–66 min
+	}
+	base := autoUpdateInterval
+	if failures < 6 {
+		base = min(autoUpdateRetryBase<<(failures-1), autoUpdateInterval)
+	}
+	return time.Duration(float64(base) * (0.5 + jitter)) // 50%–150%
+}
+
+// tryAutoUpdate checks once and installs a newer release; false means the
+// download / install was attempted and failed (retry sooner).
+func (a *App) tryAutoUpdate() bool {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	st := a.upd.Check(ctx)
 	cancel()
 	if !st.Available || st.Release == nil {
-		return
+		return true
 	}
 	if data, err := os.ReadFile(failedUpdatePath()); err == nil && recentlyFailed(data, st.Release.Version, time.Now()) {
 		runtime.LogWarning(a.ctx, "auto update: v"+st.Release.Version+" failed to install recently, waiting for a manual update")
-		return
+		return true
 	}
 	runtime.LogInfo(a.ctx, "auto update: installing v"+st.Release.Version)
 	runtime.EventsEmit(a.ctx, "app-update-auto", st)
 	if msg := a.InstallAppUpdate(*st.Release); msg != "" {
 		runtime.LogError(a.ctx, "auto update failed: "+msg)
 		runtime.EventsEmit(a.ctx, "app-update-failed", msg)
+		return false
 	}
+	return true
 }
 
 // recentlyFailed reports whether version failed to install within the backoff.

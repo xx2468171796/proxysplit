@@ -11,11 +11,11 @@ import (
 	"net/url"
 	"os"
 	"sort"
-	"strconv"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
+
+	"proxysplit/internal/download"
 )
 
 // Multi-source download (docs/platform/下载镜像加速.md §3). The panel announces
@@ -30,8 +30,8 @@ import (
 var (
 	probeBytes   int64 = 256 << 10 // curl -r 0-262143
 	probeTimeout       = 6 * time.Second
-	slowWindow         = 20 * time.Second // curl --speed-time 20
-	slowMinBPS         = 30000            // curl --speed-limit 30000 (bytes/s)
+	slowWindow         = 20 * time.Second // watchdog window (curl --speed-time 20)
+	slowMinBPS         = 30000            // mirrors: curl --speed-limit 30000 (bytes/s); the origin only has to keep moving
 )
 
 var errSHAMismatch = errors.New("内核文件 SHA256 校验失败")
@@ -53,10 +53,10 @@ func candidateURLs(urls []string, origin string) []string {
 	return out
 }
 
-// directClient is a plain client without the 5-minute overall timeout (large
-// files over a slow mirror are policed by the speed watchdog instead).
+// directClient is a plain client without an overall timeout: connecting and
+// the response headers are bounded, the body is policed by the watchdog.
 func directClient() *http.Client {
-	return &http.Client{Transport: &http.Transport{}}
+	return &http.Client{Transport: download.WithPhaseTimeouts(&http.Transport{})}
 }
 
 // orderByProbe races a small ranged GET against every mirror and returns them
@@ -138,27 +138,28 @@ func fetchMultiSource(destDir string, mirrors []string, origin, expected, viaPro
 	client := directClient()
 	defer client.CloseIdleConnections()
 	for _, m := range orderByProbe(mirrors) {
-		body, err := tryCandidate(client, m, tmp, expected, true)
+		body, err := tryCandidate(client, m, tmp, expected, slowMinBPS)
 		if err == nil {
 			return body, nil
 		}
 		lastErr = err
 	}
 
-	// Origin: the old behaviour (5-minute client, direct first, then the node).
-	oc, err := newClient("")
+	// Origin: direct first, then through the node. The last resort is never
+	// given up for being slow, only for standing still (stall watchdog) — it
+	// used to run with no timeout and no watchdog at all, so one dead
+	// connection hung the install for good.
+	oc, err := downloadClient("")
 	if err != nil {
 		return nil, err
 	}
 	defer oc.CloseIdleConnections()
-	oc.Timeout = 0 // resumed pieces from mirrors make the old 5-minute cap meaningless
-	body, err := tryCandidate(oc, origin, tmp, expected, false)
+	body, err := tryCandidate(oc, origin, tmp, expected, 0)
 	if err != nil && !errors.Is(err, errSHAMismatch) && viaProxy != "" {
-		pc, perr := newClient(viaProxy)
+		pc, perr := downloadClient(viaProxy)
 		if perr == nil {
 			defer pc.CloseIdleConnections()
-			pc.Timeout = 0
-			body, err = tryCandidate(pc, origin, tmp, expected, false)
+			body, err = tryCandidate(pc, origin, tmp, expected, 0)
 		}
 	}
 	if err == nil {
@@ -171,138 +172,28 @@ func fetchMultiSource(destDir string, mirrors []string, origin, expected, viaPro
 }
 
 // tryCandidate resumes the download of rawurl into tmp and verifies sha256.
-// On a hash mismatch the temp file is emptied so the next candidate starts clean.
-func tryCandidate(client *http.Client, rawurl, tmp, expected string, watch bool) ([]byte, error) {
-	if err := resumeDownload(client, rawurl, tmp, watch); err != nil {
-		return nil, err
-	}
-	body, err := os.ReadFile(tmp)
-	if err != nil {
-		return nil, err
-	}
-	sum := sha256.Sum256(body)
-	if hex.EncodeToString(sum[:]) != expected {
+// On a hash mismatch the temp file is emptied so the next candidate starts
+// clean — and when this download had continued a partial file left by another
+// source (the bad bytes may be theirs), it is retried once from offset 0.
+// minBPS is the watchdog's speed floor (0 = abort only on a stall).
+func tryCandidate(client *http.Client, rawurl, tmp, expected string, minBPS int) ([]byte, error) {
+	for attempt := 0; ; attempt++ {
+		from, err := download.Resume(context.Background(), download.Request{Client: client, URL: rawurl, Path: tmp,
+			MaxBytes: maxZipBytes, UserAgent: "ProxySplit", Window: slowWindow, MinBPS: minBPS})
+		if err != nil {
+			return nil, err
+		}
+		body, err := os.ReadFile(tmp)
+		if err != nil {
+			return nil, err
+		}
+		sum := sha256.Sum256(body)
+		if hex.EncodeToString(sum[:]) == expected {
+			return body, nil
+		}
 		_ = os.Truncate(tmp, 0)
-		return nil, fmt.Errorf("%s: %w", rawurl, errSHAMismatch)
-	}
-	return body, nil
-}
-
-type countingWriter struct {
-	w     io.Writer
-	n     *atomic.Int64
-	total int64 // bytes already in the file
-}
-
-func (c *countingWriter) Write(p []byte) (int, error) {
-	if c.total+int64(len(p)) > maxZipBytes {
-		return 0, fmt.Errorf("release exceeds %d bytes", maxZipBytes)
-	}
-	n, err := c.w.Write(p)
-	c.total += int64(n)
-	c.n.Add(int64(n))
-	return n, err
-}
-
-// resumeDownload appends rawurl's content to the file at path, asking for
-// `Range: bytes=<size>-` when the file is not empty. A 200 answer restarts the
-// file; a 206 must continue exactly at size. With watch, the transfer is
-// aborted when it averages below slowMinBPS over a slowWindow.
-func resumeDownload(client *http.Client, rawurl, path string, watch bool) error {
-	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0o600)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	size, err := f.Seek(0, io.SeekEnd)
-	if err != nil {
-		return err
-	}
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	var got atomic.Int64
-	var slow atomic.Bool
-	if watch {
-		go func() {
-			t := time.NewTicker(slowWindow)
-			defer t.Stop()
-			last := got.Load()
-			for {
-				select {
-				case <-ctx.Done():
-					return
-				case <-t.C:
-					cur := got.Load()
-					if float64(cur-last) < float64(slowMinBPS)*slowWindow.Seconds() {
-						slow.Store(true)
-						cancel()
-						return
-					}
-					last = cur
-				}
-			}
-		}()
-	}
-	wrap := func(err error) error {
-		if slow.Load() {
-			return fmt.Errorf("download %q: 速度过慢（低于 %d KB/s 持续 %v）", rawurl, slowMinBPS/1000, slowWindow)
+		if from == 0 || attempt > 0 {
+			return nil, fmt.Errorf("%s: %w", rawurl, errSHAMismatch)
 		}
-		return fmt.Errorf("download %q: %w", rawurl, err)
 	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawurl, nil)
-	if err != nil {
-		return fmt.Errorf("build request: %w", err)
-	}
-	req.Header.Set("User-Agent", "ProxySplit")
-	if size > 0 {
-		req.Header.Set("Range", fmt.Sprintf("bytes=%d-", size))
-	}
-	resp, err := client.Do(req)
-	if err != nil {
-		return wrap(err)
-	}
-	defer resp.Body.Close()
-
-	switch resp.StatusCode {
-	case http.StatusOK:
-		// Server ignored Range (or nothing to resume): start over.
-		if err := f.Truncate(0); err != nil {
-			return err
-		}
-		size = 0
-	case http.StatusPartialContent:
-		if start, ok := contentRangeStart(resp.Header.Get("Content-Range")); !ok || start != size {
-			_ = f.Truncate(0)
-			return fmt.Errorf("download %q: 续传位置不符（%q）", rawurl, resp.Header.Get("Content-Range"))
-		}
-	case http.StatusRequestedRangeNotSatisfiable:
-		_ = f.Truncate(0)
-		return fmt.Errorf("download %q: unexpected status %s", rawurl, resp.Status)
-	default:
-		return fmt.Errorf("download %q: unexpected status %s", rawurl, resp.Status)
-	}
-	if _, err := f.Seek(size, io.SeekStart); err != nil {
-		return err
-	}
-	if _, err := io.Copy(&countingWriter{w: f, n: &got, total: size}, resp.Body); err != nil {
-		return wrap(err)
-	}
-	return nil
-}
-
-// contentRangeStart parses "bytes <start>-<end>/<total>".
-func contentRangeStart(h string) (int64, bool) {
-	h = strings.TrimSpace(h)
-	if !strings.HasPrefix(h, "bytes ") {
-		return 0, false
-	}
-	rest := strings.TrimPrefix(h, "bytes ")
-	dash := strings.IndexByte(rest, '-')
-	if dash <= 0 {
-		return 0, false
-	}
-	start, err := strconv.ParseInt(rest[:dash], 10, 64)
-	return start, err == nil && start >= 0
 }

@@ -223,3 +223,124 @@ func TestCandidateURLs(t *testing.T) {
 		t.Fatalf("%v", got)
 	}
 }
+
+// The origin is the last resort and used to run with no timeout and no
+// watchdog: a connection that went quiet hung the install (and everything
+// waiting for installMu) for good. It must be given up when it stands still.
+func TestInstallReleaseOriginStallIsAborted(t *testing.T) {
+	fastTimings(t)
+	exe, sum := testExe()
+	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Length", "99999999")
+		_, _ = w.Write(exe[:100000])
+		w.(http.Flusher).Flush()
+		<-r.Context().Done()
+	}))
+	defer origin.Close()
+	done := make(chan error, 1)
+	go func() {
+		_, err := InstallRelease(t.TempDir(), "", Release{Version: "1.14.2-relayops.6", URL: origin.URL, SHA256: sum}, "")
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		if err == nil || !strings.Contains(err.Error(), "没有收到数据") {
+			t.Fatalf("want a stall error, got %v", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("a stalled origin download was never given up")
+	}
+}
+
+// The origin only has to keep moving: slower than the mirrors' speed floor is
+// fine (it is the last source there is).
+func TestInstallReleaseSlowOriginFinishes(t *testing.T) {
+	fastTimings(t)
+	exe, sum := testExe()
+	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		half := len(exe) / 2
+		_, _ = w.Write(exe[:half])
+		w.(http.Flusher).Flush()
+		time.Sleep(200 * time.Millisecond)
+		_, _ = w.Write(exe[half : half+1000]) // ~5 KB/s over this window: under the mirror floor
+		w.(http.Flusher).Flush()
+		time.Sleep(200 * time.Millisecond)
+		_, _ = w.Write(exe[half+1000:])
+	}))
+	defer origin.Close()
+	if _, err := InstallRelease(t.TempDir(), "", Release{Version: "1.14.2-relayops.6", URL: origin.URL, SHA256: sum}, ""); err != nil {
+		t.Fatalf("a slow but moving origin must finish: %v", err)
+	}
+}
+
+// A candidate that continued somebody else's partial file and then fails the
+// hash is retried once from offset 0: the bad bytes may be the other source's.
+func TestInstallReleaseRetriesFromZeroAfterResumedMismatch(t *testing.T) {
+	fastTimings(t)
+	exe, sum := testExe()
+	log := &reqLog{}
+	// Sends 150000 WRONG bytes, then stalls.
+	corrupt := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Range") == probeRange {
+			http.ServeContent(w, r, "x", time.Time{}, bytes.NewReader(exe))
+			return
+		}
+		log.add("corrupt " + r.Header.Get("Range"))
+		w.Header().Set("Content-Length", "99999999")
+		_, _ = w.Write(bytes.Repeat([]byte{'Z'}, 150000))
+		w.(http.Flusher).Flush()
+		<-r.Context().Done()
+	}))
+	defer corrupt.Close()
+	good := mirror(log, "good", 300*time.Millisecond, exe)
+	defer good.Close()
+	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		log.add("origin")
+		w.WriteHeader(500)
+	}))
+	defer origin.Close()
+
+	if _, err := InstallRelease(t.TempDir(), "", Release{Version: "1.14.2-relayops.6", URL: origin.URL,
+		URLs: []string{corrupt.URL, good.URL}, SHA256: sum}, ""); err != nil {
+		t.Fatalf("install: %v (log %v)", err, log.all())
+	}
+	want := []string{"corrupt ", "good bytes=150000-", "good "}
+	if got := log.all(); strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Fatalf("requests: got %v want %v", got, want)
+	}
+}
+
+// The download must not hold installMu: Rollback / ClearBackup / the bundled
+// core check wait for that lock and a download can take minutes.
+func TestInstallReleaseDownloadsOutsideInstallLock(t *testing.T) {
+	exe, sum := testExe()
+	downloading, release := make(chan struct{}), make(chan struct{})
+	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		close(downloading)
+		<-release
+		_, _ = w.Write(exe)
+	}))
+	defer origin.Close()
+	dir := t.TempDir()
+	done := make(chan error, 1)
+	go func() {
+		_, err := InstallRelease(dir, "", Release{Version: "1.14.2-relayops.6", URL: origin.URL, SHA256: sum}, "")
+		done <- err
+	}()
+	<-downloading
+	locked := make(chan struct{})
+	go func() {
+		installMu.Lock()
+		installMu.Unlock() //nolint:staticcheck // only probing that the lock is free
+		close(locked)
+	}()
+	select {
+	case <-locked:
+	case <-time.After(3 * time.Second):
+		t.Fatal("installMu is held while the artifact downloads")
+	}
+	close(release)
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+}

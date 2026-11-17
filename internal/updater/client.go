@@ -21,9 +21,15 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"proxysplit/internal/download"
 )
 
 const maxDownloadSize = 300 << 20
+
+// checkTimeout bounds one release query (a small JSON document). The package
+// download has no overall deadline: see Download.
+const checkTimeout = 90 * time.Second
 
 var versionPattern = regexp.MustCompile(`^\d+\.\d+\.\d+$`)
 
@@ -63,8 +69,11 @@ func New(apiURL, current, dataDir, publicKeyBase64, tlsSPKI string) *Client {
 		current:   normalizeVersion(current),
 		dataDir:   dataDir,
 		publicKey: parsePublicKey(publicKeyBase64),
+		// No client Timeout: it would also cap the body of a ~130 MB package, so
+		// slow lines never finished. Connecting, TLS and the response headers
+		// are bounded on the transport; Check adds its own deadline and Download
+		// is policed by the stall watchdog.
 		http: &http.Client{
-			Timeout:   90 * time.Second,
 			Transport: pinnedTransport(tlsSPKI),
 			CheckRedirect: func(req *http.Request, via []*http.Request) error {
 				if len(via) >= 4 {
@@ -90,6 +99,8 @@ func (c *Client) Check(ctx context.Context) Status {
 		status.Error = "自动更新服务地址无效"
 		return status
 	}
+	ctx, cancel := context.WithTimeout(ctx, checkTimeout)
+	defer cancel()
 	// Stable clients must only ever be offered stable releases; the server
 	// isolates channels so a higher-versioned beta never auto-updates them.
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.apiURL+"/v1/releases/latest?channel=stable&platform="+Platform, nil)
@@ -142,56 +153,65 @@ func (c *Client) Download(ctx context.Context, release Release) (string, error) 
 	if compareVersion(c.current, release.Version) >= 0 {
 		return "", errors.New("当前已是最新版本")
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, release.URL, nil)
-	if err != nil {
-		return "", err
-	}
-	resp, err := c.http.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("下载更新失败：%w", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("更新下载返回 HTTP %d", resp.StatusCode)
-	}
-	if resp.ContentLength > maxDownloadSize {
-		return "", errors.New("更新文件超过大小限制")
-	}
 	dir := filepath.Join(c.dataDir, "updates")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", err
 	}
-	path := filepath.Join(dir, "proxysplit-v"+release.Version+PackageExt+".download")
-	file, err := os.OpenFile(path, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
+	final := filepath.Join(dir, "proxysplit-v"+release.Version+PackageExt)
+	path := final + ".download"
+	dropOtherPartials(dir, path)
+	// The partial file survives a failed attempt (timeout, stall, app closed)
+	// and the next one continues it with Range. What it ends up holding is
+	// trusted only through the signed SHA256, exactly as a one-shot download.
+	// A partial that fails the hash after being continued is thrown away and
+	// fetched once more from the start.
+	for attempt := 0; attempt < 2; attempt++ {
+		from := int64(0)
+		if !fileHasSHA256(path, release.SHA256) { // else: complete from an earlier attempt
+			var err error
+			from, err = download.Resume(ctx, download.Request{Client: c.http, URL: release.URL, Path: path, MaxBytes: maxDownloadSize})
+			if err != nil {
+				return "", fmt.Errorf("下载更新失败：%w", err)
+			}
+		}
+		if fileHasSHA256(path, release.SHA256) {
+			if err := os.Rename(path, final); err != nil {
+				_ = os.Remove(path)
+				return "", err
+			}
+			return final, nil
+		}
+		_ = os.Remove(path)
+		if from == 0 {
+			break
+		}
+	}
+	return "", errors.New("更新文件 SHA256 校验失败")
+}
+
+// fileHasSHA256 reports whether the file at path exists and has the digest.
+func fileHasSHA256(path, want string) bool {
+	f, err := os.Open(path)
 	if err != nil {
-		return "", err
+		return false
 	}
+	defer f.Close()
 	hash := sha256.New()
-	written, copyErr := io.Copy(io.MultiWriter(file, hash), io.LimitReader(resp.Body, maxDownloadSize+1))
-	closeErr := file.Close()
-	if copyErr != nil {
-		_ = os.Remove(path)
-		return "", fmt.Errorf("写入更新失败：%w", copyErr)
+	if _, err := io.Copy(hash, f); err != nil {
+		return false
 	}
-	if closeErr != nil {
-		_ = os.Remove(path)
-		return "", closeErr
+	return strings.EqualFold(hex.EncodeToString(hash.Sum(nil)), want)
+}
+
+// dropOtherPartials deletes partial downloads of other releases (a newer one
+// superseded them), so abandoned ~100 MB files do not pile up.
+func dropOtherPartials(dir, keep string) {
+	partials, _ := filepath.Glob(filepath.Join(dir, "*.download"))
+	for _, p := range partials {
+		if p != keep {
+			_ = os.Remove(p)
+		}
 	}
-	if written > maxDownloadSize {
-		_ = os.Remove(path)
-		return "", errors.New("更新文件超过大小限制")
-	}
-	actual := hex.EncodeToString(hash.Sum(nil))
-	if !strings.EqualFold(actual, release.SHA256) {
-		_ = os.Remove(path)
-		return "", errors.New("更新文件 SHA256 校验失败")
-	}
-	final := strings.TrimSuffix(path, ".download")
-	if err := os.Rename(path, final); err != nil {
-		_ = os.Remove(path)
-		return "", err
-	}
-	return final, nil
 }
 
 func (c *Client) verifyRelease(release Release) error {
@@ -241,7 +261,7 @@ func parsePublicKey(encoded string) ed25519.PublicKey {
 }
 
 func pinnedTransport(expected string) http.RoundTripper {
-	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport := download.WithPhaseTimeouts(http.DefaultTransport.(*http.Transport).Clone())
 	expected = strings.TrimSpace(expected)
 	if expected == "" {
 		return transport

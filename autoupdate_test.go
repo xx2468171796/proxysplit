@@ -63,3 +63,29 @@ func TestInstallFailedAndBackoff(t *testing.T) {
 		}
 	}
 }
+
+// After a failed download the next attempt comes soon (the partial file is
+// continued) and backs off up to the normal interval; every wait is jittered
+// so a release the fleet cannot fetch is not retried in lockstep.
+func TestNextAutoUpdateDelay(t *testing.T) {
+	if lo, hi := nextAutoUpdateDelay(0, 0), nextAutoUpdateDelay(0, 1); lo >= hi || lo < 50*time.Minute || hi > 70*time.Minute {
+		t.Fatalf("regular interval must be about an hour, jittered: %v..%v", lo, hi)
+	}
+	prevHi := time.Duration(0)
+	for failures := 1; failures <= 8; failures++ {
+		lo, hi := nextAutoUpdateDelay(failures, 0), nextAutoUpdateDelay(failures, 1)
+		if lo >= hi {
+			t.Fatalf("failures=%d: no jitter (%v..%v)", failures, lo, hi)
+		}
+		if hi < prevHi {
+			t.Fatalf("failures=%d: backoff went down (%v after %v)", failures, hi, prevHi)
+		}
+		if hi > autoUpdateInterval*3/2 {
+			t.Fatalf("failures=%d: backoff %v exceeds the cap", failures, hi)
+		}
+		prevHi = hi
+	}
+	if first := nextAutoUpdateDelay(1, 0.5); first != autoUpdateRetryBase {
+		t.Fatalf("first retry = %v, want %v", first, autoUpdateRetryBase)
+	}
+}
