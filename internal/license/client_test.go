@@ -347,3 +347,32 @@ func TestSyncPowerVPNUpdatesChannel(t *testing.T) {
 		t.Fatalf("sync not applied: body=%v channel=%q", got, c.state.Channel)
 	}
 }
+
+func TestSyncPowerVPNSendsDealerAndStoresContact(t *testing.T) {
+	var got map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&got)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"channel":"aigw","contact":{"wechat":"rjz665","brand":"文"},"license":null}`))
+	}))
+	defer server.Close()
+	c := &Client{
+		path:   filepath.Join(t.TempDir(), "license.dat"),
+		apiURL: server.URL,
+		http:   server.Client(),
+		state:  state{SchemaVersion: stateSchemaVersion, AccessToken: "access", RefreshToken: "refresh"},
+	}
+	if !c.Enabled() {
+		t.Skip("commercial build keys not configured in this test binary")
+	}
+	c.SetDealer("wen")
+	if err := c.SyncPowerVPN(context.Background(), "panel-token-123456"); err != nil {
+		t.Fatal(err)
+	}
+	if got["dealer"] != "wen" || c.state.Contact == nil || c.state.Contact.Wechat != "rjz665" {
+		t.Fatalf("dealer/contact not applied: body=%v contact=%v", got, c.state.Contact)
+	}
+	if st := c.Status(); st.Dealer != "wen" || st.Contact == nil || st.Contact.Brand != "文" {
+		t.Fatalf("status: %+v", st)
+	}
+}

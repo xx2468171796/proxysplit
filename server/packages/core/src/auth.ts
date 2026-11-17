@@ -7,6 +7,7 @@ import { powervpnMeSchema } from '@proxysplit/contracts'
 import { channelOfSources, type PgStore, type UserChannel, type UserRecord } from './store.js'
 import { effective, licenseView } from './entitlement.js'
 import { PhoneAuth, yunpianSender } from './phone-auth.js'
+import type { DealerContact, DealerService } from './dealer.js'
 
 const encoder=new TextEncoder()
 const sha256=(value:string)=>createHash('sha256').update(value).digest('hex')
@@ -42,6 +43,13 @@ export async function fetchPowervpnIdentity(cfg:PowervpnConfig,accessToken:strin
 export const powervpnUsernameBase=(externalId:string)=>'pv_'+(externalId.toLowerCase().replace(/[^a-z0-9]/g,'').slice(0,8)||'user')
 export class AuthService{
   readonly phone:PhoneAuth
+  /** 代理站：登录 / 同步时记归属，回应里带客服联系方式（app.ts 装上；没装 = 不带 contact） */
+  private dealers:DealerService|null=null
+  setDealers(d:DealerService){this.dealers=d}
+  private async contactOf(userId:string):Promise<DealerContact|null>{
+    if(!this.dealers)return null
+    try{return await this.dealers.contactFor(userId)}catch{return null}
+  }
   private constructor(private store:PgStore,private cfg:AuthConfig,private privateKey:CryptoKey,readonly publicKeyPem:string){
     const sms=cfg.sms
     this.phone=new PhoneAuth(store.pool,{sender:sms?.apiKey?yunpianSender({apiKey:sms.apiKey,tplId:sms.tplId,...(sms.fetch?{fetch:sms.fetch}:{})}):null,production:sms?.production??false,showDevCode:sms?.showDevCode===true,...(sms?.log?{log:sms.log}:{})})
@@ -62,7 +70,7 @@ export class AuthService{
   private async issue(user:UserRecord,deviceId:string,familyId:string=randomUUID()){
     const jti=randomUUID(), refreshToken=await this.refresh(user.id,deviceId,familyId,jti), expiresAt=new Date(Date.now()+this.cfg.refreshDays*86400000)
     await this.store.createSession({userId:user.id,deviceId,familyId,jti,tokenHash:sha256(refreshToken),expiresAt})
-    return {accessToken:await this.access(user,deviceId),refreshToken,expiresIn:900,deviceId,user:userView(user)}
+    return {accessToken:await this.access(user,deviceId),refreshToken,expiresIn:900,deviceId,user:{...userView(user),contact:await this.contactOf(user.id)}}
   }
   /** 实际权益（免费档 / 会员叠加设备数），见 entitlement.ts。 */
   private async effectiveOf(user:UserRecord){return effective(user,await this.store.entitlement(user.id),await this.store.getCommerceSettings())}
@@ -191,6 +199,7 @@ export class AuthService{
     }
     await this.store.recordLoginSuccess(user.id)
     if(user.status!=='active')throw new AppError('ACCOUNT_UNAVAILABLE','Account is unavailable',403)
+    await this.dealers?.attribute(user.id,input.dealer)
     return this.completeLogin(user,input.device,ip,'auth.login')
   }
   // 交付用：客户还没打开过客户端时，管理员按 POWER云 客户 id 先建好关联账号（之后客户用 POWER云 登录就是这个号），好先发会员。
@@ -215,16 +224,17 @@ export class AuthService{
     }
   }
   // 已登录的客户端定期用 POWER云 令牌同步：令牌对应的 POWER云 账号必须就是这个 ProxySplit 用户关联的那个。
-  async syncPowervpn(userId:string,accessToken:string,ip=''){
+  async syncPowervpn(userId:string,accessToken:string,ip='',dealer?:string){
     if(!this.cfg.powervpn)throw new AppError('POWERVPN_DISABLED','POWER云 登录未开放',503)
     const identity=await fetchPowervpnIdentity(this.cfg.powervpn,accessToken)
     if(await this.store.identityOwner('powervpn',identity.id)!==userId)throw new AppError('IDENTITY_MISMATCH','POWER云 账号与当前登录账号不一致，请重新登录',403)
     const channel=channelOfSources(identity.sources)
     if(await this.store.markUserChannel(userId,channel))await this.store.audit(userId,'auth.channel','user',userId,ip,'success',{channel})
     const r=await this.syncAigwMembership(userId,identity,ip)
+    await this.dealers?.attribute(userId,dealer)
     const user=await this.store.findUserById(userId)
     const license=user?licenseView(await this.effectiveOf(user)):null
-    return {channel:user?.channel??'',aiPlanExpiresAt:r?.expiresAt?.toISOString()??null,license}
+    return {channel:user?.channel??'',contact:await this.contactOf(userId),aiPlanExpiresAt:r?.expiresAt?.toISOString()??null,license}
   }
   // POWER云 账号登录：面板核实令牌 → 找 / 建用户 → 与 login() 相同的会话 + 设备数逻辑。不送授权。
   async loginPowervpn(input:PowervpnLoginInput,ip=''){
@@ -240,6 +250,7 @@ export class AuthService{
     if(await this.store.markUserChannel(user.id,channel)){user.channel=channel;await this.store.audit(user.id,'auth.channel','user',user.id,ip,'success',{channel})}
     // 会员跟 AI 套餐走：在发试用、签租约之前同步（有 AI 套餐就不浪费这台电脑的一次试用）
     await this.syncAigwMembership(user.id,identity,ip)
+    await this.dealers?.attribute(user.id,input.dealer)
     if(user.status!=='active')throw new AppError('ACCOUNT_UNAVAILABLE','Account is unavailable',403)
     return this.completeLogin(user,input.device,ip,'auth.login.powervpn')
   }
@@ -296,7 +307,7 @@ export class AuthService{
     // Rotation is already committed; an audit sink failure must not hide the
     // newly issued one-time token and strand the client with a consumed token.
     await this.store.audit(user.id,'auth.refresh','session',String(payload.jti),ip,'success').catch(()=>{})
-    return {accessToken:await this.access(user,rotated.deviceId),refreshToken,expiresIn:900,deviceId:rotated.deviceId,user:userView(user)}
+    return {accessToken:await this.access(user,rotated.deviceId),refreshToken,expiresIn:900,deviceId:rotated.deviceId,user:{...userView(user),contact:await this.contactOf(user.id)}}
   }
   async logout(input:RefreshInput,ip=''){
     try{

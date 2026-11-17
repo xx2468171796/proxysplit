@@ -2,7 +2,7 @@
 import { lazy, type ComponentType, type LazyExoticComponent } from 'react'
 import {
   Activity, BadgePercent, Boxes, CreditCard, Download, FileClock, Gauge, Gift, Laptop, Megaphone,
-  ReceiptText, Rocket, Settings, Share2, Users,
+  ReceiptText, Rocket, Settings, Share2, Store, Users,
 } from 'lucide-react'
 import type { NavItem } from '@ankotti/admin-ui'
 import type { PageProps } from './workspace-context'
@@ -20,6 +20,7 @@ export const NAVIGATION: NavItem[] = [
   { id: 'orders', title: '订单', icon: ReceiptText, group: '交易与支付', keywords: '订单 退款 拆单 补单' },
   { id: 'payments', title: '支付通道', icon: CreditCard, group: '交易与支付', keywords: '支付 通道 收款' },
   { id: 'fenxiao', title: '分销', icon: BadgePercent, group: '推广返利', keywords: '分销 推广 佣金 提现 返利' },
+  { id: 'dealers', title: '代理商分成', icon: Store, group: '推广返利', keywords: '代理商 代理站 中转站 分成 结算' },
   { id: 'notices', title: '通知与公告', icon: Megaphone, group: '内容与发布', keywords: '公告 维护 通知 站内信 消息' },
   { id: 'releases', title: '版本', icon: Rocket, group: '内容与发布', keywords: '版本 发布 更新 安装包' },
   { id: 'downloads', title: '下载统计', icon: Download, group: '内容与发布', keywords: '下载 浏览 官网' },
@@ -38,6 +39,7 @@ export const PAGES: Record<string, Page> = {
   orders: page(() => import('../pages/orders/orders-page'), (m) => m.OrdersPage),
   payments: page(() => import('../pages/payments/payments-page'), (m) => m.PaymentsPage),
   fenxiao: page(() => import('../pages/fenxiao/fenxiao-page'), (m) => m.FenxiaoPage),
+  dealers: page(() => import('../pages/dealers/dealers-page'), (m) => m.DealersPage),
   notices: page(() => import('../pages/notices/notices-page'), (m) => m.NoticesPage),
   releases: page(() => import('../pages/releases/releases-page'), (m) => m.ReleasesPage),
   downloads: page(() => import('../pages/downloads/downloads-page'), (m) => m.DownloadsPage),

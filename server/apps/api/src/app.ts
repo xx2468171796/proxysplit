@@ -6,9 +6,10 @@ import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
 import { AppError, maskPhone, normalizeUsername } from '@proxysplit/shared'
 import { activateDeviceSchema, powervpnLoginSchema, powervpnSyncSchema, adminGrantSchema, adminPowervpnProvisionSchema, selfPasswordSchema, webRegisterSchema, analyticsQuerySchema, auditListQuery, deviceListQuery, downloadStatsQuery, leaseSchema, licenseExtendSchema, loginSchema, orderCreateSchema, orderListQuery, orderRefundSchema, planListQuery, planPatchSchema, planUpsertSchema, providerUpsertSchema, redeemCodeCreateSchema, redeemListQuery, redeemSchema, refreshSchema, registerSchema, releaseCreateSchema, releaseListQuery, settingPatchSchema, trackViewSchema, userCreateSchema, userListQuery, userPasswordSchema, userStatusSchema } from '@proxysplit/contracts'
-import { AccelTokens, ClientNodesQuery, ClientNodesStore, ConfigProfilesStore, ConfigSyncStore, LinkCipher, SyncCipher, createAccount, createCommercialCore, createNotify, createNotifyEvents, type Notify, licenseView, FenxiaoService, hashPassword, PaymentService, createCenterPayFromEnv, type CenterPayContext, TelemetryQuery, TelemetryStore, type AuthService, type PgStore } from '@proxysplit/core'
+import { AccelTokens, ClientNodesQuery, ClientNodesStore, ConfigProfilesStore, ConfigSyncStore, LinkCipher, SyncCipher, createAccount, createCommercialCore, DealerAdmin, DealerService, createNotify, createNotifyEvents, type Notify, licenseView, FenxiaoService, hashPassword, PaymentService, createCenterPayFromEnv, type CenterPayContext, TelemetryQuery, TelemetryStore, type AuthService, type PgStore } from '@proxysplit/core'
 import type { ApiConfig } from './config.js'
 import { registerFenxiaoRoutes } from './fenxiao-routes.js'
+import { registerDealerRoutes } from './dealer-routes.js'
 import { registerNotifyRoutes } from './notify-routes.js'
 import { registerAccountRoutes } from './account-routes.js'
 import { registerTelemetryRoutes, type TelemetryDeps } from './telemetry-routes.js'
@@ -19,7 +20,7 @@ import { registerSyncRoutes } from './sync-routes.js'
 import { registerAdminStatsRoutes, type AdminStatsDeps } from './admin-stats-routes.js'
 import { AdminStatsQuery } from './admin-stats.js'
 
-type Core={auth:AuthService;store:PgStore;fenxiao?:FenxiaoService;notify?:Notify;telemetry?:Pick<TelemetryDeps,'store'|'query'>;clientNodes?:Pick<ClientNodesDeps,'store'|'query'>;adminStats?:AdminStatsDeps['query'];payCenterEnv?:Record<string,string|undefined>;close:()=>Promise<void>}
+type Core={auth:AuthService;store:PgStore;fenxiao?:FenxiaoService;dealers?:DealerService;notify?:Notify;telemetry?:Pick<TelemetryDeps,'store'|'query'>;clientNodes?:Pick<ClientNodesDeps,'store'|'query'>;adminStats?:AdminStatsDeps['query'];payCenterEnv?:Record<string,string|undefined>;close:()=>Promise<void>}
 const bearer=(value?:string)=>value?.startsWith('Bearer ')?value.slice(7):''
 export async function buildApp(config:ApiConfig,provided?:Core){
   const core:Core=provided??await createCommercialCore({databaseUrl:config.DATABASE_URL,auth:{accessSecret:config.ACCESS_TOKEN_SECRET,refreshDays:config.REFRESH_TOKEN_TTL_DAYS,...(config.LICENSE_PRIVATE_KEY_PEM?{licensePrivateKeyPem:config.LICENSE_PRIVATE_KEY_PEM}:{}),...(config.LICENSE_PUBLIC_KEY_PEM?{licensePublicKeyPem:config.LICENSE_PUBLIC_KEY_PEM}:{}),powervpn:{baseUrl:config.POWERVPN_BASE_URL??'https://lxc.5fskins.com'},
@@ -58,6 +59,10 @@ export async function buildApp(config:ApiConfig,provided?:Core){
   const admin=async(req:FastifyRequest)=>{const principal=await auth(req);if(principal.role!=='admin')throw new AppError('ADMIN_REQUIRED','Administrator permission required',403);return principal}
 
   app.get('/health',async()=>({ok:true,service:'proxysplit-commercial-api'}))
+  // 代理站：归属 / 客服联系方式 / 分成（dealer.ts）。aigw 公开接口可走内网地址 + Host 头绕开公网 WAF。
+  const dealers=core.dealers??new DealerService(core.store.pool,{baseUrl:config.AIGW_PUBLIC_BASE??'https://ai.zygskins.cn',host:config.AIGW_PUBLIC_HOST||undefined})
+  if(typeof core.auth.setDealers==='function')core.auth.setDealers(dealers)
+  registerDealerRoutes(app,{admin,dealers:new DealerAdmin(core.store.pool),store:core.store})
   registerFenxiaoRoutes(app,{service:core.fenxiao??new FenxiaoService(core.store),store:core.store,publicBaseUrl:config.PUBLIC_BASE_URL,auth:req=>auth(req),admin})
   const notify=core.notify??createNotify(core.store.pool,{aiToken:config.TZ_AI_TOKEN,log:{warn:(msg,detail)=>app.log.warn({detail},msg)},audit:(actor,action,type,id,meta)=>core.store.audit(actor,action,type,id,'',meta.source==='cli'?'ai':'ok',meta)})
   registerNotifyRoutes(app,{notify,auth:req=>auth(req),admin,tierOf:async id=>(await core.auth.effectiveFor(id)).ent.tier})
@@ -99,7 +104,7 @@ export async function buildApp(config:ApiConfig,provided?:Core){
   app.post('/v1/auth/login',{config:{rateLimit:{max:30,timeWindow:'1 minute'}}},async(req)=>core.auth.login(loginSchema.parse(req.body),req.ip))
   // POWER云 账号登录：accessToken 只转给面板核实，不落日志
   app.post('/v1/auth/powervpn',{config:{rateLimit:{max:30,timeWindow:'1 minute'}}},async(req)=>core.auth.loginPowervpn(powervpnLoginSchema.parse(req.body),req.ip))
-  app.post('/v1/auth/powervpn/sync',{config:{rateLimit:{max:20,timeWindow:'1 minute'}}},async(req)=>{const p=await auth(req);return core.auth.syncPowervpn(p.userId,powervpnSyncSchema.parse(req.body).accessToken,req.ip)})
+  app.post('/v1/auth/powervpn/sync',{config:{rateLimit:{max:20,timeWindow:'1 minute'}}},async(req)=>{const p=await auth(req);const input=powervpnSyncSchema.parse(req.body);return core.auth.syncPowervpn(p.userId,input.accessToken,req.ip,input.dealer)})
   app.post('/v1/auth/refresh',{config:{rateLimit:{max:10,timeWindow:'1 minute'}}},async(req)=>core.auth.rotate(refreshSchema.parse(req.body),req.ip))
   app.post('/v1/me/device/activate',{config:{rateLimit:{max:10,timeWindow:'1 minute'}}},async(req)=>{const p=await auth(req,true);if(p.deviceId!=='pending')throw new AppError('DEVICE_ALREADY_ACTIVE','当前设备已激活',409);return core.auth.activateDevice(p.userId,activateDeviceSchema.parse(req.body).device,req.ip)})
   app.post('/v1/auth/logout',async(req)=>core.auth.logout(refreshSchema.parse(req.body),req.ip))
@@ -159,8 +164,9 @@ export async function buildApp(config:ApiConfig,provided?:Core){
   // the real Nginx-served file. Only known-shaped filenames are allowed so this
   // can never become an open redirect or path-traversal.
   // proxysplit-ai-latest.exe = AI 编程官网给的下载（同一个安装包的软链）：文件名带 -ai，客户端据此隐藏作者联系方式
+  // proxysplit-ai-d-<代理商>.exe = AI 中转站代理站给的下载（同一个安装包，nginx 映射）：客户端据此记代理商归属
   // ProxySplit-v<版本>-macos-arm64.zip / proxysplit-macos-latest.zip = macOS 版（Apple 芯片）
-  const DOWNLOAD_FILE=/^(proxysplit-(v\d+\.\d+\.\d+|latest|ai-latest)\.exe|ProxySplit-v\d+\.\d+\.\d+-macos-arm64\.zip|proxysplit-macos-latest\.zip)$/
+  const DOWNLOAD_FILE=/^(proxysplit-(v\d+\.\d+\.\d+|latest|ai-latest|ai-d-[a-z0-9-]{2,30})\.exe|ProxySplit-v\d+\.\d+\.\d+-macos-arm64\.zip|proxysplit-macos-latest\.zip)$/
   app.get('/v1/download/:file',{config:{rateLimit:{max:60,timeWindow:'1 minute'}}},async(req,reply)=>{
     const file=(req.params as {file:string}).file
     if(!DOWNLOAD_FILE.test(file))throw new AppError('NOT_FOUND','文件不存在',404)
@@ -182,7 +188,7 @@ export async function buildApp(config:ApiConfig,provided?:Core){
   })
   app.get('/v1/catalog/plans',async()=>({items:(await core.store.listPlans({publicOnly:true,limit:100})).items,paymentMethods:(await core.store.getCommerceSettings()).paymentMethods}))
   // membership 仍是原始会员权益（老客户端据此判断，免费为 null）；license 是实际权益（免费档 / 叠加设备数）。
-  app.get('/v1/me',async(req)=>{const p=await auth(req,true);const user=await core.store.findUserById(p.userId);return {user:user&&{id:user.id,username:user.username,status:user.status,phone:maskPhone(user.phone),phoneBound:!!user.phone},membership:await core.store.entitlement(p.userId),license:licenseView(await core.auth.effectiveFor(p.userId)),devices:await core.store.listUserDevices(p.userId)}})
+  app.get('/v1/me',async(req)=>{const p=await auth(req,true);const user=await core.store.findUserById(p.userId);return {user:user&&{id:user.id,username:user.username,status:user.status,phone:maskPhone(user.phone),phoneBound:!!user.phone,channel:user.channel??'',contact:await dealers.contactFor(user.id).catch(()=>null)},membership:await core.store.entitlement(p.userId),license:licenseView(await core.auth.effectiveFor(p.userId)),devices:await core.store.listUserDevices(p.userId)}})
   app.post('/v1/me/password',{config:{rateLimit:{max:5,timeWindow:'10 minutes'}}},async(req)=>{const p=await auth(req,true);return core.auth.changeOwnPassword(p.userId,selfPasswordSchema.parse(req.body),req.ip)})
   app.post('/v1/me/redeem',{config:{rateLimit:{max:10,timeWindow:'1 minute'}}},async(req)=>{const p=await auth(req,true);const input=redeemSchema.parse(req.body);const result=await core.store.redeemCode(p.userId,input.code);await core.store.audit(p.userId,'user.redeem','redeem-code',input.code.trim().toUpperCase(),req.ip,'success');return {...result,membership:await core.store.entitlement(p.userId)}})
   app.get('/v1/me/devices',async(req)=>{const p=await auth(req,true);return {items:await core.store.listUserDevices(p.userId)}})

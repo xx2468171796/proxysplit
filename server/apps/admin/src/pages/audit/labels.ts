@@ -31,6 +31,8 @@ export const ACTION_LABELS: Record<string, string> = {
   'admin.payment-provider.activate': '切换收款通道',
   'admin.order.confirm': '手动确认订单',
   'admin.order.refund': '订单退款',
+  'admin.dealer.bps': '代理商分成比例',
+  'admin.dealer.settle': '代理商分成结算',
   'admin.redeem.create': '创建兑换码',
   'admin.redeem.status': '兑换码状态',
   'admin.redeem.delete': '删除兑换码',
@@ -54,6 +56,7 @@ export const auditActionLabel = (action: string) => ACTION_LABELS[action] ?? act
 export const TARGET_TYPES: Record<string, string> = {
   user: '用户', device: '设备', session: '会话', plan: '套餐', order: '订单', 'redeem-code': '兑换码',
   announcement: '公告', notice: '通知', release: '版本', 'payment-provider': '支付渠道', settings: '设置',
+  dealer: '代理商', 'dealer-commission': '代理商分成',
 }
 export const targetTypeLabel = (t: string) => TARGET_TYPES[t] ?? t
 

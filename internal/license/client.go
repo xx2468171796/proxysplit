@@ -54,8 +54,13 @@ type Status struct {
 	PhoneBound bool `json:"phoneBound"`
 	// Channel is where the account came from: "" (our own site / client) or
 	// "aigw" (the AI relay site's customers, who must not see author contacts).
-	Channel string `json:"channel"`
-	Error   string `json:"error,omitempty"`
+	// Dealer is the device's dealer-site slug (filled in by the app); Contact
+	// is the support contact the server assigns to aigw accounts (main site or
+	// the dealer), nil for plain users / old servers.
+	Dealer  string   `json:"dealer,omitempty"`
+	Contact *Contact `json:"contact,omitempty"`
+	Channel string   `json:"channel"`
+	Error   string   `json:"error,omitempty"`
 }
 
 type Plan struct {
@@ -136,6 +141,7 @@ type state struct {
 	Features           []string `json:"features"`
 	PendingDevice      bool     `json:"pendingDevice"`
 	Channel            string   `json:"channel,omitempty"`
+	Contact            *Contact `json:"contact,omitempty"`
 	SessionValidatedAt int64    `json:"sessionValidatedAt,omitempty"`
 	FreeDevices        int      `json:"freeDevices,omitempty"`
 	PlanDevices        int      `json:"planDevices,omitempty"`
@@ -206,6 +212,7 @@ type Client struct {
 	http         *http.Client
 	publicKey    ed25519.PublicKey
 	state        state
+	dealer       string // dealer-site slug sent at sign-in / register / sync
 }
 
 type APIError struct {
@@ -416,9 +423,10 @@ type authResult struct {
 }
 
 type authUser struct {
-	Username   string `json:"username"`
-	Channel    string `json:"channel"`
-	PhoneBound *bool  `json:"phoneBound"`
+	Username   string   `json:"username"`
+	Channel    string   `json:"channel"`
+	Contact    *Contact `json:"contact"`
+	PhoneBound *bool    `json:"phoneBound"`
 }
 
 type licenseInfo struct {
@@ -486,15 +494,28 @@ func (c *Client) SyncPowerVPN(ctx context.Context, accessToken string) error {
 		return nil
 	}
 	var result struct {
-		Channel string `json:"channel"`
+		Channel string   `json:"channel"`
+		Contact *Contact `json:"contact"`
 	}
-	if err := c.request(ctx, http.MethodPost, "/v1/auth/powervpn/sync", map[string]any{"accessToken": accessToken}, &result, token); err != nil {
+	c.mu.Lock()
+	body := c.withDealerLocked(map[string]any{"accessToken": accessToken})
+	c.mu.Unlock()
+	if err := c.request(ctx, http.MethodPost, "/v1/auth/powervpn/sync", body, &result, token); err != nil {
 		return err
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if result.Channel != "" && result.Channel != c.state.Channel && c.state.AccessToken == token {
-		c.state.Channel = result.Channel
+	if c.state.AccessToken != token {
+		return nil
+	}
+	changed := false
+	if result.Channel != "" && result.Channel != c.state.Channel {
+		c.state.Channel, changed = result.Channel, true
+	}
+	if result.Contact != nil && (c.state.Contact == nil || *result.Contact != *c.state.Contact) {
+		c.state.Contact, changed = result.Contact, true
+	}
+	if changed {
 		return c.saveLocked()
 	}
 	return nil
@@ -506,7 +527,7 @@ func (c *Client) authenticatePayload(path, username string, payload map[string]a
 	var result authResult
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
-	err := c.request(ctx, http.MethodPost, path, payload, &result, "")
+	err := c.request(ctx, http.MethodPost, path, c.withDealerLocked(payload), &result, "")
 	if err != nil {
 		return err
 	}
@@ -517,6 +538,7 @@ func (c *Client) authenticatePayload(path, username string, payload map[string]a
 	if result.User != nil {
 		c.state.Channel = result.User.Channel
 		c.state.PhoneBound = result.User.PhoneBound
+		c.state.Contact = result.User.Contact
 	}
 	if result.License != nil {
 		c.applyLicenseLocked(result.License)
@@ -634,7 +656,8 @@ func (c *Client) refreshLocked(ctx context.Context) error {
 	var result struct {
 		AccessToken, RefreshToken string
 		User                      *struct {
-			Channel string `json:"channel"`
+			Channel string   `json:"channel"`
+			Contact *Contact `json:"contact"`
 		} `json:"user"`
 	}
 	if err := c.request(ctx, http.MethodPost, "/v1/auth/refresh", map[string]any{"refreshToken": c.state.RefreshToken, "deviceFingerprint": c.fingerprint}, &result, ""); err != nil {
@@ -644,6 +667,9 @@ func (c *Client) refreshLocked(ctx context.Context) error {
 	// Older servers send no channel; never downgrade a known one on refresh.
 	if result.User != nil && result.User.Channel != "" {
 		c.state.Channel = result.User.Channel
+	}
+	if result.User != nil && result.User.Contact != nil {
+		c.state.Contact = result.User.Contact
 	}
 	c.state.SessionValidatedAt = time.Now().Unix()
 	// Refresh tokens are one-time credentials. Persist the rotated token before
@@ -758,7 +784,7 @@ func compareVersion(a, b string) int {
 func (c *Client) Status() (status Status) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	status = Status{Enabled: c.Enabled(), SignedIn: c.state.AccessToken != "", Username: c.state.Username, Plan: c.state.Plan, PlanCode: c.state.PlanCode, Tier: c.state.Tier, MaxDevices: c.state.MaxDevices, Features: append([]string{}, c.state.Features...), DeviceLimitReached: c.state.PendingDevice, Channel: c.state.Channel}
+	status = Status{Enabled: c.Enabled(), SignedIn: c.state.AccessToken != "", Username: c.state.Username, Plan: c.state.Plan, PlanCode: c.state.PlanCode, Tier: c.state.Tier, MaxDevices: c.state.MaxDevices, Features: append([]string{}, c.state.Features...), DeviceLimitReached: c.state.PendingDevice, Channel: c.state.Channel, Contact: c.state.Contact, Dealer: c.dealer}
 	status.FreeDevices, status.PlanDevices = c.state.FreeDevices, c.state.PlanDevices
 	status.PhoneBound = c.state.PhoneBound == nil || *c.state.PhoneBound
 	defer func() { status.Member = isMemberTier(status.Tier) }()

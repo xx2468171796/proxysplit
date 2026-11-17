@@ -95,12 +95,14 @@ func aigwDefaultApps() []service.AppRule {
 // proxysplit-ai-<one-time POWER云 ticket>.exe (browsers may append " (1)").
 var downloadTicketRe = regexp.MustCompile(`^(?i:proxysplit-ai-)([A-Za-z0-9_-]{43})(?: ?\(\d+\))?(?i:\.exe)$`)
 
-// downloadTicket returns the ticket in the executable's file name, or "".
+// downloadTicket returns the ticket in the executable's file name (main site
+// or dealer site, see dealer.go), or "".
 func downloadTicket(exe string) string {
 	if m := downloadTicketRe.FindStringSubmatch(filepath.Base(exe)); m != nil {
 		return m[1]
 	}
-	return ""
+	_, t := parseDealerExe(exe)
+	return t
 }
 
 func ticketFile() string { return filepath.Join(dataDir(), "download-ticket") }

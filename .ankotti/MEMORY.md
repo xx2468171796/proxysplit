@@ -8,6 +8,7 @@
 - **下一步**：公司统一服务接入第 2 期 zhanghao 账号（设计 docs/plan-2026-10-29-zhanghao.md），之后 huiyuan 跨站会员；日志详细化（net.conn_summary 连接成败汇总，业主 2026-10-28 要求，方便版本迭代排查）；有真实 IPv6 的电脑仍待实测（claude00002 是现成用户）；socks5 链式前置代理待业主决定；macOS 版：分支 feat/macos 已移植（Apple 芯片，构建机 xuan-macbook-air，见 docs/memory/macos.md），待 root 实测与随版本发布；不买 Apple 开发者账号（ad-hoc 签名）。发版前用正式下载包跑 alonehome2 自检，查别的会话未合并分支，测试机经 coord 轮流用。
 
 - **统一支付中心**：分支 feat/zhifu-center 已把会员收款改走 zhifu-service（迁移 0022 设 zhifu-center 为当前通道、不拆单、回调 POST /v1/pay/center/notify），未上线；上线要先配 PAY_CENTER_* env、中心登记回调、并发能显示微信码（weixin://）的新客户端。见 docs/memory/account-membership.md「收款与退款」。
+- 分支 feat/dealer-attribution（2026-11-17，未合并未部署）：AI 中转站代理站归属 + 客服微信 + 代理商分成（迁移 0023、后台「代理商分成」、nginx 两条下载 location、env AIGW_PUBLIC_BASE / AIGW_PUBLIC_HOST），见 docs/中转站渠道.md「代理站」。
 
 ## 红线（不得做）
 - 不碰腾讯云 110.40.185.27（支付网关），只能以客户端身份调接口。
@@ -32,6 +33,7 @@
 | macOS 版 | docs/memory/macos.md | 平台差异表、root 控制脚本、.app 规则、Tailscale 排除、Mac 上构建与发版 |
 | 内核/多源下载/自动跟随 | docs/memory/core-update.md | relayops 内核版本线、mirror.go、corefollow.go、Xray 双内核（XHTTP/mKCP/VLESS encryption，当前 Xray 26.10.29） |
 | POWER云/会员/aigw/支付 | docs/memory/account-membership.md | 接入标准、AI 套餐会员、egress、刷新令牌容错、统一支付中心收款、退款 |
+| 中转站渠道/代理站/代理商分成 | docs/中转站渠道.md | 隐藏联系方式、免登录下载、代理站文件名与归属（dealer.go / 迁移 0023）、客服微信、分成与结算 |
 | 分流规则/TUN 配置 | docs/memory/routing.md | 规则顺序、热加载、占位进程、真内核测试、仅接管选中程序（WinDivert）、推流直连预设 |
 | AI 控制/MCP/诊断接口 | docs/memory/ai-control.md | 18088 诊断接口、--mcp 桥、DNS 12 秒问题 |
 | 测试机/远程测试 | docs/memory/testing-machines.md | alonehome2、火绒复现、本机拍图坑 |
