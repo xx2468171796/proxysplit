@@ -26,9 +26,11 @@ var (
 	reJWT     = regexp.MustCompile(`\beyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}`)
 	reAuthHdr = regexp.MustCompile(`(?i)\b(authorization|proxy-authorization)(\s*[:=]\s*)("?)(bearer|basic)?\s*[^\s",}]+`)
 	reBearer  = regexp.MustCompile(`(?i)\b(bearer|basic)\s+[A-Za-z0-9._~+/=-]{8,}`)
-	reKV      = regexp.MustCompile(`(?i)("?)\b(` + kvSecretPattern() + `)("?)(\s*[:=]\s*)("?)([^\s",;&}]+)`)
-	reUUID    = regexp.MustCompile(`(?i)\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b`)
-	reEmail   = regexp.MustCompile(`\b([A-Za-z0-9._%+-])[A-Za-z0-9._%+-]*@([A-Za-z0-9.-]+\.[A-Za-z]{2,})\b`)
+	// plugin_opts is itself a ";"-separated key=value list: the whole value goes.
+	rePluginOpts = regexp.MustCompile(`(?i)("?\bplugin[_-]?opts"?\s*[:=]\s*)("[^"]*"|[^\s",}]+)`)
+	reKV         = regexp.MustCompile(`(?i)("?)\b(` + kvSecretPattern() + `)("?)(\s*[:=]\s*)("?)([^\s",;&}]+)`)
+	reUUID       = regexp.MustCompile(`(?i)\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b`)
+	reEmail      = regexp.MustCompile(`\b([A-Za-z0-9._%+-])[A-Za-z0-9._%+-]*@([A-Za-z0-9.-]+\.[A-Za-z]{2,})\b`)
 	// Long base64 / base64url / hex runs: Reality public keys (43 chars), PSKs,
 	// device fingerprints, tokens. Domains never reach 32 characters without a dot.
 	reLongToken = regexp.MustCompile(`[A-Za-z0-9+/_-]{32,}={0,2}`)
@@ -155,6 +157,7 @@ func redact(s string) string {
 	s = reJWT.ReplaceAllString(s, "[jwt]")
 	s = reAuthHdr.ReplaceAllString(s, "$1$2$3[redacted]")
 	s = reBearer.ReplaceAllString(s, "$1 [redacted]")
+	s = rePluginOpts.ReplaceAllString(s, "${1}[redacted]")
 	s = reKV.ReplaceAllString(s, "$1$2$3$4$5[redacted]")
 	s = reUUID.ReplaceAllString(s, "[uuid]")
 	s = reEmail.ReplaceAllString(s, "$1***@$2")

@@ -82,7 +82,8 @@ func leakFixtureApp(t *testing.T) *App {
 	// What the core and the subscription updater really write to the log.
 	svc.LogLine(`[sub] 订阅更新失败: Get "https://sub.proxysplit.test/link/PLANTED-log-secret?token=PLANTED-log-secret": timeout`)
 	svc.LogLine(`[core] outbound trojan://PLANTED-log-secret@node1.proxysplit.test:443 failed, password=PLANTED-log-secret`)
-	svc.LogLine(`[core] outbound/shadowsocks[ss-plugin]: plugin_opts=PLANTED-plugin-opts rejected`)
+	svc.LogLine(`[core] outbound/shadowsocks[ss-plugin]: plugin_opts=obfs=http;obfs-host=PLANTED-plugin-opts rejected`)
+	svc.LogLine(`[core] decode config: "plugin_opts":"obfs=tls;obfs-host=PLANTED-plugin-opts" unsupported`)
 	svc.LogLine(`[core] outbound/ssh[ssh-key]: "private_key_passphrase":"PLANTED-key-passphrase" wrong`)
 	a := &App{svc: svc, ready: make(chan struct{}), pv: powervpn.New(dir, appVersion)}
 	close(a.ready)

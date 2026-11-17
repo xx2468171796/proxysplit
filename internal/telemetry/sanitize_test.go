@@ -76,3 +76,21 @@ func TestSanitizeValueCoversPathsAndPhones(t *testing.T) {
 		}
 	}
 }
+
+// plugin_opts holds its own ";"-separated list: nothing after the first ";"
+// may survive, quoted or not, and the rest of the line stays readable.
+func TestSanitizePluginOpts(t *testing.T) {
+	for _, line := range []string{
+		`outbound: plugin_opts=obfs=http;obfs-host=SECRET-HOST failed`,
+		`config: "plugin_opts":"obfs=tls;obfs-host=SECRET-HOST;path=/x" failed`,
+		`plugin-opts: mode=websocket;host=SECRET-HOST failed`,
+	} {
+		got := Sanitize(line)
+		if strings.Contains(got, "SECRET-HOST") || strings.Contains(got, "obfs=") || strings.Contains(got, "mode=websocket") {
+			t.Errorf("plugin options leaked: %s", got)
+		}
+		if !strings.Contains(got, "failed") {
+			t.Errorf("the rest of the line was lost: %s", got)
+		}
+	}
+}
