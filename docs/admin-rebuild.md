@@ -1,6 +1,6 @@
-# 运营后台重做（@ankotti/admin-ui 9.6.1，分支 feat/admin-ui-rebuild）
+# 运营后台重做（@ankotti/admin-ui 9.14.1，分支 feat/admin-ui-rebuild）
 
-`server/apps/admin` 原来是手写 React + Tailwind + Radix 组件，现在整体换成 admin-ui 9.6.1（和 frontend 同一个 tag）。
+`server/apps/admin` 原来是手写 React + Tailwind + Radix 组件，现在整体换成 admin-ui（2026-11-17 从 9.6.1 升到 9.14.1，和 frontend、website 同一个 tag；没传 `palette`，跟随 9.7.0 起的默认色卡「纯黑 ink」，升级前是墨灰）。
 外壳是 `AdminShell`，工作标签按需打开，首页固定；地址栏同步成 `/admin/<页>`，用户详情是 `/admin/users/<id>`。
 各页面先选 PAGE-TEMPLATES 里的模板再写。`admin-ui-audit src` 0 错误。
 

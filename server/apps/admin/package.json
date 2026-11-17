@@ -11,7 +11,7 @@
     "audit:ui": "admin-ui-audit src"
   },
   "dependencies": {
-    "@ankotti/admin-ui": "git+http://s3.alonelife.top:32109/admin/yanzheng.git#adminUI-v9.6.1&path:/packages/adminUI",
+    "@ankotti/admin-ui": "git+http://s3.alonelife.top:32109/admin/yanzheng.git#adminUI-v9.14.1&path:/packages/adminUI",
     "tongzhi": "git+http://s3.alonelife.top:32109/admin/yanzheng.git#tongzhi-v1.7.0&path:/packages/tongzhi",
     "@vitejs/plugin-react":"^6.1.2",
     "echarts": "^6.1.0",
