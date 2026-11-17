@@ -53,6 +53,7 @@ function setup(hvRedeem?:HvRedeem){
     fulfillPaidOrder:vi.fn(async()=>({ok:true,duplicate:false})),
     isOrderReusableAs:vi.fn(async()=>true),adoptReusedOrder:vi.fn(async():Promise<AdoptResult>=>({ok:true})),
     refundOrder:vi.fn(async()=>({ok:true,orders:1,licenseAdjusted:true,removedDays:365})),audit:vi.fn(async()=>undefined),
+    closeRefundedUnpaidOrder:vi.fn(async():Promise<'closed'|'paid'|'refunded'|'missing'>=>'closed'),
   }
   const paid:string[]=[]
   const service=new PaymentService(store as unknown as PgStore,'https://site.invalid',m=>{logs.push(m)},async no=>{paid.push(no)},
@@ -224,10 +225,24 @@ describe('统一支付中心适配器',()=>{
       expect((await service.handleCenterNotify(raw)).status).toBe(200)
       expect(store.refundOrder).not.toHaveBeenCalled()
     })
-    it('本地还没发放（退款回调先到）：不确认，等付款落地后中心重试',async()=>{
+    // 原来：本地不是 paid 就抛错等中心重试。可这笔钱已经全额退回去了，本地单如果永远不会被发放（过期标了 failed、付款回调
+    // 落不了地），退款回调就白白重试 72 小时。现在：把本地单关掉（之后迟到的付款回调按重复事件确认、不发放），记一次审计，确认。
+    for(const local of ['pending','failed','closed']){
+      it(`全额退款而本地还没发放（${local}）：关单 + 审计一次后确认，不再让中心重试`,async()=>{
+        const {service,store,raw,orders}=await paidThenRefund(local)
+        const siteOrderNo=String([...orders.values()][0]?.site_order_no)
+        expect((await service.handleCenterNotify(raw)).status).toBe(200)
+        expect(store.refundOrder).not.toHaveBeenCalled()
+        expect(store.closeRefundedUnpaidOrder).toHaveBeenCalledTimes(1)
+        expect(store.closeRefundedUnpaidOrder).toHaveBeenCalledWith(order.orderNo,
+          {eventId:`center:${siteOrderNo}`,reason:'支付中心退款（未发放）',metadata:expect.objectContaining({refundNo:'RF1',refundedCents:29900,localStatus:local})})
+      })
+    }
+    it('关单时发现付款刚好落地（并发）：改走正常退款',async()=>{
       const {service,store,raw}=await paidThenRefund('pending')
-      expect((await service.handleCenterNotify(raw)).status).toBeGreaterThanOrEqual(500)
-      expect(store.refundOrder).not.toHaveBeenCalled()
+      store.closeRefundedUnpaidOrder.mockResolvedValueOnce('paid')
+      expect((await service.handleCenterNotify(raw)).status).toBe(200)
+      expect(store.refundOrder).toHaveBeenCalledTimes(1)
     })
     it('部分退款：不自动收回整笔会员，记 warn + 审计后确认（人工处理）',async()=>{
       const {service,store,raw,logs}=await paidThenRefund('paid',1000)

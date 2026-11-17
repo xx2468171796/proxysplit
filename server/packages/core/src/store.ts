@@ -1180,6 +1180,24 @@ export class PgStore {
     }catch(e){await client.query('ROLLBACK');throw e}finally{client.release()}
   }
 
+  // 支付中心说这笔单已全额退款，而本地从没发放过（pending / failed / closed）：钱已经退回去，这笔单不该再被发放。
+  // 同一事务里：占住付款事件号（之后迟到的付款回调 / 对账在 fulfillPaidOrder 按重复事件确认、不发放）、把单关掉、写一行审计。
+  // 第二次进来（事件号已占、单已关）什么都不写。付款抢先落地（paid）或已退（refunded）时不动，交回调用方。
+  async closeRefundedUnpaidOrder(orderNoValue:string,input:{eventId:string;reason:string;metadata:Record<string,unknown>}):Promise<'closed'|'paid'|'refunded'|'missing'>{
+    const client=await this.pool.connect()
+    try{
+      await client.query('BEGIN')
+      const order=(await client.query('SELECT id,status,provider_code FROM orders WHERE order_no=$1 FOR UPDATE',[orderNoValue])).rows[0]
+      if(!order||order.status==='paid'||order.status==='refunded'){await client.query('ROLLBACK');return order?order.status:'missing'}
+      const event=await client.query(`INSERT INTO payment_events(provider_code,event_id,order_no,payload_hash,verified,result)
+        VALUES($1,$2,$3,'refund',true,'refunded-unfulfilled') ON CONFLICT(provider_code,event_id) DO NOTHING RETURNING id`,[order.provider_code,input.eventId,orderNoValue])
+      const closed=await client.query(`UPDATE orders SET status='closed',refund_reason=$2,pay_url=NULL,updated_at=now() WHERE id=$1 AND status IN ('pending','failed') RETURNING id`,[order.id,input.reason])
+      if(event.rows[0]||closed.rows[0])await insertAudit(client,{actor:null,action:'payment.center.refund',targetType:'order',targetId:orderNoValue,ip:'',result:'unfulfilled',metadata:{...input.metadata,reason:input.reason}})
+      await client.query('COMMIT')
+      return 'closed'
+    }catch(e){await client.query('ROLLBACK');throw e}finally{client.release()}
+  }
+
   // 后台手动给用户发放/续期一个套餐（等级由 planId 决定，时长可覆盖或永久）。
   async adminGrantLicense(userId:string,opts:{planId:string;durationDays?:number|null;lifetime?:boolean},by:AuditActor){
     const client=await this.pool.connect()

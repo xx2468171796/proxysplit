@@ -127,9 +127,11 @@ export class CenterPay {
 const safeHttps = (url: string | null) => (url && url.startsWith('https://') ? url : null)
 
 /** 回调里的 PaidEvent → fulfillPaidOrder 的入参（事件号 = 中心站点单号，与 zhongzhuan 的事件号不会撞）。 */
+/** payment_events 里一笔中心订单的付款事件号（PaidEvent.idempotencyKey 就是站点单号）。退款关单占的也是它。 */
+export const centerEventId = (siteOrderNo: string) => `center:${siteOrderNo}`
 export function centerFulfilInput(providerCode: string, e: PaidEvent, localOrderNo: string) {
   return {
-    providerCode, eventId: `center:${e.idempotencyKey}`, orderNo: localOrderNo, amountCents: e.amountCents, providerOrderNo: e.orderNo,
+    providerCode, eventId: centerEventId(e.idempotencyKey), orderNo: localOrderNo, amountCents: e.amountCents, providerOrderNo: e.orderNo,
     payloadHash: createHash('sha256').update(JSON.stringify({ ...e, paidAt: e.paidAt.toISOString() })).digest('hex'), paidAt: e.paidAt,
   }
 }

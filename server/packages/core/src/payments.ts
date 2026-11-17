@@ -2,7 +2,7 @@ import { createHash, createHmac, timingSafeEqual } from 'node:crypto'
 import { AppError } from '@proxysplit/shared'
 import type { PgStore, PaymentProviderRecord } from './store.js'
 import type { PaidEvent } from './vendor/zhifu/site/types.js'
-import { centerFulfilInput, type CenterHooks, type CenterPay, type CenterPayContext, type CenterRefundEvent } from './pay-center.js'
+import { centerEventId, centerFulfilInput, type CenterHooks, type CenterPay, type CenterPayContext, type CenterRefundEvent } from './pay-center.js'
 
 type Scalar=string|number
 type ZhongzhuanCallback={
@@ -133,7 +133,13 @@ export class PaymentService{
       await this.store.audit(null,'payment.center.refund','order',e.localOrderNo,'','partial',meta)
       return
     }
-    if(order.status!=='paid')throw new Error(`center refund: local order ${e.localOrderNo} is ${order.status}, not paid yet`)
+    if(order.status!=='paid'){
+      // 钱已全额退回、本地还没发放：关单并占住付款事件号（迟到的付款回调不会再发放），审计一次，确认。
+      // 以前在这里抛错等中心重试——本地单永远不会被发放时（过期标了 failed 等）就是 72 小时的无效重试。
+      const closed=await this.store.closeRefundedUnpaidOrder(e.localOrderNo,{eventId:centerEventId(e.siteOrderNo),reason:CENTER_REFUND_UNFULFILLED,metadata:{...meta,localStatus:order.status}})
+      if(closed==='closed'){this.log(`[payments] 支付中心已全额退款而本地订单 ${e.localOrderNo}（${order.status}）从未发放，已关单`);return}
+      if(closed!=='paid')return
+    }
     try{
       // 审计行（payment.center.refund）由 refundOrder 在退款事务里写
       await this.store.refundOrder(e.localOrderNo,CENTER_REFUND_REASON,{actor:null,ip:'',action:'payment.center.refund',metadata:meta})
@@ -300,6 +306,7 @@ export class PaymentService{
 }
 
 const CENTER_REFUND_REASON='支付中心退款'
+const CENTER_REFUND_UNFULFILLED='支付中心退款（未发放）'
 
 /** 接管旧未付单被拒（order-reuse.ts 的四种原因）→ 给客户端的回应。 */
 const REUSE_REFUSALS:Record<'mismatch'|'off_sale'|'limit'|'state',()=>AppError>={

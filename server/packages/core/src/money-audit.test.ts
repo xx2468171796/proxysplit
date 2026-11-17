@@ -72,6 +72,25 @@ describe('动钱操作的审计与业务同事务', () => {
     expect(none.verbs()).toEqual(['BEGIN', 'ROLLBACK'])
   })
 
+  // 支付中心全额退款、本地却还没发放：关单 + 占住付款事件号（迟到的付款回调按重复处理）+ 审计，同一事务、只做一次。
+  it('中心已退款的未发放订单：关单、占事件号、审计同事务；已经处理过的不再写审计', async () => {
+    const input = { eventId: 'center:PR1', reason: '支付中心退款（未发放）', metadata: { refundNo: 'RF1' } }
+    const row = (status: string): Reply => [{ id: 'o1', status, provider_code: 'zhifu-center' }]
+    const fresh = fakePool([['FROM orders WHERE order_no=$1 FOR UPDATE', row('failed')], ['INSERT INTO payment_events', [{ id: 'e1' }]], ["UPDATE orders SET status='closed'", [{ id: 'o1' }]]])
+    expect(await storeOn(fresh).closeRefundedUnpaidOrder('PS1', input)).toBe('closed')
+    expect(fresh.verbs()).toEqual(['BEGIN', 'AUDIT', 'COMMIT'])
+    expect(fresh.calls.find(c => c.sql.startsWith('INSERT INTO payment_events'))?.params).toEqual(['zhifu-center', 'center:PR1', 'PS1'])
+    expect(fresh.audit()?.params).toEqual([null, 'payment.center.refund', 'order', 'PS1', '', 'unfulfilled', { refundNo: 'RF1', reason: '支付中心退款（未发放）' }])
+    // 重复的退款回调：事件号已占、订单已关 → 不再写审计
+    const again = fakePool([['FROM orders WHERE order_no=$1 FOR UPDATE', row('closed')]])
+    expect(await storeOn(again).closeRefundedUnpaidOrder('PS1', input)).toBe('closed')
+    expect(again.verbs()).toEqual(['BEGIN', 'COMMIT'])
+    // 付款抢先落地：什么都不改，交回调用方走正常退款
+    const paid = fakePool([['FROM orders WHERE order_no=$1 FOR UPDATE', row('paid')]])
+    expect(await storeOn(paid).closeRefundedUnpaidOrder('PS1', input)).toBe('paid')
+    expect(paid.verbs()).toEqual(['BEGIN', 'ROLLBACK'])
+  })
+
   it('代理商：标记已结算 / 改分成比例与审计同事务', async () => {
     const settle = fakePool([['UPDATE dealer_commissions SET status', [{ id: 7, commissionCents: 3000, dealerSlug: 'wen' }, { id: 8, commissionCents: 1500, dealerSlug: 'wen' }]]])
     const r = await new DealerAdmin(settle.pool).settle([7, 8, 9], '转账单号 1', by)
