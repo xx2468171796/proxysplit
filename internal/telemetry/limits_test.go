@@ -30,7 +30,7 @@ func TestLimitsMirrorContract(t *testing.T) {
 		re     string
 		client int
 	}{
-		{"event.errorText", contract, `errorText: z\.string\(\)\.max\((\d+)\)`, limitErrorText},
+		{"event.errorText", contract, `TELEMETRYERRORTEXTMAX = (\d+)`, limitErrorText},
 		{"event.sessionId", contract, `sessionId: z\.string\(\)\.min\(1\)\.max\((\d+)\)`, limitSessionID},
 		{"event.type", contract, `type: z\.string\(\)\.regex\(.*\)\.max\((\d+)\)`, limitEventType},
 		{"event.durationMs", contract, `durationMs: z\.number\(\)\.int\(\)\.min\(0\)\.max\((\d+)\)`, limitDurationMs},
@@ -38,11 +38,11 @@ func TestLimitsMirrorContract(t *testing.T) {
 		{"logChunk.lineCount", contract, `lineCount: z\.number\(\)\.int\(\)\.min\(0\)\.max\((\d+)\)`, limitChunkLines},
 		{"batch.events", contract, `events: z\.array\(telemetryEventSchema\)\.max\((\d+)\)`, limitBatchEvents},
 		{"batch.logs", contract, `logs: z\.array\(telemetryLogChunkSchema\)\.max\((\d+)\)`, limitBatchLogs},
-		{"batch.appVersion", contract, `appVersion: z\.string\(\)\.max\((\d+)\)`, limitAppVersion},
-		{"batch.coreVersion", contract, `coreVersion: z\.string\(\)\.max\((\d+)\)`, limitCoreVersion},
-		{"batch.os", contract, `os: z\.string\(\)\.max\((\d+)\)`, limitOS},
-		{"batch.arch", contract, `arch: z\.string\(\)\.max\((\d+)\)`, limitArch},
-		{"batch.accountHint", contract, `accountHint: z\.string\(\)\.max\((\d+)\)`, limitAccountHint},
+		{"batch.appVersion", contract, `appVersion: clipped\((\d+)\)`, limitAppVersion},
+		{"batch.coreVersion", contract, `coreVersion: clipped\((\d+)\)`, limitCoreVersion},
+		{"batch.os", contract, `os: clipped\((\d+)\)`, limitOS},
+		{"batch.arch", contract, `arch: clipped\((\d+)\)`, limitArch},
+		{"batch.accountHint", contract, `accountHint: clipped\((\d+)\)`, limitAccountHint},
 		{"gzip body", app, `TELEMETRYMAXGZIPBYTES\?\?(\d+)\*1024`, limitGzipBodyBytes / 1024},
 		{"plain body", routes, `TELEMETRYMAXBODYBYTES = (\d+) \* 1024 \* 1024`, limitBodyBytes / 1024 / 1024},
 	}
@@ -55,6 +55,11 @@ func TestLimitsMirrorContract(t *testing.T) {
 		if server, _ := strconv.Atoi(m[1]); server != c.client {
 			t.Errorf("%s: server allows %d, limits.go says %d", c.name, server, c.client)
 		}
+	}
+	// The server clips descriptive text instead of rejecting it; the client
+	// still truncates to the same lengths so nothing is cut twice differently.
+	if !strings.Contains(contract, "errorText: clipped(TELEMETRYERRORTEXTMAX)") {
+		t.Error("event.errorText is no longer clipped at TELEMETRY_ERROR_TEXT_MAX")
 	}
 	if !strings.Contains(contract, "seq: z.number().int().min(0).max(1e12)") || limitSeq != 1e12 {
 		t.Error("event.seq limit drifted")
