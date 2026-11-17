@@ -14,6 +14,9 @@ func (a *App) showWindow() {
 	}
 	runtime.WindowShow(a.ctx)
 	runtime.WindowUnminimise(a.ctx)
+	if a.svc != nil {
+		a.svc.SetUIVisible(true) // background polls back to full speed, refresh at once
+	}
 }
 
 // beforeClose hides the window to the tray instead of quitting when 关闭到托盘 is
@@ -31,6 +34,7 @@ func (a *App) beforeClose(ctx context.Context) bool {
 	// window would vanish with no way to bring it back.
 	if a.trayUp && a.svc.GetSettings().TrayClose {
 		runtime.WindowHide(ctx)
+		a.svc.SetUIVisible(false) // nobody is looking: slow the background polls down
 		return true
 	}
 	return false

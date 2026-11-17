@@ -102,6 +102,9 @@ func (a *App) startup(ctx context.Context) {
 		return
 	}
 	a.svc = svc
+	if a.background {
+		svc.SetUIVisible(false) // tray-only start: showWindow turns it back on
+	}
 	// 给 aigw 等本机程序的 AI 线路代理约定文件（internal/service/aiproxy.go）
 	svc.SetAIProxyFile(filepath.Join(dataDir(), "ai-proxy.json"))
 	a.lic = license.New(dataDir(), appVersion)
@@ -129,6 +132,11 @@ func (a *App) startup(ctx context.Context) {
 	a.initPowerVPN()
 	svc.SetLogSink(func(line string) {
 		runtime.EventsEmit(ctx, "log", line)
+	})
+	// The proxy changed state by itself (core / capture recovery, self-stop):
+	// the UI refreshes and shows the message (frontend state/runtime.ts).
+	svc.SetRunEventSink(func(ev service.RunEvent) {
+		runtime.EventsEmit(ctx, "run-event", ev)
 	})
 	a.initConfigSync()
 	a.startAccel()
@@ -324,8 +332,7 @@ func (a *App) onSecondInstance(data options.SecondInstanceData) {
 	if a.ctx == nil || hasFlag(data.Args, backgroundFlag) {
 		return
 	}
-	runtime.WindowUnminimise(a.ctx)
-	runtime.WindowShow(a.ctx)
+	a.showWindow()
 }
 
 // ensurePayload extracts the embedded runtime binaries into a stable directory
@@ -525,9 +532,10 @@ func (a *App) InstallAppUpdate(release updater.Release) (msg string) {
 	if a.upd == nil {
 		return "自动更新未配置"
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
-	defer cancel()
-	path, err := a.upd.Download(ctx, release)
+	// No total deadline: the package is resumable and the downloader stops a
+	// stalled transfer itself (internal/download); a deadline would cut a slow
+	// but progressing download and make every retry start the clock again.
+	path, err := a.upd.Download(context.Background(), release)
 	if err != nil {
 		a.installing.Store(false)
 		return err.Error()
