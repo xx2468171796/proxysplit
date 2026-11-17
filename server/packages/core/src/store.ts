@@ -5,6 +5,7 @@ import { AppError, maskPhone } from '@proxysplit/shared'
 import { planSplit } from './split.js'
 import { createProxysplitFenxiao, type ProxysplitFenxiao } from './fenxiao.js'
 import { recordDealerCommissionInTx, voidDealerCommissionInTx } from './dealer.js'
+import { nextLoginFailure, type LoginLockState } from './login-lockout.js'
 import { adoptReusedOrder, isOrderReusableAs, PLAN_ON_SALE_SQL, PURCHASE_COUNT_SQL, purchaseLockKey, type ReuseLink } from './order-reuse.js'
 import type { FxNotice } from './vendor/fenxiao/index.js'
 
@@ -531,16 +532,22 @@ export class PgStore {
       return {ok:true,userId:session.userId as string,deviceId:session.deviceId as string} as const
     }catch(e){await client.query('ROLLBACK');throw e}finally{client.release()}
   }
-  async recordLoginFailure(userId:string){
-    const r=await this.pool.query(`UPDATE users SET
-      failed_login_count=CASE WHEN failed_login_count+1>=5 THEN 0 ELSE failed_login_count+1 END,
-      lockout_level=CASE WHEN failed_login_count+1>=5 THEN lockout_level+1 ELSE lockout_level END,
-      locked_until=CASE WHEN failed_login_count+1>=5 THEN now()+((lockout_level+1)*5)*interval '1 minute' ELSE locked_until END,
-      updated_at=now() WHERE id=$1
-      RETURNING failed_login_count AS "failedLoginCount",lockout_level AS "lockoutLevel",locked_until AS "lockedUntil"`,[userId])
-    return r.rows[0]??null
+  // 锁定规则在 login-lockout.ts（封顶 30 分钟、成功 / 隔天归零）；这里只负责在行锁里读 → 算 → 写。
+  async recordLoginFailure(userId:string):Promise<LoginLockState|null>{
+    const client=await this.pool.connect()
+    try{
+      await client.query('BEGIN')
+      const row=(await client.query(`SELECT failed_login_count AS "failedLoginCount",lockout_level AS "lockoutLevel",locked_until AS "lockedUntil"
+        FROM users WHERE id=$1 FOR UPDATE`,[userId])).rows[0] as LoginLockState|undefined
+      if(!row){await client.query('ROLLBACK');return null}
+      const next=nextLoginFailure(row,new Date())
+      await client.query('UPDATE users SET failed_login_count=$2,lockout_level=$3,locked_until=$4,updated_at=now() WHERE id=$1',
+        [userId,next.failedLoginCount,next.lockoutLevel,next.lockedUntil])
+      await client.query('COMMIT')
+      return next
+    }catch(e){await client.query('ROLLBACK');throw e}finally{client.release()}
   }
-  async recordLoginSuccess(userId:string){await this.pool.query('UPDATE users SET failed_login_count=0,locked_until=NULL,updated_at=now() WHERE id=$1',[userId])}
+  async recordLoginSuccess(userId:string){await this.pool.query('UPDATE users SET failed_login_count=0,lockout_level=0,locked_until=NULL,updated_at=now() WHERE id=$1',[userId])}
   async audit(actor:string|null,action:string,targetType:string,targetId:string,ip:string,result:string,metadata:Record<string,unknown>={}){
     await this.pool.query('INSERT INTO audit_logs(actor_user_id,action,target_type,target_id,ip,result,metadata) VALUES($1,$2,$3,$4,$5,$6,$7)',[actor,action,targetType,targetId,ip,result,metadata])
   }

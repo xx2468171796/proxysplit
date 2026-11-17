@@ -6,6 +6,7 @@ import type { SmsPurpose, ActivateDeviceInput, BindPhoneInput, DeviceInput, Logi
 import { powervpnMeSchema } from '@proxysplit/contracts'
 import { channelOfSources, releasePlatform, type PgStore, type UserChannel, type UserRecord } from './store.js'
 import { effective, licenseView } from './entitlement.js'
+import { isLoginLocked, LOGIN_LOCK } from './login-lockout.js'
 import { PhoneAuth, yunpianSender } from './phone-auth.js'
 import type { SmsCenter, SmsSendContext } from './sms-center.js'
 import { withMinDuration } from './vendor/yanzheng/verify-client/index.js'
@@ -25,6 +26,8 @@ export type AuthConfig={accessSecret:string;refreshDays:number;licensePrivateKey
 const userView=(user:UserRecord)=>({id:user.id,username:user.username,role:user.role,channel:user.channel??'',phoneBound:!!user.phone})
 const phoneTaken=()=>new AppError('PHONE_TAKEN','该手机号已被其他账号使用',409)
 const identityTaken=()=>new AppError('IDENTITY_TAKEN','用户名或邮箱已被使用',409)
+/** 登录失败的唯一回应（账号不存在 / 密码错 / 被锁定都是它）；文案顺带提醒锁定，被锁的本人看得懂。 */
+const loginInvalid=()=>new AppError('AUTH_INVALID',`账号或密码错误；连续输错 ${LOGIN_LOCK.threshold} 次会暂时锁定登录，请稍后再试`,401)
 /** 中心模式找回改密：核码的所有失败（没发过码 / 失效 / 繁忙 / 错码）对外同一句话，整步最短耗时（防枚举，同 V7） */
 const RESET_CODE_FAILED='验证码错误', RESET_MIN_MS=800
 // 没有匹配账号时也跑一次 argon2 校验，响应时间不泄露账号是否存在。
@@ -210,45 +213,36 @@ export class AuthService{
     const center=this.smsCenter
     return this.phone.bindPhone(userId,input.phone,input.code,center?consume=>center.check(input.phone,'bind',input.code,consume):undefined)
   }
-  // 登录框接受用户名或手机号（含 +86）：像手机号先按手机号查，再按用户名查（兼容数字用户名）；两个都在时按顺序试密码。
-  private async loginCandidates(name:string){
+  // 登录框接受用户名或手机号（含 +86）。一次登录只认一个账号：像手机号的输入，有人绑了这个手机号就是他，
+  // 没人绑才按用户名找（兼容老的数字用户名）。不再「手机号主人、同名用户名各试一遍密码」。
+  private async loginUser(name:string):Promise<UserRecord|null>{
     const phone=normalizePhone(name)
-    const byPhone=phone?await this.store.findUserByPhone(phone):null
-    const byName=await this.store.findUser(normalizeUsername(name))
-    return [byPhone,byName].filter((u,i,a):u is UserRecord=>!!u&&a.findIndex(x=>x?.id===u.id)===i)
+    return (phone?await this.store.findUserByPhone(phone):null)??await this.store.findUser(normalizeUsername(name))
   }
+  // 锁定期间不验密码（否则锁定挡不住撞库），但照样花一次哈希的时间：响应快慢不泄露「账号存在且被锁」。
   private async findLoginUser(name:string,password:string){
-    const candidates=await this.loginCandidates(name)
-    if(!candidates.length){await dummyVerify(password);return null}
-    for(const u of candidates){
-      const locked=u.lockedUntil&&new Date(u.lockedUntil).getTime()>Date.now()
-      if(u.passwordHash&&!locked&&await verify(u.passwordHash,password).catch(()=>false))return {user:u,valid:true}
-    }
-    return {user:candidates[0]!,valid:false}
+    const user=await this.loginUser(name)
+    if(!user){await dummyVerify(password);return null}
+    if(isLoginLocked(user.lockedUntil,new Date())){await dummyVerify(password);return {user,valid:false,locked:true}}
+    return {user,valid:!!user.passwordHash&&await verify(user.passwordHash,password).catch(()=>false),locked:false}
   }
+  // 账号不存在、密码错、账号被锁（哪怕这次密码是对的）对外是同一个回应：不同的回应能被拿来探「这个手机号注册没有」。
+  // 区别只进审计（denied / locked）。
   async login(input:LoginInput,ip=''){
     const found=await this.findLoginUser(input.username,input.password),user=found?.user??null
-    const lockedUntil=user?.lockedUntil?new Date(user.lockedUntil):null
-    if(user&&!found?.valid&&lockedUntil&&lockedUntil.getTime()>Date.now()){
-      const remainingMinutes=Math.max(1,Math.ceil((lockedUntil.getTime()-Date.now())/60000))
-      await this.store.audit(user.id,'auth.login','user',user.id,ip,'locked',{remainingMinutes,lockoutLevel:user.lockoutLevel})
-      throw new AppError('AUTH_LOCKED',`登录已锁定，请 ${remainingMinutes} 分钟后再试`,429)
+    if(user&&found?.locked){
+      await this.store.audit(user.id,'auth.login','user',user.id,ip,'locked',{lockoutLevel:user.lockoutLevel})
+      throw loginInvalid()
     }
     if(user&&!found?.valid&&!user.passwordHash){
       await this.store.audit(user.id,'auth.login','user',user.id,ip,'denied',{reason:'no_password'})
       throw new AppError('PASSWORD_NOT_SET','该账号是用 POWER云 登录创建的，还没有设置密码，请点「用 POWER云 账号登录」',401)
     }
-    const valid=found?.valid===true
-    if(!user||!valid){
+    if(!user||!found?.valid){
       const failure=user?await this.store.recordLoginFailure(user.id):null
-      const failureUntil=failure?.lockedUntil?new Date(failure.lockedUntil):null
-      if(user&&failureUntil&&failureUntil.getTime()>Date.now()){
-        const remainingMinutes=Math.max(1,Math.ceil((failureUntil.getTime()-Date.now())/60000))
-        await this.store.audit(user.id,'auth.login','user',user.id,ip,'locked',{remainingMinutes,lockoutLevel:failure.lockoutLevel})
-        throw new AppError('AUTH_LOCKED',`登录已锁定，请 ${remainingMinutes} 分钟后再试`,429)
-      }
-      await this.store.audit(user?.id??null,'auth.login','user',user?.id??'unknown',ip,'denied')
-      throw new AppError('AUTH_INVALID','Invalid username or password',401)
+      const nowLocked=isLoginLocked(failure?.lockedUntil,new Date())
+      await this.store.audit(user?.id??null,'auth.login','user',user?.id??'unknown',ip,nowLocked?'locked':'denied',nowLocked?{lockoutLevel:failure?.lockoutLevel}:{})
+      throw loginInvalid()
     }
     await this.store.recordLoginSuccess(user.id)
     if(user.status!=='active')throw new AppError('ACCOUNT_UNAVAILABLE','Account is unavailable',403)
