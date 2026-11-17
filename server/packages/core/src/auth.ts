@@ -254,7 +254,7 @@ export class AuthService{
     }
     await this.store.recordLoginSuccess(user.id)
     if(user.status!=='active')throw new AppError('ACCOUNT_UNAVAILABLE','Account is unavailable',403)
-    await this.dealers?.attribute(user.id,input.dealer)
+    await this.dealers?.attribute(user.id,input.dealer,{ip,deviceHash:hashFingerprint(input.device.hardwareHash??input.device.fingerprint)})
     return this.completeLogin(user,input.device,ip,'auth.login')
   }
   // 交付用：客户还没打开过客户端时，管理员按 POWER云 客户 id 先建好关联账号（之后客户用 POWER云 登录就是这个号），好先发会员。
@@ -286,7 +286,7 @@ export class AuthService{
     const channel=channelOfSources(identity.sources)
     if(await this.store.markUserChannel(userId,channel))await this.store.audit(userId,'auth.channel','user',userId,ip,'success',{channel})
     const r=await this.syncAigwMembership(userId,identity,ip)
-    await this.dealers?.attribute(userId,dealer)
+    await this.dealers?.attribute(userId,dealer,{ip})
     const user=await this.store.findUserById(userId)
     const license=user?licenseView(await this.effectiveOf(user)):null
     return {channel:user?.channel??'',contact:await this.contactOf(userId),aiPlanExpiresAt:r?.expiresAt?.toISOString()??null,license}
@@ -305,7 +305,7 @@ export class AuthService{
     if(await this.store.markUserChannel(user.id,channel)){user.channel=channel;await this.store.audit(user.id,'auth.channel','user',user.id,ip,'success',{channel})}
     // 会员跟 AI 套餐走：在发试用、签租约之前同步（有 AI 套餐就不浪费这台电脑的一次试用）
     await this.syncAigwMembership(user.id,identity,ip)
-    await this.dealers?.attribute(user.id,input.dealer)
+    await this.dealers?.attribute(user.id,input.dealer,{ip,deviceHash:hashFingerprint(input.device.hardwareHash??input.device.fingerprint)})
     if(user.status!=='active')throw new AppError('ACCOUNT_UNAVAILABLE','Account is unavailable',403)
     return this.completeLogin(user,input.device,ip,'auth.login.powervpn')
   }

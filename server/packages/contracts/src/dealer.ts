@@ -20,7 +20,9 @@ export const dealerListQuery = z.object({
   offset: z.coerce.number().int().min(0).default(0),
 })
 export const dealerPatchSchema = z.object({ commissionBps: z.number().int().min(0).max(10000) })
-export const dealerCommissionStatus = z.enum(['pending', 'settled', 'void'])
+/** 代理商本人的账号（用户名）：买家与这些账号同设备 / 同注册来源时，分成进待复核。空数组 = 清空。 */
+export const dealerOwnersSchema = z.object({ usernames: z.array(z.string().trim().min(1).max(64)).max(10) })
+export const dealerCommissionStatus = z.enum(['pending', 'review', 'settled', 'void'])
 const instant = z.string().datetime({ offset: true })
 export const dealerCommissionsQuery = z.object({
   dealer: dealerSlugSchema.optional(),
@@ -38,4 +40,11 @@ export const dealerSettleSchema = z.object({
 export type DealerListQuery = z.infer<typeof dealerListQuery>
 export type DealerCommissionsQuery = z.infer<typeof dealerCommissionsQuery>
 export type DealerSettleInput = z.infer<typeof dealerSettleSchema>
+/** 待复核的分成：approve = 复核通过（进待结算），void = 作废。 */
+export const dealerReviewSchema = z.object({
+  ids: z.array(z.coerce.number().int().positive()).min(1).max(500),
+  action: z.enum(['approve', 'void']),
+  note: z.string().trim().max(200).default(''),
+})
+export type DealerReviewInput = z.infer<typeof dealerReviewSchema>
 export type AigwDealer = z.infer<typeof aigwDealerSchema>

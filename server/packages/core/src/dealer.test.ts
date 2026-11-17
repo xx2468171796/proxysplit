@@ -1,7 +1,7 @@
 import http from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { describe, expect, it, vi } from 'vitest'
-import { DealerService, dealerCommissionCents, MAIN_SITE_WECHAT, nodeHttpGet, recordDealerCommissionInTx, voidDealerCommissionInTx, type DealerHttpGet } from './dealer.js'
+import { DealerService, dealerCommissionCents, MAIN_SITE_WECHAT, nodeHttpGet, voidDealerCommissionInTx, type DealerHttpGet } from './dealer.js'
 
 type Q={text:string;params:unknown[]}
 const fakeDb=(handler:(q:Q)=>{rows?:unknown[];rowCount?:number}|Error)=>{
@@ -12,7 +12,8 @@ const fakeDb=(handler:(q:Q)=>{rows?:unknown[];rowCount?:number}|Error)=>{
     if(r instanceof Error)throw r
     return {rows:r.rows??[],rowCount:r.rowCount??(r.rows?.length??0)}
   })}
-  return {db,calls}
+  // 归属要开事务：connect() 给回同一个假库
+  return {db:Object.assign(db,{connect:async()=>({query:db.query,release:()=>{}})}),calls}
 }
 const remote=(status:number,body:unknown):DealerHttpGet=>vi.fn(async()=>({status,body}))
 
@@ -96,24 +97,8 @@ describe('DealerService attribution and contact',()=>{
   })
 })
 
+// 入账与归属审计的测试在 dealer-ledger.test.ts
 describe('commission ledger in the payment transaction',()=>{
-  it('one row per order / split group (source unique), bps snapshot, inside a savepoint',async()=>{
-    const {db,calls}=fakeDb(()=>({}))
-    await recordDealerCommissionInTx(db,'order-1')
-    expect(calls.map(c=>c.text.split(/\s/)[0])).toEqual(['SAVEPOINT','INSERT','RELEASE'])
-    const sql=calls[1]?.text??''
-    expect(sql).toMatch(/coalesce\(o\.group_id::text,o\.id::text\)/)
-    expect(sql).toMatch(/ON CONFLICT \(source\) DO NOTHING/)
-    expect(sql).toMatch(/d\.commission_bps/)
-    expect(calls[1]?.params).toEqual(['order-1'])
-  })
-  it('a failing insert never blocks delivery',async()=>{
-    const {db,calls}=fakeDb(q=>q.text.startsWith('INSERT')?new Error('boom'):{})
-    const err=vi.spyOn(console,'error').mockImplementation(()=>{})
-    await expect(recordDealerCommissionInTx(db,'order-1')).resolves.toBeUndefined()
-    expect(calls.at(-1)?.text).toBe('ROLLBACK TO SAVEPOINT dealer_commission')
-    err.mockRestore()
-  })
   it('refund voids by the same source and never throws',async()=>{
     const ok=fakeDb(()=>({}))
     await voidDealerCommissionInTx(ok.db,'group-1','重复付款')

@@ -3,15 +3,16 @@ import type { Tone } from '@/lib/format'
 
 export type Dealer = {
   slug: string; brand: string; contact: string; enabled: boolean; commissionBps: number; fetchedAt: string | null
-  customers: number; grossCents: number; pendingCents: number; settledCents: number
+  customers: number; grossCents: number; pendingCents: number; reviewCents?: number; settledCents: number; ownerUsernames?: string[]
 }
 export type DealerCommission = {
   id: number; dealerSlug: string; userId: string; username: string; source: string; grossCents: number; bps: number
-  commissionCents: number; status: 'pending' | 'settled' | 'void'; createdAt: string; settledAt: string | null; note: string
+  commissionCents: number; status: 'pending' | 'review' | 'settled' | 'void'; createdAt: string; settledAt: string | null; note: string
 }
 
 export const DEALER_COMMISSION_STATUS: Record<string, Tone> = {
   pending: { label: '待结算', tone: 'warning' },
+  review: { label: '待复核', tone: 'danger' },
   settled: { label: '已结算', tone: 'success' },
   void: { label: '已作废', tone: 'neutral' },
 }
