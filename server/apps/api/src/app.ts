@@ -12,7 +12,8 @@ import { registerFenxiaoRoutes } from './fenxiao-routes.js'
 import { registerDealerRoutes } from './dealer-routes.js'
 import { registerNotifyRoutes } from './notify-routes.js'
 import { registerAccountRoutes } from './account-routes.js'
-import { registerTelemetryRoutes, type TelemetryDeps } from './telemetry-routes.js'
+import { DeviceLimiter, registerTelemetryRoutes, type TelemetryDeps } from './telemetry-routes.js'
+import { FLEET_LIMIT, REFRESH_PER_FAMILY_PER_MINUTE, rateLimited, refreshFamilyKey } from './rate-limits.js'
 import { IpByteBudget } from './telemetry-budget.js'
 import { registerClientNodesRoutes, type ClientNodesDeps } from './client-nodes-routes.js'
 import { registerPhoneRoutes } from './phone-routes.js'
@@ -111,14 +112,20 @@ export async function buildApp(config:ApiConfig,provided?:Core){
   app.post('/v1/auth/login',{config:{rateLimit:{max:30,timeWindow:'1 minute'}}},async(req)=>core.auth.login(loginSchema.parse(req.body),req.ip))
   // POWER云 账号登录：accessToken 只转给面板核实，不落日志
   app.post('/v1/auth/powervpn',{config:{rateLimit:{max:30,timeWindow:'1 minute'}}},async(req)=>core.auth.loginPowervpn(powervpnLoginSchema.parse(req.body),req.ip))
-  app.post('/v1/auth/powervpn/sync',{config:{rateLimit:{max:20,timeWindow:'1 minute'}}},async(req)=>{const p=await auth(req);const input=powervpnSyncSchema.parse(req.body);return core.auth.syncPowervpn(p.userId,input.accessToken,req.ip,input.dealer)})
-  app.post('/v1/auth/refresh',{config:{rateLimit:{max:10,timeWindow:'1 minute'}}},async(req)=>core.auth.rotate(refreshSchema.parse(req.body),req.ip))
+  app.post('/v1/auth/powervpn/sync',{config:{rateLimit:FLEET_LIMIT}},async(req)=>{const p=await auth(req);const input=powervpnSyncSchema.parse(req.body);return core.auth.syncPowervpn(p.userId,input.accessToken,req.ip,input.dealer)})
+  // 每个客户端每 60 秒刷新一次：按 IP 只设 FLEET_LIMIT（rate-limits.ts），滥用按会话 family 限。
+  const refreshPerFamily=new DeviceLimiter(REFRESH_PER_FAMILY_PER_MINUTE)
+  app.post('/v1/auth/refresh',{config:{rateLimit:FLEET_LIMIT}},async(req)=>{
+    const input=refreshSchema.parse(req.body),family=refreshFamilyKey(input.refreshToken)
+    if(family&&!refreshPerFamily.allow(family))throw rateLimited()
+    return core.auth.rotate(input,req.ip)
+  })
   app.post('/v1/me/device/activate',{config:{rateLimit:{max:10,timeWindow:'1 minute'}}},async(req)=>{const p=await auth(req,true);if(p.deviceId!=='pending')throw new AppError('DEVICE_ALREADY_ACTIVE','当前设备已激活',409);return core.auth.activateDevice(p.userId,activateDeviceSchema.parse(req.body).device,req.ip)})
   app.post('/v1/auth/logout',async(req)=>core.auth.logout(refreshSchema.parse(req.body),req.ip))
   // Claude Code 加速令牌（客户端编码端连落地机中继用）：设备已激活 + 账号正常 + 会员有效才发，24 小时有效。
   // 加速是会员功能：这里仍只认真实会员权益，免费档（effective）不发令牌。
   const accel=AccelTokens.fromPem(config.ACCEL_TOKEN_PRIVATE_KEY_PEM)
-  app.post('/v1/accel/token',{config:{rateLimit:{max:30,timeWindow:'1 minute'}}},async(req)=>{
+  app.post('/v1/accel/token',{config:{rateLimit:FLEET_LIMIT}},async(req)=>{
     const p=await auth(req)
     if(!accel.enabled)throw new AppError('ACCEL_UNAVAILABLE','加速服务未开放',503)
     const user=await core.store.findUserById(p.userId);if(!user||user.status!=='active')throw new AppError('ACCOUNT_UNAVAILABLE','Account is unavailable',403)
@@ -200,14 +207,14 @@ export async function buildApp(config:ApiConfig,provided?:Core){
   app.post('/v1/me/redeem',{config:{rateLimit:{max:10,timeWindow:'1 minute'}}},async(req)=>{const p=await auth(req,true);const input=redeemSchema.parse(req.body);const result=await core.store.redeemCode(p.userId,input.code);await core.store.audit(p.userId,'user.redeem','redeem-code',input.code.trim().toUpperCase(),req.ip,'success');return {...result,membership:await core.store.entitlement(p.userId)}})
   app.get('/v1/me/devices',async(req)=>{const p=await auth(req,true);return {items:await core.store.listUserDevices(p.userId)}})
   app.delete('/v1/me/devices/:id',async(req)=>{const p=await auth(req,true);const id=(req.params as {id:string}).id;const row=await core.store.unbindDevice(id,p.userId);if(!row)throw new AppError('NOT_FOUND','设备不存在',404);await core.store.audit(p.userId,'user.device.unbind','device',id,req.ip,'success');return {ok:true}})
-  app.get('/v1/me/orders',{config:{rateLimit:{max:30,timeWindow:'1 minute'}}},async(req)=>{const p=await auth(req);const items=await core.store.listUserOrders(p.userId);
+  app.get('/v1/me/orders',{config:{rateLimit:FLEET_LIMIT}},async(req)=>{const p=await auth(req);const items=await core.store.listUserOrders(p.userId);
     // 读时对账：支付窗口内的待支付订单主动向网关查单，弥补异步回调不可达的情况（best-effort，不阻断列表）。
     const now=Date.now();
     const pending=items.filter(o=>o.status==='pending'&&(!o.createdAt||now-new Date(o.createdAt).getTime()<86_400_000)).slice(0,5);
     if(!pending.length)return {items};
     await Promise.all(pending.map(o=>payments.syncOrder(o.orderNo).catch(err=>app.log.warn({err:err instanceof Error?err.message:'sync failed',orderNo:o.orderNo},'order sync failed'))));
     return {items:await core.store.listUserOrders(p.userId)}})
-  app.get('/v1/me/orders/:orderNo',{config:{rateLimit:{max:30,timeWindow:'1 minute'}}},async(req)=>{
+  app.get('/v1/me/orders/:orderNo',{config:{rateLimit:FLEET_LIMIT}},async(req)=>{
     const p=await auth(req),orderNo=(req.params as {orderNo:string}).orderNo
     let row=await core.store.getOrderForUser(orderNo,p.userId)
     if(!row)throw new AppError('NOT_FOUND','订单不存在',404)
