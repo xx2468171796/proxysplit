@@ -10,7 +10,14 @@ import { applyBootstrap, data, loadBootstrap, refreshClashMode, reloadData } fro
 import { refreshExit, refreshLink } from "../state/link";
 import { maybeShowMemberIntro } from "../state/prompts";
 import { refreshCustomRules, refreshRuleSets } from "../state/routing";
-import { pushLog, refreshConns, refreshCoreVersion, refreshHealth, refreshStatus } from "../state/runtime";
+import {
+  pushLog,
+  receiveRunEvent,
+  refreshConns,
+  refreshCoreVersion,
+  refreshHealth,
+  refreshStatus,
+} from "../state/runtime";
 import { loadSystem, refreshAccel } from "../state/system";
 import {
   checkAppUpdate,
@@ -21,7 +28,7 @@ import {
 } from "../state/update";
 import { openSettings } from "./nav";
 
-type Say = (text: string | undefined) => void;
+type Say = (text: string | undefined, tone?: "success" | "error" | "info") => void;
 const BOOTSTRAP_EVENT = "proxysplit:bootstrap";
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -72,6 +79,8 @@ function subscribeEvents(say: Say): Array<() => void> {
       pushLog(line);
       if (line.startsWith("[core] 已安装内核") || line.includes("新内核启动失败")) void refreshCoreVersion();
     }),
+    // 代理自己变了状态（内核 / 接管自动重启、救不回来自己停了）：马上刷新并提示一句。
+    onBackendEvent<unknown>("run-event", (ev) => void receiveRunEvent(ev).then((r) => say(r.text, r.tone))),
     onBackendEvent<AppUpdateStatus>("app-update", receiveUpdateInfo),
     onBackendEvent<AppUpdateStatus>("app-update-auto", (v) => say(receiveAutoUpdate(v))),
     onBackendEvent<string>("app-update-failed", (m) => say(receiveAutoUpdateFailed(m))),

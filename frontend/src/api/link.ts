@@ -22,3 +22,8 @@ export const EMPTY_LINK: LinkStatus = LinkStatusSchema.parse({});
 export const linkApi = {
   status: async (): Promise<LinkStatus> => LinkStatusSchema.parse(await W.GetLinkStatus()),
 };
+
+/** Go 推送的 run-event：代理自己变了状态（内核 / 接管自动重启、救不回来自己停了），message 是给用户看的一句话。 */
+const RunEventSchema = z.object({ kind: z.string().default(""), message: z.string().default("") });
+export type RunEvent = z.infer<typeof RunEventSchema>;
+export const parseRunEvent = (raw: unknown): RunEvent => RunEventSchema.parse(raw ?? {});

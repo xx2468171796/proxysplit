@@ -89,6 +89,12 @@ export type Status = {
   ruleMode: string;
   uptimeSec: number;
   stats?: CoreStats;
+  /** Go 判断的运行阶段：recovering = 内核意外退出后自动重启中，restarting = 换配置中。 */
+  runState?: "stopped" | "running" | "restarting" | "recovering";
+  /** 代理自己停下来的原因（下次启动 / 停止前一直在）；用户点的停止没有。 */
+  stopReason?: string;
+  /** 「仅接管选中程序」：ok | restarting（卡住后正在自动重启接管）；其它情况为空。 */
+  captureState?: "" | "ok" | "restarting";
 };
 
 /** 订阅的高级选项（参照 v2rayN）：UA、节点名包含 / 排除（不区分大小写的正则）、自动更新间隔（分钟，0 = 每 6 小时）。 */

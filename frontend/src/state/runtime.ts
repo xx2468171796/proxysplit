@@ -1,5 +1,6 @@
 // 运行时状态：内核 / 分流引擎状态、上下行速率、分流健康、实时连接、日志。每秒轮询，不落盘。
 import { api } from "../api/backend";
+import { parseRunEvent } from "../api/link";
 import type { Conn, Health, Status } from "../api/types";
 import { stripAnsi } from "../shared/format";
 import { createStore } from "../shared/store";
@@ -33,7 +34,32 @@ export const runtime = createStore<RuntimeState>({
   coreVersion: "",
 });
 
-export const isRunning = (s: Status | null): boolean => !!s && (s.coreRunning || s.engineRunning);
+/** 代理“开着”：包括内核意外退出后正在自动恢复的那一段（这时点按钮 = 停止，而不是再启动一次）。 */
+export const isRunning = (s: Status | null): boolean => !!s && (s.coreRunning || s.engineRunning || isRecovering(s));
+
+/** 正在自己恢复：内核自动重启 / 换配置重启中，或「仅接管选中程序」卡住后正在重启接管。 */
+export const isRecovering = (s: Status | null): boolean =>
+  !!s && (s.runState === "recovering" || s.runState === "restarting" || s.captureState === "restarting");
+
+/** 代理自己停下来的原因；在运行 / 恢复中、或是用户自己点的停止时为空串。 */
+export const selfStopReason = (s: Status | null): string => (!s || isRunning(s) ? "" : (s.stopReason ?? ""));
+
+/** 主开关旁的一句状态（标题栏和概览共用）。 */
+export function runLabel(s: Status | null): "已停止" | "运行中" | "恢复中" | "重新连接中" {
+  if (s?.runState === "restarting") return "重新连接中"; // 换配置：用户自己触发的
+  if (isRecovering(s)) return "恢复中";
+  return isRunning(s) ? "运行中" : "已停止";
+}
+
+/** 恢复中给用户看的说明。 */
+export const RECOVERING_HINT = "连接中断，正在重新连接；这期间选中的程序不会改走直连";
+
+/** 收到 run-event：立刻刷新状态，返回要提示的一句话和语气（自己停了 = 出错，恢复好了 = 普通提示）。 */
+export async function receiveRunEvent(raw: unknown): Promise<{ text: string; tone: "error" | "info" }> {
+  const ev = parseRunEvent(raw);
+  await refreshStatus();
+  return { text: ev.message, tone: ev.kind.endsWith("failed") ? "error" : "info" };
+}
 
 // 速率由两次累计字节差算出；内核重启后计数归零，把回退当作新基线而不是负值。
 let prev = { down: 0, up: 0, t: 0 };

@@ -7,7 +7,15 @@ import { fmtRate, fmtUptime, latencyText } from "../shared/format";
 import { useStore } from "../shared/store";
 import { data, saveSettings, selectNode, setClashMode } from "../state/data";
 import { linkState } from "../state/link";
-import { isRunning, runtime, toggleRun } from "../state/runtime";
+import {
+  isRecovering,
+  isRunning,
+  RECOVERING_HINT,
+  runLabel,
+  runtime,
+  selfStopReason,
+  toggleRun,
+} from "../state/runtime";
 import { useFeedback } from "./use-feedback";
 
 const CLASH_OPTIONS: { value: ClashMode; label: string }[] = [
@@ -51,15 +59,24 @@ function LinkChip() {
   const down = fmtRate(useStore(runtime, (s) => s.downRate));
   const up = fmtRate(useStore(runtime, (s) => s.upRate));
   const running = isRunning(status);
+  const recovering = isRecovering(status);
+  const stopReason = selfStopReason(status);
   const ping = link.pingMs > 0 ? `${link.pingMs} ms` : link.pingMs < 0 ? "不通" : "—";
-  const tip = running
-    ? `已运行 ${fmtUptime(status?.uptimeSec ?? 0)} · ${link.conns} 个连接 · ↓${down.value}${down.unit} ↑${up.value}${up.unit}`
-    : "代理未运行";
+  const tip = recovering
+    ? RECOVERING_HINT
+    : running
+      ? `已运行 ${fmtUptime(status?.uptimeSec ?? 0)} · ${link.conns} 个连接 · ↓${down.value}${down.unit} ↑${up.value}${up.unit}`
+      : stopReason || "代理未运行";
+  const label = runLabel(status);
   return (
     <Tooltip content={tip}>
-      <span className="ps-link-chip" data-running={running} data-bad={link.pingMs < 0 || undefined}>
+      <span
+        className="ps-link-chip"
+        data-running={running}
+        data-bad={link.pingMs < 0 || recovering || !!stopReason || undefined}
+      >
         <i aria-hidden="true" />
-        {running ? `运行中 · ${ping}` : "已停止"}
+        {label === "运行中" ? `运行中 · ${ping}` : stopReason ? "已自动停止" : label}
       </span>
     </Tooltip>
   );

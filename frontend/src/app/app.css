@@ -249,6 +249,12 @@ body,
   box-shadow: 0 0 0 6px var(--q-soft);
 }
 
+/* 恢复中（内核 / 接管正在自动重启）：开关换成警示色，免得看起来一切正常 */
+.ps-hero[data-recovering="true"] .ps-power {
+  background: var(--aui-warning);
+  border-color: var(--aui-warning);
+}
+
 .ps-hero-state {
   display: flex;
   flex-direction: column;

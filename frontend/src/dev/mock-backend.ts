@@ -5,7 +5,7 @@ import { createAIMock } from "./mock-ai";
 import { createAppMonMock } from "./mock-appmon";
 import { mockFenxiao } from "./mock-fenxiao";
 import { mockInbox } from "./mock-inbox";
-import { mockLink } from "./mock-link";
+import { mockLink, mockRunPhase } from "./mock-link";
 import { mockSetNodeCore } from "./mock-node-core";
 import { mockCheckout, mockOpenOrders } from "./mock-orders";
 import { createPortsMock } from "./mock-ports";
@@ -159,6 +159,7 @@ const status = () => {
     ruleMode: "whitelist",
     uptimeSec: Math.floor((Date.now() - startedAt) / 1000) + 3720,
     stats: { running: true, activeConns: 24, totalConns: 310, tracked: 40, upBytes: bytes / 6, downBytes: bytes },
+    ...mockRunPhase(params.get("run")),
   };
 };
 const license = {

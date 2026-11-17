@@ -1,13 +1,24 @@
 // 概览顶部的连接面板：大开关（点一下启动 / 停止服务）、当前节点与延迟、已运行时长、实时上下行速率、分流方式的白话说明。
 import { Button, StatusBadge } from "@ankotti/admin-ui";
 import { ArrowDown, ArrowUp, Power, RefreshCw } from "lucide-react";
-import type { ClashMode, RuleMode } from "../../api/types";
+import type { ClashMode, RuleMode, Status } from "../../api/types";
 import { navigate } from "../../app/nav";
 import { useFeedback } from "../../app/use-feedback";
 import { fmtRate, fmtUptime, latencyGrade, latencyText } from "../../shared/format";
 import { useStore } from "../../shared/store";
 import { data, reloadData } from "../../state/data";
-import { isRunning, refreshHealth, refreshStatus, restartCore, runtime, toggleRun } from "../../state/runtime";
+import {
+  isRecovering,
+  isRunning,
+  RECOVERING_HINT,
+  refreshHealth,
+  refreshStatus,
+  restartCore,
+  runLabel,
+  runtime,
+  selfStopReason,
+  toggleRun,
+} from "../../state/runtime";
 import { useCountUp } from "./count-up";
 
 const GRADE_TONE = ["danger", "warning", "warning", "success", "success"] as const;
@@ -60,6 +71,22 @@ function NodeLine() {
   );
 }
 
+/** 大开关旁的两行字：状态 + 一句说明。 */
+function stateText(status: Status | null, busy: boolean): { title: string; detail: string } {
+  const running = isRunning(status);
+  if (isRecovering(status)) {
+    return { title: runLabel(status), detail: `${RECOVERING_HINT}（点左边的按钮可以直接停止）` };
+  }
+  if (running) {
+    const detail = `已运行 ${fmtUptime(status?.uptimeSec ?? 0)} · ${status?.stats?.activeConns ?? 0} 个连接`;
+    return { title: busy ? "正在停止…" : "运行中", detail };
+  }
+  if (busy) return { title: "正在启动…", detail: "点左边的按钮开始代理" };
+  return selfStopReason(status)
+    ? { title: "已自动停止", detail: "代理自己停下来了，原因见页面顶部；处理后点左边的按钮重新开始" }
+    : { title: "已停止", detail: "点左边的按钮开始代理" };
+}
+
 export function ConnectHero() {
   const { say } = useFeedback();
   const status = useStore(runtime, (s) => s.status);
@@ -70,14 +97,21 @@ export function ConnectHero() {
   const clash = useStore(data, (s) => s.clashMode);
   const rule = useStore(data, (s) => s.ruleMode);
   const running = isRunning(status);
-  const conns = status?.stats?.activeConns ?? 0;
+  const recovering = isRecovering(status);
+  const stopReason = selfStopReason(status);
+  const text = stateText(status, busy);
   const refresh = async () => {
     await Promise.all([reloadData(), refreshStatus(), refreshHealth()]);
     say("状态已刷新", "info");
   };
 
   return (
-    <section className="qd-pane ps-hero" data-running={running} aria-label="连接状态">
+    <section
+      className="qd-pane ps-hero"
+      data-running={running}
+      data-recovering={recovering || undefined}
+      aria-label="连接状态"
+    >
       <div className="ps-hero-main">
         <Button
           variant="outline"
@@ -90,10 +124,8 @@ export function ConnectHero() {
           <Power aria-hidden="true" />
         </Button>
         <div className="ps-hero-state">
-          <b>{busy ? (running ? "正在停止…" : "正在启动…") : running ? "运行中" : "已停止"}</b>
-          <span>
-            {running ? `已运行 ${fmtUptime(status?.uptimeSec ?? 0)} · ${conns} 个连接` : "点左边的按钮开始代理"}
-          </span>
+          <b>{text.title}</b>
+          <span role={recovering || stopReason ? "status" : undefined}>{text.detail}</span>
           <span className="ps-hero-mode">{modeText(tun, clash, rule)}</span>
         </div>
       </div>
