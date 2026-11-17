@@ -2,45 +2,24 @@ package main
 
 import (
 	"encoding/json"
-	"net/http"
-	"net/http/httptest"
 	"strings"
 	"testing"
-
-	"proxysplit/internal/powervpn"
-	"proxysplit/internal/service"
 )
 
 // TestDiagAPIRemoteControl drives the remote-control endpoints over real HTTP:
 // partial settings update, node import, account state, custom rules.
 func TestDiagAPIRemoteControl(t *testing.T) {
-	dir := t.TempDir()
-	svc, err := service.New(t.TempDir(), dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	a := &App{svc: svc, ready: make(chan struct{}), pv: powervpn.New(dir, appVersion)}
-	close(a.ready)
-	mux := http.NewServeMux()
-	for _, route := range a.diagRoutes() {
-		mux.HandleFunc(route.path, route.serve)
-	}
-	srv := httptest.NewServer(mux)
-	defer srv.Close()
+	f := newControlFixture(t)
+	svc := f.app.svc
 
 	call := func(method, path, body string, out any) {
 		t.Helper()
-		req, _ := http.NewRequest(method, srv.URL+path, strings.NewReader(body))
-		resp, err := http.DefaultClient.Do(req)
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer resp.Body.Close()
-		if resp.StatusCode != 200 {
-			t.Fatalf("%s %s: status %d", method, path, resp.StatusCode)
+		status, answer := f.do(t, controlCall{method: method, path: path, body: body})
+		if status != 200 {
+			t.Fatalf("%s %s: status %d", method, path, status)
 		}
 		if out != nil {
-			if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
+			if err := json.Unmarshal([]byte(answer), out); err != nil {
 				t.Fatal(err)
 			}
 		}

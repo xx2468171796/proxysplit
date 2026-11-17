@@ -42,21 +42,23 @@ func (a *App) GetAIControlInfo() AIControlInfo {
 	}
 }
 
+// RegenerateAIControlToken replaces the control-API token: the old one stops
+// working at once (anything that copied the prompt must be given the new one;
+// the --mcp bridge reads the new token by itself).
+func (a *App) RegenerateAIControlToken() AIControlInfo {
+	if a.svc != nil {
+		a.svc.RegenerateAPIToken()
+	}
+	return a.GetAIControlInfo()
+}
+
 // controlRoute is one path of the control API: get is its read-only handler,
-// post its mutating one; nil = the path does not offer that method. Handlers
-// call the shared operations in apiops.go.
+// post its mutating one; nil = the path does not offer that method (the guard
+// in apiauth.go answers 405). Handlers call the shared operations in apiops.go.
 type controlRoute struct {
 	path string
 	get  http.HandlerFunc
 	post http.HandlerFunc
-}
-
-func (rt controlRoute) serve(w http.ResponseWriter, r *http.Request) {
-	if rt.post == nil || (r.Method == http.MethodGet && rt.get != nil) {
-		rt.get(w, r)
-		return
-	}
-	rt.post(w, r)
 }
 
 func writeJSON(w http.ResponseWriter, code int, v any) {
@@ -175,25 +177,7 @@ func (a *App) startAPIServer() {
 	if a.svc == nil {
 		return
 	}
-	token := a.svc.APIToken()
-	mux := http.NewServeMux()
-	auth := func(h http.HandlerFunc) http.HandlerFunc {
-		return func(w http.ResponseWriter, r *http.Request) {
-			t := strings.TrimSpace(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "))
-			if t == "" {
-				t = r.URL.Query().Get("token")
-			}
-			if t == "" || t != token {
-				writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized (bad or missing token)"})
-				return
-			}
-			h(w, r)
-		}
-	}
-	for _, route := range a.controlRoutes() {
-		mux.HandleFunc(route.path, auth(route.serve))
-	}
-
+	a.svc.APIToken() // create the token on first run, before the first request
 	ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", apiPort))
 	if err != nil {
 		a.svc.LogLine(fmt.Sprintf("[api] 控制 API 未能监听 127.0.0.1:%d: %v", apiPort, err))
@@ -201,7 +185,8 @@ func (a *App) startAPIServer() {
 	}
 	a.apiUp = true
 	a.svc.LogLine(fmt.Sprintf("[api] AI 控制 API 已就绪: http://127.0.0.1:%d", apiPort))
-	go func() { _ = http.Serve(ln, mux) }()
+	srv := newControlServer(a.controlHandler())
+	go func() { _ = srv.Serve(ln) }()
 }
 
 // mcpTools is the tool catalog advertised over MCP.
@@ -325,7 +310,7 @@ func aiPrompt(url, token string) string {
 
 用途：把我指定的程序设置为走代理 / 直连 / 全局，并启动或停止代理。所有请求用 curl 即可。
 
-可用接口（都要带上面的鉴权头）：
+可用接口（都要带上面的鉴权头；token 只能放请求头，不能放在网址里。GET 只读；凡是改动都用 POST，并且必须带 Content-Type: application/json，没有参数时 body 传 {}）：
 1) 查看状态：GET %s/api/status
 2) 列出节点：GET %s/api/nodes
 3) 选择节点：POST %s/api/node/select  body {"id":"<节点id>"}
@@ -343,7 +328,7 @@ func aiPrompt(url, token string) string {
 
 示例（让 Chrome 走智能分流并启动）：
 curl -s -H "Authorization: Bearer %s" -H "Content-Type: application/json" -d "{\"match\":\"chrome.exe\",\"line\":\"rule\"}" %s/api/apps
-curl -s -H "Authorization: Bearer %s" -X POST %s/api/start
+curl -s -H "Authorization: Bearer %s" -H "Content-Type: application/json" -d "{}" %s/api/start
 
 当我说「让某某程序走代理」时，你就用接口 5 把它加进去(默认 line=rule)，需要时先 /api/start。操作完调用 /api/status 汇报结果。`,
 		url, token, url, url, url, url, url, url, url, url, url, url, url, url, url, token, url, token, url)

@@ -66,7 +66,7 @@ func (a *App) diagRoutes() []controlRoute {
 				ID   string `json:"id"`
 				Core string `json:"core"`
 			}
-			if r.Method != http.MethodPost || json.NewDecoder(r.Body).Decode(&b) != nil || b.ID == "" {
+			if json.NewDecoder(r.Body).Decode(&b) != nil || b.ID == "" {
 				writeJSON(w, 400, map[string]string{"error": "POST {\"id\":\"<节点 id>\",\"core\":\"auto|sing-box|xray\"}"})
 				return
 			}
@@ -78,7 +78,7 @@ func (a *App) diagRoutes() []controlRoute {
 				ID  string `json:"id"`
 				Via string `json:"via"`
 			}
-			if r.Method != http.MethodPost || json.NewDecoder(r.Body).Decode(&b) != nil || b.ID == "" {
+			if json.NewDecoder(r.Body).Decode(&b) != nil || b.ID == "" {
 				writeJSON(w, 400, map[string]string{"error": "POST {\"id\":\"<节点 id>\",\"via\":\"<前置节点 id，空 = 关闭>\"}"})
 				return
 			}
@@ -167,7 +167,7 @@ func (a *App) diagRoutes() []controlRoute {
 					Items   []string `json:"items"`
 					Confirm string   `json:"confirm"`
 				}
-				if r.Method != http.MethodPost || json.NewDecoder(r.Body).Decode(&b) != nil || len(b.Items) == 0 {
+				if json.NewDecoder(r.Body).Decode(&b) != nil || len(b.Items) == 0 {
 					writeJSON(w, 400, map[string]string{"error": "POST {\"items\":[\"<id>\",...],\"confirm\":\"恢复出厂时填 确认重置\"}"})
 					return
 				}
@@ -175,10 +175,6 @@ func (a *App) diagRoutes() []controlRoute {
 			}},
 		// POST /api/reset/undo — 撤销上次配置重置（恢复最近一份重置前备份）。
 		{path: "/api/reset/undo", post: func(w http.ResponseWriter, r *http.Request) {
-			if r.Method != http.MethodPost {
-				writeJSON(w, 405, map[string]string{"error": "POST only"})
-				return
-			}
 			writeJSON(w, 200, okOr(a.UndoReset()))
 		}},
 	}

@@ -34,6 +34,20 @@ func (s *Service) altConfigPath() string {
 	return filepath.Join(filepath.Dir(exe), "proxysplit-data.json")
 }
 
+// newAPIToken is a fresh random token for the local control API.
+func newAPIToken() string { return genSecret() + genSecret() }
+
+// RegenerateAPIToken replaces the stored control-API token and returns the new
+// one; the old token stops working with the next request. Factory reset must
+// rotate it too (resetFactory: store newAPIToken() instead of the old token).
+func (s *Service) RegenerateAPIToken() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.cfg.APIToken = newAPIToken()
+	s.save()
+	return s.cfg.APIToken
+}
+
 // isCoreConfig reports whether data is a sing-box config (which has outbounds /
 // inbounds) rather than the app config — a guard against ever loading a file the
 // core clobbered into place.
