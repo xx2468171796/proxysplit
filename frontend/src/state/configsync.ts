@@ -3,6 +3,7 @@ import { onBackendEvent } from "../api/backend";
 import { syncApi } from "../api/sync";
 import type { ConfigPreview, ConfigProfile, ConfigSection, ImportPreview, SyncStatus } from "../api/types-account";
 import { createStore } from "../shared/store";
+import { accountEpoch, onAccountReset } from "./account";
 import { reloadData } from "./data";
 
 /** 预览从哪来：决定确认框的标题和说明 */
@@ -44,6 +45,12 @@ export async function loadSyncStatus(): Promise<void> {
   }
 }
 
+// 云端配置列表、待确认的导入属于登录账号：换账号就清空，同步状态向 Go 重读。
+onAccountReset(() => {
+  configSync.set({ profiles: [], quota: 0, used: 0, profilesError: "", profilesLoading: false, pending: null });
+  void loadSyncStatus();
+});
+
 let lastVersion = -1;
 /** Go 推送的同步状态；云端拉下来新配置（版本变了）时重读界面数据。 */
 export function watchSyncEvents(): () => void {
@@ -56,7 +63,9 @@ export function watchSyncEvents(): () => void {
 
 export async function loadProfiles(): Promise<void> {
   configSync.set({ profilesLoading: true });
+  const at = accountEpoch();
   const r = await syncApi.profiles();
+  if (at !== accountEpoch()) return;
   configSync.set({
     profilesLoading: false,
     profiles: r.items,

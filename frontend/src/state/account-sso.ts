@@ -1,9 +1,8 @@
 // 会改动节点 / 订阅的账号流程：POWER云 浏览器授权、AI 编程官网免登录下载、退出账号。
 // 它们同时动账号和用户数据两个 store，所以单独放这里，account.ts 不依赖 data.ts。
 import { api } from "../api/backend";
-import { license, loadCommerce, refreshLicense } from "./account";
+import { license, loadCommerce, refreshLicense, resetAccountScopedState } from "./account";
 import { refreshNodes, refreshSubs, reloadData } from "./data";
-import { closePayment } from "./payment";
 import { promptAfterSignIn } from "./prompts";
 import { refreshStatus } from "./runtime";
 
@@ -47,11 +46,10 @@ export async function awaitAutoLogin(): Promise<{ err?: string; notice?: string 
 export async function logoutAccount(): Promise<string> {
   const err = await api.logout();
   if (err) return `退出失败：${err}`;
+  resetAccountScopedState();
   await api.logoutPowerVPN();
   await refreshSubs();
   await refreshNodes();
-  closePayment();
-  license.set({ membershipOpen: false });
   await refreshLicense();
   await refreshStatus();
   await loadCommerce();

@@ -3,7 +3,7 @@ import { api } from "../api/backend";
 import { syncApi } from "../api/sync";
 import type { AccountDevice, Announcement, LicenseStatus, MemberOrder, MemberPlan } from "../api/types";
 import { createStore } from "../shared/store";
-import { promptAfterSignIn } from "./prompts";
+import { promptAfterSignIn, resetPrompts } from "./prompts";
 
 export type AccountState = {
   status: LicenseStatus;
@@ -71,15 +71,58 @@ export const isPaidMember = (s: LicenseStatus): boolean =>
   s.authenticated &&
   (s.member ?? (s.planCode !== "" && s.planCode !== "trial" && s.planCode !== "free"));
 
+// ---- 账号范围的状态：换了登录账号（退出、换人登录、被服务端踢下线）就全部清空 ----
+// 这台电脑可能几个人轮着用：上一个人的邀请链接、余额、订单、报错一样都不能让下一个人看到。
+// 各 store 用 onAccountReset 登记自己怎么清；异步请求在 await 之后用 accountEpoch() 比对，换过账号就丢弃结果。
+const accountResetters = new Set<() => void>();
+let epoch = 0;
+
+/** 登记「换账号时清空自己」的做法（模块加载时调一次）。 */
+export function onAccountReset(reset: () => void): void {
+  accountResetters.add(reset);
+}
+
+/** 每换一次账号加一。请求发出前记下，回来后不一样就说明结果属于上一个账号。 */
+export const accountEpoch = (): number => epoch;
+
+const ACCOUNT_SCOPED_EMPTY = {
+  devices: [],
+  orders: [],
+  announcements: [],
+  error: "",
+  deviceLoadError: "",
+  membershipOpen: false,
+  membershipPrompted: false,
+  redeemOpen: false,
+} satisfies Partial<AccountState>;
+
+/** 清空所有只属于某个账号的界面状态。登录账号一变就调（setLicenseStatus 自动调，退出成功后也直接调）。 */
+export function resetAccountScopedState(): void {
+  epoch += 1;
+  recoveredOrder = "";
+  license.set(ACCOUNT_SCOPED_EMPTY);
+  resetPrompts();
+  for (const reset of accountResetters) reset();
+}
+
+const accountOf = (s: LicenseStatus): string => (s.signedIn ? s.username : "");
+
+/** 登录状态只从这里写入：发现换了账号，先清空上一个账号的状态。 */
+export function setLicenseStatus(status: LicenseStatus): void {
+  const before = accountOf(license.get().status);
+  license.set({ status });
+  if (before !== "" && before !== accountOf(status)) resetAccountScopedState();
+}
+
 export async function refreshLicense(): Promise<void> {
   try {
-    license.set({ status: await api.license() });
+    setLicenseStatus(await api.license());
   } catch {
     /* 启动中 */
   }
 }
 
-// 支付可能在关掉付款框、甚至关掉软件后才完成：从最新的已付订单恢复一次权益。
+// 支付可能在关掉付款框、甚至关掉软件后才完成：从最新的已付订单恢复一次权益（按账号各记各的，换账号时清掉）。
 let recoveredOrder = "";
 
 async function recoverPaidOrder(orders: MemberOrder[]): Promise<void> {
@@ -96,7 +139,9 @@ async function recoverPaidOrder(orders: MemberOrder[]): Promise<void> {
 }
 
 async function loadAccountLists(): Promise<void> {
+  const at = epoch;
   const [devices, orders] = await Promise.all([api.devices(), api.orders()]);
+  if (at !== epoch) return;
   if (devices.err) {
     license.set({
       devices: [],
@@ -114,12 +159,14 @@ async function loadAccountLists(): Promise<void> {
 export async function loadCommerce(): Promise<void> {
   if (!license.get().status.enabled) return;
   license.set({ loading: true, planLoadError: "" });
+  const at = epoch;
   try {
     const plans = await api.plans();
     if (plans.err) license.set({ plans: [], planLoadError: `套餐读取失败：${plans.err}` });
     else if (!plans.items.length) license.set({ plans: [], planLoadError: "后台暂未返回可购买套餐，请刷新后重试。" });
     else license.set({ plans: plans.items });
     const ann = await api.announcements();
+    if (at !== epoch) return;
     if (!ann.err) license.set({ announcements: ann.items });
     if (!license.get().status.signedIn) {
       license.set({ devices: [], orders: [], deviceLoadError: "" });

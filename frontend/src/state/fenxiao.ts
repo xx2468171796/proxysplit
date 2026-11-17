@@ -1,6 +1,7 @@
 // 推广赚钱（多级分销）：我的邀请链接、收益、团队、佣金、提现。数据都来自服务端 /v1/fenxiao/*（别人的用户名服务端已打码）。
 import { api } from "../api/backend";
 import { createStore } from "../shared/store";
+import { accountEpoch, onAccountReset } from "./account";
 
 export type FenxiaoMe = {
   enabled: boolean;
@@ -56,7 +57,7 @@ type State = {
   withdrawals: Page<FxWithdrawalRow>;
 };
 const EMPTY = { items: [], total: 0 };
-export const fenxiao = createStore<State>({
+const INITIAL: State = {
   open: false,
   loading: false,
   error: "",
@@ -64,7 +65,10 @@ export const fenxiao = createStore<State>({
   team: EMPTY,
   commissions: EMPTY,
   withdrawals: EMPTY,
-});
+};
+export const fenxiao = createStore<State>(INITIAL);
+// 邀请链接、余额、提现收款人都是个人数据：换账号就关掉弹框并清空。
+onAccountReset(() => fenxiao.set(INITIAL));
 
 async function read<T>(kind: "me" | "team" | "commissions" | "withdrawals"): Promise<T> {
   const r = await api.fenxiao(kind);
@@ -74,6 +78,7 @@ async function read<T>(kind: "me" | "team" | "commissions" | "withdrawals"): Pro
 
 export async function loadFenxiao(): Promise<void> {
   fenxiao.set({ loading: true, error: "" });
+  const at = accountEpoch();
   try {
     const [me, team, commissions, withdrawals] = await Promise.all([
       read<FenxiaoMe>("me"),
@@ -81,11 +86,11 @@ export async function loadFenxiao(): Promise<void> {
       read<Page<FxCommissionRow>>("commissions"),
       read<Page<FxWithdrawalRow>>("withdrawals"),
     ]);
-    fenxiao.set({ me, team, commissions, withdrawals });
+    if (at === accountEpoch()) fenxiao.set({ me, team, commissions, withdrawals });
   } catch (e) {
-    fenxiao.set({ error: e instanceof Error ? e.message : String(e) });
+    if (at === accountEpoch()) fenxiao.set({ error: e instanceof Error ? e.message : String(e) });
   } finally {
-    fenxiao.set({ loading: false });
+    if (at === accountEpoch()) fenxiao.set({ loading: false });
   }
 }
 

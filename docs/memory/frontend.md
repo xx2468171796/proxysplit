@@ -42,3 +42,8 @@ Wails 构建会重新生成 frontend/wailsjs 绑定，需随提交带上；正�
 - 首屏 JS gzip：225.2 → 237.6 KB（+12.4），CSS 64.3 → 67.9 KB；WebGL 背景是懒加载分块。
 - 预览参数（dev/preview-params.ts）：`?page=<页面 id>`、`?look=1` 打开外观面板、`?donate=0` 赞赏码倒计时结束自动关。评审包：`VITE_MOCK=1 vite build -c vite.review.config.ts --outDir <构建目录>` 再 `node scripts/review-pages.mjs <构建目录> <输出目录>`，每个画面一个单文件页（页面审阅台用无 allow-same-origin 的沙箱 iframe，分开的 JS 模块会跨域失败、整页空白；地址参数改由页面写进 `__PS_QUERY`，见 dev/search.ts）。正式构建不设 VITE_MOCK。
 - 假后端没有「停止」：概览的停止态在预览里看不到。
+
+## 账号范围的状态（2026-11-18 审计）
+- 登录状态只经 `state/account.ts` 的 `setLicenseStatus` 写入；登录账号一变（退出 / 换人登录 / 被踢下线）自动调 `resetAccountScopedState()`。
+- 新加只属于某个账号的 store（余额、订单、个人列表…）：模块里 `onAccountReset(() => store.set(初始值))` 登记清空；异步读取在 await 后用 `accountEpoch()` 比对，换过账号就丢弃结果。
+- 本机「看过了」一类标记按账号存（如 `member-intro-seen:<用户名>`），不用全机共用的 key。

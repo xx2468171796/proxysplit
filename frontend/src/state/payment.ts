@@ -3,7 +3,7 @@
 import { api } from "../api/backend";
 import type { MemberOrder, MemberPlan } from "../api/types";
 import { createStore } from "../shared/store";
-import { license, loadCommerce, refreshLicense } from "./account";
+import { license, loadCommerce, onAccountReset, refreshLicense } from "./account";
 import { placeVerifiedOrder } from "./pay-verify";
 
 export type PaymentState = {
@@ -52,6 +52,8 @@ export function closePayment(): void {
   stopPolling();
   payment.set({ order: null, qr: "", split: [], splitIdx: 0 });
 }
+
+onAccountReset(closePayment);
 
 export async function buyPlan(plan: MemberPlan): Promise<void> {
   payment.set({ busy: true });

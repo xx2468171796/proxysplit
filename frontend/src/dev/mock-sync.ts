@@ -7,7 +7,8 @@ type Fn = (...args: unknown[]) => unknown;
 
 const params = new URLSearchParams(previewSearch());
 const free = params.get("tier") === "free";
-if (params.get("intro") === "1") localStorage.removeItem("member-intro-seen");
+if (params.get("intro") === "1")
+  for (const k of Object.keys(localStorage)) if (k.startsWith("member-intro-seen")) localStorage.removeItem(k);
 // 预览里没有真登录：?phone=0 直接弹绑定框。
 if (params.get("phone") === "0") void import("../state/prompts").then((m) => m.prompts.set({ bindPhoneOpen: true }));
 
