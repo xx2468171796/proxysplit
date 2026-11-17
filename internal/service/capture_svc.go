@@ -124,6 +124,25 @@ func (s *Service) startCapture(opts core.Options) error {
 	return s.startCaptureRoutes(core.ProcessRoutes(opts))
 }
 
+// attachCapture gives the freshly started core its capture engine: a new one,
+// or the one a restart kept (held) — that one gets the new routes and is
+// released. A kept engine the new core does not use (now on the TUN) is closed.
+func (s *Service) attachCapture(opts core.Options) error {
+	s.mu.Lock()
+	eng := s.capEng
+	s.mu.Unlock()
+	if eng == nil {
+		return s.startCapture(opts)
+	}
+	if opts.Process == nil {
+		s.stopCapture()
+		return nil
+	}
+	s.updateCaptureRoutes(opts)
+	eng.SetHold(false)
+	return nil
+}
+
 // openCaptureEngine is the real engine start (tests replace s.capStart).
 func openCaptureEngine(opts capture.Options, routes *capture.Routes) (captureEngine, error) {
 	eng, err := capture.Start(opts, routes)

@@ -24,7 +24,8 @@ type Status struct {
 	Stats         Stats  `json:"stats"`
 	// CaptureNote: 仅接管选中程序 could not load its driver, so the TUN is in use.
 	CaptureNote string `json:"captureNote,omitempty"`
-	// RunState is the service's own view (runhealth.go): stopped | running.
+	// RunState is the service's own view (runhealth.go): stopped | running |
+	// recovering (the core died by itself and is being restarted).
 	RunState string `json:"runState"`
 	// StopReason: why the proxy stopped by itself (until the next start / stop).
 	StopReason string `json:"stopReason,omitempty"`
@@ -291,17 +292,28 @@ func (s *Service) Stop() {
 	s.stopLocked()
 }
 
-// stopLocked stops the core; caller holds lifecycleMu.
+// stopLocked stops the proxy for good (capture engine and core) and calls off
+// any automatic recovery; caller holds lifecycleMu.
 func (s *Service) stopLocked() {
+	s.mu.Lock()
+	s.health.phase, s.health.stopReason = RunStopped, ""
+	s.health.endRecoveryLocked()
+	s.mu.Unlock()
+	s.stopCapture() // before the core: captured apps must not hit dead inbounds
+	s.stopCoreLocked()
+}
+
+// stopCoreLocked stops the core and clears the run state but leaves the
+// capture engine alone (a restart keeps it, holding the selected programs);
+// caller holds lifecycleMu.
+func (s *Service) stopCoreLocked() {
 	s.mu.Lock()
 	s.startedAt = time.Time{}
 	s.activeFP = nil
 	s.run = nil
 	s.trafficStats = Stats{}
-	s.health.phase, s.health.stopReason = RunStopped, ""
 	clearSysProxy := s.sysProxyOn
 	s.mu.Unlock()
-	s.stopCapture() // before the core: captured apps must not hit dead inbounds
 	s.stopWarm()
 	s.core.Stop()
 	s.flushAIDNSOnStop()

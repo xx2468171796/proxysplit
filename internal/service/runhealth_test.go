@@ -3,8 +3,11 @@ package service
 import (
 	"errors"
 	"path/filepath"
+	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"proxysplit/internal/capture"
 	"proxysplit/internal/core"
@@ -21,6 +24,11 @@ type fakeEngine struct {
 func (f *fakeEngine) SetRoutes(r *capture.Routes) {
 	f.mu.Lock()
 	f.routes = append(f.routes, r)
+	f.mu.Unlock()
+}
+func (f *fakeEngine) SetHold(on bool) {
+	f.mu.Lock()
+	f.hold = append(f.hold, on)
 	f.mu.Unlock()
 }
 func (f *fakeEngine) ProgramFor(uint16) string { return "" }
@@ -152,5 +160,146 @@ func TestEngineUpNeedsCaptureEngine(t *testing.T) {
 		if got := engineUp(c.core, c.process, c.engine); got != c.want {
 			t.Fatalf("engineUp(%v,%v,%v) = %v", c.core, c.process, c.engine, got)
 		}
+	}
+}
+
+// waitEvent blocks until the harness has seen an event of kind (the recovery
+// runs in its own goroutine).
+func waitEvent(t *testing.T, ch <-chan RunEvent, kind string) {
+	t.Helper()
+	for {
+		select {
+		case ev := <-ch:
+			if ev.Kind == kind {
+				return
+			}
+		case <-time.After(10 * time.Second):
+			t.Fatalf("no %s event", kind)
+		}
+	}
+}
+
+// recoveryHarness is a "running" service whose core restart is faked.
+func recoveryHarness(t *testing.T, restart func(s *Service) error) (*captureHarness, <-chan RunEvent, *atomic.Int32) {
+	t.Helper()
+	h := newCaptureHarness(t)
+	h.startProcessRun(t)
+	events := make(chan RunEvent, 16)
+	h.s.SetRunEventSink(func(ev RunEvent) { events <- ev })
+	attempts := &atomic.Int32{}
+	h.s.mu.Lock()
+	h.s.startedAt = time.Now()
+	h.s.health.backoff = []time.Duration{0, 0, 0}
+	h.s.health.restartCore = func() error {
+		attempts.Add(1)
+		return restart(h.s)
+	}
+	h.s.mu.Unlock()
+	return h, events, attempts
+}
+
+// markRestarted is what a successful launch records.
+func markRestarted(s *Service) error {
+	s.mu.Lock()
+	s.startedAt = time.Now()
+	s.health.phase, s.health.recoverCancel = RunRunning, nil
+	s.mu.Unlock()
+	return nil
+}
+
+// A core that exits by itself is restarted; meanwhile the capture engine holds
+// the selected programs instead of being closed (closed = they go direct).
+func TestCoreExitHoldsCaptureAndRestarts(t *testing.T) {
+	h, events, attempts := recoveryHarness(t, markRestarted)
+	h.s.onCoreExit()
+	waitEvent(t, events, EventCoreRestarted)
+
+	eng := h.engines[0]
+	eng.mu.Lock()
+	defer eng.mu.Unlock()
+	if eng.stopped || len(eng.hold) == 0 || !eng.hold[0] {
+		t.Fatalf("engine must be held, not stopped: stopped=%v hold=%v", eng.stopped, eng.hold)
+	}
+	if attempts.Load() != 1 {
+		t.Fatalf("restart attempts = %d", attempts.Load())
+	}
+}
+
+// When every restart fails the proxy ends up stopped with the reason, and the
+// held programs are released (stopped means direct, as after 停止).
+func TestCoreExitGivesUpAfterBudget(t *testing.T) {
+	h, events, attempts := recoveryHarness(t, func(*Service) error { return errors.New("wintun busy") })
+	h.s.onCoreExit()
+	waitEvent(t, events, EventCoreFailed)
+
+	st := h.s.Status()
+	if attempts.Load() != 3 || st.RunState != RunStopped || !strings.Contains(st.StopReason, "wintun busy") {
+		t.Fatalf("attempts=%d status=%+v", attempts.Load(), st)
+	}
+	h.engines[0].mu.Lock()
+	stopped := h.engines[0].stopped
+	h.engines[0].mu.Unlock()
+	if !stopped {
+		t.Fatal("giving up must close the capture engine")
+	}
+}
+
+// A core that keeps dying right after each restart shares one budget instead
+// of restarting forever.
+func TestCoreCrashLoopSharesBudget(t *testing.T) {
+	h, events, attempts := recoveryHarness(t, markRestarted)
+	for range 3 {
+		h.s.onCoreExit()
+		waitEvent(t, events, EventCoreRestarted)
+	}
+	h.s.onCoreExit()
+	waitEvent(t, events, EventCoreFailed)
+	if attempts.Load() != 3 {
+		t.Fatalf("restart attempts = %d, want 3", attempts.Load())
+	}
+}
+
+// 停止 during the backoff calls the recovery off; a core that dies while it is
+// still starting (not up yet) never starts one.
+func TestRecoveryOnlyWhileWanted(t *testing.T) {
+	h, _, attempts := recoveryHarness(t, markRestarted)
+	h.s.mu.Lock()
+	h.s.health.backoff = []time.Duration{time.Hour}
+	h.s.mu.Unlock()
+	h.s.onCoreExit()
+	if st := h.s.Status(); st.RunState != RunRecovering {
+		t.Fatalf("state = %s", st.RunState)
+	}
+	h.s.mu.Lock()
+	cancel := h.s.health.recoverCancel
+	h.s.mu.Unlock()
+	h.s.Stop()
+	select {
+	case <-cancel:
+	default:
+		t.Fatal("停止 must call the recovery off")
+	}
+	h.s.onCoreExit() // stopped: an exit now is nobody's crash
+	if st := h.s.Status(); st.RunState != RunStopped || attempts.Load() != 0 {
+		t.Fatalf("state=%s attempts=%d", st.RunState, attempts.Load())
+	}
+}
+
+// A restart keeps the held engine: it gets the new routes and is released; a
+// core that came back on the TUN closes it.
+func TestAttachCaptureReleasesKeptEngine(t *testing.T) {
+	h := newCaptureHarness(t)
+	h.startProcessRun(t)
+	opts := core.Options{Split: true, SplitWhitelist: true, Process: &core.ProcessCapture{Ports: map[string]int{}}}
+	if err := h.s.attachCapture(opts); err != nil {
+		t.Fatal(err)
+	}
+	eng := h.engines[0]
+	if len(h.engines) != 1 || len(eng.routes) != 1 || len(eng.hold) != 1 || eng.hold[0] {
+		t.Fatalf("kept engine must get routes and be released: engines=%d routes=%d hold=%v", len(h.engines), len(eng.routes), eng.hold)
+	}
+	opts.Process = nil
+	if err := h.s.attachCapture(opts); err != nil || !eng.stopped {
+		t.Fatalf("a TUN core must close the kept engine (err=%v stopped=%v)", err, eng.stopped)
 	}
 }

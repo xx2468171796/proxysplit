@@ -129,11 +129,14 @@ func (s *Service) planStart(reuse *planReuse) (*startPlan, error) {
 }
 
 // launch starts the core (and the capture engine) for p and records the run.
-// Caller holds lifecycleMu and has checked that the core is stopped.
+// Caller holds lifecycleMu and has checked that the core is stopped. On error
+// the core is stopped; a capture engine kept from before (held) is left to
+// the caller, one opened here is closed.
 func (s *Service) launch(p *startPlan) error {
 	s.mu.Lock()
 	s.clashSecret, s.clashPort = p.clashSecret, p.clashPort
 	s.trafficStats = Stats{}
+	kept := s.capEng != nil
 	s.mu.Unlock()
 	label := "core(TUN)"
 	if p.split {
@@ -142,7 +145,7 @@ func (s *Service) launch(p *startPlan) error {
 	if err := s.core.StartTUN(p.node, p.level, p.route, nil, p.opts); err != nil {
 		return s.withSecurityHint(fmt.Errorf("%s: %w", label, err))
 	}
-	if err := s.startCapture(p.opts); err != nil {
+	if err := s.attachCapture(p.opts); err != nil {
 		// The driver will not open (security software, a clashing WinDivert,
 		// no kernel resources): never fail the start, run this one on the TUN.
 		_ = s.core.Stop()
@@ -158,6 +161,17 @@ func (s *Service) launch(p *startPlan) error {
 	}
 
 	s.mu.Lock()
+	if !s.core.Running() {
+		// It died between coming up and being recorded: onCoreExit saw "not up
+		// yet" and left it to us. (Checked under s.mu: an exit after this point
+		// finds the phase below and is recovered.)
+		s.mu.Unlock()
+		s.stopCoreLocked()
+		if !kept {
+			s.stopCapture()
+		}
+		return fmt.Errorf("%s: 内核启动后立刻退出了，请查看日志", label)
+	}
 	s.startedAt = time.Now()
 	s.activeFP = nil
 	s.run = nil
@@ -167,6 +181,7 @@ func (s *Service) launch(p *startPlan) error {
 	s.accelOut = p.opts.AccelOutbound
 	s.noteAIGuardStartedLocked(&p.opts)
 	s.health.phase, s.health.stopReason = RunRunning, ""
+	s.health.recoverCancel = nil // a recovery that was waiting sees the phase and ends
 	s.mu.Unlock()
 
 	s.applySystemProxyOnStart()

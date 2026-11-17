@@ -108,6 +108,8 @@ func (e *Engine) decideSYN(pkt []byte, a *divert.Address, v Verdict) {
 			back.SetOutbound(false)
 			_ = e.sender.Send(rst, &back)
 		}
+	case e.held.Load():
+		// core down: dropped, the app's SYN retry is relayed once the core is back
 	default:
 		ifIdx, sub := a.IfIdx()
 		e.ct.put(sport, Flow{LocalIP: divert.SrcIP(pkt), DstIP: divert.DstIP(pkt), DstPort: divert.DstPort(pkt),
@@ -176,8 +178,8 @@ func (e *Engine) decideUDP(h *divert.Handle, pkt []byte, a *divert.Address, ent 
 	switch {
 	case !captured:
 		_ = h.Send(pkt, a)
-	case ent.inbound < 0 || divert.IsIPv6(pkt):
-		// dropped: 拦截, or IPv6 from a captured program
+	case ent.inbound < 0 || divert.IsIPv6(pkt) || e.held.Load():
+		// dropped: 拦截, IPv6 from a captured program, or the core is down
 	default:
 		ifIdx, sub := a.IfIdx()
 		if err := e.udp.send(pkt, ent.inbound, ifIdx, sub); err != nil {

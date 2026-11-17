@@ -39,6 +39,7 @@ type Engine struct {
 	wd      *watchdog
 	pending chan heldPkt
 	onFail  func(string)
+	held    atomic.Bool // core down: selected programs are refused, not relayed
 	stop    chan struct{}
 	wg      sync.WaitGroup
 	once    sync.Once
@@ -118,6 +119,16 @@ func (e *Engine) open() error {
 // SetRoutes swaps the app lists live (no core restart). New connections follow
 // the new lists; flows already relayed keep their inbound until they close.
 func (e *Engine) SetRoutes(r *Routes) { e.routes.Store(r) }
+
+// SetHold switches the engine between relaying and holding. While held (the
+// core is down or restarting) selected programs stay captured but their new
+// connections and datagrams are dropped instead of relayed to dead inbounds —
+// they never fall back to a direct connection. Everything else is untouched.
+func (e *Engine) SetHold(on bool) {
+	if e.held.Swap(on) != on && e.udp != nil {
+		e.udp.closeAll() // SOCKS associations died with the core: make new ones after it
+	}
+}
 
 // Flows reports the number of relayed TCP flows (diagnostics).
 func (e *Engine) Flows() int { return e.ct.count() }

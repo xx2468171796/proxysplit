@@ -90,21 +90,31 @@ func (s *Service) applySystemProxyOnStart() {
 	s.log(fmt.Sprintf("[sysproxy] re-applied -> 127.0.0.1:%d", port))
 }
 
-// onCoreExit is invoked from the core manager when sing-box exits for ANY reason.
-// If it died while the system proxy still pointed at its port (e.g. a crash that
-// skipped Stop), clear the OS proxy so the user's HTTP isn't black-holed. The
-// intent (sysProxyWant) is kept so a manual restart re-applies it.
+// onCoreExit is invoked from the core manager when sing-box exits without
+// being stopped (a crash, a kill, or dying while it starts). If the proxy was
+// up, the user still wants it: the capture engine keeps the selected programs
+// held (never direct) and recoverCore restarts the core. If it died while the
+// system proxy still pointed at its port, the OS proxy is cleared so the
+// user's HTTP isn't black-holed; the intent (sysProxyWant) is kept, so the
+// restart re-applies it.
 func (s *Service) onCoreExit() {
 	s.flushAIDNSOnStop() // core gone: no cached AI address may outlive the tunnel
-	s.stopCapture()      // 仅接管选中程序: captured apps must not keep hitting dead inbounds
+	cancel := s.beginRecovery()
 	s.mu.Lock()
 	on := s.sysProxyOn
+	eng := s.capEng
 	s.mu.Unlock()
-	if !on {
-		return
+	if cancel != nil && eng != nil {
+		eng.SetHold(true) // 仅接管选中程序: refuse, don't relay to dead inbounds, don't go direct
 	}
-	if err := s.clearOSProxy(); err == nil {
-		s.log("[sysproxy] 内核退出,已清理系统代理(避免流量黑洞)")
+	if on {
+		if err := s.clearOSProxy(); err == nil {
+			s.log("[sysproxy] 内核退出,已清理系统代理(避免流量黑洞)")
+		}
+	}
+	if cancel != nil {
+		s.emitRun(EventCoreRestarting, "内核意外退出，正在自动重启（期间选中的程序暂时断网，不会直连）")
+		go s.recoverCore(cancel)
 	}
 }
 
