@@ -10,6 +10,7 @@
 - sz 配置同时改：验证中心 sites.json 新增站点 proxysplit（yunpian-main + 备用 tencent-main，同号每天 5 条，屏蔽 170/171/162/165/167，AI 测试通行码 = 资产 850，站点密钥 = 资产 851）；proxysplit-hv-bridge.conf 加 172.20.0.1:18977 → 127.0.0.1:8977；runtime.env 加 LCV_SITE_ID / LCV_HOST / LCV_URL / LCV_SITE_SECRET（备份 runtime.env.bak-20261117-lcv）。回退到本地云片直发 = 删这 4 行并重建 api 容器。
 - 验收：启动日志 `sms mode: center`；/health 200；不带凭证 → CLIENT_UPGRADE_REQUIRED，带 Origin 不带凭证 → PAGE_REFRESH_REQUIRED，伪造凭证 → CAPTCHA_REQUIRED；AI 通行码换的真凭证发找回码（未注册号，不真发短信）→ 200，同一凭证再用 → 403；付款验证旧接口对伪造凭证仍回 ok:false；飞牛 latest = 1.12.5 强制，versioned / latest / ai-latest 整包 SHA256 一致。中继页在 localhost:34115（Wails 允许的来源）跨站嵌入实测：ready 消息带 nonce + action=sms 回到父页，滑块正常显示。
 - 未做：真手机收到中心发出的验证码并注册成功（没有测试手机号，上线后看中心统计）；真实 WebView2 / WKWebView 里真人拖滑块（办公室电脑上业主的客户端在运行，单实例锁挡住第二个实例）；macOS 仍 1.12.2，中心模式下发码会提示升级。
+- macOS 版（2026-11-17 23:58 补发，强制）：在 xuan-macbook-air 构建（~/ankotti-build/ps-1125，源码 = tag v1.12.5 + Windows 编好的 frontend/dist；Xray 26.10.29 darwin 用 scripts/build-xray-darwin.sh 现编，sha 2d4bfa91… 与 xray-release.json 一致；mac-studio 离线）。ProxySplit-v1.12.5-macos-arm64.zip SHA256 692ac8ab5196d5150158cbef3eafda83b7c78f20db75f055ca20bb86fffc3091（ad-hoc 签名），放 downloads 并替换 proxysplit-macos-latest.zip（旧的在该版 incoming/previous/），releases 插 platform='macos' 行。验收：configsync / license / updater 测试通过；飞牛 latest?platform=macos = 1.12.5 强制，两个下载地址 SHA256 一致。未做：Mac 真机启动、WKWebView 里拖滑块与微信码显示（1.12.3 起的付款 / 滑块改动在 Mac 上都是第一次发）。
 
 ## v1.12.4（2026-11-17 15:35，全站发布，强制；只发 Windows）
 - 内容：付款前人机验证（中心每单强制滑块）：客户端 /pay-verify.html 中继 + 服务端兑换 hvToken；官网带 pay-verify.html。

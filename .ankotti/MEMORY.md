@@ -2,13 +2,13 @@
 > 最后更新：2026-11-17。细节按下方路由表读 docs/memory/，逐版发布史在 docs/decisions.md（按标题取）。
 
 ## 当前状态
-- 线上：**v1.12.5 stable（强制，min 1.9.51；只发 Windows，macOS 仍 1.12.2）**，2026-11-17 全站发布：current = releases/20261117-185156-34e7a3b-v1.12.5（同日上一版 20261117-153032-9d7d6a3-v1.12.4）。Mac 构建见 docs/memory/macos.md。
+- 线上：**v1.12.5 stable（强制，min 1.9.51；Windows + macOS，Mac 版同日 23:58 补发、未真机实测）**，2026-11-17 全站发布：current = releases/20261117-185156-34e7a3b-v1.12.5（同日上一版 20261117-153032-9d7d6a3-v1.12.4）。Mac 构建见 docs/memory/macos.md。
 - 前端已用 @ankotti/admin-ui 重写（React 19 + Vite 8 + TS 7 + pnpm 12.9.1，替换旧单文件 Svelte），随 v1.9.75 上线（已并入 main）；门禁 `pnpm --dir frontend check`，预览 `pnpm --dir frontend dev`。
 - 技术栈：Go + Wails + React 前端，sing-box 原生 TUN + process_name；服务端 Fastify + 深圳共享 PG（堡垒机数据源 sz-pg-proxysplit）。
 - **下一步**：公司统一服务接入第 2 期 zhanghao 账号（设计 docs/plan-2026-10-29-zhanghao.md），之后 huiyuan 跨站会员；日志详细化（net.conn_summary 连接成败汇总，业主 2026-10-28 要求，方便版本迭代排查）；有真实 IPv6 的电脑仍待实测（claude00002 是现成用户）；socks5 链式前置代理待业主决定；macOS 版：分支 feat/macos 已移植（Apple 芯片，构建机 xuan-macbook-air，见 docs/memory/macos.md），待 root 实测与随版本发布；不买 Apple 开发者账号（ad-hoc 签名）。发版前用正式下载包跑 alonehome2 自检，查别的会话未合并分支，测试机经 coord 轮流用。
 
-- **统一支付中心（2026-11-17 上线）**：站点 proxysplit（资产 847），通道章鱼哥微信 zyg1103wx，回调 /v1/pay/center/notify。中心强制每单人机验证：客户端经 /pay-verify.html 中继页取 hvToken，服务端兑换；api 容器连不到宿主 127.0.0.1:8976，靠 sz `/www/conf.d/proxysplit-hv-bridge.conf`（172.20.0.1:18976，已 include 进 /etc/openresty/nginx.conf）+ env PAY_HV_URL。伪造凭据已实测被拒。详见 account-membership.md「付款前人机验证」。待办：业主真机付一笔核对到账；macOS 版跟进（老 Mac 客户端显示不了 weixin:// 码）。
-- **短信验证码走雷池验证中心（2026-11-17 随 v1.12.5 上线，生产 = 中心模式）**：中心站点 proxysplit（密钥资产 851，AI 测试通行码资产 850），runtime.env 的 LCV_SITE_ID / LCV_HOST / LCV_SITE_SECRET / LCV_URL（桥接 172.20.0.1:18977，别删）四项齐 = 中心模式，删掉 = 回退本地云片直发；发码先过滑块（中继页 ?action=sms）。v1.12.4 及更早客户端、macOS 1.12.2 发码只会提示升级。待办：真手机注册一次、真实 WebView 里真人拖滑块。见 account-membership.md「短信验证码走雷池验证中心」。
+- **统一支付中心（2026-11-17 上线）**：站点 proxysplit（资产 847），通道章鱼哥微信 zyg1103wx，回调 /v1/pay/center/notify。中心强制每单人机验证：客户端经 /pay-verify.html 中继页取 hvToken，服务端兑换；api 容器连不到宿主 127.0.0.1:8976，靠 sz `/www/conf.d/proxysplit-hv-bridge.conf`（172.20.0.1:18976，已 include 进 /etc/openresty/nginx.conf）+ env PAY_HV_URL。伪造凭据已实测被拒。详见 account-membership.md「付款前人机验证」。待办：业主真机付一笔核对到账；Mac 版 1.12.5 已带微信码与滑块，待真机验证。
+- **短信验证码走雷池验证中心（2026-11-17 随 v1.12.5 上线，生产 = 中心模式）**：中心站点 proxysplit（密钥资产 851，AI 测试通行码资产 850），runtime.env 的 LCV_SITE_ID / LCV_HOST / LCV_SITE_SECRET / LCV_URL（桥接 172.20.0.1:18977，别删）四项齐 = 中心模式，删掉 = 回退本地云片直发；发码先过滑块（中继页 ?action=sms）。v1.12.4 及更早客户端发码只会提示升级。待办：真手机注册一次、真实 WebView 里真人拖滑块。见 account-membership.md「短信验证码走雷池验证中心」。
 - **代理站与分成（2026-11-17 上线）**：wen 30%（迁移 0023 预置），后台「代理商分成」，aigw v0.36.2 已出下载入口，见 docs/中转站渠道.md「代理站」。
 
 ## 红线（不得做）
