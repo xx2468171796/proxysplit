@@ -46,6 +46,8 @@ export type Withdrawal = {
   id: string; username: string; amountCents: number; feeCents: number; netCents: number
   status: 'pending' | 'paid' | 'rejected'; payee: { method: string; account: string; name: string }
   adminNote: string | null; createdAt: string; reviewedAt: string | null
+  /** 申请人现在的净欠款（分）：退款冲回后可提现余额为负的部分；> 0 时不能标已打款 */
+  debtCents?: number
 }
 
 export const LEVEL_NAMES = ['一级', '二级', '三级', '四级', '五级', '六级', '七级', '八级', '九级', '十级']

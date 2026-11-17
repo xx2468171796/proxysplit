@@ -24,9 +24,8 @@ export function registerFenxiaoRoutes(app:FastifyInstance,d:Deps){
   app.get('/v1/fenxiao/commissions',async(req)=>{const p=await d.auth(req);return s.myCommissions(p.userId,fenxiaoTeamQuery.parse(req.query))})
   app.get('/v1/fenxiao/withdrawals',async(req)=>{const p=await d.auth(req);return s.myWithdrawals(p.userId,fenxiaoTeamQuery.parse(req.query))})
   app.post('/v1/fenxiao/withdrawals',{config:{rateLimit:{max:5,timeWindow:'1 minute'}}},async(req)=>{
-    const p=await d.auth(req);const row=await s.withdraw(p.userId,fenxiaoWithdrawSchema.parse(req.body))
-    await store.audit(p.userId,'fenxiao.withdraw.request','fx-withdrawal',row.id,req.ip,'success',{amountCents:row.amountCents})
-    return row
+    // 审计行由 FenxiaoService 在记账的同一事务里写（下面的调账 / 佣金复核 / 提现审核同理）
+    const p=await d.auth(req);return s.withdraw(p.userId,fenxiaoWithdrawSchema.parse(req.body),req.ip)
   })
   // ---- 后台 ----
   app.get('/v1/admin/fenxiao/policy',async(req)=>{await d.admin(req);return s.getPolicy()})
@@ -58,21 +57,15 @@ export function registerFenxiaoRoutes(app:FastifyInstance,d:Deps){
   app.get('/v1/admin/fenxiao/commissions',async(req)=>{await d.admin(req);return s.listCommissions(fenxiaoCommissionsQuery.parse(req.query))})
   app.post('/v1/admin/fenxiao/commissions/:cid/review',async(req)=>{
     const p=await d.admin(req);const cid=(req.params as {cid:string}).cid;const input=fenxiaoCommissionReviewSchema.parse(req.body)
-    const row=await s.reviewCommission(cid,input.action,p.userId,input.note)
-    await store.audit(p.userId,'admin.fenxiao.commission','fx-commission',cid,req.ip,'success',{action:input.action,amountCents:row.amountCents})
-    return row
+    return s.reviewCommission(cid,input.action,{actor:p.userId,ip:req.ip},input.note)
   })
   app.post('/v1/admin/fenxiao/adjustments',async(req)=>{
     const p=await d.admin(req);const input=fenxiaoAdjustSchema.parse(req.body)
-    const row=await s.adjust(input.username,input.amountCents,input.reason,p.userId)
-    await store.audit(p.userId,'admin.fenxiao.adjust','user',row.beneficiaryUserId,req.ip,'success',{amountCents:row.amountCents,reason:input.reason})
-    return row
+    return s.adjust(input.username,input.amountCents,input.reason,{actor:p.userId,ip:req.ip})
   })
   app.get('/v1/admin/fenxiao/withdrawals',async(req)=>{await d.admin(req);return s.listWithdrawals(fenxiaoWithdrawalsQuery.parse(req.query))})
   app.post('/v1/admin/fenxiao/withdrawals/:wid/review',async(req)=>{
     const p=await d.admin(req);const wid=(req.params as {wid:string}).wid;const input=fenxiaoReviewSchema.parse(req.body)
-    const row=await s.review(wid,input.action,p.userId,input.note)
-    await store.audit(p.userId,'admin.fenxiao.withdrawal','fx-withdrawal',wid,req.ip,'success',{action:input.action,amountCents:row.amountCents})
-    return row
+    return s.review(wid,input.action,{actor:p.userId,ip:req.ip},input.note)
   })
 }

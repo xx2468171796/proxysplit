@@ -91,6 +91,18 @@ describe('动钱操作的审计与业务同事务', () => {
     expect(paid.verbs()).toEqual(['BEGIN', 'ROLLBACK'])
   })
 
+  it('用户兑换码：发放与审计同事务；审计写不进去就不发放', async () => {
+    const code: Reply = [{ id: 'rc1', status: 'active', code_expires_at: null, max_uses: null, used_count: 0, plan_id: 'p1', duration_days: 30, lifetime: false }]
+    const replies: Array<[string, Reply]> = [['FROM redeem_codes WHERE code=$1 FOR UPDATE', code], ['INSERT INTO redeem_redemptions', [{ id: 'rr1' }]], ['FROM plans WHERE id=$1', [{ id: 'p1', tier: 'premium', duration_days: 30, lifetime: false }]], ['INSERT INTO licenses', [{ id: 'lic1' }]]]
+    const ok = fakePool(replies)
+    expect(await storeOn(ok).redeemCode('u1', ' ps-aaaa-bbbb-cccc ', '9.9.9.9')).toMatchObject({ ok: true })
+    expect(ok.verbs()).toEqual(['BEGIN', 'AUDIT', 'COMMIT'])
+    expect(ok.audit()?.params).toEqual(['u1', 'user.redeem', 'redeem-code', 'PS-AAAA-BBBB-CCCC', '9.9.9.9', 'success', { planId: 'p1', durationDays: 30, lifetime: false }])
+    const bad = fakePool(replies, { failAudit: true })
+    await expect(storeOn(bad).redeemCode('u1', 'PS-AAAA-BBBB-CCCC', '9.9.9.9')).rejects.toThrow('audit insert failed')
+    expect(bad.verbs()).toEqual(['BEGIN', 'AUDIT', 'ROLLBACK'])
+  })
+
   it('代理商：标记已结算 / 改分成比例与审计同事务', async () => {
     const settle = fakePool([['UPDATE dealer_commissions SET status', [{ id: 7, commissionCents: 3000, dealerSlug: 'wen' }, { id: 8, commissionCents: 1500, dealerSlug: 'wen' }]]])
     const r = await new DealerAdmin(settle.pool).settle([7, 8, 9], '转账单号 1', by)

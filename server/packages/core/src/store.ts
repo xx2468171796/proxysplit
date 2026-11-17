@@ -1305,7 +1305,8 @@ export class PgStore {
 
   // 客户端兑换：一码可被 max_uses 个不同账号兑换（null=不限）。同一账号对同一码
   // 只能兑换一次（redeem_redemptions 唯一约束保证幂等，杜绝旧版“重复兑换翻倍”）。
-  async redeemCode(userId:string,codeInput:string){
+  // 审计行（user.redeem）与发放同一事务：写不进审计就整体回滚（audit.ts）。
+  async redeemCode(userId:string,codeInput:string,ip:string){
     const code=codeInput.trim().toUpperCase()
     const client=await this.pool.connect()
     try{
@@ -1331,6 +1332,7 @@ export class PgStore {
       const nowUsedUp=maxUses!=null&&nextUsed>=maxUses
       await client.query(`UPDATE redeem_codes SET used_count=$2,status=$3,redeemed_by=$4,redeemed_at=now() WHERE id=$1`,
         [rc.id,nextUsed,nowUsedUp?'used':'active',userId])
+      await insertAudit(client,{actor:userId,action:'user.redeem',targetType:'redeem-code',targetId:code,ip,result:'success',metadata:{planId:rc.plan_id,durationDays:rc.duration_days,lifetime:!!rc.lifetime}})
       await client.query('COMMIT')
       return {ok:true,...grant}
     }catch(e){await client.query('ROLLBACK');throw e}finally{client.release()}

@@ -24,6 +24,11 @@ export function WithdrawalsTab({ onChanged }: { onChanged: () => void }) {
       <CellText primary={<MoneyDisplay value={minor(w.amountCents)} />}
         secondary={w.feeCents > 0 ? `实转 ${money(w.netCents)}（手续费 ${money(w.feeCents)}）` : undefined} />
     ) },
+    { key: 'debt', title: '欠款（元）', width: 130, numeric: true, render: (w) => (
+      (w.debtCents ?? 0) > 0
+        ? <CellText primary={<StatusBadge tone="danger">欠 {money(w.debtCents)}</StatusBadge>} secondary={w.status === 'pending' ? '退款冲回所致，先驳回' : undefined} />
+        : '—'
+    ) },
     { key: 'payee', title: '收款信息', maxWidth: 240, truncate: (w) => `${METHOD[w.payee.method] ?? w.payee.method} ${w.payee.account} ${w.payee.name}`,
       render: (w) => <CellText primary={`${METHOD[w.payee.method] ?? w.payee.method} · ${w.payee.name}`} secondary={w.payee.account} /> },
     { key: 'status', title: '状态', width: 170, render: (w) => {
@@ -33,7 +38,8 @@ export function WithdrawalsTab({ onChanged }: { onChanged: () => void }) {
     } },
     { key: 'actions', title: '操作', kind: 'actions', render: (w) => (
       <RowActionBar label={`${w.username}的提现操作`} actions={[
-        { key: 'paid', label: '已打款', icon: <Check />, disabled: w.status !== 'pending', disabledReason: '已经审过', onSelect: () => setReview({ row: w, action: 'paid' }) },
+        { key: 'paid', label: '已打款', icon: <Check />, disabled: w.status !== 'pending' || (w.debtCents ?? 0) > 0,
+          disabledReason: w.status !== 'pending' ? '已经审过' : `他还欠 ${money(w.debtCents)}（退款冲回），不能打款；请驳回，金额退回余额先抵欠款`, onSelect: () => setReview({ row: w, action: 'paid' }) },
         { key: 'reject', label: '驳回', icon: <X />, destructive: true, menuOnly: false, disabled: w.status !== 'pending', disabledReason: '已经审过', onSelect: () => setReview({ row: w, action: 'rejected' }) },
       ]} />
     ) },
@@ -44,7 +50,7 @@ export function WithdrawalsTab({ onChanged }: { onChanged: () => void }) {
   return (
     <>
       <ResourcePanel title="提现审核" {...list.panel} unit="笔"
-        description="先线下按「实转金额」打款到收款账户，再点「已打款」；驳回后金额退回他的可提现余额。"
+        description="先线下按「实转金额」打款到收款账户，再点「已打款」；驳回后金额退回他的可提现余额。申请之后发生退款冲回、余额变负的人显示欠款，不能打款。"
         filters={
           <QueryBar {...list.queryBar} placeholder="搜索用户名">
             <Choice label="状态" size="sm" clearable placeholder="全部状态" value={list.query.filters.status} onChange={(v) => list.setFilter('status', v)} options={options(WITHDRAWAL_STATUS)} />

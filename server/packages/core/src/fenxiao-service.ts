@@ -6,6 +6,7 @@ import { FENXIAO_POLICY_KEY, readFenxiaoPolicy, toFxPolicy } from './fenxiao.js'
 import { assertFxPolicy, FenxiaoError, type FxAccount, type FxCommission, type FxMember, type FxWithdrawal } from './vendor/fenxiao/index.js'
 import { HTTP_STATUS_BY_CODE } from './vendor/fenxiao/http/index.js'
 import type { PgStore } from './store.js'
+import { withAuditedTx, type AuditActor, type AuditEntry, type AuditTx } from './audit.js'
 
 const n = (v: bigint) => Number(v)
 export const maskName = (s: string) => (s.length <= 2 ? `${s.slice(0, 1)}*` : `${s.slice(0, 2)}***${s.length > 5 ? s.slice(-1) : ''}`)
@@ -101,8 +102,11 @@ export class FenxiaoService {
     const page = await this.f.listWithdrawals({ userId, limit: q.limit, offset: q.offset })
     return { ...page, items: page.items.map(withdrawalView) }
   }
-  async withdraw(userId: string, input: { amountCents: number; method: string; account: string; name: string }) {
-    const w = await fx(() => this.f.requestWithdrawal({ userId, amount: BigInt(input.amountCents), payee: { method: input.method, account: input.account, name: input.name } }))
+  async withdraw(userId: string, input: { amountCents: number; method: string; account: string; name: string }, ip: string) {
+    const w = await this.money({ actor: userId, ip }, async io => {
+      const row = await this.f.requestWithdrawal({ userId, amount: BigInt(input.amountCents), payee: { method: input.method, account: input.account, name: input.name }, ...io })
+      return { result: row, audit: { action: 'fenxiao.withdraw.request', targetType: 'fx-withdrawal', targetId: String(row.id), metadata: { amountCents: n(row.amount) } } }
+    })
     return withdrawalView(w)
   }
 
@@ -165,22 +169,66 @@ export class FenxiaoService {
       items: page.items.map(c => ({ ...commissionView(c), buyer: names.get(c.buyerUserId) ?? '(已删除)', beneficiary: names.get(c.beneficiaryUserId) ?? '(已删除)', orderNo: orderOf.get(c.sourceRef)?.order_no ?? null, planName: orderOf.get(c.sourceRef)?.plan_name ?? null })),
     }
   }
-  async reviewCommission(id: string, action: 'approve' | 'void', operatorId: string, note?: string) {
-    const c = await fx(() => this.f.reviewCommission({ id: recordId(id, '佣金记录'), action, operatorId, ...(note ? { note } : {}) }))
+  // 下面四个动钱的操作（佣金复核、调账、提现申请、提现审核）：包的记账与本站 audit_logs 同一个事务（money()）。
+  async reviewCommission(id: string, action: 'approve' | 'void', by: AuditActor, note?: string) {
+    const cid = recordId(id, '佣金记录')
+    const c = await this.money(by, async io => {
+      const row = await this.f.reviewCommission({ id: cid, action, operatorId: by.actor ?? '', ...(note ? { note } : {}), ...io })
+      return { result: row, audit: { action: 'admin.fenxiao.commission', targetType: 'fx-commission', targetId: cid, metadata: { action, amountCents: n(row.amount) } } }
+    })
     return commissionView(c)
   }
-  async adjust(username: string, amountCents: number, reason: string, operatorId: string) {
+  async adjust(username: string, amountCents: number, reason: string, by: AuditActor) {
     const userId = await this.userIdByName(username)
-    const c = await fx(() => this.f.adjust({ userId, amount: BigInt(amountCents), reason, operatorId }))
+    const c = await this.money(by, async io => {
+      const row = await this.f.adjust({ userId, amount: BigInt(amountCents), reason, operatorId: by.actor ?? '', ...io })
+      return { result: row, audit: { action: 'admin.fenxiao.adjust', targetType: 'user', targetId: userId, metadata: { amountCents: n(row.amount), reason } } }
+    })
     return commissionView(c)
   }
+  /** 每笔提现带上申请人现在的净欠款 debtCents（可提现余额为负的那部分；0 = 不欠）：退款冲回了他已申请提走的佣金时会出现。 */
   async listWithdrawals(q: FenxiaoWithdrawalsQuery) {
     const userId = q.q ? await this.userIdByName(q.q) : undefined
     const page = await this.f.listWithdrawals({ ...(userId ? { userId } : {}), ...(q.status ? { status: q.status } : {}), limit: q.limit, offset: q.offset })
-    const names = await this.names(page.items.map(w => w.userId))
-    return { ...page, items: page.items.map(w => ({ ...withdrawalView(w), username: names.get(w.userId) ?? '(已删除)' })) }
+    const ids = [...new Set(page.items.map(w => w.userId))]
+    const [names, balances] = await Promise.all([
+      this.names(ids),
+      ids.length ? this.store.pool.query(`SELECT user_id,available::text AS available FROM ${this.f.tables.accounts} WHERE user_id=ANY($1::text[])`, [ids]) : { rows: [] },
+    ])
+    const debtOf = new Map(balances.rows.map((x: { user_id: string; available: string }) => [x.user_id, debtCents(BigInt(x.available))]))
+    return { ...page, items: page.items.map(w => ({ ...withdrawalView(w), username: names.get(w.userId) ?? '(已删除)', debtCents: debtOf.get(w.userId) ?? 0 })) }
   }
-  async review(id: string, action: 'paid' | 'rejected', operatorId: string, note?: string) {
-    return withdrawalView(await fx(() => this.f.reviewWithdrawal({ id: recordId(id, '提现单'), action, operatorId, ...(note ? { note } : {}) })))
+  /**
+   * 提现审核。「已打款」前在同一事务里锁住提现单和申请人账户：他的可提现余额为负（申请之后发生了退款冲回）时拒绝——
+   * 这时打款等于把已经该还回来的钱付出去。正确做法是驳回（金额退回余额先抵欠款），结清后让他重新申请。
+   */
+  async review(id: string, action: 'paid' | 'rejected', by: AuditActor, note?: string) {
+    const wid = recordId(id, '提现单')
+    const w = await this.money(by, async io => {
+      if (action === 'paid') {
+        const t = this.f.tables
+        const owner = (await io.tx.query(`SELECT user_id FROM ${t.withdrawals} WHERE id=$1::bigint FOR UPDATE`, [wid])).rows[0] as { user_id: string } | undefined
+        const account = owner ? (await io.tx.query(`SELECT available::text AS available FROM ${t.accounts} WHERE user_id=$1 FOR UPDATE`, [owner.user_id])).rows[0] as { available: string } | undefined : undefined
+        const debt = debtCents(BigInt(account?.available ?? '0'))
+        if (debt > 0) throw new AppError('FX_BENEFICIARY_IN_DEBT', `这位推广人因退款冲回还欠 ¥${(debt / 100).toFixed(2)}，这笔提现不能打款。请驳回（金额退回他的余额先抵欠款），欠款结清后再让他重新申请`, 409, { debtCents: debt })
+      }
+      const row = await this.f.reviewWithdrawal({ id: wid, action, operatorId: by.actor ?? '', ...(note ? { note } : {}), ...io })
+      return { result: row, audit: { action: 'admin.fenxiao.withdrawal', targetType: 'fx-withdrawal', targetId: wid, metadata: { action, amountCents: n(row.amount) } } }
+    })
+    return withdrawalView(w)
+  }
+
+  /**
+   * 动钱的分销操作：包的记账（含它自己的 fx_audit）与本站 audit_logs 在同一个事务里（audit.ts withAuditedTx），
+   * 审计写不进去就整体回滚。包的通知 / 推送经 afterCommit 攒着，提交之后才发；发不出去只记日志。
+   */
+  private async money<T>(by: AuditActor, run: (io: { tx: AuditTx; afterCommit: (send: () => Promise<void>) => void }) => Promise<{ result: T; audit: AuditEntry }>): Promise<T> {
+    const after: Array<() => Promise<void>> = []
+    const out = await fx(() => withAuditedTx(this.store.pool, by, tx => run({ tx, afterCommit: send => { after.push(send) } })))
+    for (const send of after) await send().catch(e => console.error('[fenxiao] post-commit notice failed', { error: (e as Error).message }))
+    return out
   }
 }
+
+/** 净欠款（分）：可提现余额为负的那部分。 */
+const debtCents = (available: bigint) => (available < 0n ? Number(-available) : 0)
