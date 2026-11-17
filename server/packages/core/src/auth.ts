@@ -27,7 +27,9 @@ const userView=(user:UserRecord)=>({id:user.id,username:user.username,role:user.
 const phoneTaken=()=>new AppError('PHONE_TAKEN','该手机号已被其他账号使用',409)
 const identityTaken=()=>new AppError('IDENTITY_TAKEN','用户名或邮箱已被使用',409)
 /** 登录失败的唯一回应（账号不存在 / 密码错 / 被锁定都是它）；文案顺带提醒锁定，被锁的本人看得懂。 */
-const loginInvalid=()=>new AppError('AUTH_INVALID',`账号或密码错误；连续输错 ${LOGIN_LOCK.threshold} 次会暂时锁定登录，请稍后再试`,401)
+// 「没设密码」（POWER云 / AI 编程官网建的号）也是它：单独回一个码等于告诉没登录的人「这个号存在、是合作方建的」。
+// 所以合作方登录的提示放进这句统一文案里，谁输错都看得到，不泄露任何一个号的情况。
+const loginInvalid=()=>new AppError('AUTH_INVALID',`账号或密码错误；连续输错 ${LOGIN_LOCK.threshold} 次会暂时锁定登录，请稍后再试。用 POWER云 或 AI 编程官网账号注册的，请点对应的登录按钮`,401)
 /** 中心模式找回改密：核码的所有失败（没发过码 / 失效 / 繁忙 / 错码）对外同一句话，整步最短耗时（防枚举，同 V7） */
 const RESET_CODE_FAILED='验证码错误', RESET_MIN_MS=800
 // 没有匹配账号时也跑一次 argon2 校验，响应时间不泄露账号是否存在。
@@ -225,7 +227,9 @@ export class AuthService{
     const user=await this.loginUser(name)
     if(!user){await dummyVerify(password);return null}
     if(isLoginLocked(user.lockedUntil,new Date())){await dummyVerify(password);return {user,valid:false,locked:true}}
-    return {user,valid:!!user.passwordHash&&await verify(user.passwordHash,password).catch(()=>false),locked:false}
+    // 没设密码的号也花一次哈希时间：否则它比「密码错」回得快，照样能探出来。
+    if(!user.passwordHash){await dummyVerify(password);return {user,valid:false,locked:false}}
+    return {user,valid:await verify(user.passwordHash,password).catch(()=>false),locked:false}
   }
   // 账号不存在、密码错、账号被锁（哪怕这次密码是对的）对外是同一个回应：不同的回应能被拿来探「这个手机号注册没有」。
   // 区别只进审计（denied / locked）。
@@ -235,14 +239,11 @@ export class AuthService{
       await this.store.audit(user.id,'auth.login','user',user.id,ip,'locked',{lockoutLevel:user.lockoutLevel})
       throw loginInvalid()
     }
-    if(user&&!found?.valid&&!user.passwordHash){
-      await this.store.audit(user.id,'auth.login','user',user.id,ip,'denied',{reason:'no_password'})
-      throw new AppError('PASSWORD_NOT_SET','该账号是用 POWER云 登录创建的，还没有设置密码，请点「用 POWER云 账号登录」',401)
-    }
     if(!user||!found?.valid){
-      const failure=user?await this.store.recordLoginFailure(user.id):null
+      // 没设密码的号不累计失败次数（没有密码可撞，锁了也没意义），原因只进审计。
+      const failure=user?.passwordHash?await this.store.recordLoginFailure(user.id):null
       const nowLocked=isLoginLocked(failure?.lockedUntil,new Date())
-      await this.store.audit(user?.id??null,'auth.login','user',user?.id??'unknown',ip,nowLocked?'locked':'denied',nowLocked?{lockoutLevel:failure?.lockoutLevel}:{})
+      await this.store.audit(user?.id??null,'auth.login','user',user?.id??'unknown',ip,nowLocked?'locked':'denied',nowLocked?{lockoutLevel:failure?.lockoutLevel}:user&&!user.passwordHash?{reason:'no_password'}:{})
       throw loginInvalid()
     }
     await this.store.recordLoginSuccess(user.id)

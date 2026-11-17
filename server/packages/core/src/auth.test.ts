@@ -249,8 +249,13 @@ describe('commercial auth', () => {
     expect(store.identityCalls[0]).toEqual({ usernameBase: 'pv_abcdef12', email: 'bob@example.com' })
     await auth.loginPowervpn({ accessToken: 'panel-access-token-123', device })
     expect(store.identities.size).toBe(1)
-    // 无密码账号不能用密码登录，提示走 POWER云
-    await expect(auth.login({ username: 'pv_abcdef12', password: 'whatever-password', device })).rejects.toMatchObject({ code: 'PASSWORD_NOT_SET' })
+    // 无密码账号不能用密码登录；回应和「账号不存在」一模一样（原来单独回 PASSWORD_NOT_SET，等于告诉人这个号存在、是合作方建的），
+    // 文案顺带提示合作方登录按钮。
+    const answer = (username: string) => auth.login({ username, password: 'whatever-password', device }).then(() => null, (e: { code: string; status: number; message: string }) => ({ code: e.code, status: e.status, message: e.message }))
+    const ghost = await answer('ghost')
+    expect(ghost).toMatchObject({ code: 'AUTH_INVALID', status: 401 })
+    expect(ghost?.message).toContain('POWER云')
+    expect(await answer('pv_abcdef12')).toEqual(ghost)
     // 老面板不给 sources：不是中转站客户
     expect(first.user?.channel).toBe('')
     expect(store.channelMarks).toHaveLength(0)
