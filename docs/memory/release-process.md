@@ -5,6 +5,7 @@
 ## 只发客户端的标准流程
 只发客户端时不走 release-all.ps1，而是：本机构建 → transfer_link 传 sz `/opt/proxysplit/incoming/client-v<版本>-<commit>` → 该目录 `publish-client.py prepare` →（登记 releases）→ `promote`。
 - 登记 releases：经堡垒机 db_query 在 sz-pg-proxysplit 插 releases + audit_logs（audit_logs.ip 不能为空），字段照上一版抄。
+  - 2026-11-18 起后台接口 `POST /v1/admin/releases`（store `createRelease`）登记前会按客户端同样的规则验发布签名（`core/release-signature.ts`：消息 = `updater.SigningMessage`，公钥 = 内置的 `build/release-kit/release-public.pem`，测试逐字节对照；换钥过渡期用 env `RELEASE_PUBLIC_KEY_PEM` 放多把），验不过回 400 `RELEASE_SIGNATURE_INVALID`、不写库。**直接插库不过这道检查**——插完必须照下面「验收」核对签名，或改走接口登记。
 - 先装版本化文件再原子替换 latest；旧 latest 存该目录 `previous/`。
 - 验收：公网 latest API = 新版本且签名与 manifest 一致；用国内机（飞牛）下载版本化 / latest / ai-latest 三个地址整包 sha 一致（tw-bbr3 ↔ 深圳大文件会中途截断，重下即可）；internal/updater 以上一版身份 Check→下载→验签通过；服务端有改动时再查 /health 200。
 

@@ -235,6 +235,13 @@ export const releaseListQuery = paginationSchema.extend({
   platform: z.enum(['windows','macos']).optional(),
   mandatory: boolParam,
 })
+/** 公开的版本列表（免登录）：默认 10、最多 20 条；坏的 / 超出的分页值收到默认值或上限而不是报错（谁在调不可知）。只认这两个筛选。 */
+export const publicReleaseListQuery = z.object({
+  limit: z.coerce.number().int().min(1).catch(10).transform(v=>Math.min(v,20)),
+  offset: z.coerce.number().int().min(0).catch(0),
+  channel: z.enum(['stable','beta']).optional().catch(undefined),
+  platform: z.enum(['windows','macos']).optional().catch(undefined),
+})
 export const auditListQuery = paginationSchema.extend({
   action: z.string().trim().max(80).optional(),
   targetType: z.string().trim().max(80).optional(),

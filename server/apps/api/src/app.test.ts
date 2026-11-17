@@ -133,3 +133,37 @@ describe('GET /v1/catalog/plans', () => {
     expect((await catalog(null)).paymentMethods).toEqual(['alipay'])
   })
 })
+
+// 原来免登录、不看任何参数、一次固定返回 100 条带完整更新说明的记录（最多 2 MB）。
+describe('GET /v1/releases（公开版本列表）', () => {
+  const config: ApiConfig = {
+    NODE_ENV: 'test', HOST: '127.0.0.1', PORT: 18780, PUBLIC_BASE_URL:'http://127.0.0.1:18780',
+    DATABASE_URL: 'postgres://unused', ACCESS_TOKEN_SECRET: 'test-secret-must-be-at-least-32-bytes-long',
+    REFRESH_TOKEN_TTL_DAYS: 30, ADMIN_ORIGIN: 'http://127.0.0.1:18781',
+  }
+  const list = async (query: string) => {
+    const asked: Array<Record<string, unknown>> = []
+    const core = {
+      auth: { publicKeyPem: 'PUBLIC-KEY' },
+      store: { listReleases: async (q: Record<string, unknown>) => { asked.push(q); return { items: [{ version: '1.12.5' }], total: 37, limit: q.limit, offset: q.offset } } },
+      close: async () => {},
+    }
+    const app = await buildApp(config, core as never)
+    const res = await app.inject({ method: 'GET', url: `/v1/releases${query}` })
+    await app.close()
+    return { res, asked }
+  }
+
+  it('默认 10 条、最多 20 条，带 total / limit / offset；超出的 limit 收到上限而不是报错', async () => {
+    const plain = await list('')
+    expect(plain.res.statusCode).toBe(200)
+    expect(plain.asked).toEqual([{ limit: 10, offset: 0 }])
+    expect(plain.res.json()).toEqual({ items: [{ version: '1.12.5' }], total: 37, limit: 10, offset: 0 })
+    expect((await list('?limit=100&offset=20')).asked).toEqual([{ limit: 20, offset: 20 }])
+    expect((await list('?limit=abc&offset=-5')).asked).toEqual([{ limit: 10, offset: 0 }])
+  })
+
+  it('只认 channel / platform 两个筛选，搜索与排序参数不透传', async () => {
+    expect((await list('?channel=beta&platform=macos&q=x&sort=version&mandatory=true')).asked).toEqual([{ limit: 10, offset: 0, channel: 'beta', platform: 'macos' }])
+  })
+})

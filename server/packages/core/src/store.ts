@@ -7,6 +7,7 @@ import { createProxysplitFenxiao, type ProxysplitFenxiao } from './fenxiao.js'
 import { recordDealerCommissionInTx, voidDealerCommissionInTx } from './dealer.js'
 import { nextLoginFailure, type LoginLockState } from './login-lockout.js'
 import { insertAudit, type AuditActor } from './audit.js'
+import { verifyReleaseSignature } from './release-signature.js'
 import { adoptReusedOrder, isOrderReusableAs, PLAN_ON_SALE_SQL, PURCHASE_COUNT_SQL, purchaseLockKey, type ReuseLink } from './order-reuse.js'
 import type { FxNotice } from './vendor/fenxiao/index.js'
 
@@ -729,7 +730,10 @@ export class PgStore {
     const items=r.rows.map(({totalCount,...rest}:{totalCount:number})=>rest)
     return {items,total,limit,offset}
   }
-  async createRelease(v:{version:string;minimumVersion:string;url:string;sha256:string;signature:string;mandatory:boolean;title:string;summary:string;changelog:string;channel:string;platform?:string}){
+  // 登记前按客户端的规则验发布签名（release-signature.ts）：客户端会拒的记录不进表，否则所有人静默收不到更新。
+  // keysPem 不给 = 内置公钥；换钥过渡期由 env RELEASE_PUBLIC_KEY_PEM 给多把。
+  async createRelease(v:{version:string;minimumVersion:string;url:string;sha256:string;signature:string;mandatory:boolean;title:string;summary:string;changelog:string;channel:string;platform?:string},keysPem?:string){
+    if(!verifyReleaseSignature(v,keysPem))throw new AppError('RELEASE_SIGNATURE_INVALID','发布签名验证失败：客户端会拒绝这条版本记录。请核对 version / sha256 / url 与签名时用的完全一致，且是用发布私钥签的',400)
     const r=await this.pool.query('INSERT INTO releases(version,minimum_version,url,sha256,signature,mandatory,title,summary,changelog,channel,platform) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id,version,platform',[v.version,v.minimumVersion,v.url,v.sha256,v.signature,v.mandatory,v.title,v.summary,v.changelog,v.channel,v.platform??'windows'])
     return r.rows[0]
   }

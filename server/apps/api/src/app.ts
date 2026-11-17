@@ -4,7 +4,7 @@ import rateLimit from '@fastify/rate-limit'
 import { Redis } from 'ioredis'
 import { randomUUID } from 'node:crypto'
 import { AppError, maskPhone, normalizeUsername } from '@proxysplit/shared'
-import { activateDeviceSchema, powervpnLoginSchema, powervpnSyncSchema, adminGrantSchema, adminPowervpnProvisionSchema, selfPasswordSchema, webRegisterSchema, analyticsQuerySchema, auditListQuery, deviceListQuery, downloadStatsQuery, leaseSchema, licenseExtendSchema, loginSchema, orderCreateSchema, orderListQuery, orderRefundSchema, planListQuery, planPatchSchema, planUpsertSchema, providerUpsertSchema, redeemCodeCreateSchema, redeemCodeStatusSchema, redeemListQuery, redeemSchema, refreshSchema, registerSchema, releaseCreateSchema, releaseListQuery, settingPatchSchema, trackViewSchema, userCreateSchema, userListQuery, userPasswordSchema, userStatusSchema } from '@proxysplit/contracts'
+import { activateDeviceSchema, powervpnLoginSchema, powervpnSyncSchema, adminGrantSchema, adminPowervpnProvisionSchema, selfPasswordSchema, webRegisterSchema, analyticsQuerySchema, auditListQuery, deviceListQuery, downloadStatsQuery, leaseSchema, licenseExtendSchema, loginSchema, orderCreateSchema, orderListQuery, orderRefundSchema, planListQuery, planPatchSchema, planUpsertSchema, providerUpsertSchema, redeemCodeCreateSchema, redeemCodeStatusSchema, redeemListQuery, redeemSchema, refreshSchema, registerSchema, publicReleaseListQuery, releaseCreateSchema, releaseListQuery, settingPatchSchema, trackViewSchema, userCreateSchema, userListQuery, userPasswordSchema, userStatusSchema } from '@proxysplit/contracts'
 import { AccelTokens, assertUsernameNotPhone, ClientNodesQuery, ClientNodesStore, ConfigProfilesStore, ConfigSyncStore, LinkCipher, SyncCipher, createAccount, createCommercialCore, freeDevicesOf, paymentMethodsOf, DealerAdmin, DealerService, createNotify, createNotifyEvents, type Notify, licenseView, FenxiaoService, hashPassword, PaymentService, purgeSessions, releasePlatform, createCenterPayFromEnv, createSmsCenterFromEnv, type CenterPayContext, TelemetryQuery, TelemetryStore, type AuthService, type PgStore } from '@proxysplit/core'
 import type { ApiConfig } from './config.js'
 import { registerFenxiaoRoutes } from './fenxiao-routes.js'
@@ -182,7 +182,8 @@ export async function buildApp(config:ApiConfig,provided?:Core){
   }
   // platform=macos 给 Mac 客户端（.zip）；不带或其它值 = windows（老客户端不带这个参数）。
   app.get('/v1/releases/latest',async(req)=>{const q=req.query as {channel?:string;platform?:string};return {release:await core.store.latestRelease(q.channel==='beta'?'beta':'stable',releasePlatform(q.platform))}})
-  app.get('/v1/releases',async()=>({items:(await core.store.listReleases({limit:100})).items}))
+  // 公开的历史版本列表：分页（默认 10、最多 20 条），只认 channel / platform 筛选。
+  app.get('/v1/releases',{config:{rateLimit:{max:60,timeWindow:'1 minute'}}},async(req)=>core.store.listReleases(publicReleaseListQuery.parse(req.query)))
   // Tracked download: log one event (hashed IP + visitor id + UA), then 302 to
   // the real Nginx-served file. Only known-shaped filenames are allowed so this
   // can never become an open redirect or path-traversal.
@@ -333,7 +334,7 @@ export async function buildApp(config:ApiConfig,provided?:Core){
     return {ok:true}
   })
   app.get('/v1/admin/releases',async(req)=>{await admin(req);return core.store.listReleases(releaseListQuery.parse(req.query))})
-  app.post('/v1/admin/releases',async(req)=>{const p=await admin(req);const input=releaseCreateSchema.parse(req.body);const row=await core.store.createRelease(input);await core.store.audit(p.userId,'admin.release.create','release',row.id,req.ip,'success',{version:input.version});return row})
+  app.post('/v1/admin/releases',async(req)=>{const p=await admin(req);const input=releaseCreateSchema.parse(req.body);const row=await core.store.createRelease(input,config.RELEASE_PUBLIC_KEY_PEM);await core.store.audit(p.userId,'admin.release.create','release',row.id,req.ip,'success',{version:input.version});return row})
   app.delete('/v1/admin/releases/:id',async(req)=>{const p=await admin(req);const id=idParam(req);const row=await core.store.deleteRelease(id);if(!row)throw new AppError('NOT_FOUND','版本不存在',404);await core.store.audit(p.userId,'admin.release.delete','release',id,req.ip,'success');return {ok:true}})
   app.get('/v1/admin/audit',async(req)=>{await admin(req);return core.store.listAudit(auditListQuery.parse(req.query))})
   app.addHook('onClose',async()=>{if(paymentReconcileTimer)clearInterval(paymentReconcileTimer);if(fenxiaoReleaseTimer)clearInterval(fenxiaoReleaseTimer);if(notifyTimer)clearInterval(notifyTimer);if(notifyFirst)clearTimeout(notifyFirst);if(sessionPurgeFirst)clearTimeout(sessionPurgeFirst);if(sessionPurgeTimer)clearInterval(sessionPurgeTimer);if(redis)redis.disconnect();if(!provided)await core.close()})

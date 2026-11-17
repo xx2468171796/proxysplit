@@ -6,6 +6,8 @@ const schema=z.object({NODE_ENV:z.enum(['development','test','production']).defa
   TELEMETRY_RETENTION_DAYS:z.coerce.number().int().min(1).max(365).optional(),TELEMETRY_MAX_GZIP_BYTES:z.coerce.number().int().min(1024).max(4*1024*1024).optional(),TELEMETRY_IP_BYTES_PER_10MIN:z.coerce.number().int().min(64*1024).max(1024*1024*1024).optional(),TELEMETRY_PER_DEVICE_PER_MINUTE:z.coerce.number().int().min(1).max(600).optional(),
   // 同事节点上报（docs/节点上报.md）：链接加密密钥（32 字节 base64，不配则不存链接）、能解密链接的超管用户名（逗号分隔，默认 admin）
   NODE_LINK_KEY:z.string().optional(),SUPER_ADMIN_USERNAMES:z.string().optional(),
+  // 发布验签公钥（PEM，可放多把）：不配 = core 内置的那把（与客户端内置的相同）；只在换发布密钥的过渡期配。
+  RELEASE_PUBLIC_KEY_PEM:blank(z.string().includes('BEGIN PUBLIC KEY')),
   // 短信（云片，堡垒机资产 #289）：没配 key 时开发环境把验证码打日志，生产 503；模板 id 默认 6437354
   YUNPIAN_API_KEY:z.string().optional(),YUNPIAN_TPL_ID:z.string().regex(/^\d+$/).optional(),
   // 短信验证码走雷池验证中心：LCV_SITE_ID / LCV_HOST / LCV_SITE_SECRET 三项都配 = 中心模式（要 REDIS_URL），都不配 = 本地模式（上面的云片）；
