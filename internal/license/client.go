@@ -635,6 +635,7 @@ func (c *Client) ActivateCurrentDevice() error {
 		return err
 	}
 	c.state.AccessToken, c.state.RefreshToken, c.state.DeviceID, c.state.PendingDevice = result.AccessToken, result.RefreshToken, result.DeviceID, false
+	c.state.SessionValidatedAt = time.Now().Unix() // a new access token: its age starts now
 	c.applyLicenseLocked(result.License)
 	if err := c.acquireLeaseLocked(ctx); err != nil {
 		return err
@@ -712,8 +713,10 @@ func (c *Client) acquireLeaseLocked(ctx context.Context) error {
 		Lease string `json:"lease"`
 	}
 	if err := c.request(ctx, http.MethodPost, "/v1/license/lease", map[string]any{"deviceFingerprint": c.fingerprint, "appVersion": normalizedVersion(c.version)}, &result, c.state.AccessToken); err != nil {
+		// A 401 that is not a revocation means the access token expired
+		// (ACCESS_INVALID): renew it once and retry. A revocation is final.
 		var apiErr *APIError
-		if !errors.As(err, &apiErr) || apiErr.Status != http.StatusUnauthorized {
+		if !errors.As(err, &apiErr) || apiErr.Status != http.StatusUnauthorized || isDefinitiveRejection(err) {
 			return err
 		}
 		if err := c.refreshLocked(ctx); err != nil {
@@ -864,22 +867,18 @@ func (c *Client) EnsureEntitled() error {
 	defer cancel()
 	var onlineErr error
 	if c.state.RefreshToken != "" {
-		if err := c.refreshLocked(ctx); err != nil {
-			onlineErr = err
-			// A rejected refresh token means the session is gone, not the
-			// membership: send the user back to sign-in instead of telling a
-			// paying customer "暂无有效会员".
-			if isDefinitiveRejection(err) {
-				c.clearOnlineSessionLocked()
-			}
-		} else if err := c.acquireLeaseLocked(ctx); err != nil {
-			onlineErr = err
-			if isDeviceLimit(err) {
-				c.state.PendingDevice = true
-			}
-		} else {
+		onlineErr = c.renewOnlineLocked(ctx)
+		if onlineErr == nil {
 			_ = c.saveLocked()
 			return nil
+		}
+		switch {
+		case isDeviceLimit(onlineErr):
+			c.state.PendingDevice = true
+		case isDefinitiveRejection(onlineErr):
+			// A revoked session or device sends the user back to sign-in
+			// instead of telling a paying customer "暂无有效会员".
+			c.clearOnlineSessionLocked()
 		}
 	}
 	if isDefinitiveRejection(onlineErr) || isDeviceLimit(onlineErr) {
