@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { phoneSchema, smsCodeSchema } from './phone-sync.js'
+import { clientDealerField } from './dealer.js'
 
 // 注册：有手机号必须带验证码；没手机号（老客户端）必须有邮箱。
 const phoneOrEmail=(v:{email?:string|undefined;phone?:string|undefined;code?:string|undefined},ctx:z.RefinementCtx)=>{
@@ -14,7 +15,7 @@ export const deviceSchema = z.object({
   platform: z.enum(['windows','macos']),
   appVersion: z.string().regex(/^\d+\.\d+\.\d+(?:[-+].+)?$/),
 })
-export const loginSchema = z.object({ username: z.string().trim().min(3).max(64), password: z.string().min(8).max(256), device: deviceSchema })
+export const loginSchema = z.object({ username: z.string().trim().min(3).max(64), password: z.string().min(8).max(256), device: deviceSchema, dealer: clientDealerField })
 export const registerSchema = z.object({
   // 用户名是登录凭据；邮箱单独保存，当前不验证，后续可平滑开启验证。
   username: z.string().trim().min(3).max(32).refine(value=>!/[\s@]/u.test(value),'用户名不能包含空格或 @'),
@@ -26,6 +27,8 @@ export const registerSchema = z.object({
   device: deviceSchema,
   // 邀请码（可选）：带了就在建号事务里绑上级（多级分销，坏码不挡注册）。
   ref: z.string().trim().max(16).optional(),
+  // 代理站下载的客户端带代理商标识（只对 aigw 渠道账号生效）
+  dealer: clientDealerField,
 }).superRefine(phoneOrEmail)
 // 官网注册：没有设备指纹，按 IP 限制注册数；试用在首次用客户端登录时按硬件发放。
 export const webRegisterSchema = z.object({
@@ -46,7 +49,7 @@ export const selfPasswordSchema = z.object({
 export const refreshSchema = z.object({ refreshToken: z.string().min(40), deviceFingerprint: z.string().min(32).max(128) })
 // 已登录但设备名额满时，允许仅使用短期访问令牌在新电脑上腾出一个名额。
 // POWER云 账号登录：客户端 OAuth 拿到的面板访问令牌 + 与注册相同的设备字段。
-export const powervpnLoginSchema = z.object({ accessToken: z.string().min(16).max(4096), device: deviceSchema })
+export const powervpnLoginSchema = z.object({ accessToken: z.string().min(16).max(4096), device: deviceSchema, dealer: clientDealerField })
 // 面板 GET /api/client/me 的响应（服务端核实 POWER云 令牌时校验）。
 export const powervpnMeSchema = z.object({
   id: z.union([z.string().trim().min(1).max(128), z.number().int()]).transform(String),
@@ -59,7 +62,7 @@ export const powervpnMeSchema = z.object({
   aiPlanExpiresAt: z.string().datetime({ offset: true }).nullable().optional().catch(undefined),
 })
 // 已登录客户端用 POWER云 令牌同步中转站会员时长（会员跟 AI 套餐走）
-export const powervpnSyncSchema = z.object({ accessToken: z.string().min(16).max(4096) })
+export const powervpnSyncSchema = z.object({ accessToken: z.string().min(16).max(4096), dealer: clientDealerField })
 // 交付：按 POWER云 客户 id 预建关联账号（客户还没打开过客户端时先发会员）。
 export const adminPowervpnProvisionSchema = z.object({
   // POWER云 客户 id 是 uuid，/api/client/me 给的是小写；统一成小写，免得预建的号和客户登录时对不上
@@ -275,6 +278,7 @@ export type RedeemCodeStatusInput = z.infer<typeof redeemCodeStatusSchema>
 export type TrackViewInput = z.infer<typeof trackViewSchema>
 export type DownloadStatsQuery = z.infer<typeof downloadStatsQuery>
 export * from './fenxiao.js'
+export * from './dealer.js'
 export * from './telemetry.js'
 export * from './client-nodes.js'
 export * from './phone-sync.js'

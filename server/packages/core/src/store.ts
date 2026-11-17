@@ -4,6 +4,7 @@ import type { AuditListQuery, DeviceListQuery, OrderListQuery, PlanListQuery, Pl
 import { AppError, maskPhone } from '@proxysplit/shared'
 import { planSplit } from './split.js'
 import { createProxysplitFenxiao, type ProxysplitFenxiao } from './fenxiao.js'
+import { recordDealerCommissionInTx, voidDealerCommissionInTx } from './dealer.js'
 import type { FxNotice } from './vendor/fenxiao/index.js'
 
 export type UserRecord = {
@@ -1064,6 +1065,8 @@ export class PgStore {
       VALUES($1,$2,$3,$4,$5::uuid,(SELECT group_id FROM orders WHERE id=$5::uuid),$6,$7,$8,$9)`,
       [opts.userId,licenseId,plan.tier,opts.source,opts.orderId??null,start,end,before,!!existing?.lifetime])
     if(opts.source==='order'&&opts.orderId)await this.settleCommissionInTx(client,opts.orderId)
+    // 代理站分成（dealer.ts，保存点隔离，出错不挡发货）
+    if(opts.source==='order'&&opts.orderId)await recordDealerCommissionInTx(client,opts.orderId)
     return grant
   }
 
@@ -1118,6 +1121,7 @@ export class PgStore {
       await client.query(`UPDATE orders SET status='refunded',refunded_at=now(),refund_reason=$2,updated_at=now() WHERE id=ANY($1::uuid[]) AND status='paid'`,[ids,reason])
       // 退款同事务冲回上级佣金（已提现的会变欠款，后台分销页可见）。
       await this.fx.reverse({sourceRef:String(order.group_id??order.id),reason:`订单退款：${reason}`,tx:client})
+      await voidDealerCommissionInTx(client,String(order.group_id??order.id),reason)
       const ledger=(await client.query(`SELECT id,license_id AS "licenseId",start_at AS "startAt",end_at AS "endAt",before_expires_at AS "beforeExpiresAt",before_lifetime AS "beforeLifetime"
         FROM license_grants WHERE order_id=ANY($1::uuid[]) AND revoked_at IS NULL ORDER BY created_at DESC LIMIT 1 FOR UPDATE`,[ids])).rows[0]
       if(!ledger?.licenseId){

@@ -7,6 +7,8 @@ const schema=z.object({NODE_ENV:z.enum(['development','test','production']).defa
   // 短信（云片，堡垒机资产 #289）：没配 key 时开发环境把验证码打日志，生产 503；模板 id 默认 6437354
   YUNPIAN_API_KEY:z.string().optional(),YUNPIAN_TPL_ID:z.string().regex(/^\d+$/).optional(),
   // 配置云同步 / 云端配置加密密钥：32 字节 base64（openssl rand -base64 32），不配则相关接口 503
-  CONFIG_SYNC_KEY:z.string().optional()}).superRefine((v,ctx)=>{if(v.NODE_ENV==='production'&&!v.LICENSE_PRIVATE_KEY_PEM)ctx.addIssue({code:'custom',path:['LICENSE_PRIVATE_KEY_PEM'],message:'A persistent Ed25519 private key is required in production'})})
+  CONFIG_SYNC_KEY:z.string().optional(),
+  // 代理站：aigw 公开接口地址（默认 https://ai.zygskins.cn）；Host 头（走内网地址绕开公网 WAF 时填 ai.zygskins.cn，可空）
+  AIGW_PUBLIC_BASE:z.string().url().optional(),AIGW_PUBLIC_HOST:z.string().regex(/^(?:[a-z0-9.-]+(?::\d+)?)?$/i).optional()}).superRefine((v,ctx)=>{if(v.NODE_ENV==='production'&&!v.LICENSE_PRIVATE_KEY_PEM)ctx.addIssue({code:'custom',path:['LICENSE_PRIVATE_KEY_PEM'],message:'A persistent Ed25519 private key is required in production'})})
 export type ApiConfig=z.infer<typeof schema>
 export const loadConfig=(env:NodeJS.ProcessEnv=process.env)=>schema.parse(env)
