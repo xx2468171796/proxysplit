@@ -19,7 +19,7 @@ vi.mock("./pay-verify", () => ({
 
 import type { MemberOrder, MemberPlan } from "../api/types";
 import { license } from "./account";
-import { closePayment, confirmPaid, payment, resumePayment, retryQR, splitProgress } from "./payment";
+import { buyPlan, closePayment, confirmPaid, payment, resumePayment, retryQR, splitProgress } from "./payment";
 
 const soon = () => new Date(Date.now() + 20 * 60_000).toISOString();
 const piece = (orderNo: string, splitIndex: number, status = "pending"): MemberOrder => ({
@@ -94,6 +94,64 @@ describe("继续支付", () => {
     await resumePayment();
     expect(payment.get().order).toBeNull();
     expect(license.get().error).toContain("没有找到");
+  });
+});
+
+describe("付款框关掉之后，晚回来的结果不再生效", () => {
+  const listening = () => vi.mocked(document.addEventListener).mock.calls.length;
+
+  it("二维码还在生成时关掉：不写二维码、不开始查单", async () => {
+    serverOrders([piece("P1", 1, "paid"), piece("P2", 2), piece("P3", 3)]);
+    const qr = Promise.withResolvers<{ data: string; err: string }>();
+    api.paymentQR.mockReturnValue(qr.promise);
+    const shown = resumePayment();
+    await vi.waitFor(() => expect(api.paymentQR).toHaveBeenCalled());
+    closePayment();
+    qr.resolve({ data: "qr:late", err: "" });
+    await shown;
+    expect(payment.get()).toMatchObject({ order: null, qr: "" });
+    expect(listening()).toBe(0);
+  });
+
+  it("下单还没回来就关掉（或换了账号）：订单回来后不弹付款框", async () => {
+    const created = Promise.withResolvers<unknown>();
+    api.createOrder.mockReturnValue(created.promise);
+    const buying = buyPlan(plan);
+    await vi.waitFor(() => expect(api.createOrder).toHaveBeenCalled());
+    closePayment();
+    created.resolve({ split: false, orders: [], order: piece("NEW", 0) });
+    await buying;
+    expect(payment.get().order).toBeNull();
+    expect(api.paymentQR).not.toHaveBeenCalled();
+    expect(listening()).toBe(0);
+  });
+
+  it("确认到账途中关掉付款框：不再报「没查到」，也不去刷新权益", async () => {
+    serverOrders([piece("P1", 1, "paid"), piece("P2", 2), piece("P3", 3)]);
+    await resumePayment();
+    const stale = Promise.withResolvers<unknown>();
+    api.plans.mockReturnValue(stale.promise);
+    const confirming = confirmPaid();
+    closePayment();
+    stale.resolve({ items: [plan] });
+    await confirming;
+    expect(license.get().error).toBe("");
+    expect(api.refreshEntitlement).not.toHaveBeenCalled();
+  });
+
+  it("没有订单了，查单定时器自己停掉", async () => {
+    vi.useFakeTimers();
+    try {
+      serverOrders([piece("P1", 1, "paid"), piece("P2", 2), piece("P3", 3)]);
+      await resumePayment();
+      expect(vi.getTimerCount()).toBe(1);
+      payment.set({ order: null });
+      await vi.advanceTimersByTimeAsync(3000);
+      expect(vi.getTimerCount()).toBe(0);
+      expect(document.removeEventListener).toHaveBeenCalledWith("visibilitychange", expect.any(Function));
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

@@ -1,8 +1,8 @@
 // 手机号 + 短信验证码两行：「获取验证码」先弹人机验证（state/human-verify），发出后按服务端给的冷却秒数倒计时（默认 60）。注册、找回密码、绑定手机号共用。
 import { Button, FormField, Input } from "@ankotti/admin-ui";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { SmsPurpose } from "../../api/types-account";
-import { sendSmsCode } from "../../state/phone";
+import { sendSmsCodeFor } from "../../state/phone";
 
 type Props = {
   idPrefix: string;
@@ -41,15 +41,24 @@ export function SmsFields({
 }: Props) {
   const [left, start] = useCountdown();
   const [sending, setSending] = useState(false);
+  const alive = useRef(true);
+  useEffect(() => {
+    alive.current = true;
+    return () => {
+      alive.current = false;
+    };
+  }, []);
   const send = async () => {
     onError("");
     setSending(true);
-    const r = await sendSmsCode(phone, purpose).finally(() => setSending(false));
-    if (r.cancelled) return;
-    // 发送太频繁：服务端说了还要等多久，按钮照样倒计时
-    if (r.cooldown > 0) start(r.cooldown);
-    if (r.err) return onError(r.err);
-    onSent?.(r.message || "验证码已发送，5 分钟内有效");
+    await sendSmsCodeFor(phone, purpose, {
+      alive: () => alive.current,
+      startCooldown: start,
+      onError,
+      onSent: (text) => onSent?.(text),
+    }).finally(() => {
+      if (alive.current) setSending(false);
+    });
   };
   return (
     <>

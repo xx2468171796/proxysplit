@@ -29,6 +29,10 @@ export const payment = createStore<PaymentState>({
 
 let pollTimer: ReturnType<typeof setInterval> | null = null;
 let polling = false;
+// 每关一次付款框（含换账号）加一。下单、查单这些请求回来时，付款框可能已经关了或换成了另一笔：
+// 每个 await 之后都要用 isShowing(单号) 或 session 重新确认，对不上就什么都不写。
+let session = 0;
+const isShowing = (orderNo: string): boolean => payment.get().order?.orderNo === orderNo;
 const onVisible = () => {
   if (!document.hidden) void pollOnce();
 };
@@ -56,6 +60,7 @@ async function showOrder(order: MemberOrder | undefined): Promise<void> {
   if (!order) return fail("支付服务没有返回订单，请重新下单");
   if (!order.payUrl) return void payment.set({ qrError: "这一单没有拿到付款链接" });
   const qr = await api.paymentQR(order.payUrl);
+  if (!isShowing(order.orderNo)) return;
   if (qr.err || !qr.data) return void payment.set({ qrError: qr.err || "付款二维码生成失败" });
   payment.set({ qr: qr.data });
   startPolling();
@@ -67,11 +72,13 @@ export async function retryQR(): Promise<void> {
   if (!current) return;
   payment.set({ qr: "", qrError: "" });
   const res = await api.orders();
+  if (!isShowing(current.orderNo)) return;
   const fresh = res.err ? undefined : res.items.find((o) => o.orderNo === current.orderNo);
   await showOrder(fresh?.payUrl ? fresh : current);
 }
 
 export function closePayment(): void {
+  session += 1;
   stopPolling();
   payment.set({ order: null, qr: "", qrError: "", split: [], splitIdx: 0 });
 }
@@ -91,16 +98,19 @@ onAccountReset(closePayment);
 export async function buyPlan(plan: MemberPlan): Promise<void> {
   payment.set({ busy: true });
   license.set({ error: "" });
+  const at = session;
   try {
     // 支付中心要求每笔订单先过人机验证：先弹验证，取消就不下单。
     const r = await placeVerifiedOrder((hvToken) => api.createOrder(plan.id, hvToken));
-    if (!r) return;
+    // 等的时候会员页被关掉 / 换了账号：订单已经建在服务端，之后在「继续支付」里能找到，这里不再弹框。
+    if (!r || at !== session) return;
     if (r.err) return fail(r.err);
     const split = r.split && r.orders.length > 1 ? r.orders : [];
     payment.set({ split, splitIdx: 0 });
     await showOrder(split[0] ?? r.order);
-    await loadCommerce();
+    if (at === session) await loadCommerce();
   } catch (e) {
+    if (at !== session) return;
     closePayment();
     fail(e instanceof Error ? e.message : "创建订单失败，请重试");
   } finally {
@@ -134,7 +144,9 @@ async function onPaid(): Promise<void> {
     return;
   }
   stopPolling();
+  const at = session;
   const err = await api.refreshEntitlement();
+  if (at !== session) return;
   if (err) return fail(err);
   closePayment();
   license.set({ membershipOpen: false });
@@ -147,11 +159,13 @@ function findOrder(orders: MemberOrder[]): MemberOrder | undefined {
 }
 
 async function pollOnce(): Promise<void> {
-  if (!payment.get().order || polling) return;
+  const showing = payment.get().order?.orderNo;
+  if (!showing) return stopPolling(); // 没有订单就没有可查的
+  if (polling) return;
   polling = true;
   try {
     const res = await api.orders();
-    if (res.err) return;
+    if (res.err || !isShowing(showing)) return;
     license.set({ orders: res.items });
     const order = findOrder(res.items);
     if (order?.status === "paid") await onPaid();
@@ -170,8 +184,10 @@ async function pollOnce(): Promise<void> {
 export async function confirmPaid(): Promise<void> {
   payment.set({ busy: true });
   license.set({ error: "" });
+  const showing = payment.get().order?.orderNo ?? "";
   try {
     await loadCommerce();
+    if (!isShowing(showing)) return;
     const order = findOrder(license.get().orders);
     if (order?.status === "paid") await onPaid();
     else {
@@ -183,7 +199,7 @@ export async function confirmPaid(): Promise<void> {
       );
     }
   } catch (e) {
-    fail(e instanceof Error ? e.message : "刷新到账失败，请重试");
+    if (isShowing(showing)) fail(e instanceof Error ? e.message : "刷新到账失败，请重试");
   } finally {
     payment.set({ busy: false });
   }
