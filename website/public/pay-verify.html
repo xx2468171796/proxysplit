@@ -15,14 +15,19 @@
   雷池 hook.js 只认同源，所以在本站同源里调 LcVerify.open({action})，把一次性凭证 postMessage 回客户端窗口。
   凭证绑定本站域名 + action，由服务端交给支付中心 / 验证中心核销；本页不判凭证。
   nginx 要允许 Wails 窗口嵌入本页和 /__leichiwaf/hv/（见 docs/memory/account-membership.md「付款前人机验证」）。
+
+  本文件就是线上文件：PARENTS 里只放正式客户端窗口的 origin。不要把开发地址写进来 —— 凭证会发给本机任何占着那个端口的程序。
+  用 wails dev（窗口 origin 是 http://localhost:34115）联调时：把本页另存一份到自己的测试站点，在那份副本的 PARENTS 里加上
+  "http://localhost:34115"，并让客户端开发构建指向那个测试站点；改动不要提交
+  （website/src/pay-verify-page.test.ts 会拦住）。
 -->
 <script src="/__leichiwaf/hv/hook.js"></script>
 <script>
 (function () {
   "use strict";
-  // Wails 窗口的 origin：Windows WebView2 = http://wails.localhost，macOS WKWebView = wails://wails，wails dev = localhost:34115。
-  // 只发给这几个 origin（浏览器会丢掉 origin 对不上的消息），不用 "*"。
-  var PARENTS = ["http://wails.localhost", "https://wails.localhost", "wails://wails", "http://localhost:34115"];
+  // Wails 窗口的 origin：Windows WebView2 = http(s)://wails.localhost，macOS WKWebView = wails://wails。
+  // 只发给这几个 origin（浏览器会丢掉 origin 对不上的消息），不用通配。
+  var PARENTS = ["http://wails.localhost", "https://wails.localhost", "wails://wails"];
   var ACTIONS = ["pay", "sms", "register", "reset"];
   var query = new URLSearchParams(location.search);
   var nonce = (query.get("n") || "").replace(/[^0-9a-f]/g, "").slice(0, 64);

@@ -13,7 +13,7 @@ import type {
   Sub,
 } from "../api/types";
 import { createStore } from "../shared/store";
-import { license } from "./account";
+import { setLicenseStatus } from "./account";
 import { refreshStatus, runtime } from "./runtime";
 
 export type DataState = {
@@ -92,7 +92,7 @@ export function applyBootstrap(s: BootstrapState | null | undefined): boolean {
     ruleMode: asRuleMode(s.ruleMode),
   });
   if (s.status) runtime.set({ status: s.status });
-  if (s.license) license.set({ status: s.license });
+  if (s.license) setLicenseStatus(s.license);
   return true;
 }
 

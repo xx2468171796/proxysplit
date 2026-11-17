@@ -17,7 +17,7 @@ function Price({ plan }: { plan: MemberPlan }) {
 }
 
 function BuyButton({ plan }: { plan: MemberPlan }) {
-  const busy = useStore(payment, (s) => s.busy);
+  const busy = useStore(payment, (s) => s.buying);
   return (
     <Button loading={busy} loadingText="请稍候…" onClick={() => void buyPlan(plan)}>
       立即购买

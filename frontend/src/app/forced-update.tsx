@@ -9,7 +9,7 @@ const TITLE = "发现新版本，正在升级";
 export function ForcedUpdateDialog() {
   const { say } = useFeedback();
   const info = useStore(appUpdate, (s) => s.info);
-  const busy = useStore(appUpdate, (s) => s.busy);
+  const busy = useStore(appUpdate, (s) => s.installing);
   const release = info.available ? info.release : undefined;
   if (!release) return null;
   return (

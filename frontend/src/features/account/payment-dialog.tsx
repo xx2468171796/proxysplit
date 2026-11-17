@@ -1,6 +1,7 @@
 // 付款框（微信 / 支付宝，按付款链接判断）：二维码、订单名 · 金额、拆单说明、截止时间；「本机打开支付宝」「我已支付，刷新状态」。
 // 统一支付中心的微信码（weixin://）只能用手机扫，不出「本机打开」按钮。
-// 到账由 state/payment 每 3 秒自动查单，关掉框即停止查单（订单到期自动失效）。
+// 到账由 state/payment 每 3 秒自动查单，关掉框即停止查单；没付完的订单之后可在会员页点「继续支付」接着付。
+// 二维码没生成出来时显示原因和「重新生成二维码」。
 import { Button, Dialog, DialogFooter, InlineAlert, Note, Spinner, StatusBadge } from "@ankotti/admin-ui";
 import { ExternalLink, RefreshCw } from "lucide-react";
 import type { MemberOrder } from "../../api/types";
@@ -8,7 +9,16 @@ import { useFeedback } from "../../app/use-feedback";
 import { fmtDateTime, fmtYuan } from "../../shared/format";
 import { useStore } from "../../shared/store";
 import { license } from "../../state/account";
-import { canOpenPayment, closePayment, confirmPaid, openPaymentInBrowser, payApp, payment } from "../../state/payment";
+import {
+  canOpenPayment,
+  closePayment,
+  confirmPaid,
+  openPaymentInBrowser,
+  payApp,
+  payment,
+  retryQR,
+  splitProgress,
+} from "../../state/payment";
 import "./account.css";
 
 function SplitNote({ order, total }: { order: MemberOrder; total: number }) {
@@ -16,7 +26,7 @@ function SplitNote({ order, total }: { order: MemberOrder; total: number }) {
   return (
     <InlineAlert tone="warning" title={`本单需分 ${total} 笔支付`} density="compact">
       因支付渠道单笔限额，需分 {total} 笔分别支付。请先扫码付本笔 {amount}，付完会自动跳出下一笔二维码，{total}{" "}
-      笔全部付完才会开通会员，中途请勿关闭。
+      笔全部付完才会开通会员。中途关掉了也不要紧，回到会员页点「继续支付」就能接着付。
     </InlineAlert>
   );
 }
@@ -24,12 +34,12 @@ function SplitNote({ order, total }: { order: MemberOrder; total: number }) {
 function OrderInfo({ order }: { order: MemberOrder }) {
   const split = useStore(payment, (s) => s.split);
   const splitIdx = useStore(payment, (s) => s.splitIdx);
-  const isSplit = split.length > 1;
+  const progress = splitProgress({ order, split, splitIdx });
   return (
     <div className="ps-pay-info">
-      {isSplit ? (
+      {progress ? (
         <StatusBadge tone="warning">
-          分 {split.length} 笔支付 · 第 {splitIdx + 1} 笔
+          分 {progress.total} 笔支付 · 第 {progress.index} 笔
         </StatusBadge>
       ) : (
         <StatusBadge tone="info">{payApp(order)}安全支付</StatusBadge>
@@ -37,8 +47,8 @@ function OrderInfo({ order }: { order: MemberOrder }) {
       <h3 className="ps-pay-title">
         {order.planName} · ¥{fmtYuan(order.amountCents)}
       </h3>
-      {isSplit ? (
-        <SplitNote order={order} total={split.length} />
+      {progress ? (
+        <SplitNote order={order} total={progress.total} />
       ) : (
         <Note as="p">
           打开手机{payApp(order)}扫描二维码完成付款，支付成功后会自动到账，也可以点「我已支付，刷新状态」。
@@ -49,11 +59,46 @@ function OrderInfo({ order }: { order: MemberOrder }) {
   );
 }
 
+function QrTile({ order }: { order: MemberOrder }) {
+  const qr = useStore(payment, (s) => s.qr);
+  return (
+    <div className="ps-pay-qr">
+      <div className="ps-qr-tile">
+        {qr ? (
+          <img src={qr} alt={`${payApp(order)}付款二维码`} width={180} height={180} />
+        ) : (
+          <Spinner size={32} label="正在生成二维码" />
+        )}
+      </div>
+      <Note>{payApp(order)}扫码</Note>
+    </div>
+  );
+}
+
+/** 二维码没生成出来：说明原因，给「重新生成二维码」，不留一个一直转的圈。 */
+function QrFailed({ reason }: { reason: string }) {
+  return (
+    <InlineAlert
+      tone="error"
+      title="二维码没生成出来"
+      density="compact"
+      action={
+        <Button variant="outline" size="sm" onClick={() => void retryQR()}>
+          <RefreshCw />
+          重新生成二维码
+        </Button>
+      }
+    >
+      {reason}。点「重新生成二维码」再试一次；还是不行就关掉这个框重新下单。
+    </InlineAlert>
+  );
+}
+
 export function PaymentDialog() {
   const { say } = useFeedback();
   const order = useStore(payment, (s) => s.order);
-  const qr = useStore(payment, (s) => s.qr);
-  const busy = useStore(payment, (s) => s.busy);
+  const qrError = useStore(payment, (s) => s.qrError);
+  const busy = useStore(payment, (s) => s.confirming);
   const error = useStore(license, (s) => s.error);
   if (!order) return null;
   return (
@@ -85,17 +130,9 @@ export function PaymentDialog() {
           {error}
         </InlineAlert>
       ) : null}
+      {qrError ? <QrFailed reason={qrError} /> : null}
       <div className="ps-pay">
-        <div className="ps-pay-qr">
-          <div className="ps-qr-tile">
-            {qr ? (
-              <img src={qr} alt={`${payApp(order)}付款二维码`} width={180} height={180} />
-            ) : (
-              <Spinner size={32} label="正在生成二维码" />
-            )}
-          </div>
-          <Note>{payApp(order)}扫码</Note>
-        </div>
+        {qrError ? null : <QrTile order={order} />}
         <OrderInfo order={order} />
       </div>
     </Dialog>

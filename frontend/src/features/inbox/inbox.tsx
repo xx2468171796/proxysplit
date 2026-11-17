@@ -28,9 +28,16 @@ const openLink = (url: string) => {
   if (/^https?:\/\//i.test(url)) BrowserOpenURL(url);
 };
 
+/** 通知客户端按账号各建各的（Go 侧带的是当前登录凭证，这里的参数只用来区分账号）。 */
+function clientFor(_username: string) {
+  return createTongzhiClient({ base: BASE, fetch: viaGo });
+}
+
 export function InboxProvider({ children }: { children: ReactNode }) {
   const signedIn = useStore(license, (s) => s.status.signedIn);
-  const client = useMemo(() => createTongzhiClient({ base: BASE, fetch: viaGo }), []);
+  const username = useStore(license, (s) => (s.status.signedIn ? s.status.username : ""));
+  // 一个账号一个客户端：换账号后组件库据此重建收件箱状态，不会带着上一个人的通知。
+  const client = useMemo(() => clientFor(username), [username]);
   return (
     <TongzhiProvider
       client={client}

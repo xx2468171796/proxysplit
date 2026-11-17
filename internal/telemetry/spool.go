@@ -34,6 +34,20 @@ type Spool struct {
 	w        *bufio.Writer
 	size     int64
 	now      func() time.Time
+	lastSeal int64 // unixnano used for the newest segment name
+}
+
+// sealStamp returns a unixnano that is unique and increasing within this
+// spool. The wall clock alone is not: on Windows it advances in steps, so two
+// seals in the same step would get the same name and the rename would
+// silently replace the earlier segment.
+func (s *Spool) sealStamp() int64 {
+	ts := s.now().UnixNano()
+	if ts <= s.lastSeal {
+		ts = s.lastSeal + 1
+	}
+	s.lastSeal = ts
+	return ts
 }
 
 // OpenSpool prepares dir and seals segments left by earlier runs.
@@ -43,9 +57,9 @@ func OpenSpool(dir, session string, segLimit, capBytes int64) (*Spool, error) {
 	}
 	s := &Spool{dir: dir, session: session, segLimit: segLimit, capBytes: capBytes, now: time.Now}
 	leftovers, _ := filepath.Glob(filepath.Join(dir, "cur-*.jsonl"))
-	for i, p := range leftovers {
+	for _, p := range leftovers {
 		sess := strings.TrimSuffix(strings.TrimPrefix(filepath.Base(p), "cur-"), ".jsonl")
-		_ = os.Rename(p, filepath.Join(dir, fmt.Sprintf("seg-%019d-%s.jsonl", s.now().UnixNano()+int64(i), sess)))
+		_ = os.Rename(p, filepath.Join(dir, fmt.Sprintf("seg-%019d-%s.jsonl", s.sealStamp(), sess)))
 	}
 	s.enforceCapLocked()
 	return s, nil
@@ -113,12 +127,49 @@ func (s *Spool) sealLocked() error {
 		_ = os.Remove(s.curPath())
 		return nil
 	}
-	dst := filepath.Join(s.dir, fmt.Sprintf("seg-%019d-%s.jsonl", s.now().UnixNano(), s.session))
+	dst := filepath.Join(s.dir, fmt.Sprintf("seg-%019d-%s.jsonl", s.sealStamp(), s.session))
 	if err := os.Rename(s.curPath(), dst); err != nil {
 		return err
 	}
 	s.enforceCapLocked()
 	return nil
+}
+
+// Purge drops everything in the spool — the current segment (unsealed), the
+// sealed ones and the quarantined ones — and returns how many files went.
+// The spool stays usable: the next Append opens a fresh segment.
+func (s *Spool) Purge() (removed int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.f != nil {
+		_ = s.f.Close() // buffered records are dropped on purpose
+		s.f, s.w, s.size = nil, nil, 0
+	}
+	return purgeDir(s.dir)
+}
+
+// quarantineKeep is how many rejected segments stay on disk for diagnosis.
+const quarantineKeep = 5
+
+// Quarantine sets a sealed segment aside as "bad-…": it is never uploaded
+// again, the newest quarantineKeep are kept, and clearing the local log queue
+// removes them. Used when the server keeps rejecting a segment.
+func (s *Spool) Quarantine(path string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	quarantine(path)
+}
+
+func quarantine(path string) {
+	dir, base := filepath.Split(path)
+	if os.Rename(path, filepath.Join(dir, "bad-"+strings.TrimPrefix(base, "seg-"))) != nil {
+		_ = os.Remove(path) // cannot set it aside: it must still not block the queue
+	}
+	list, _ := filepath.Glob(filepath.Join(dir, "bad-*.jsonl"))
+	sort.Strings(list)
+	for i := 0; i < len(list)-quarantineKeep; i++ {
+		_ = os.Remove(list[i])
+	}
 }
 
 // Segments lists sealed segments, oldest first.

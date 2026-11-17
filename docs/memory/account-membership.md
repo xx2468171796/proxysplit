@@ -92,7 +92,7 @@ Ed25519 离线租约绑定账号 / 设备 / 硬件 / 期限；minimumVersion 会
 
 ### 付款前人机验证（hvToken，分支 feat/pay-hv，2026-11-17，未上线）
 支付中心全局开了「每笔订单都要先过验证」（challengeEveryOrder，中心统一，站点不能关），不带凭证的下单一律 `PAY_CHALLENGE_REQUIRED`。
-- 客户端：点「立即购买」先盖全屏 iframe 加载 `https://proxysplit.zygskins.cn/pay-verify.html?n=<nonce>`（website/public/pay-verify.html），中继页在站点同源里调 `LcVerify.open({action:"pay"})`，凭证 postMessage 回 Wails 窗口（只发给 http(s)://wails.localhost / wails://wails / localhost:34115，客户端校验 origin + nonce）→ CreateMembershipOrder(planId, hvToken)。取消 = 不下单；验证页 12 秒没起来 = 不带凭证下单（中心关了全局开关时照常能付）；仍回 PAY_CHALLENGE_REQUIRED 就再验一次重下，最多一次。代码 frontend/src/state/pay-verify.ts、OrderResult.errCode。
+- 客户端：点「立即购买」先盖全屏 iframe 加载 `https://proxysplit.zygskins.cn/pay-verify.html?n=<nonce>`（website/public/pay-verify.html），中继页在站点同源里调 `LcVerify.open({action:"pay"})`，凭证 postMessage 回 Wails 窗口（只发给 http(s)://wails.localhost / wails://wails；2026-11-18 起不再发给开发地址 localhost:34115，wails dev 联调办法写在该文件开头的注释里；客户端校验 origin + nonce）→ CreateMembershipOrder(planId, hvToken)。取消 = 不下单；验证页 12 秒没起来 = 不带凭证下单（中心关了全局开关时照常能付）；仍回 PAY_CHALLENGE_REQUIRED 就再验一次重下，最多一次。代码 frontend/src/state/pay-verify.ts、OrderResult.errCode。
 - 为什么不在 Wails 页里直接引 hook.js：hook.js 的验证页 iframe 是相对路径、只认同源 postMessage，凭证又绑站点域名（hv 服务按 Host 绑 action + 域名，无 cookie），Wails 的 origin 不是站点域名。
 - 服务端：POST /v1/orders 可选 `hvToken`（zod 1–2048，与 captchaTicket 同一上限；客户端收凭证上限 1024）。CenterPay.create 用 SDK 的 redeemHumanToken 兑换**一次**（bad = 不声明通过交中心拒；ok / 验证服务不可达 = challengePassed），同一结果用于 OPEN_ORDER 自动「取消后重下」的第二次下单——凭证一次性，交给 SDK 每次下单各兑一次会让第二次变 bad、玩家死循环。未配 PAY_HV_HOST = 忽略凭证。API 在 sz 本机，127.0.0.1:8976 可达（SDK 兑换只能本机直连）。
 - 老客户端不带凭证：中心拒，提示「请先完成安全验证再购买（旧版客户端请先升级）」；新客户端发版即强制更新。
@@ -115,6 +115,7 @@ Ed25519 离线租约绑定账号 / 设备 / 硬件 / 期限；minimumVersion 会
 - 退款：后台订单「退款」→ POST /v1/admin/orders/:no/refund {reason}，整组拆单一起退，只扣未用时长（权益流水 license_grants 记录每次发放的 start/end；refundedLicense 纯函数有单测）；2026-09-26 之前的订单无流水，只标退款不动会员，需手动调；钱在支付宝商户后台原路退。
 - 单笔回调到账走 grantWithinTx（以前漏了试用剩余时长合并）。
 - 拆单续付（2026-10-23）：拆单各笔共用一个过期时间，付了一部分、其余过期时，再买同一套餐会续付这一组（resumeSplitInTx）：还有效的那笔原样返回、不重复下单，过期的标 closed 并换新单号重发；「全部付齐」只数非 closed 的笔。旧二维码迟到付款照样算（closed 的笔仍对账、可到账，同序号的替补自动关掉）；后台手动确认拆单子单只确认这一笔、付齐才发（payGroupPieceInTx，与回调同一组级事件防重复发放）。真库场景脚本在 pve-pg-proxysplit-paytest 跑过 14 项全过。
+- 客户端接着付（2026-11-18 审计）：付款状态只在内存里，没付完的订单由 `frontend/src/state/payment-resume.ts` 的 `findResumable` 从 /v1/me/orders 认出来（启动时和打开会员页都会读订单）——剩下的几笔都没过期就直接出码，有过期的按同一套餐重新下单走上面的续付。入口是套餐区的「继续支付」提示；已经付过一部分时主界面顶部也出横幅。二维码生成失败显示原因 +「重新生成二维码」。Go 的 license.Order 还没带 groupId（接口有返回），客户端暂按「套餐名 + 总笔数」认组。
 
 ## 免费档 / 手机号 / 配置同步（客户端，2026-10-29，docs/plan-2026-10-29-free-sync-phone.md）
 - license.Status 增 member / freeDevices / planDevices / phoneBound；tier=free 照常签租约、全部功能可用；租约 409 DEVICE_LIMIT → PendingDevice（只有这时出整页闸门）。APIError 带服务端 code。

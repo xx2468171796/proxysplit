@@ -1,6 +1,7 @@
 // 官网与商业 API（同域 /v1）之间的全部往来：访客统计、下载地址、最新版本、套餐、网页注册。
 // 页面组件只调这里，不直接 fetch。
 import { openSmsVerify, type VerifyResult } from "./human-verify";
+import { errorMessage } from "./site-copy";
 
 export type Plan = {
   code: string;
@@ -96,23 +97,6 @@ export function readReferralCode(): string {
   }
 }
 
-/** 服务端错误码 → 中文提示。没认出的码用服务端自带的 message，再没有就用兜底文案。
- *  短信验证码相关的错误（发送太频繁要等几秒、验证码还能试几次……）一律用服务端的原话，这里不改写。 */
-const ERROR_TEXT: Record<string, string> = {
-  PHONE_TAKEN: "这个手机号已经注册过了，请直接下载软件登录。",
-  SMS_COOLDOWN: "验证码发送太频繁，请 60 秒后再试。",
-  SMS_DAILY_LIMIT: "这个手机号今天获取验证码的次数已达上限，请明天再试。",
-  SMS_UNAVAILABLE: "短信服务暂时不可用，请稍后再试。",
-  SMS_SEND_FAILED: "短信发送失败，请稍后再试。",
-  SMS_CODE_INVALID: "验证码不对或已过期，请重新获取。",
-  IDENTITY_TAKEN: "这个用户名已经被注册了，换一个试试。",
-  REGISTRATION_DISABLED: "当前暂停开放注册，请稍后再来。",
-  IP_ACCOUNT_LIMIT: "当前网络注册的账号已达上限，请直接登录或联系客服。",
-  DEVICE_ACCOUNT_LIMIT: "该设备注册的账号已达上限，请使用已有账号登录。",
-  VALIDATION_ERROR: "填写的内容格式不对，请检查手机号、验证码、用户名和密码。",
-  RATE_LIMITED: "操作太频繁了，请稍后再试。",
-};
-
 type PostResult = { ok: true; data: unknown } | { ok: false; code: string; message: string; cooldownSeconds: number };
 
 async function postJson(path: string, body: unknown): Promise<PostResult> {
@@ -131,7 +115,7 @@ async function postJson(path: string, body: unknown): Promise<PostResult> {
     return {
       ok: false,
       code,
-      message: ERROR_TEXT[code] || err?.message || "请求失败，请稍后重试。",
+      message: errorMessage(code, err?.message),
       cooldownSeconds: wait,
     };
   } catch {

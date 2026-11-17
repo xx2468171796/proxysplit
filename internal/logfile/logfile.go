@@ -68,7 +68,7 @@ func Prune(dir string, now time.Time, days int) int {
 // FormatLine renders "2026-10-29 14:03:12.345 INFO  [service] text\n" with the
 // text redacted. Lines without a leading [category] come from the core.
 func FormatLine(t time.Time, line string) string {
-	text := maskPhones(telemetry.Sanitize(strings.TrimRight(line, "\r\n")))
+	text := telemetry.Sanitize(strings.TrimRight(line, "\r\n"))
 	if !strings.HasPrefix(text, "[") {
 		text = "[core] " + text
 	}

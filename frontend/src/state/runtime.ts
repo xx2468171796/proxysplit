@@ -122,6 +122,20 @@ export function onceCaptureNote(note: string): string {
   return note;
 }
 
+const START_HINT =
+  "排查：没用管理员身份运行的话，关闭软件后「右键 → 以管理员身份运行」；已经是管理员，多半是安全软件拦了虚拟网卡驱动（把本软件加入信任后重试），或别的 VPN / 加速器正占着虚拟网卡（先退出它）。";
+
+/**
+ * 启动失败给用户看的话：Go 给的原因永远原样显示。
+ * Go 的 Start() 目前只返回一句文字、没有错误码，所以这里不替 Go 下结论（以前把含 tun / admin 的报错一律换成
+ * 「请以管理员身份运行」，已经是管理员、其实是驱动被拦或别的 VPN 占用时反而误导），只在看起来和权限 / 虚拟网卡有关时附上排查提示。
+ * WinDivert 的报错自带说明，不再加。
+ */
+export function startFailureText(err: string): string {
+  const related = /admin|管理员|tun|wintun|access is denied|拒绝访问/i.test(err) && !/WinDivert/i.test(err);
+  return related ? `启动失败：${err}。${START_HINT}` : `启动失败：${err}`;
+}
+
 /** 启动 / 停止代理。返回给用户看的错误（空串 = 成功）。 */
 export async function toggleRun(): Promise<string> {
   if (runtime.get().busy) return "";
@@ -140,10 +154,7 @@ export async function toggleRun(): Promise<string> {
       return onceCaptureNote(st?.captureNote ?? "");
     }
     pushLog(`[error] ${err}`);
-    // WinDivert errors mention 管理员 too, but rights are rarely the cause there.
-    return /admin|管理员|tun|wintun/i.test(err) && !/WinDivert/i.test(err)
-      ? "启动失败：请关闭后「右键 → 以管理员身份运行」"
-      : `启动失败：${err}`;
+    return startFailureText(err);
   } catch (e) {
     return `操作失败：${String(e)}`;
   } finally {

@@ -12,7 +12,7 @@ import {
   readRelayMessage,
   withHumanVerify,
 } from "./human-verify";
-import { sendSmsCode } from "./phone";
+import { sendSmsCode, sendSmsCodeFor } from "./phone";
 
 const O = HUMAN_VERIFY_ORIGIN;
 const n = "abc";
@@ -163,5 +163,35 @@ describe("sendSmsCode", () => {
       message: "",
       cancelled: false,
     });
+  });
+});
+
+describe("sendSmsCodeFor（把发码结果交给界面）", () => {
+  const outcome = { err: "", cooldown: 60, message: "已发送", cancelled: false };
+  const ui = (alive: boolean) => ({
+    alive: () => alive,
+    startCooldown: vi.fn(),
+    onError: vi.fn(),
+    onSent: vi.fn(),
+  });
+  it("界面还在：开始倒计时并提示", async () => {
+    const u = ui(true);
+    await sendSmsCodeFor("13800138000", "register", u, async () => outcome);
+    expect(u.startCooldown).toHaveBeenCalledWith(60);
+    expect(u.onSent).toHaveBeenCalledWith("已发送");
+  });
+  it("失败：报错，服务端给了等待秒数照样倒计时", async () => {
+    const u = ui(true);
+    await sendSmsCodeFor("13800138000", "register", u, async () => ({ ...outcome, err: "太频繁", cooldown: 42 }));
+    expect(u.startCooldown).toHaveBeenCalledWith(42);
+    expect(u.onError).toHaveBeenCalledWith("太频繁");
+    expect(u.onSent).not.toHaveBeenCalled();
+  });
+  it("等结果的时候界面已经关了：什么都不回写", async () => {
+    const u = ui(false);
+    await sendSmsCodeFor("13800138000", "register", u, async () => ({ ...outcome, err: "太频繁" }));
+    expect(u.startCooldown).not.toHaveBeenCalled();
+    expect(u.onError).not.toHaveBeenCalled();
+    expect(u.onSent).not.toHaveBeenCalled();
   });
 });

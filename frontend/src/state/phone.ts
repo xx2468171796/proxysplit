@@ -53,6 +53,30 @@ export async function sendSmsCode(
   return { err: "", cooldown: r.cooldownSeconds > 0 ? r.cooldownSeconds : 60, message: r.message, cancelled: false };
 }
 
+/** 发码按钮所在的界面：发完要回写的几样东西。 */
+export type SmsSendUi = {
+  /** 界面还在不在（弹框关了 / 换页了就是 false） */
+  alive: () => boolean;
+  startCooldown: (seconds: number) => void;
+  onError: (text: string) => void;
+  onSent: (text: string) => void;
+};
+
+/** 发验证码并把结果交给界面。等人机验证和服务端的这段时间界面可能已经关掉：关掉了就什么都不回写。 */
+export async function sendSmsCodeFor(
+  phone: string,
+  purpose: SmsPurpose,
+  ui: SmsSendUi,
+  send: typeof sendSmsCode = sendSmsCode,
+): Promise<void> {
+  const r = await send(phone, purpose);
+  if (!ui.alive() || r.cancelled) return;
+  // 发送太频繁：服务端说了还要等多久，按钮照样倒计时
+  if (r.cooldown > 0) ui.startCooldown(r.cooldown);
+  if (r.err) return ui.onError(r.err);
+  ui.onSent(r.message || "验证码已发送，5 分钟内有效");
+}
+
 export async function resetPassword(phone: string, code: string, password: string): Promise<string> {
   const invalid = phoneError(phone) || codeError(code) || (password.length < 8 ? "新密码至少 8 位" : "");
   if (invalid) return invalid;

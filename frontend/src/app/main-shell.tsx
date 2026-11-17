@@ -85,7 +85,7 @@ export function MainShell({ netBlocked, onDismissNetBlocked }: Props) {
   });
   const content = (
     <div className="ps-content">
-      <Banners netBlocked={netBlocked} onDismissNetBlocked={onDismissNetBlocked} />
+      <Banners netBlocked={netBlocked} onDismissNetBlocked={onDismissNetBlocked} resumeOrder={page !== "member"} />
       <PageBody page={page} />
     </div>
   );
