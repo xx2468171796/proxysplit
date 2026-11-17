@@ -2,6 +2,7 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 import { bindPhoneSchema, passwordResetSchema, smsSendSchema } from '@proxysplit/contracts'
 import type { AuthService } from '@proxysplit/core'
+import { FAIL_CLOSED } from './rate-limits.js'
 
 type Audit = (actor: string, action: string, targetType: string, targetId: string, ip: string, result: string, metadata?: Record<string, unknown>) => Promise<void>
 export type PhoneDeps = {
@@ -15,7 +16,8 @@ export function registerPhoneRoutes(app: FastifyInstance, d: PhoneDeps) {
   // 每 IP 每小时 20 条。中心模式（配了 LCV_*）：人机凭证 captchaTicket + 用户真实 IP + 设备标识（请求体 deviceFp）交给雷池验证中心，冷却 / 限额在中心；
   // 本地模式：同号 60 秒 1 条、每小时 5 条、每天 10 条在 core 里按库判断，captchaTicket 忽略。
   // req.ip = 用户 IP：app.ts trustProxy 只信 1 跳，nginx 覆盖（不是追加）X-Forwarded-For。
-  app.post('/v1/auth/sms/send', { config: { rateLimit: { max: 20, timeWindow: '1 hour' } } }, async (req) => {
+  // 限流存储不可用时不放行（FAIL_CLOSED）：短信是花钱的，不能在 Redis 宕机时变成不限量。
+  app.post('/v1/auth/sms/send', { config: { rateLimit: { max: 20, timeWindow: '1 hour', ...FAIL_CLOSED } } }, async (req) => {
     const input = smsSendSchema.parse(req.body)
     // 设备标识只认请求体里的 deviceFp（客户端给的是派生值）；不读 x-device-fingerprint 头，原始指纹不会被转给中心。
     // 带 Origin 头 = 浏览器里的官网页面（客户端的请求由 Go 发出，不带）：缓存的旧页面提示刷新，而不是「升级」。

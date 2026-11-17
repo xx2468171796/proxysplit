@@ -23,3 +23,47 @@ export function refreshFamilyKey(token: string): string | null {
 }
 
 export const rateLimited = () => new AppError('RATE_LIMITED', '操作过于频繁，请稍后再试', 429)
+
+// ── 限流存储（Redis）与失败方向 ─────────────────────────────────────────────
+// Redis 宕机时限流器自己不能变成故障点：全站默认放行（skipOnError，见 LIMITER_DEFAULTS），
+// 只有「放行就等于被人白刷钱 / 白刷号」的接口（发短信、注册）拒绝服务，回 503 而不是 500。
+// 用插件公开的自定义 store 接口：存储报错在这里统一成 AppError(503)，全局错误处理照常映射。
+
+export type LimitRedis = { eval: (lua: string, numKeys: number, key: string, windowMs: number) => Promise<unknown> }
+type IncrCallback = (error: Error | null, result?: { current: number; ttl: number }) => void
+/** 插件运行时给 child() 的是「合并后的限流参数 + routeInfo」（类型声明写的是路由选项，两者都按 object 收）。 */
+type RouteInfo = { routeInfo?: { method?: string | string[]; url?: string } }
+
+/** 计数 +1；第一次（或键没有过期时间）时设窗口。返回 {当前次数, 剩余毫秒}。 */
+const INCR_LUA = `local c=redis.call('INCR',KEYS[1])
+local t=redis.call('PTTL',KEYS[1])
+if c==1 or t<0 then redis.call('PEXPIRE',KEYS[1],ARGV[1]) t=tonumber(ARGV[1]) end
+return {c,t}`
+
+export const limiterUnavailable = () => new AppError('RATE_LIMIT_UNAVAILABLE', '服务繁忙，请稍后再试', 503)
+
+/** @fastify/rate-limit 的 store：键前缀 proxysplit:rl:（共享 Redis 必须带项目前缀）。 */
+export function redisLimitStore(redis: LimitRedis) {
+  return class RedisLimitStore {
+    readonly prefix: string
+    constructor(_options: object, prefix = 'proxysplit:rl:') { this.prefix = prefix }
+    incr(key: string, callback: IncrCallback, timeWindow: number, _max?: number) {
+      redis.eval(INCR_LUA, 1, this.prefix + key, timeWindow).then(
+        raw => {
+          const [current, ttl] = raw as [number, number]
+          callback(null, { current: Number(current), ttl: Number(ttl) })
+        },
+        () => callback(limiterUnavailable()),
+      )
+    }
+    child(options: object) {
+      const { method, url } = (options as RouteInfo).routeInfo ?? {}
+      return new RedisLimitStore(options, `${this.prefix}${[method].flat().join(',')}${url ?? ''}:`)
+    }
+  }
+}
+
+/** 插件全局默认：存储出错放行。 */
+export const LIMITER_DEFAULTS = { global: false, max: 10, timeWindow: '1 minute', skipOnError: true } as const
+/** 发短信 / 注册：存储出错不放行（合并进该路由的 rateLimit 配置）。 */
+export const FAIL_CLOSED = { skipOnError: false } as const

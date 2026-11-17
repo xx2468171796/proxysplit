@@ -13,7 +13,7 @@ import { registerDealerRoutes } from './dealer-routes.js'
 import { registerNotifyRoutes } from './notify-routes.js'
 import { registerAccountRoutes } from './account-routes.js'
 import { DeviceLimiter, registerTelemetryRoutes, type TelemetryDeps } from './telemetry-routes.js'
-import { FLEET_LIMIT, REFRESH_PER_FAMILY_PER_MINUTE, rateLimited, refreshFamilyKey } from './rate-limits.js'
+import { FAIL_CLOSED, FLEET_LIMIT, LIMITER_DEFAULTS, REFRESH_PER_FAMILY_PER_MINUTE, rateLimited, redisLimitStore, refreshFamilyKey } from './rate-limits.js'
 import { IpByteBudget } from './telemetry-budget.js'
 import { registerClientNodesRoutes, type ClientNodesDeps } from './client-nodes-routes.js'
 import { registerPhoneRoutes } from './phone-routes.js'
@@ -48,7 +48,8 @@ export async function buildApp(config:ApiConfig,provided?:Core){
   if(smsCenter&&smsMode!=='center'){redis?.disconnect();throw new Error('LCV_* is configured but the auth core is not in center SMS mode')}
   app.log.info(`sms mode: ${smsMode}`)
   await app.register(cors,{origin:[config.ADMIN_ORIGIN],credentials:false})
-  await app.register(rateLimit,{global:false,max:10,timeWindow:'1 minute',...(redis?{redis}:{})})
+  // 限流存储出错（Redis 宕机）默认放行，只有发短信 / 注册拒绝服务（FAIL_CLOSED → 503），见 rate-limits.ts。
+  await app.register(rateLimit,{...LIMITER_DEFAULTS,...(redis?{store:redisLimitStore(redis)}:{})})
   app.setErrorHandler((error,_req,reply)=>{
     if(error instanceof AppError)return reply.code(error.status).send({error:{...error.extra,code:error.code,message:error.message}})
     if((error as {issues?:unknown}).issues)return reply.code(400).send({error:{code:'VALIDATION_ERROR',message:'Invalid request'}})
@@ -107,8 +108,8 @@ export async function buildApp(config:ApiConfig,provided?:Core){
   registerSyncRoutes(app,{user:req=>auth(req),effective:id=>core.auth.effectiveFor(id),deviceName:async id=>(await core.store.findDevice(id))?.name??'',
     sync:new ConfigSyncStore(core.store.pool,syncCipher),profiles:new ConfigProfilesStore(core.store.pool,syncCipher)})
   app.get('/v1/auth/public-key',async()=>({algorithm:'Ed25519',kid:'proxysplit-license-v1',publicKeyPem:core.auth.publicKeyPem}))
-  app.post('/v1/auth/register',{config:{rateLimit:{max:3,timeWindow:'1 hour'}}},async(req)=>core.auth.register(registerSchema.parse(req.body),req.ip))
-  app.post('/v1/auth/register/web',{config:{rateLimit:{max:5,timeWindow:'1 hour'}}},async(req)=>core.auth.registerWeb(webRegisterSchema.parse(req.body),req.ip))
+  app.post('/v1/auth/register',{config:{rateLimit:{max:3,timeWindow:'1 hour',...FAIL_CLOSED}}},async(req)=>core.auth.register(registerSchema.parse(req.body),req.ip))
+  app.post('/v1/auth/register/web',{config:{rateLimit:{max:5,timeWindow:'1 hour',...FAIL_CLOSED}}},async(req)=>core.auth.registerWeb(webRegisterSchema.parse(req.body),req.ip))
   app.post('/v1/auth/login',{config:{rateLimit:{max:30,timeWindow:'1 minute'}}},async(req)=>core.auth.login(loginSchema.parse(req.body),req.ip))
   // POWER云 账号登录：accessToken 只转给面板核实，不落日志
   app.post('/v1/auth/powervpn',{config:{rateLimit:{max:30,timeWindow:'1 minute'}}},async(req)=>core.auth.loginPowervpn(powervpnLoginSchema.parse(req.body),req.ip))

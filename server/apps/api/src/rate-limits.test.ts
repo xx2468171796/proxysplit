@@ -2,7 +2,7 @@
 import { describe, expect, it } from 'vitest'
 import { buildApp } from './app.js'
 import type { ApiConfig } from './config.js'
-import { FLEET_LIMIT, refreshFamilyKey } from './rate-limits.js'
+import { FLEET_LIMIT, redisLimitStore, refreshFamilyKey } from './rate-limits.js'
 
 const config: ApiConfig = {
   NODE_ENV: 'test', HOST: '127.0.0.1', PORT: 18780, PUBLIC_BASE_URL: 'http://127.0.0.1:18780',
@@ -52,5 +52,55 @@ describe('客户端定时接口的限流口径', () => {
     expect(refreshFamilyKey(refreshToken('abc'))).toBe('abc')
     expect(refreshFamilyKey('garbage')).toBeNull()
     expect(refreshFamilyKey(`${b64({})}.${b64({ fam: 7 })}.x`)).toBeNull()
+  })
+})
+
+describe('限流存储挂了（Redis 不可用）时的方向', () => {
+  // 127.0.0.1:1 没人监听：ioredis 连不上，enableOfflineQueue=false → 每条命令立刻报错（和生产 Redis 宕机同一条路）。
+  const down: ApiConfig = { ...config, REDIS_URL: 'redis://127.0.0.1:1' }
+  const build = async () => {
+    const calls = { rotate: 0, sms: 0, register: 0 }
+    const core = {
+      auth: {
+        publicKeyPem: 'K', smsMode: 'local',
+        rotate: async () => { calls.rotate++; return { ok: true } },
+        sendSmsCode: async () => { calls.sms++; return { ok: true } },
+        register: async () => { calls.register++; return { ok: true } },
+        registerWeb: async () => { calls.register++; return { ok: true } },
+      },
+      store: {}, close: async () => {},
+    }
+    return { app: await buildApp(down, core as never), calls }
+  }
+
+  it('普通接口放行（fail open）：刷新令牌照常 200，而不是 500', async () => {
+    const t = await build()
+    const r = await t.app.inject({ method: 'POST', url: '/v1/auth/refresh', payload: { refreshToken: refreshToken('fam-down'), deviceFingerprint: fingerprint } })
+    expect(r.statusCode).toBe(200)
+    expect(t.calls.rotate).toBe(1)
+    await t.app.close()
+  })
+
+  it('发短信 / 注册不放行（fail closed）：回 503 RATE_LIMIT_UNAVAILABLE，业务代码没被调用', async () => {
+    const t = await build()
+    for (const url of ['/v1/auth/sms/send', '/v1/auth/register', '/v1/auth/register/web']) {
+      const r = await t.app.inject({ method: 'POST', url, payload: {} })
+      expect(r.statusCode, url).toBe(503)
+      expect(r.json(), url).toMatchObject({ error: { code: 'RATE_LIMIT_UNAVAILABLE' } })
+    }
+    expect(t.calls).toMatchObject({ sms: 0, register: 0 })
+    await t.app.close()
+  })
+
+  it('redisLimitStore：按「前缀 + 路由 + 键」计数，Redis 报错统一成 503 的 AppError', async () => {
+    const seen: string[] = []
+    let fail = false
+    const Store = redisLimitStore({ eval: async (_lua, _n, key, windowMs) => { if (fail) throw new Error('ECONNREFUSED'); seen.push(`${key}|${windowMs}`); return [seen.length, 60_000] } })
+    const route = new Store({}).child({ routeInfo: { method: 'POST', url: '/v1/x' } })
+    const incr = () => new Promise<{ err: unknown; res: unknown }>(resolve => route.incr('1.2.3.4', (err, res) => resolve({ err, res }), 60_000, 10))
+    expect(await incr()).toEqual({ err: null, res: { current: 1, ttl: 60_000 } })
+    expect(seen).toEqual(['proxysplit:rl:POST/v1/x:1.2.3.4|60000'])
+    fail = true
+    expect((await incr()).err).toMatchObject({ code: 'RATE_LIMIT_UNAVAILABLE', status: 503 })
   })
 })
