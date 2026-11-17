@@ -64,7 +64,7 @@ function respond(path: string, q: URLSearchParams): Promise<Response> | Response
     const mode = q.get("plans");
     if (mode === "loading") return new Promise<Response>(() => undefined);
     if (mode === "error") return json({ error: { message: "mock" } }, 503);
-    return json({ items: mode === "empty" ? [] : PLANS });
+    return json({ items: mode === "empty" ? [] : PLANS, freeDevices: 1, paymentMethods: ["wechat"] });
   }
   if (path === "/v1/auth/sms/send") return respondSms(q.get("sms"));
   if (path === "/v1/auth/register/web")

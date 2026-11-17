@@ -27,8 +27,36 @@ export function errorMessage(code: string, serverMessage: string | undefined): s
   return text || "请求失败，请稍后重试。";
 }
 
-/** 套餐卡上的设备数：和客户端同一种说法 —— 套餐给的是在免费版 1 台之外「另加」的台数。 */
+/** 套餐目录接口里随套餐一起给的：免费版能用几台设备、现在用什么付款。 */
+export type CatalogExtras = { freeDevices: number; paymentMethods: string[] };
+
+/** 从接口响应里取这两项；老服务端不给时按「免费 1 台、微信」兜底。 */
+export function catalogExtras(body: unknown): CatalogExtras {
+  const b = (body ?? {}) as { freeDevices?: unknown; paymentMethods?: unknown };
+  const free =
+    typeof b.freeDevices === "number" && Number.isInteger(b.freeDevices) && b.freeDevices >= 0 ? b.freeDevices : 1;
+  const methods = Array.isArray(b.paymentMethods)
+    ? b.paymentMethods.filter((m): m is string => m === "wechat" || m === "alipay")
+    : [];
+  return { freeDevices: free, paymentMethods: methods.length ? methods : ["wechat"] };
+}
+
+const PAY_APP: Record<string, string> = { wechat: "微信", alipay: "支付宝" };
+
+/** 「用手机微信扫码付款」这半句：付款方式跟着服务端当前的收款通道走。 */
+export function payLine(methods: readonly string[]): string {
+  const names = methods.map((m) => PAY_APP[m]).filter(Boolean);
+  return `用手机${names.length ? names.join("或") : "微信"}扫码付款`;
+}
+
+/** 套餐卡上的设备数：和客户端同一种说法 —— 套餐给的是在免费版的台数之外「另加」的台数。 */
 export const planDevicesLabel = (maxDevices: number): string => `另加 ${maxDevices} 台设备`;
+
+/** 套餐卡权益里的那一行。免费版 0 台时不提免费版。 */
+export const planDevicesLine = (maxDevices: number, freeDevices: number): string =>
+  freeDevices > 0
+    ? `在免费版的 ${freeDevices} 台之外，${planDevicesLabel(maxDevices)}`
+    : `可以在 ${maxDevices} 台设备上用`;
 
 type TierPlan = { tier: string; maxDevices: number };
 
@@ -41,13 +69,13 @@ function tierRange(plans: readonly TierPlan[], tier: string): string {
 }
 
 /** 会员区的一句设备数说明：台数从套餐接口算，不写死。 */
-export function devicesLine(plans: readonly TierPlan[]): string {
+export function devicesLine(plans: readonly TierPlan[], freeDevices = 1): string {
   const parts = [
     ["普通会员", tierRange(plans, "standard")],
     ["超级会员", tierRange(plans, "premium")],
   ]
     .filter(([, range]) => range)
     .map(([name, range]) => `${name}${range}`);
-  const free = "免费版可以在 1 台电脑上用；";
+  const free = freeDevices > 0 ? `免费版可以在 ${freeDevices} 台电脑上用；` : "";
   return parts.length ? `${free}开通会员后另加设备：${parts.join("，")}。` : `${free}开通会员后按套餐另加设备。`;
 }

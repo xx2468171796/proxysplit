@@ -1,6 +1,6 @@
 // 页面要的两份服务端数据：最新版本号、套餐列表。各取一次，挂载即开始，卸载后不再写状态。
 import { useEffect, useState } from "react";
-import { fetchLatestVersion, fetchPlans, type Plan } from "./api";
+import { type Catalog, fetchCatalog, fetchLatestVersion } from "./api";
 
 export function useLatestVersion(): string | null {
   const [version, setVersion] = useState<string | null>(null);
@@ -16,14 +16,14 @@ export function useLatestVersion(): string | null {
   return version;
 }
 
-export type PlansState = { status: "loading" } | { status: "error" } | { status: "ready"; plans: Plan[] };
+export type PlansState = { status: "loading" } | { status: "error" } | ({ status: "ready" } & Catalog);
 
 export function usePlans(): PlansState {
   const [state, setState] = useState<PlansState>({ status: "loading" });
   useEffect(() => {
     let live = true;
-    fetchPlans().then(
-      (plans) => live && setState({ status: "ready", plans }),
+    fetchCatalog().then(
+      (catalog) => live && setState({ status: "ready", ...catalog }),
       () => live && setState({ status: "error" }),
     );
     return () => {

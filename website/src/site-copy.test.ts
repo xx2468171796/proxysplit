@@ -1,7 +1,7 @@
 // 官网的纯文案规则。运行：node --test website/src（Node 自带的测试器，直接读 .ts）。
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { devicesLine, errorMessage, planDevicesLabel } from "./site-copy.ts";
+import { catalogExtras, devicesLine, errorMessage, payLine, planDevicesLabel, planDevicesLine } from "./site-copy.ts";
 
 test("短信相关的错误：服务端的原话优先（要等几秒、今天还能发几次都在里面）", () => {
   assert.equal(errorMessage("SMS_COOLDOWN", "发送太频繁，请 42 秒后再试"), "发送太频繁，请 42 秒后再试");
@@ -37,4 +37,31 @@ test("设备数从套餐接口算：套餐给的是在免费 1 台之外另加�
     "免费版可以在 1 台电脑上用；开通会员后另加设备：超级会员另加 5 台。",
   );
   assert.equal(devicesLine([]), "免费版可以在 1 台电脑上用；开通会员后按套餐另加设备。");
+});
+
+test("免费版台数和付款方式由套餐接口给，老服务端不给时兜底", () => {
+  assert.deepEqual(catalogExtras({ freeDevices: 2, paymentMethods: ["alipay", "paypal"] }), {
+    freeDevices: 2,
+    paymentMethods: ["alipay"],
+  });
+  assert.deepEqual(catalogExtras({ items: [] }), { freeDevices: 1, paymentMethods: ["wechat"] });
+  assert.deepEqual(catalogExtras({ freeDevices: -1, paymentMethods: "wechat" }), {
+    freeDevices: 1,
+    paymentMethods: ["wechat"],
+  });
+  assert.deepEqual(catalogExtras(null), { freeDevices: 1, paymentMethods: ["wechat"] });
+});
+
+test("文案跟着接口走：免费台数、付款方式", () => {
+  assert.equal(
+    devicesLine([{ tier: "premium", maxDevices: 5 }], 2),
+    "免费版可以在 2 台电脑上用；开通会员后另加设备：超级会员另加 5 台。",
+  );
+  assert.equal(devicesLine([], 0), "开通会员后按套餐另加设备。");
+  assert.equal(planDevicesLine(3, 1), "在免费版的 1 台之外，另加 3 台设备");
+  assert.equal(planDevicesLine(3, 0), "可以在 3 台设备上用");
+  assert.equal(payLine(["wechat"]), "用手机微信扫码付款");
+  assert.equal(payLine(["alipay"]), "用手机支付宝扫码付款");
+  assert.equal(payLine(["alipay", "wechat"]), "用手机支付宝或微信扫码付款");
+  assert.equal(payLine([]), "用手机微信扫码付款");
 });

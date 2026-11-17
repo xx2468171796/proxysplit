@@ -1,7 +1,7 @@
 // 官网与商业 API（同域 /v1）之间的全部往来：访客统计、下载地址、最新版本、套餐、网页注册。
 // 页面组件只调这里，不直接 fetch。
 import { openSmsVerify, type VerifyResult } from "./human-verify";
-import { errorMessage } from "./site-copy";
+import { type CatalogExtras, catalogExtras, errorMessage } from "./site-copy";
 
 export type Plan = {
   code: string;
@@ -65,11 +65,14 @@ export async function fetchLatestVersion(): Promise<string | null> {
   }
 }
 
-export async function fetchPlans(): Promise<Plan[]> {
+/** 套餐目录：套餐 + 免费版能用几台 + 现在用什么付款（都由服务端给，页面文案不写死）。 */
+export type Catalog = { plans: Plan[] } & CatalogExtras;
+
+export async function fetchCatalog(): Promise<Catalog> {
   const res = await fetch("/v1/catalog/plans", { headers: { accept: "application/json" } });
   if (!res.ok) throw new Error(`catalog ${res.status}`);
   const body = (await res.json()) as { items?: Plan[] };
-  return Array.isArray(body.items) ? body.items : [];
+  return { plans: Array.isArray(body.items) ? body.items : [], ...catalogExtras(body) };
 }
 
 export type RegisterInput = { phone: string; code: string; username: string; password: string; ref?: string };
