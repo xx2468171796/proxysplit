@@ -13,11 +13,11 @@ import (
 )
 
 func TestDataFilter(t *testing.T) {
-	if got := DataFilter(nil, nil); got != "false" {
-		t.Fatalf("empty set must match nothing, got %q", got)
+	if got, want := DataFilter(nil, nil), "outbound and !loopback and udp and udp.DstPort != 53"; got != want {
+		t.Fatalf("nothing captured: all non-DNS UDP and no TCP, got %q", got)
 	}
 	got := DataFilter([]uint16{5001, 4000}, []uint16{6000})
-	want := "outbound and !loopback and ip and ((tcp and !tcp.Syn and (tcp.SrcPort == 4000 or tcp.SrcPort == 5001)) or (udp and udp.DstPort != 53 and (udp.SrcPort == 6000)))"
+	want := "outbound and !loopback and ((ip and tcp and !tcp.Syn and (tcp.SrcPort == 4000 or tcp.SrcPort == 5001)) or (udp and udp.DstPort != 53 and udp.SrcPort != 6000))"
 	if got != want {
 		t.Fatalf("filter\n got %s\nwant %s", got, want)
 	}
