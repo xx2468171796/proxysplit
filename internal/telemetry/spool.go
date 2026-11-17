@@ -34,6 +34,20 @@ type Spool struct {
 	w        *bufio.Writer
 	size     int64
 	now      func() time.Time
+	lastSeal int64 // unixnano used for the newest segment name
+}
+
+// sealStamp returns a unixnano that is unique and increasing within this
+// spool. The wall clock alone is not: on Windows it advances in steps, so two
+// seals in the same step would get the same name and the rename would
+// silently replace the earlier segment.
+func (s *Spool) sealStamp() int64 {
+	ts := s.now().UnixNano()
+	if ts <= s.lastSeal {
+		ts = s.lastSeal + 1
+	}
+	s.lastSeal = ts
+	return ts
 }
 
 // OpenSpool prepares dir and seals segments left by earlier runs.
@@ -43,9 +57,9 @@ func OpenSpool(dir, session string, segLimit, capBytes int64) (*Spool, error) {
 	}
 	s := &Spool{dir: dir, session: session, segLimit: segLimit, capBytes: capBytes, now: time.Now}
 	leftovers, _ := filepath.Glob(filepath.Join(dir, "cur-*.jsonl"))
-	for i, p := range leftovers {
+	for _, p := range leftovers {
 		sess := strings.TrimSuffix(strings.TrimPrefix(filepath.Base(p), "cur-"), ".jsonl")
-		_ = os.Rename(p, filepath.Join(dir, fmt.Sprintf("seg-%019d-%s.jsonl", s.now().UnixNano()+int64(i), sess)))
+		_ = os.Rename(p, filepath.Join(dir, fmt.Sprintf("seg-%019d-%s.jsonl", s.sealStamp(), sess)))
 	}
 	s.enforceCapLocked()
 	return s, nil
@@ -113,7 +127,7 @@ func (s *Spool) sealLocked() error {
 		_ = os.Remove(s.curPath())
 		return nil
 	}
-	dst := filepath.Join(s.dir, fmt.Sprintf("seg-%019d-%s.jsonl", s.now().UnixNano(), s.session))
+	dst := filepath.Join(s.dir, fmt.Sprintf("seg-%019d-%s.jsonl", s.sealStamp(), s.session))
 	if err := os.Rename(s.curPath(), dst); err != nil {
 		return err
 	}

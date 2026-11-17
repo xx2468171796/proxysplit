@@ -154,3 +154,25 @@ func TestMergedRejectFallsBackToSingleSegments(t *testing.T) {
 		t.Fatalf("server must hold the 4 healthy lines, has %d", lines)
 	}
 }
+
+// Two seals inside one clock step (Windows wall clock) used to produce the
+// same file name; the second rename replaced the first segment.
+func TestSealsInTheSameClockStepKeepBothSegments(t *testing.T) {
+	sp, _ := OpenSpool(t.TempDir(), "sess", 1<<20, 8<<20)
+	frozen := time.Unix(1_700_000_000, 0)
+	sp.now = func() time.Time { return frozen }
+	for i := 0; i < 3; i++ {
+		_ = sp.Append(oneLine(i)[0])
+		_ = sp.Seal()
+	}
+	segs := sp.Segments()
+	if len(segs) != 3 {
+		t.Fatalf("3 seals must leave 3 segments, got %d", len(segs))
+	}
+	for i, p := range segs {
+		recs, _ := readSegment(p)
+		if len(recs) != 1 || recs[0].S != oneLine(i)[0].S {
+			t.Fatalf("segment %d out of order or overwritten: %+v", i, recs)
+		}
+	}
+}
