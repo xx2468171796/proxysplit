@@ -767,7 +767,11 @@ func (a *App) Register(username, email, password, ref string) string {
 
 type PlansResult struct {
 	Items []license.Plan `json:"items"`
-	Err   string         `json:"err,omitempty"`
+	// from the same catalog answer: how to pay right now and the free tier's
+	// device count (-1 = the server did not say)
+	PaymentMethods []string `json:"paymentMethods"`
+	FreeDevices    int      `json:"freeDevices"`
+	Err            string   `json:"err,omitempty"`
 }
 
 type DevicesResult struct {
@@ -797,8 +801,12 @@ type AnnouncementsResult struct {
 }
 
 func (a *App) GetMembershipPlans() PlansResult {
-	items, err := a.lic.Plans()
-	return PlansResult{Items: items, Err: errStr(err)}
+	cat, err := a.lic.Catalog()
+	res := PlansResult{Items: cat.Items, PaymentMethods: cat.PaymentMethods, FreeDevices: -1, Err: errStr(err)}
+	if cat.FreeDevices != nil && *cat.FreeDevices >= 0 {
+		res.FreeDevices = *cat.FreeDevices
+	}
+	return res
 }
 
 func (a *App) GetMyDevices() DevicesResult {

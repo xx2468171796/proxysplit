@@ -13,16 +13,25 @@ import (
 // Catalog, devices, orders and other signed-in account calls (split out of
 // client.go to keep files small).
 
-func (c *Client) Plans() ([]Plan, error) {
-	var result struct {
-		Items []Plan `json:"items"`
-	}
+// Catalog is the public plan list plus what the server says about the free
+// tier and the way to pay right now, so the UI wording is not hard-coded.
+type Catalog struct {
+	Items []Plan `json:"items"`
+	// PaymentMethods are "wechat" / "alipay", by the active payment channel
+	// (empty: an older server; the pay dialog still tells by the pay link).
+	PaymentMethods []string `json:"paymentMethods"`
+	// FreeDevices is how many devices the free tier may use (nil: older server).
+	FreeDevices *int `json:"freeDevices"`
+}
+
+func (c *Client) Catalog() (Catalog, error) {
+	var result Catalog
 	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
 	defer cancel()
 	if err := c.request(ctx, http.MethodGet, "/v1/catalog/plans", nil, &result, ""); err != nil {
-		return nil, err
+		return Catalog{}, err
 	}
-	return result.Items, nil
+	return result, nil
 }
 
 func (c *Client) Announcements() ([]Announcement, error) {

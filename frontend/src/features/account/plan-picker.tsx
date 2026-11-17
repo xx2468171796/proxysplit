@@ -6,7 +6,7 @@ import { RefreshCw } from "lucide-react";
 import { useMemo } from "react";
 import type { MemberPlan } from "../../api/types";
 import { useStore } from "../../shared/store";
-import { groupPlans, license, loadCommerce } from "../../state/account";
+import { freeDeviceCount, groupPlans, license, loadCommerce } from "../../state/account";
 import { BenefitTable } from "../member/benefit-table";
 import { LifetimePlanCard, PlanCard } from "./plan-card";
 import { ResumeOrderAlert } from "./resume-order-alert";
@@ -54,7 +54,7 @@ export function PlanPicker() {
   const loading = useStore(license, (s) => s.loading);
   const loadError = useStore(license, (s) => s.planLoadError);
   const groups = useMemo(() => groupPlans(plans), [plans]);
-  const free = useStore(license, (s) => s.status.freeDevices ?? 1);
+  const free = useStore(license, freeDeviceCount);
 
   if (!plans.length) {
     if (loading) return <StatePanel kind="loading" title="正在加载套餐…" size="compact" />;

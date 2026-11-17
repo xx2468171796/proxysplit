@@ -108,3 +108,26 @@ func TestCreateOrderSendsHumanVerifyTokenAndKeepsErrorCode(t *testing.T) {
 		t.Fatalf("token order failed: order=%+v err=%v body=%v", order, err, bodies[1])
 	}
 }
+
+// The catalog answer also says how to pay right now and how many devices the
+// free tier gets; an older server sends neither.
+func TestCatalogCarriesPaymentMethodsAndFreeDevices(t *testing.T) {
+	body := `{"items":[{"id":"p1","name":"普通会员"}],"paymentMethods":["wechat"],"freeDevices":2}`
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/catalog/plans" {
+			http.NotFound(w, r)
+			return
+		}
+		_, _ = w.Write([]byte(body))
+	}))
+	defer server.Close()
+	c := &Client{apiURL: server.URL, http: server.Client(), path: t.TempDir() + "/license.dat", fingerprint: "fingerprint"}
+	cat, err := c.Catalog()
+	if err != nil || len(cat.Items) != 1 || len(cat.PaymentMethods) != 1 || cat.PaymentMethods[0] != "wechat" || cat.FreeDevices == nil || *cat.FreeDevices != 2 {
+		t.Fatalf("catalog = %+v, err %v", cat, err)
+	}
+	body = `{"items":[]}`
+	if cat, err = c.Catalog(); err != nil || cat.FreeDevices != nil || len(cat.PaymentMethods) != 0 {
+		t.Fatalf("older server: catalog = %+v, err %v", cat, err)
+	}
+}

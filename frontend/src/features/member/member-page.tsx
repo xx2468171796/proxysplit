@@ -5,7 +5,14 @@ import { Crown, FolderSync, RefreshCw } from "lucide-react";
 import { useEffect } from "react";
 import { openSettings } from "../../app/nav";
 import { useStore } from "../../shared/store";
-import { isPaidMember, license, loadCommerce, openMembership } from "../../state/account";
+import {
+  freeDeviceCount,
+  isPaidMember,
+  license,
+  loadCommerce,
+  openMembership,
+  payMethodText,
+} from "../../state/account";
 import { PlanPicker } from "../account/plan-picker";
 import { EntitlementSummary } from "./entitlement-summary";
 import "../account/account.css";
@@ -53,15 +60,17 @@ function MyBenefits() {
 
 function BecomeMember() {
   const loading = useStore(license, (s) => s.loading);
+  const free = useStore(license, freeDeviceCount);
+  const pay = useStore(license, (s) => payMethodText(s.catalog.paymentMethods));
   return (
     <>
-      <Panel title="当前：免费版" description="全部功能可用，同时 1 台设备；云同步是会员功能。">
+      <Panel title="当前：免费版" description={`全部功能可用，同时 ${free} 台设备；云同步是会员功能。`}>
         <EntitlementSummary showPhone={false} />
       </Panel>
       <SyncHint />
       <Panel
         title="开通会员"
-        description="选好时长点「开通」，扫码支付后几秒内自动到账，设备名额和云同步立即生效。"
+        description={`选好时长点「开通」，${pay}扫码支付后几秒内自动到账，设备名额和云同步立即生效。`}
         actions={
           <Button variant="ghost" size="sm" loading={loading} loadingText="加载中…" onClick={() => void loadCommerce()}>
             <RefreshCw />

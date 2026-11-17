@@ -959,6 +959,8 @@ export namespace main {
 	}
 	export class PlansResult {
 	    items: license.Plan[];
+	    paymentMethods: string[];
+	    freeDevices: number;
 	    err?: string;
 	
 	    static createFrom(source: any = {}) {
@@ -968,6 +970,8 @@ export namespace main {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.items = this.convertValues(source["items"], license.Plan);
+	        this.paymentMethods = source["paymentMethods"];
+	        this.freeDevices = source["freeDevices"];
 	        this.err = source["err"];
 	    }
 	

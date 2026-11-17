@@ -343,6 +343,8 @@ const impl: Record<string, Fn> = {
     release: update ? release : undefined,
   }),
   GetMembershipPlans: () => ({
+    paymentMethods: ["wechat"],
+    freeDevices: 1,
     items: [
       plan("std-m", "standard", "普通会员 · 月付", 30, 1900),
       plan("std-y", "standard", "普通会员 · 年付", 365, 16800),

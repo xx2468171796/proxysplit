@@ -1,5 +1,5 @@
 // 账号与会员：登录状态（license）、套餐 / 设备 / 订单 / 公告（commerce）及其动作。
-import { api } from "../api/backend";
+import { api, type PlanCatalog } from "../api/backend";
 import { syncApi } from "../api/sync";
 import type { AccountDevice, Announcement, LicenseStatus, MemberOrder, MemberPlan } from "../api/types";
 import { createStore } from "../shared/store";
@@ -8,6 +8,8 @@ import { promptAfterSignIn, resetPrompts } from "./prompts";
 export type AccountState = {
   status: LicenseStatus;
   plans: MemberPlan[];
+  /** 套餐接口顺带给的：现在用什么付款、免费版能用几台（服务端没给 = 空 / null） */
+  catalog: PlanCatalog;
   devices: AccountDevice[];
   orders: MemberOrder[];
   announcements: Announcement[];
@@ -43,6 +45,7 @@ const EMPTY_LICENSE: LicenseStatus = {
 export const license = createStore<AccountState>({
   status: EMPTY_LICENSE,
   plans: [],
+  catalog: { paymentMethods: [], freeDevices: null },
   devices: [],
   orders: [],
   announcements: [],
@@ -164,7 +167,11 @@ export async function loadCommerce(): Promise<void> {
     const plans = await api.plans();
     if (plans.err) license.set({ plans: [], planLoadError: `套餐读取失败：${plans.err}` });
     else if (!plans.items.length) license.set({ plans: [], planLoadError: "后台暂未返回可购买套餐，请刷新后重试。" });
-    else license.set({ plans: plans.items });
+    else
+      license.set({
+        plans: plans.items,
+        catalog: { paymentMethods: plans.paymentMethods, freeDevices: plans.freeDevices },
+      });
     const ann = await api.announcements();
     if (at !== epoch) return;
     if (!ann.err) license.set({ announcements: ann.items });
@@ -246,6 +253,17 @@ export async function changePassword(current: string, next: string): Promise<str
 export type PlanGroups = { standard: MemberPlan[]; premium: MemberPlan[]; lifetime: MemberPlan[] };
 
 /** 套餐分组：普通会员 / 超级会员（不含永久）/ 永久。 */
+/** 免费版能用几台：本人授权里的优先，其次套餐接口给的，都没有按 1。 */
+export const freeDeviceCount = (s: Pick<AccountState, "status" | "catalog">): number =>
+  s.status.freeDevices ?? s.catalog.freeDevices ?? 1;
+
+const PAY_APP: Record<string, string> = { wechat: "微信", alipay: "支付宝" };
+/** 「用微信」这样的半句；服务端没说付款方式时为空串（付款框仍按付款链接显示）。 */
+export function payMethodText(methods: readonly string[]): string {
+  const names = methods.map((m) => PAY_APP[m]).filter(Boolean);
+  return names.length ? `用${names.join("或")}` : "";
+}
+
 export function groupPlans(plans: readonly MemberPlan[]): PlanGroups {
   return {
     standard: plans.filter((p) => p.tier === "standard" && !p.lifetime),

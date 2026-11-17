@@ -47,6 +47,7 @@ const listOf = <T>(r: { items?: unknown; err?: string } | null | undefined): Lis
   err: r?.err || undefined,
 });
 const arr = <T>(v: T[] | null | undefined): T[] => v ?? [];
+export type PlanCatalog = { paymentMethods: string[]; freeDevices: number | null };
 // 生成的绑定参数是带 convertValues 的类；界面传纯对象，在边界处转一次。
 const asArg = <T>(v: unknown): T => v as T;
 
@@ -213,7 +214,17 @@ export const api = {
   changePassword: (current: string, next: string) => W.ChangeAccountPassword(current, next),
   refreshEntitlement: () => W.RefreshEntitlement(),
   redeemCode: (code: string) => W.RedeemCode(code),
-  plans: async () => listOf<MemberPlan>(await W.GetMembershipPlans()),
+  /** 套餐 + 同一次回答里的付款方式（wechat / alipay）与免费版设备数（服务端没给 = null）。 */
+  plans: async (): Promise<Listed<MemberPlan> & PlanCatalog> => {
+    const r = await W.GetMembershipPlans();
+    const methods = arr(r?.paymentMethods).filter((m) => m === "wechat" || m === "alipay");
+    const free = r?.freeDevices;
+    return {
+      ...listOf<MemberPlan>(r),
+      paymentMethods: methods,
+      freeDevices: typeof free === "number" && free >= 0 ? free : null,
+    };
+  },
   devices: async () => listOf<AccountDevice>(await W.GetMyDevices()),
   orders: async () => listOf<MemberOrder>(await W.GetMyOrders()),
   announcements: async () => listOf<Announcement>(await W.GetAnnouncements()),
