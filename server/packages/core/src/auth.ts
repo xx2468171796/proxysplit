@@ -4,7 +4,7 @@ import { exportSPKI, generateKeyPair, importPKCS8, jwtVerify, SignJWT } from 'jo
 import { AppError, normalizePhone, normalizeUsername } from '@proxysplit/shared'
 import type { SmsPurpose, ActivateDeviceInput, BindPhoneInput, DeviceInput, LoginInput, PasswordResetInput, PowervpnLoginInput, RefreshInput, RegisterInput, SelfPasswordInput, WebRegisterInput } from '@proxysplit/contracts'
 import { powervpnMeSchema } from '@proxysplit/contracts'
-import { channelOfSources, type PgStore, type UserChannel, type UserRecord } from './store.js'
+import { channelOfSources, releasePlatform, type PgStore, type UserChannel, type UserRecord } from './store.js'
 import { effective, licenseView } from './entitlement.js'
 import { PhoneAuth, yunpianSender } from './phone-auth.js'
 import type { SmsCenter, SmsSendContext } from './sms-center.js'
@@ -398,7 +398,8 @@ export class AuthService{
     const device=await this.store.findDevice(deviceId);if(!device||device.userId!==userId||device.revoked||device.fingerprintHash!==hashFingerprint(deviceFingerprint))throw new AppError('DEVICE_MISMATCH','Device verification failed',401)
     if(!await this.store.isDeviceWithinLimit(userId,deviceId,eff.deviceLimit))throw new AppError('DEVICE_LIMIT','当前套餐设备名额已减少，请先解绑超额设备',409)
     const settings=await this.store.getCommerceSettings()
-    await this.store.touchDevice(deviceId,appVersion);const release=await this.store.latestRelease();const expires=Math.min(Date.now()+settings.licenseLeaseMinutes*60000,ent.expiresAt.getTime())
+    // 最低版本 / 最新版按这台设备的平台取（Windows 与 macOS 各发各的）。
+    await this.store.touchDevice(deviceId,appVersion);const release=await this.store.latestRelease('stable',releasePlatform(device.platform));const expires=Math.min(Date.now()+settings.licenseLeaseMinutes*60000,ent.expiresAt.getTime())
     const token=await new SignJWT({typ:'license-lease',lid:ent.licenseId,did:deviceId,fph:device.fingerprintHash,plan:ent.planName,planCode:ent.planCode,tier:ent.tier,maxDevices:ent.maxDevices,features:ent.features,minVersion:release?.minimumVersion??'1.7.2',grace:settings.offlineGraceHours,entitlementExp:Math.floor(ent.expiresAt.getTime()/1000)}).setProtectedHeader({alg:'EdDSA',kid:'proxysplit-license-v1'}).setSubject(userId).setIssuedAt().setExpirationTime(Math.floor(expires/1000)).sign(this.privateKey)
     return {lease:token,expiresAt:new Date(expires).toISOString(),offlineGraceHours:settings.offlineGraceHours,entitlementExpiresAt:ent.expiresAt.toISOString(),release}
   }

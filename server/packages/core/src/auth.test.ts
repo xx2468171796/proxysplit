@@ -87,7 +87,12 @@ class FakeStore {
   async findDevice(id: string) { return id === this.device.id ? this.device : null }
   async touchDevice() {}
   async getCommerceSettings(){return {registrationEnabled:true,trialDays:3,trialPlanCode:'trial',defaultDeviceLimit:3,licenseLeaseMinutes:60,offlineGraceHours:6,activePaymentProvider:'zhongzhuan-prod'}}
-  async latestRelease() { return { version: '2.0.0', minimumVersion: '1.9.0', url: 'https://download.invalid/app.exe', sha256: 'a'.repeat(64), signature: 'signature', mandatory: false, title:'', summary:'', changelog:'', channel:'stable', publishedAt: new Date() } }
+  releaseAsks: string[] = []
+  async latestRelease(channel: 'stable' | 'beta', platform: 'windows' | 'macos') {
+    this.releaseAsks.push(`${channel}/${platform}`)
+    const mac = platform === 'macos'
+    return { version: '2.0.0', minimumVersion: mac ? '1.12.0' : '1.9.0', url: mac ? 'https://download.invalid/app.zip' : 'https://download.invalid/app.exe', sha256: 'a'.repeat(64), signature: 'signature', mandatory: false, title:'', summary:'', changelog:'', channel, platform, publishedAt: new Date() }
+  }
 }
 
 async function fixture() {
@@ -178,6 +183,18 @@ describe('commercial auth', () => {
     expect(payload.did).toBe(principal.deviceId)
     expect(payload.features).toEqual(['proxy', 'custom-lines'])
     expect(payload.minVersion).toBe('1.9.0')
+  })
+
+  it('签租约按这台设备自己的平台取最低版本和最新版（macOS 设备不再拿 Windows 的发布）', async () => {
+    const { store, auth, device } = await fixture()
+    const mac = { ...device, name: 'MacBook', platform: 'macos' as const }
+    const login = await auth.login({ username: 'alice', password: 'correct horse battery staple', device: mac })
+    const principal = await auth.verifyAccess(login.accessToken)
+    const lease = await auth.lease(principal.userId, principal.deviceId, mac.fingerprint, mac.appVersion)
+    const { payload } = await jwtVerify(lease.lease, await importSPKI(auth.publicKeyPem, 'EdDSA'), { algorithms: ['EdDSA'] })
+    expect(store.releaseAsks).toEqual(['stable/macos'])
+    expect(payload.minVersion).toBe('1.12.0')
+    expect(lease.release).toMatchObject({ platform: 'macos', url: 'https://download.invalid/app.zip' })
   })
 
   it('never accepts the lease on a different device fingerprint', async () => {

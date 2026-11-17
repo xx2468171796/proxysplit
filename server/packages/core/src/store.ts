@@ -43,6 +43,9 @@ export type ReleaseRecord = {
   signature:string; mandatory:boolean; title:string; summary:string;
   changelog:string; channel:string; platform?:string; publishedAt:Date
 }
+export type ReleasePlatform='windows'|'macos'
+/** 设备 / 请求里的平台字符串 → 发布平台。不认识的值按 windows（老客户端不带平台）。 */
+export const releasePlatform=(value:unknown):ReleasePlatform=>value==='macos'?'macos':'windows'
 export type CommerceSettings = {
   registrationEnabled:boolean; trialDays:number; trialPlanCode:string;
   defaultDeviceLimit:number; licenseLeaseMinutes:number;
@@ -544,8 +547,9 @@ export class PgStore {
 
   // 返回指定通道的“最新版”。按语义版本(而非发布时间)取最高，避免误发一个更旧
   // 版本号后顶替真正的最新版；channel 隔离让 beta 不会被推给稳定版客户端。
-  // platform：Windows / macOS 各自一条（同版本号），不带时按 windows，老客户端不受影响。
-  async latestRelease(channel:'stable'|'beta'='stable',platform:'windows'|'macos'='windows'):Promise<ReleaseRecord|null>{
+  // platform：Windows / macOS 各自一条（同版本号）。两个参数都没有默认值：每个调用方必须明说要哪个通道、哪个平台
+  //（曾经默认 windows，签租约时 macOS 设备拿到的是 Windows 的最低版本和安装包）。外来字符串用 releasePlatform 归一。
+  async latestRelease(channel:'stable'|'beta',platform:ReleasePlatform):Promise<ReleaseRecord|null>{
     const r=await this.pool.query(`SELECT version,minimum_version AS "minimumVersion",url,sha256,signature,mandatory,title,summary,changelog,channel,platform,published_at AS "publishedAt"
       FROM releases WHERE channel=$1 AND platform=$2
       ORDER BY string_to_array(version,'.')::int[] DESC,published_at DESC LIMIT 1`,[channel,platform])

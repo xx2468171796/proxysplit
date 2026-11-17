@@ -6,7 +6,7 @@ import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
 import { AppError, maskPhone, normalizeUsername } from '@proxysplit/shared'
 import { activateDeviceSchema, powervpnLoginSchema, powervpnSyncSchema, adminGrantSchema, adminPowervpnProvisionSchema, selfPasswordSchema, webRegisterSchema, analyticsQuerySchema, auditListQuery, deviceListQuery, downloadStatsQuery, leaseSchema, licenseExtendSchema, loginSchema, orderCreateSchema, orderListQuery, orderRefundSchema, planListQuery, planPatchSchema, planUpsertSchema, providerUpsertSchema, redeemCodeCreateSchema, redeemListQuery, redeemSchema, refreshSchema, registerSchema, releaseCreateSchema, releaseListQuery, settingPatchSchema, trackViewSchema, userCreateSchema, userListQuery, userPasswordSchema, userStatusSchema } from '@proxysplit/contracts'
-import { AccelTokens, ClientNodesQuery, ClientNodesStore, ConfigProfilesStore, ConfigSyncStore, LinkCipher, SyncCipher, createAccount, createCommercialCore, DealerAdmin, DealerService, createNotify, createNotifyEvents, type Notify, licenseView, FenxiaoService, hashPassword, PaymentService, createCenterPayFromEnv, createSmsCenterFromEnv, type CenterPayContext, TelemetryQuery, TelemetryStore, type AuthService, type PgStore } from '@proxysplit/core'
+import { AccelTokens, ClientNodesQuery, ClientNodesStore, ConfigProfilesStore, ConfigSyncStore, LinkCipher, SyncCipher, createAccount, createCommercialCore, DealerAdmin, DealerService, createNotify, createNotifyEvents, type Notify, licenseView, FenxiaoService, hashPassword, PaymentService, releasePlatform, createCenterPayFromEnv, createSmsCenterFromEnv, type CenterPayContext, TelemetryQuery, TelemetryStore, type AuthService, type PgStore } from '@proxysplit/core'
 import type { ApiConfig } from './config.js'
 import { registerFenxiaoRoutes } from './fenxiao-routes.js'
 import { registerDealerRoutes } from './dealer-routes.js'
@@ -173,7 +173,7 @@ export async function buildApp(config:ApiConfig,provided?:Core){
     setTimeout(()=>void reconcilePayments(),1_000).unref()
   }
   // platform=macos 给 Mac 客户端（.zip）；不带或其它值 = windows（老客户端不带这个参数）。
-  app.get('/v1/releases/latest',async(req)=>{const q=req.query as {channel?:string;platform?:string};return {release:await core.store.latestRelease(q.channel==='beta'?'beta':'stable',q.platform==='macos'?'macos':'windows')}})
+  app.get('/v1/releases/latest',async(req)=>{const q=req.query as {channel?:string;platform?:string};return {release:await core.store.latestRelease(q.channel==='beta'?'beta':'stable',releasePlatform(q.platform))}})
   app.get('/v1/releases',async()=>({items:(await core.store.listReleases({limit:100})).items}))
   // Tracked download: log one event (hashed IP + visitor id + UA), then 302 to
   // the real Nginx-served file. Only known-shaped filenames are allowed so this
