@@ -16,8 +16,6 @@ import (
 // Sanitize is the single owner of redaction: the uploaded copy and the local
 // log file (internal/logfile) both call it, so a rule added here covers both.
 
-const maxLineLen = 4096
-
 var (
 	reShareLink = regexp.MustCompile(`(?i)\b(vmess|vless|trojan|ssr|ss|hysteria2|hysteria|hy2|tuic|anytls|wireguard|wg|socks5h|socks5|socks4a|socks4|socks|naive\+https|naive\+quic|shadowtls)://[^\s"'<>]+`)
 	// Any other URL: credentials in the userinfo go.
@@ -94,14 +92,26 @@ func maskPhones(s string) string {
 	return s
 }
 
-// Sanitize redacts secrets from one log line or error text.
+// Sanitize redacts secrets from one log line or error text. The result is at
+// most maxLineLen UTF-16 units, suffix included (see limits.go).
 func Sanitize(s string) string {
 	if s == "" {
 		return s
 	}
-	if len(s) > maxLineLen {
-		s = s[:maxLineLen] + "…[truncated]"
+	// Bound the regex work first. Redaction can lengthen a line, so the limit
+	// itself is applied after it; the first cut is generous and drops the
+	// half-token it may leave at the end, which the rules could not recognise.
+	if len(s) > 4*maxLineLen {
+		s = s[:4*maxLineLen]
+		if i := strings.LastIndexAny(s, " \t"); i > len(s)-256 {
+			s = s[:i]
+		}
+		s = strings.ToValidUTF8(s, "") + truncatedSuffix
 	}
+	return truncate(redact(s), maxLineLen)
+}
+
+func redact(s string) string {
 	s = reShareLink.ReplaceAllStringFunc(s, func(m string) string {
 		return strings.ToLower(m[:strings.Index(m, "://")]) + "://[redacted]"
 	})

@@ -121,6 +121,30 @@ func (s *Spool) sealLocked() error {
 	return nil
 }
 
+// quarantineKeep is how many rejected segments stay on disk for diagnosis.
+const quarantineKeep = 5
+
+// Quarantine sets a sealed segment aside as "bad-…": it is never uploaded
+// again, the newest quarantineKeep are kept, and clearing the local log queue
+// removes them. Used when the server keeps rejecting a segment.
+func (s *Spool) Quarantine(path string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	quarantine(path)
+}
+
+func quarantine(path string) {
+	dir, base := filepath.Split(path)
+	if os.Rename(path, filepath.Join(dir, "bad-"+strings.TrimPrefix(base, "seg-"))) != nil {
+		_ = os.Remove(path) // cannot set it aside: it must still not block the queue
+	}
+	list, _ := filepath.Glob(filepath.Join(dir, "bad-*.jsonl"))
+	sort.Strings(list)
+	for i := 0; i < len(list)-quarantineKeep; i++ {
+		_ = os.Remove(list[i])
+	}
+}
+
 // Segments lists sealed segments, oldest first.
 func (s *Spool) Segments() []string {
 	list, _ := filepath.Glob(filepath.Join(s.dir, "seg-*.jsonl"))

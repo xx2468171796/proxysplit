@@ -78,7 +78,7 @@ func Init(cfg Config) error {
 	r := &recorder{
 		conns: newConnStats(),
 		spool: sp, session: session,
-		up:   &Uploader{Endpoint: cfg.Endpoint, Client: &http.Client{Transport: tr, Timeout: 20 * time.Second}, Meta: cfg.Meta, Token: cfg.Token, MinWait: 30 * time.Second, MaxWait: 30 * time.Minute},
+		up:   &Uploader{Quarantine: sp.Quarantine, Endpoint: cfg.Endpoint, Client: &http.Client{Transport: tr, Timeout: 20 * time.Second}, Meta: cfg.Meta, Token: cfg.Token, MinWait: 30 * time.Second, MaxWait: 30 * time.Minute},
 		logs: make(chan record, 4096), kick: make(chan struct{}, 1), stop: make(chan struct{}), done: make(chan struct{}),
 	}
 	r.ctx, r.cancel = context.WithCancel(context.Background())
