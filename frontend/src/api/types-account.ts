@@ -22,6 +22,10 @@ export type LicenseStatus = {
   /** 老账号没绑手机号时为 false：每次登录后提示绑定 */
   phoneBound?: boolean;
   channel?: string;
+  /** 本机的代理站标识（从代理站下载的安装包认定，先到先得） */
+  dealer?: string;
+  /** 服务端给 aigw 账号的客服：主站 = 业主微信，代理站 = 该代理商微信；普通用户没有 */
+  contact?: { wechat: string; brand?: string } | null;
   error?: string;
 };
 

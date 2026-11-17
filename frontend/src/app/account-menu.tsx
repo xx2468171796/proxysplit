@@ -1,11 +1,11 @@
-// 侧栏左下账号菜单：会员中心、兑换码、推广赚钱、设置；联系方式与官网（中转站渠道不显示）；退出账号（先确认）。
+// 侧栏左下账号菜单：会员中心、兑换码、推广赚钱、设置；联系方式与官网（中转站渠道只显示主站 / 代理商的客服微信）；退出账号（先确认）。
 import { ConfirmDialog } from "@ankotti/admin-ui";
 import { Crown, GitFork, Globe, HandCoins, MessageCircle, Settings, Ticket, Users } from "lucide-react";
 import { useState } from "react";
 import { api } from "../api/backend";
 import { remainingLabel } from "../shared/format";
 import { useStore } from "../shared/store";
-import { isAigwChannel, license, openMembership, openRedeem } from "../state/account";
+import { aigwServiceWechat, isAigwChannel, license, openMembership, openRedeem } from "../state/account";
 import { logoutAccount } from "../state/account-sso";
 import { openFenxiao } from "../state/fenxiao";
 import { copyText } from "../state/system";
@@ -26,8 +26,19 @@ export function useAccountMenu() {
   const open = (fn: () => Promise<void>, what: string) => () =>
     void fn().catch((e: unknown) => say(`打开${what}失败：${String(e)}`));
 
+  const aigwWechat = aigwServiceWechat(status);
   const contact = isAigwChannel(status)
-    ? []
+    ? aigwWechat
+      ? [
+          {
+            id: "wechat",
+            label: `客服微信 ${aigwWechat}`,
+            icon: MessageCircle,
+            hint: "点击复制",
+            onSelect: () => void copy(aigwWechat, "客服微信"),
+          },
+        ]
+      : []
     : [
         {
           id: "qq",

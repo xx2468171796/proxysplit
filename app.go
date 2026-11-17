@@ -103,6 +103,7 @@ func (a *App) startup(ctx context.Context) {
 	// 给 aigw 等本机程序的 AI 线路代理约定文件（internal/service/aiproxy.go）
 	svc.SetAIProxyFile(filepath.Join(dataDir(), "ai-proxy.json"))
 	a.lic = license.New(dataDir(), appVersion)
+	a.lic.SetDealer(dealerSlug()) // 代理站下载：记归属、显示代理商客服（dealer.go）
 	// Validate persisted online credentials before exposing the first UI
 	// snapshot. A short timeout avoids delaying offline startup; network
 	// failures retain the signed offline lease, while revoked/stale sessions

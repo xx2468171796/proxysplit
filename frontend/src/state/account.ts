@@ -59,6 +59,11 @@ export const license = createStore<AccountState>({
 
 /** 中转站（AI 编程官网）来的客户由推广员服务：不显示作者联系方式、赞赏码、官网 / GitHub。 */
 export const isAigwChannel = (s: LicenseStatus): boolean => s.channel === "aigw";
+/** 中转站客户唯一显示的客服微信（业主 2026-11-17）：服务端给的 contact 优先；没有时主站下载 = 业主微信，
+ *  代理站下载（本机有 dealer）宁可不显示也不露业主的。 */
+export const aigwServiceWechat = (s: LicenseStatus): string | null =>
+  s.contact?.wechat || (s.dealer ? null : AIGW_MAIN_WECHAT);
+export const AIGW_MAIN_WECHAT = "zyg69996";
 /** 付费会员（tier 不是 free）：不弹赞赏码、能用云同步。老服务端没有 member 字段时按套餐判断。 */
 export const isPaidMember = (s: LicenseStatus): boolean =>
   s.enabled &&
