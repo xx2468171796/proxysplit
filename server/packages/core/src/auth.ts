@@ -337,7 +337,7 @@ export class AuthService{
       throw error
     }
   }
-  async rotate(input:RefreshInput,ip=''){
+  async rotate(input:RefreshInput){
     let payload;try{({payload}=await jwtVerify(input.refreshToken,encoder.encode(this.cfg.accessSecret),{algorithms:['HS256']}))}catch{throw new AppError('REFRESH_INVALID','登录已过期，请重新登录',401)}
     if(payload.typ!=='refresh'||!payload.jti||!payload.fam||!payload.sub||!payload.did)throw new AppError('REFRESH_INVALID','登录已过期，请重新登录',401)
     const user=await this.store.findUserById(payload.sub);if(!user||user.status!=='active')throw new AppError('ACCOUNT_UNAVAILABLE','Account is unavailable',403)
@@ -352,9 +352,8 @@ export class AuthService{
       if(rotated.reason==='invalid')throw new AppError('REFRESH_INVALID','登录已过期，请重新登录',401)
       throw new AppError('REFRESH_REPLAY','登录状态已失效（检测到旧凭据被再次使用），请重新登录',401)
     }
-    // Rotation is already committed; an audit sink failure must not hide the
-    // newly issued one-time token and strand the client with a consumed token.
-    await this.store.audit(user.id,'auth.refresh','session',String(payload.jti),ip,'success').catch(()=>{})
+    // 成功的刷新不写审计：每个在线客户端十来分钟一次，全是没人看的行；登录 / 登出 / 失败锁定照常审计，
+    // 会话本身的轨迹在 sessions 表（consumed_at / revoked_at）。
     return {accessToken:await this.access(user,rotated.deviceId),refreshToken,expiresIn:900,deviceId:rotated.deviceId,user:{...userView(user),contact:await this.contactOf(user.id)}}
   }
   async logout(input:RefreshInput,ip=''){

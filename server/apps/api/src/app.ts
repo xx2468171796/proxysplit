@@ -5,7 +5,7 @@ import { Redis } from 'ioredis'
 import { randomUUID } from 'node:crypto'
 import { AppError, maskPhone, normalizeUsername } from '@proxysplit/shared'
 import { activateDeviceSchema, powervpnLoginSchema, powervpnSyncSchema, adminGrantSchema, adminPowervpnProvisionSchema, selfPasswordSchema, webRegisterSchema, analyticsQuerySchema, auditListQuery, deviceListQuery, downloadStatsQuery, leaseSchema, licenseExtendSchema, loginSchema, orderCreateSchema, orderListQuery, orderRefundSchema, planListQuery, planPatchSchema, planUpsertSchema, providerUpsertSchema, redeemCodeCreateSchema, redeemCodeStatusSchema, redeemListQuery, redeemSchema, refreshSchema, registerSchema, releaseCreateSchema, releaseListQuery, settingPatchSchema, trackViewSchema, userCreateSchema, userListQuery, userPasswordSchema, userStatusSchema } from '@proxysplit/contracts'
-import { AccelTokens, ClientNodesQuery, ClientNodesStore, ConfigProfilesStore, ConfigSyncStore, LinkCipher, SyncCipher, createAccount, createCommercialCore, DealerAdmin, DealerService, createNotify, createNotifyEvents, type Notify, licenseView, FenxiaoService, hashPassword, PaymentService, releasePlatform, createCenterPayFromEnv, createSmsCenterFromEnv, type CenterPayContext, TelemetryQuery, TelemetryStore, type AuthService, type PgStore } from '@proxysplit/core'
+import { AccelTokens, ClientNodesQuery, ClientNodesStore, ConfigProfilesStore, ConfigSyncStore, LinkCipher, SyncCipher, createAccount, createCommercialCore, DealerAdmin, DealerService, createNotify, createNotifyEvents, type Notify, licenseView, FenxiaoService, hashPassword, PaymentService, purgeSessions, releasePlatform, createCenterPayFromEnv, createSmsCenterFromEnv, type CenterPayContext, TelemetryQuery, TelemetryStore, type AuthService, type PgStore } from '@proxysplit/core'
 import type { ApiConfig } from './config.js'
 import { registerFenxiaoRoutes } from './fenxiao-routes.js'
 import { registerDealerRoutes } from './dealer-routes.js'
@@ -104,6 +104,12 @@ export async function buildApp(config:ApiConfig,provided?:Core){
   // 分佣冻结期到了转可提现：每 5 分钟扫一次（查余额时也会给本人补跑）。
   const fenxiaoReleaseTimer=config.NODE_ENV==='test'?undefined:setInterval(()=>{core.store.fx.releaseDue().catch(e=>app.log.warn({err:e},'fenxiao releaseDue failed'))},5*60_000)
   fenxiaoReleaseTimer?.unref()
+  // 会话表保留期清理（core session-retention.ts）：启动 2 分钟后先跑一轮，之后每小时一轮；分批删，删不完下轮接着删。
+  const purgeOldSessions=()=>{purgeSessions(core.store.pool).then(r=>{if(r.sessions)app.log.info(r,'session retention purge')}).catch(e=>app.log.warn({err:e instanceof Error?e.message:'purge failed'},'session retention purge failed'))}
+  const sessionPurgeFirst=config.NODE_ENV==='test'?undefined:setTimeout(purgeOldSessions,120_000)
+  sessionPurgeFirst?.unref()
+  const sessionPurgeTimer=config.NODE_ENV==='test'?undefined:setInterval(purgeOldSessions,3600_000)
+  sessionPurgeTimer?.unref()
   // 手机号注册 / 短信找回 / 补绑（phone-routes.ts）；配置云同步 + 云端配置 + 分享导入（sync-routes.ts）
   registerPhoneRoutes(app,{auth:core.auth,user:req=>auth(req),audit:(actor,action,type,id,ip,result,meta)=>core.store.audit(actor,action,type,id,ip,result,meta)})
   const syncCipher=new SyncCipher(config.CONFIG_SYNC_KEY)
@@ -121,7 +127,7 @@ export async function buildApp(config:ApiConfig,provided?:Core){
   app.post('/v1/auth/refresh',{config:{rateLimit:FLEET_LIMIT}},async(req)=>{
     const input=refreshSchema.parse(req.body),family=refreshFamilyKey(input.refreshToken)
     if(family&&!refreshPerFamily.allow(family))throw rateLimited()
-    return core.auth.rotate(input,req.ip)
+    return core.auth.rotate(input)
   })
   app.post('/v1/me/device/activate',{config:{rateLimit:{max:10,timeWindow:'1 minute'}}},async(req)=>{const p=await auth(req,true);if(p.deviceId!=='pending')throw new AppError('DEVICE_ALREADY_ACTIVE','当前设备已激活',409);return core.auth.activateDevice(p.userId,activateDeviceSchema.parse(req.body).device,req.ip)})
   app.post('/v1/auth/logout',async(req)=>core.auth.logout(refreshSchema.parse(req.body),req.ip))
@@ -324,6 +330,6 @@ export async function buildApp(config:ApiConfig,provided?:Core){
   app.post('/v1/admin/releases',async(req)=>{const p=await admin(req);const input=releaseCreateSchema.parse(req.body);const row=await core.store.createRelease(input);await core.store.audit(p.userId,'admin.release.create','release',row.id,req.ip,'success',{version:input.version});return row})
   app.delete('/v1/admin/releases/:id',async(req)=>{const p=await admin(req);const id=idParam(req);const row=await core.store.deleteRelease(id);if(!row)throw new AppError('NOT_FOUND','版本不存在',404);await core.store.audit(p.userId,'admin.release.delete','release',id,req.ip,'success');return {ok:true}})
   app.get('/v1/admin/audit',async(req)=>{await admin(req);return core.store.listAudit(auditListQuery.parse(req.query))})
-  app.addHook('onClose',async()=>{if(paymentReconcileTimer)clearInterval(paymentReconcileTimer);if(fenxiaoReleaseTimer)clearInterval(fenxiaoReleaseTimer);if(notifyTimer)clearInterval(notifyTimer);if(notifyFirst)clearTimeout(notifyFirst);if(redis)redis.disconnect();if(!provided)await core.close()})
+  app.addHook('onClose',async()=>{if(paymentReconcileTimer)clearInterval(paymentReconcileTimer);if(fenxiaoReleaseTimer)clearInterval(fenxiaoReleaseTimer);if(notifyTimer)clearInterval(notifyTimer);if(notifyFirst)clearTimeout(notifyFirst);if(sessionPurgeFirst)clearTimeout(sessionPurgeFirst);if(sessionPurgeTimer)clearInterval(sessionPurgeTimer);if(redis)redis.disconnect();if(!provided)await core.close()})
   return app
 }

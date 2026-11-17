@@ -82,7 +82,8 @@ class FakeStore {
   async isDeviceWithinLimit() { return this.withinLimit }
   phoneUser: UserRecord | null = null
   async findUserByPhone(phone: string) { return this.phoneUser?.phone === phone ? this.phoneUser : null }
-  async audit() {}
+  audits: string[] = []
+  async audit(_actor: string | null, action: string) { this.audits.push(action) }
   async findDevice(id: string) { return id === this.device.id ? this.device : null }
   async touchDevice() {}
   async getCommerceSettings(){return {registrationEnabled:true,trialDays:3,trialPlanCode:'trial',defaultDeviceLimit:3,licenseLeaseMinutes:60,offlineGraceHours:6,activePaymentProvider:'zhongzhuan-prod'}}
@@ -143,6 +144,14 @@ describe('commercial auth', () => {
     await auth.rotate({ refreshToken: rotated.refreshToken, deviceFingerprint: device.fingerprint })
     await expect(auth.rotate({ refreshToken: login.refreshToken, deviceFingerprint: device.fingerprint })).rejects.toMatchObject({ code: 'REFRESH_REPLAY' })
     expect(store.revokedFamilies).toHaveLength(1)
+  })
+
+  // 每个在线客户端十来分钟刷新一次：以前每次都写一行审计，audit_logs 里绝大多数是这种没人看的行。
+  it('does not write an audit row for a successful refresh (logins and failures are still audited)', async () => {
+    const { store, auth, device } = await fixture()
+    const login = await auth.login({ username: 'alice', password: 'correct horse battery staple', device })
+    await auth.rotate({ refreshToken: login.refreshToken, deviceFingerprint: device.fingerprint })
+    expect(store.audits).toEqual(['auth.login'])
   })
 
   it('treats a re-sent token whose rotation response was lost as a retry', async () => {
