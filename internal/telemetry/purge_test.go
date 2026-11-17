@@ -1,7 +1,6 @@
 package telemetry
 
 import (
-	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -49,30 +48,24 @@ func TestPurgeDeletesWithoutUploading(t *testing.T) {
 	}
 }
 
-func TestDeprecatedFlushAndPurgeNoLongerUploads(t *testing.T) {
-	cs := newContractServer(t)
-	dir := t.TempDir()
-	if err := Init(Config{DataDir: dir, Endpoint: cs.URL, Meta: func() Meta { return Meta{DeviceID: "d"} }, Interval: time.Hour}); err != nil {
-		t.Fatal(err)
-	}
-	defer Close()
-	r := active.Load()
-	_ = r.spool.Append(record{K: "l", T: 1, S: "line"})
-	_ = r.spool.Seal()
-	if sent, removed := FlushAndPurge(context.Background(), dir); sent != 0 || removed != 1 || cs.requests != 0 {
-		t.Fatalf("sent %d removed %d requests %d; want 0 / 1 / 0", sent, removed, cs.requests)
-	}
-}
-
 func TestPurgeWithRecorderOff(t *testing.T) {
 	dir := t.TempDir()
 	spool := filepath.Join(dir, "telemetry")
 	_ = os.MkdirAll(spool, 0o755)
+	for _, name := range []string{"device.dat", "control-api.json", "config.json"} {
+		_ = os.WriteFile(filepath.Join(dir, name), []byte("x"), 0o600)
+	}
 	for _, name := range []string{"seg-1-a.jsonl", "cur-b.jsonl", "bad-2-c.jsonl"} {
 		_ = os.WriteFile(filepath.Join(spool, name), []byte("{}\n"), 0o600)
 	}
 	if removed := Purge(dir); removed != 3 || globCount(t, spool, "*.jsonl") != 0 {
 		t.Fatalf("removed %d", removed)
+	}
+	// Only the queue goes: identity and control files in the data dir stay.
+	for _, name := range []string{"device.dat", "control-api.json", "config.json"} {
+		if _, err := os.Stat(filepath.Join(dir, name)); err != nil {
+			t.Fatalf("%s must survive a log-queue purge: %v", name, err)
+		}
 	}
 }
 

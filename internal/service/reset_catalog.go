@@ -22,7 +22,7 @@ func resetCatalog() []resetDef {
 			Effect: "从深圳镜像重新同步 geoip / geosite 规则库并校验，失败保留旧文件", Danger: DangerSafe},
 			action: (*Service).resetRuleSets},
 		{item: ResetItem{ID: ResetLogSpool, Group: ResetGroupCache, Title: "本地日志队列",
-			Effect: "先把待上传的运行日志尽量上传，再清空本机日志队列", Danger: DangerSafe}},
+			Effect: "直接删除本机还没上传的运行日志，不会再上传", Danger: DangerSafe}},
 
 		// --- 网络修复 ---
 		{item: ResetItem{ID: "sysproxy", Group: ResetGroupNetwork, Title: "清理残留系统代理",

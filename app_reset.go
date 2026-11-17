@@ -28,9 +28,7 @@ type ResetCenter struct {
 // registerResetters wires the host-side items (called once at startup).
 func registerResetters(bin string) {
 	service.RegisterResetter(service.ResetLogSpool, func(ctx context.Context) error {
-		ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
-		defer cancel()
-		telemetry.FlushAndPurge(ctx, dataDir())
+		telemetry.Purge(dataDir()) // delete only: nothing is uploaded
 		return nil
 	})
 	service.RegisterResetter(service.ResetBinaries, func(ctx context.Context) error {

@@ -1,7 +1,6 @@
 package telemetry
 
 import (
-	"context"
 	"os"
 	"path/filepath"
 )
@@ -18,15 +17,6 @@ func Purge(dataDir string) (removed int) {
 		return r.spool.Purge()
 	}
 	return purgeDir(filepath.Join(dataDir, "telemetry"))
-}
-
-// FlushAndPurge is the old name of Purge and no longer uploads anything
-// (sent is always 0).
-//
-// Deprecated: call Purge. Kept only until app_reset.go (owned by another
-// change set) is switched over; delete it in that same change.
-func FlushAndPurge(_ context.Context, dataDir string) (sent, removed int) {
-	return 0, Purge(dataDir)
 }
 
 func purgeDir(dir string) (removed int) {
