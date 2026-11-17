@@ -135,6 +135,7 @@ func tunRouteRules(node *nodes.Node, opts Options, a4 string, clashOn bool) ([]M
 // tunBlockRules: housekeeping ahead of the AI rules and per-app 拦截.
 func tunBlockRules(opts Options, a4 string, clashOn bool) []M {
 	rules := append(tunPreSniffRules(a4), M{"action": "sniff"})
+	rules = append(rules, lanSelfRules(opts)...) // before anything can send LAN clients direct
 	rules = append(rules, xrayRules(opts)...)
 	// Port 53 OR sniffed DNS: a query sniff could not classify still gets our
 	// answer instead of leaving for the ISP resolver (v2rayN #9325).
