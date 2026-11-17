@@ -6,6 +6,7 @@ import { planSplit } from './split.js'
 import { createProxysplitFenxiao, type ProxysplitFenxiao } from './fenxiao.js'
 import { recordDealerCommissionInTx, voidDealerCommissionInTx } from './dealer.js'
 import { nextLoginFailure, type LoginLockState } from './login-lockout.js'
+import { insertAudit, type AuditActor } from './audit.js'
 import { adoptReusedOrder, isOrderReusableAs, PLAN_ON_SALE_SQL, PURCHASE_COUNT_SQL, purchaseLockKey, type ReuseLink } from './order-reuse.js'
 import type { FxNotice } from './vendor/fenxiao/index.js'
 
@@ -548,8 +549,9 @@ export class PgStore {
     }catch(e){await client.query('ROLLBACK');throw e}finally{client.release()}
   }
   async recordLoginSuccess(userId:string){await this.pool.query('UPDATE users SET failed_login_count=0,lockout_level=0,locked_until=NULL,updated_at=now() WHERE id=$1',[userId])}
+  // 普通操作的审计（事后、走连接池）。动钱 / 动会员的操作在自己的事务里直接调 insertAudit（audit.ts）。
   async audit(actor:string|null,action:string,targetType:string,targetId:string,ip:string,result:string,metadata:Record<string,unknown>={}){
-    await this.pool.query('INSERT INTO audit_logs(actor_user_id,action,target_type,target_id,ip,result,metadata) VALUES($1,$2,$3,$4,$5,$6,$7)',[actor,action,targetType,targetId,ip,result,metadata])
+    await insertAudit(this.pool,{actor,action,targetType,targetId,ip,result,metadata})
   }
 
   // 返回指定通道的“最新版”。按语义版本(而非发布时间)取最高，避免误发一个更旧
@@ -678,10 +680,17 @@ export class PgStore {
       return r.rowCount===1
     }catch(e){await client.query('ROLLBACK');throw e}finally{client.release()}
   }
-  async extendLicense(userId:string,days:number){
-    const r=await this.pool.query(`UPDATE licenses SET expires_at=greatest(expires_at,now())+($2||' days')::interval,status='active'
-      WHERE id=(SELECT id FROM licenses WHERE user_id=$1 AND source<>'aigw' ORDER BY expires_at DESC LIMIT 1) RETURNING id,expires_at AS "expiresAt"`,[userId,days])
-    return r.rows[0]??null
+  async extendLicense(userId:string,days:number,by:AuditActor){
+    const client=await this.pool.connect()
+    try{
+      await client.query('BEGIN')
+      const row=(await client.query(`UPDATE licenses SET expires_at=greatest(expires_at,now())+($2||' days')::interval,status='active'
+        WHERE id=(SELECT id FROM licenses WHERE user_id=$1 AND source<>'aigw' ORDER BY expires_at DESC LIMIT 1) RETURNING id,expires_at AS "expiresAt"`,[userId,days])).rows[0]
+      if(!row){await client.query('ROLLBACK');return null}
+      await insertAudit(client,{...by,action:'admin.license.extend',targetType:'user',targetId:userId,result:'success',metadata:{days}})
+      await client.query('COMMIT')
+      return row as {id:string;expiresAt:Date}
+    }catch(e){await client.query('ROLLBACK');throw e}finally{client.release()}
   }
   async listDevices(params:Partial<DeviceListQuery>={}):Promise<ListResult<any>>{
     const conds:string[]=[];const vals:unknown[]=[];let i=1
@@ -1129,7 +1138,13 @@ export class PgStore {
   // refunded and take back only the part of its time that is not used yet.
   // The money itself is refunded in the merchant's back office. Orders paid
   // before the ledger existed are marked refunded without touching the license.
-  async refundOrder(orderNoValue:string,reason:string){
+  // 审计（by）与退款同事务：写不进审计就整体回滚（audit.ts）。
+  async refundOrder(orderNoValue:string,reason:string,by:AuditActor&{action:string;metadata?:Record<string,unknown>}){
+    const audited=async(client:TxClient,r:{orders:number;licenseAdjusted:boolean;removedDays?:number})=>{
+      await insertAudit(client,{actor:by.actor,action:by.action,targetType:'order',targetId:orderNoValue,ip:by.ip,result:'success',
+        metadata:{...by.metadata,reason,orders:r.orders,licenseAdjusted:r.licenseAdjusted,removedDays:r.removedDays??null}})
+      await client.query('COMMIT')
+    }
     const client=await this.pool.connect()
     try{
       await client.query('BEGIN')
@@ -1146,8 +1161,9 @@ export class PgStore {
       const ledger=(await client.query(`SELECT id,license_id AS "licenseId",start_at AS "startAt",end_at AS "endAt",before_expires_at AS "beforeExpiresAt",before_lifetime AS "beforeLifetime"
         FROM license_grants WHERE order_id=ANY($1::uuid[]) AND revoked_at IS NULL ORDER BY created_at DESC LIMIT 1 FOR UPDATE`,[ids])).rows[0]
       if(!ledger?.licenseId){
-        await client.query('COMMIT')
-        return {ok:true,orders:ids.length,licenseAdjusted:false}
+        const result={ok:true,orders:ids.length,licenseAdjusted:false}
+        await audited(client,result)
+        return result
       }
       await client.query('SELECT pg_advisory_xact_lock(hashtext($1))',[`license:${order.user_id}:${order.tier}`])
       const lic=(await client.query('SELECT id,expires_at AS "expiresAt",lifetime FROM licenses WHERE id=$1 FOR UPDATE',[ledger.licenseId])).rows[0]
@@ -1157,33 +1173,40 @@ export class PgStore {
       })
       if(lic&&change)await client.query('UPDATE licenses SET expires_at=$2,lifetime=$3 WHERE id=$1',[lic.id,change.expiresAt,change.lifetime])
       await client.query('UPDATE license_grants SET revoked_at=now(),revoke_reason=$2 WHERE id=$1',[ledger.id,reason])
-      await client.query('COMMIT')
-      return {ok:true,orders:ids.length,licenseAdjusted:true,removedDays:change?change.removedDays:0,
+      const result={ok:true,orders:ids.length,licenseAdjusted:true,removedDays:change?change.removedDays:0,
         expiresAt:change?change.expiresAt:lic?.expiresAt??null,lifetime:change?change.lifetime:!!lic?.lifetime}
+      await audited(client,result)
+      return result
     }catch(e){await client.query('ROLLBACK');throw e}finally{client.release()}
   }
 
   // 后台手动给用户发放/续期一个套餐（等级由 planId 决定，时长可覆盖或永久）。
-  async adminGrantLicense(userId:string,opts:{planId:string;durationDays?:number|null;lifetime?:boolean}){
+  async adminGrantLicense(userId:string,opts:{planId:string;durationDays?:number|null;lifetime?:boolean},by:AuditActor){
     const client=await this.pool.connect()
     try{
       await client.query('BEGIN')
       const user=(await client.query('SELECT id FROM users WHERE id=$1',[userId])).rows[0]
       if(!user)throw new AppError('NOT_FOUND','用户不存在',404)
       const grant=await this.grantWithinTx(client,{userId,planId:opts.planId,durationDays:opts.durationDays??null,lifetime:!!opts.lifetime,source:'admin'})
+      await insertAudit(client,{...by,action:'admin.license.grant',targetType:'user',targetId:userId,result:'success',
+        metadata:{planId:opts.planId,lifetime:!!opts.lifetime,durationDays:opts.durationDays??null}})
       await client.query('COMMIT')
       return {ok:true,...grant}
     }catch(e){await client.query('ROLLBACK');throw e}finally{client.release()}
   }
 
   // 后台手动确认订单发货：把未支付/失败订单直接标记为已支付并发放权益，无需网关回调。
-  async confirmOrderManually(orderNoValue:string){
+  async confirmOrderManually(orderNoValue:string,by:AuditActor){
     const client=await this.pool.connect()
+    const audited=async(duplicate:boolean)=>{
+      await insertAudit(client,{...by,action:'admin.order.confirm',targetType:'order',targetId:orderNoValue,result:'success',metadata:{duplicate}})
+      await client.query('COMMIT')
+    }
     try{
       await client.query('BEGIN')
       const order=(await client.query('SELECT * FROM orders WHERE order_no=$1 FOR UPDATE',[orderNoValue])).rows[0]
       if(!order){await client.query('ROLLBACK');throw new AppError('NOT_FOUND','订单不存在',404)}
-      if(order.status==='paid'){await client.query('ROLLBACK');return {ok:true,duplicate:true}}
+      if(order.status==='paid'){await audited(true);return {ok:true,duplicate:true}}
       if(order.status!=='pending'&&order.status!=='failed'){await client.query('ROLLBACK');throw new AppError('ORDER_NOT_PAYABLE','订单当前状态不可发货',409)}
       await client.query(`INSERT INTO payment_events(provider_code,event_id,order_no,payload_hash,verified,result)
         VALUES($1,$2,$3,'manual',true,'manual') ON CONFLICT(provider_code,event_id) DO NOTHING`,
@@ -1192,12 +1215,12 @@ export class PgStore {
         // One piece of a split checkout: confirm just this piece; the plan is
         // granted once the whole group is paid (same path as gateway payments).
         const allPaid=await this.payGroupPieceInTx(client,order,order.provider_code,order.provider_order_no??`MANUAL-${order.order_no}`,new Date())
-        await client.query('COMMIT')
+        await audited(false)
         return {ok:true,duplicate:false,groupAllPaid:allPaid}
       }
       const grant=await this.grantWithinTx(client,{userId:order.user_id,planId:order.plan_id,durationDays:order.duration_days,lifetime:order.lifetime,source:'order',orderId:order.id})
       await client.query(`UPDATE orders SET status='paid',provider_order_no=COALESCE(provider_order_no,'MANUAL-'||order_no),paid_at=now(),updated_at=now() WHERE id=$1`,[order.id])
-      await client.query('COMMIT')
+      await audited(false)
       return {ok:true,duplicate:false,...grant}
     }catch(e){await client.query('ROLLBACK');throw e}finally{client.release()}
   }

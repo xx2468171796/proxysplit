@@ -213,8 +213,10 @@ describe('统一支付中心适配器',()=>{
       const reply=await service.handleCenterNotify(raw)
       expect(reply.status).toBe(200)
       expect(store.refundOrder).toHaveBeenCalledTimes(1)
-      expect(store.refundOrder).toHaveBeenCalledWith(order.orderNo,'支付中心退款')
-      expect(store.audit).toHaveBeenCalledWith(null,'payment.center.refund','order',order.orderNo,'','success',expect.objectContaining({refundNo:'RF1',refundedCents:29900}))
+      // 审计行由 refundOrder 在退款事务里写（动作名与明细经第三个参数给它）
+      expect(store.refundOrder).toHaveBeenCalledWith(order.orderNo,'支付中心退款',
+        {actor:null,ip:'',action:'payment.center.refund',metadata:expect.objectContaining({refundNo:'RF1',refundedCents:29900})})
+      expect(store.audit).not.toHaveBeenCalled()
       expect(store.fulfillPaidOrder).not.toHaveBeenCalled()
     })
     it('本地已是已退款：直接确认，不重复退',async()=>{

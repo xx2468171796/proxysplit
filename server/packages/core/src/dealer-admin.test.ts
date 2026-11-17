@@ -8,6 +8,7 @@ function fakeDb(rows: Row[]) {
   const sqls: string[] = []
   const of = (status: string, key: 'gross' | 'commission') => rows.filter(r => r.status === status).reduce((a, r) => a + r[key], 0)
   const db = {
+    connect: async () => { throw new Error('合计是只读查询，不该开事务') },
     async query(text: string) {
       sqls.push(text.replace(/\s+/g, ' '))
       if (text.includes('count(*)')) {

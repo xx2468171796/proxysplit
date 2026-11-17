@@ -135,8 +135,8 @@ export class PaymentService{
     }
     if(order.status!=='paid')throw new Error(`center refund: local order ${e.localOrderNo} is ${order.status}, not paid yet`)
     try{
-      const result=await this.store.refundOrder(e.localOrderNo,CENTER_REFUND_REASON)
-      await this.store.audit(null,'payment.center.refund','order',e.localOrderNo,'','success',{...meta,licenseAdjusted:result.licenseAdjusted,removedDays:result.removedDays??null})
+      // 审计行（payment.center.refund）由 refundOrder 在退款事务里写
+      await this.store.refundOrder(e.localOrderNo,CENTER_REFUND_REASON,{actor:null,ip:'',action:'payment.center.refund',metadata:meta})
     }catch(error){
       // 并发的两次退款回调：另一条已经退完 = 成功。
       if(error instanceof AppError&&error.code==='ORDER_NOT_REFUNDABLE'&&(await this.store.getOrderForCallback(e.localOrderNo))?.status==='refunded')return
