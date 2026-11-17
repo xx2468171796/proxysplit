@@ -127,10 +127,10 @@ func tableOwner(proto uint8, port uint16) (pid uint32, found bool) {
 	return 0, false
 }
 
-// udpOwners snapshots which processes have each UDP port bound (both
-// families); ok=false when a table could not be read.
-func udpOwners() (owners map[uint16][]uint32, ok bool) {
-	proc, class, v4, v6 := ownerTables(17)
+// portOwners snapshots which processes have each local port of a protocol
+// bound (both families); ok=false when a table could not be read.
+func portOwners(proto uint8) (owners map[uint16][]uint32, ok bool) {
+	proc, class, v4, v6 := ownerTables(proto)
 	owners = map[uint16][]uint32{}
 	for _, t := range []struct {
 		family uintptr

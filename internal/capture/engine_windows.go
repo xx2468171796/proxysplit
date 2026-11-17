@@ -218,7 +218,7 @@ func (e *Engine) sweepLoop() {
 		case <-e.stop:
 			return
 		case now := <-t.C:
-			if gone := e.ct.sweep(now, 15*time.Minute, 30*time.Second); len(gone) > 0 {
+			if gone := e.ct.sweep(now, 15*time.Minute, 30*time.Second, tcpBound()); len(gone) > 0 {
 				e.data.removeTCP(gone)
 			}
 			e.udp.sweep(now, 2*time.Minute)
@@ -227,11 +227,22 @@ func (e *Engine) sweepLoop() {
 	}
 }
 
+// tcpBound returns the conntrack sweep's "is this local port still bound"
+// check. The system table is read once, on the first idle flow of a sweep; if
+// it cannot be read every port counts as bound (keep, never guess).
+func tcpBound() func(port uint16) bool {
+	snapshot := sync.OnceValues(func() (map[uint16][]uint32, bool) { return portOwners(divert.ProtoTCP) })
+	return func(port uint16) bool {
+		owners, ok := snapshot()
+		return !ok || len(owners[port]) > 0
+	}
+}
+
 // revalidateUDP re-checks the UDP classification against the system's socket
 // tables and the current lists: socket events can be missed under load, and
 // a pass entry that outlives its socket would let the port's next owner out.
 func (e *Engine) revalidateUDP() {
-	owners, ok := udpOwners()
+	owners, ok := portOwners(divert.ProtoUDP)
 	if !ok {
 		return
 	}

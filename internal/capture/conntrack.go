@@ -66,16 +66,32 @@ func (c *conntrack) markClosed(port uint16) {
 	c.mu.Unlock()
 }
 
-// sweep removes idle and closed flows; returns the removed ports.
-func (c *conntrack) sweep(now time.Time, idle, grace time.Duration) []uint16 {
+// sweep removes flows whose socket is gone and returns their ports: closed
+// (the socket event, after a grace period for the last segments), or idle and
+// no longer bound according to alive (a missed close event).
+//
+// Time alone never removes a flow. A removed port leaves the data filter, so
+// the next segment of a connection that was merely quiet (an idle SSH session,
+// a long poll) would leave from the real address, straight to the destination.
+// While the entry stays, such a segment still goes to the relay — and if the
+// relayed connection is gone the loopback stack answers it with a RST, which
+// reaches the app as the remote's.
+func (c *conntrack) sweep(now time.Time, idle, grace time.Duration, alive func(port uint16) bool) []uint16 {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	var gone []uint16
 	for p, f := range c.flows {
-		if now.Sub(f.last) > idle || (!f.closedAt.IsZero() && now.Sub(f.closedAt) > grace) {
-			delete(c.flows, p)
-			gone = append(gone, p)
+		switch {
+		case !f.closedAt.IsZero() && now.Sub(f.closedAt) > grace:
+		case now.Sub(f.last) > idle && !alive(p):
+		case now.Sub(f.last) > idle:
+			f.last = now // still bound: look again after another idle period
+			continue
+		default:
+			continue
 		}
+		delete(c.flows, p)
+		gone = append(gone, p)
 	}
 	return gone
 }
