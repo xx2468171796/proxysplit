@@ -14,7 +14,7 @@ import { registerAccountRoutes } from './account-routes.js'
 import { createAdminGuard } from './admin-guard.js'
 import { idParam } from './params.js'
 import { DeviceLimiter, registerTelemetryRoutes, type TelemetryDeps } from './telemetry-routes.js'
-import { FAIL_CLOSED, FLEET_LIMIT, LIMITER_DEFAULTS, REFRESH_PER_FAMILY_PER_MINUTE, rateLimited, redisLimitStore, refreshFamilyKey } from './rate-limits.js'
+import { CALLBACK_LIMIT, FAIL_CLOSED, FLEET_LIMIT, LIMITER_DEFAULTS, NO_LIMIT, REFRESH_PER_FAMILY_PER_MINUTE, rateLimited, redisLimitStore, refreshFamilyKey } from './rate-limits.js'
 import { IpByteBudget, IpNewDeviceBudget } from './telemetry-budget.js'
 import { NODES_IP_BYTES_PER_10MIN, NODES_NEW_DEVICES_PER_IP_PER_HOUR, registerClientNodesRoutes, type ClientNodesDeps } from './client-nodes-routes.js'
 import { registerPhoneRoutes } from './phone-routes.js'
@@ -49,7 +49,7 @@ export async function buildApp(config:ApiConfig,provided?:Core){
   if(smsCenter&&smsMode!=='center'){redis?.disconnect();throw new Error('LCV_* is configured but the auth core is not in center SMS mode')}
   app.log.info(`sms mode: ${smsMode}`)
   await app.register(cors,{origin:[config.ADMIN_ORIGIN],credentials:false})
-  // 限流存储出错（Redis 宕机）默认放行，只有发短信 / 注册拒绝服务（FAIL_CLOSED → 503），见 rate-limits.ts。
+  // 所有路由默认限流（没声明的共用每 IP 默认桶）；限流存储出错（Redis 宕机）默认放行，只有发短信 / 注册拒绝服务（FAIL_CLOSED → 503）。口径见 rate-limits.ts。
   await app.register(rateLimit,{...LIMITER_DEFAULTS,...(redis?{store:redisLimitStore(redis)}:{})})
   app.setErrorHandler((error,_req,reply)=>{
     if(error instanceof AppError)return reply.code(error.status).send({error:{...error.extra,code:error.code,message:error.message}})
@@ -70,7 +70,7 @@ export async function buildApp(config:ApiConfig,provided?:Core){
   // 动管理员账号 / 新建管理员要超级管理员（admin-guard.ts）；解密节点链接也用同一个「超管」定义。
   const guard=createAdminGuard({findUser:id=>core.store.findUserById(id),superAdminUsernames:config.SUPER_ADMIN_USERNAMES})
 
-  app.get('/health',async()=>({ok:true,service:'proxysplit-commercial-api'}))
+  app.get('/health',{config:NO_LIMIT},async()=>({ok:true,service:'proxysplit-commercial-api'}))
   // 代理站：归属 / 客服联系方式 / 分成（dealer.ts）。aigw 公开接口可走内网地址 + Host 头绕开公网 WAF。
   const dealers=core.dealers??new DealerService(core.store.pool,{baseUrl:config.AIGW_PUBLIC_BASE??'https://ai.zygskins.cn',host:config.AIGW_PUBLIC_HOST||undefined})
   if(typeof core.auth.setDealers==='function')core.auth.setDealers(dealers)
@@ -115,7 +115,7 @@ export async function buildApp(config:ApiConfig,provided?:Core){
   const syncCipher=new SyncCipher(config.CONFIG_SYNC_KEY)
   registerSyncRoutes(app,{user:req=>auth(req),effective:id=>core.auth.effectiveFor(id),deviceName:async id=>(await core.store.findDevice(id))?.name??'',
     sync:new ConfigSyncStore(core.store.pool,syncCipher),profiles:new ConfigProfilesStore(core.store.pool,syncCipher)})
-  app.get('/v1/auth/public-key',async()=>({algorithm:'Ed25519',kid:'proxysplit-license-v1',publicKeyPem:core.auth.publicKeyPem}))
+  app.get('/v1/auth/public-key',{config:{rateLimit:FLEET_LIMIT}},async()=>({algorithm:'Ed25519',kid:'proxysplit-license-v1',publicKeyPem:core.auth.publicKeyPem}))
   app.post('/v1/auth/register',{config:{rateLimit:{max:3,timeWindow:'1 hour',...FAIL_CLOSED}}},async(req)=>core.auth.register(registerSchema.parse(req.body),req.ip))
   app.post('/v1/auth/register/web',{config:{rateLimit:{max:5,timeWindow:'1 hour',...FAIL_CLOSED}}},async(req)=>core.auth.registerWeb(webRegisterSchema.parse(req.body),req.ip))
   app.post('/v1/auth/login',{config:{rateLimit:{max:30,timeWindow:'1 minute'}}},async(req)=>core.auth.login(loginSchema.parse(req.body),req.ip))
@@ -130,7 +130,7 @@ export async function buildApp(config:ApiConfig,provided?:Core){
     return core.auth.rotate(input)
   })
   app.post('/v1/me/device/activate',{config:{rateLimit:{max:10,timeWindow:'1 minute'}}},async(req)=>{const p=await auth(req,true);if(p.deviceId!=='pending')throw new AppError('DEVICE_ALREADY_ACTIVE','当前设备已激活',409);return core.auth.activateDevice(p.userId,activateDeviceSchema.parse(req.body).device,req.ip)})
-  app.post('/v1/auth/logout',async(req)=>core.auth.logout(refreshSchema.parse(req.body),req.ip))
+  app.post('/v1/auth/logout',{config:{rateLimit:FLEET_LIMIT}},async(req)=>core.auth.logout(refreshSchema.parse(req.body),req.ip))
   // Claude Code 加速令牌（客户端编码端连落地机中继用）：设备已激活 + 账号正常 + 会员有效才发，24 小时有效。
   // 加速是会员功能：这里仍只认真实会员权益，免费档（effective）不发令牌。
   const accel=AccelTokens.fromPem(config.ACCEL_TOKEN_PRIVATE_KEY_PEM)
@@ -141,7 +141,8 @@ export async function buildApp(config:ApiConfig,provided?:Core){
     if(!await core.store.entitlement(p.userId))throw new AppError('LICENSE_INACTIVE','License is missing or expired',403)
     return accel.issue(p.userId)
   })
-  app.post('/v1/license/lease',async(req)=>{const p=await auth(req);const input=leaseSchema.parse(req.body);return core.auth.lease(p.userId,p.deviceId,input.deviceFingerprint,input.appVersion)})
+  // 每台在线客户端每 60 秒取一次租约：FLEET_LIMIT（老客户端把这里的 4xx 当成授权问题，绝不能按 IP 给低限额）。
+  app.post('/v1/license/lease',{config:{rateLimit:FLEET_LIMIT}},async(req)=>{const p=await auth(req);const input=leaseSchema.parse(req.body);return core.auth.lease(p.userId,p.deviceId,input.deviceFingerprint,input.appVersion)})
   // 统一支付中心：PAY_MODE=center + PAY_CENTER_URL / PAY_CENTER_APP_ID / PAY_CENTER_SECRET（运行时 env，不进仓）；测试经 core.payCenterEnv 注入
   const payments=new PaymentService(core.store,config.PUBLIC_BASE_URL.replace(/\/$/,''),message=>app.log.warn(message),orderNo=>notifyEvents.membershipPaid(orderNo),
     hooks=>createCenterPayFromEnv(core.payCenterEnv??process.env,core.store.pool,hooks,message=>app.log.warn(message)))
@@ -181,7 +182,7 @@ export async function buildApp(config:ApiConfig,provided?:Core){
     setTimeout(()=>void reconcilePayments(),1_000).unref()
   }
   // platform=macos 给 Mac 客户端（.zip）；不带或其它值 = windows（老客户端不带这个参数）。
-  app.get('/v1/releases/latest',async(req)=>{const q=req.query as {channel?:string;platform?:string};return {release:await core.store.latestRelease(q.channel==='beta'?'beta':'stable',releasePlatform(q.platform))}})
+  app.get('/v1/releases/latest',{config:{rateLimit:FLEET_LIMIT}},async(req)=>{const q=req.query as {channel?:string;platform?:string};return {release:await core.store.latestRelease(q.channel==='beta'?'beta':'stable',releasePlatform(q.platform))}})
   // 公开的历史版本列表：分页（默认 10、最多 20 条），只认 channel / platform 筛选。
   app.get('/v1/releases',{config:{rateLimit:{max:60,timeWindow:'1 minute'}}},async(req)=>core.store.listReleases(publicReleaseListQuery.parse(req.query)))
   // Tracked download: log one event (hashed IP + visitor id + UA), then 302 to
@@ -211,16 +212,16 @@ export async function buildApp(config:ApiConfig,provided?:Core){
     return {ok:true}
   })
   // 免登录：套餐 + 免费版设备数 + 实际付款方式（按当前收款通道算，见 core/catalog.ts；官网和客户端的文案都读这里）
-  app.get('/v1/catalog/plans',async()=>{
+  app.get('/v1/catalog/plans',{config:{rateLimit:FLEET_LIMIT}},async()=>{
     const [plans,settings]=await Promise.all([core.store.listPlans({publicOnly:true,limit:100}),core.store.getCommerceSettings()])
     const provider=await core.store.getProvider(settings.activePaymentProvider)
     return {items:plans.items,paymentMethods:paymentMethodsOf(provider,settings.paymentMethods),freeDevices:freeDevicesOf(settings)}
   })
   // membership 仍是原始会员权益（老客户端据此判断，免费为 null）；license 是实际权益（免费档 / 叠加设备数）。
-  app.get('/v1/me',async(req)=>{const p=await auth(req,true);const user=await core.store.findUserById(p.userId);return {user:user&&{id:user.id,username:user.username,status:user.status,phone:maskPhone(user.phone),phoneBound:!!user.phone,channel:user.channel??'',contact:await dealers.contactFor(user.id).catch(()=>null)},membership:await core.store.entitlement(p.userId),license:licenseView(await core.auth.effectiveFor(p.userId)),devices:await core.store.listUserDevices(p.userId)}})
+  app.get('/v1/me',{config:{rateLimit:FLEET_LIMIT}},async(req)=>{const p=await auth(req,true);const user=await core.store.findUserById(p.userId);return {user:user&&{id:user.id,username:user.username,status:user.status,phone:maskPhone(user.phone),phoneBound:!!user.phone,channel:user.channel??'',contact:await dealers.contactFor(user.id).catch(()=>null)},membership:await core.store.entitlement(p.userId),license:licenseView(await core.auth.effectiveFor(p.userId)),devices:await core.store.listUserDevices(p.userId)}})
   app.post('/v1/me/password',{config:{rateLimit:{max:5,timeWindow:'10 minutes'}}},async(req)=>{const p=await auth(req,true);return core.auth.changeOwnPassword(p.userId,selfPasswordSchema.parse(req.body),req.ip,p.deviceId)})
   app.post('/v1/me/redeem',{config:{rateLimit:{max:10,timeWindow:'1 minute'}}},async(req)=>{const p=await auth(req,true);const input=redeemSchema.parse(req.body);const result=await core.store.redeemCode(p.userId,input.code,req.ip);return {...result,membership:await core.store.entitlement(p.userId)}})
-  app.get('/v1/me/devices',async(req)=>{const p=await auth(req,true);return {items:await core.store.listUserDevices(p.userId)}})
+  app.get('/v1/me/devices',{config:{rateLimit:FLEET_LIMIT}},async(req)=>{const p=await auth(req,true);return {items:await core.store.listUserDevices(p.userId)}})
   app.delete('/v1/me/devices/:id',async(req)=>{const p=await auth(req,true);const id=idParam(req);const row=await core.store.unbindDevice(id,p.userId);if(!row)throw new AppError('NOT_FOUND','设备不存在',404);await core.store.audit(p.userId,'user.device.unbind','device',id,req.ip,'success');return {ok:true}})
   app.get('/v1/me/orders',{config:{rateLimit:FLEET_LIMIT}},async(req)=>{const p=await auth(req);const items=await core.store.listUserOrders(p.userId);
     // 读时对账：支付窗口内的待支付订单主动向网关查单，弥补异步回调不可达的情况（best-effort，不阻断列表）。
@@ -240,7 +241,7 @@ export async function buildApp(config:ApiConfig,provided?:Core){
     return row
   })
   app.post('/v1/orders',{config:{rateLimit:{max:10,timeWindow:'1 minute'}}},async(req)=>{const p=await auth(req);const input=orderCreateSchema.parse(req.body);const user=await core.store.findUserById(p.userId);if(!user)throw new AppError('NOT_FOUND','用户不存在',404);try{return await payments.createOrder(p.userId,input.planId,user.username,{...centerContext(req,user),...(input.hvToken?{hvToken:input.hvToken}:{})})}catch(error){const message=(error as Error).message;if(message==='PAYMENT_UNAVAILABLE')throw new AppError('PAYMENT_UNAVAILABLE','支付通道暂不可用',503);if(message==='PLAN_NOT_AVAILABLE')throw new AppError('PLAN_NOT_AVAILABLE','套餐已下架或不在活动时间内',404);if(message==='PURCHASE_LIMIT')throw new AppError('PURCHASE_LIMIT','已达到该活动套餐的购买次数上限',409);throw error}})
-  app.post('/v1/payments/zhongzhuan/notify',{config:{rateLimit:{max:120,timeWindow:'1 minute'}}},async(req,reply)=>{
+  app.post('/v1/payments/zhongzhuan/notify',{config:{rateLimit:CALLBACK_LIMIT}},async(req,reply)=>{
     try{await payments.handleZhongzhuanCallback(req.body);return {code:0,message:'success'}}
     catch(error){app.log.error({err:error instanceof Error?error.message:'callback failed'},'payment callback rejected');const status=error instanceof AppError?error.status:500;return reply.code(status>=500?500:status).send({code:status,message:'failed'})}
   })
@@ -248,7 +249,7 @@ export async function buildApp(config:ApiConfig,provided?:Core){
   // 统一支付中心回调：原始字节验签，所以这个作用域里 JSON 按字符串收；回复（状态码 + body）原样给中心。
   app.register(async scope=>{
     scope.addContentTypeParser(['application/json','text/plain'],{parseAs:'string',bodyLimit:64*1024},(_req,body,done)=>done(null,body))
-    scope.post('/v1/pay/center/notify',{config:{rateLimit:{max:300,timeWindow:'1 minute'}}},async(req,reply)=>{
+    scope.post('/v1/pay/center/notify',{config:{rateLimit:CALLBACK_LIMIT}},async(req,reply)=>{
       const raw=typeof req.body==='string'?req.body:''
       const result=await payments.handleCenterNotify(raw).catch((error:unknown)=>{
         app.log.error({err:error instanceof Error?error.message:'center notify failed'},'center notify failed')

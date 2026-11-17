@@ -2,7 +2,7 @@
 import { describe, expect, it } from 'vitest'
 import { buildApp } from './app.js'
 import type { ApiConfig } from './config.js'
-import { FLEET_LIMIT, redisLimitStore, refreshFamilyKey } from './rate-limits.js'
+import { CALLBACK_LIMIT, DEFAULT_LIMIT, FLEET_LIMIT, redisLimitStore, refreshFamilyKey } from './rate-limits.js'
 
 const config: ApiConfig = {
   NODE_ENV: 'test', HOST: '127.0.0.1', PORT: 18780, PUBLIC_BASE_URL: 'http://127.0.0.1:18780',
@@ -102,5 +102,64 @@ describe('限流存储挂了（Redis 不可用）时的方向', () => {
     expect(seen).toEqual(['proxysplit:rl:POST/v1/x:1.2.3.4|60000'])
     fail = true
     expect((await incr()).err).toMatchObject({ code: 'RATE_LIMIT_UNAVAILABLE', status: 503 })
+  })
+})
+
+// 原来限流是「按路由自己声明」（global:false）：忘了声明的路由（lease、/v1/me、全部后台接口…）完全不限流。
+// 现在默认就限（没声明的路由共用一个每 IP 桶），在线客户端定时调的接口各自声明 FLEET_LIMIT（各有各的桶）。
+describe('默认限流 + 明确豁免', () => {
+  const ip = '203.0.113.77'
+  /** 每台在线客户端都会定时调的接口：必须各自声明限额（不落进共用的默认桶）。 */
+  const fleetRoutes: Array<['GET' | 'POST' | 'PUT', string]> = [
+    ['POST', '/v1/license/lease'], ['POST', '/v1/auth/refresh'], ['POST', '/v1/auth/logout'], ['POST', '/v1/auth/powervpn/sync'],
+    ['GET', '/v1/auth/public-key'], ['GET', '/v1/me'], ['GET', '/v1/me/devices'], ['GET', '/v1/me/orders'], ['GET', '/v1/me/orders/PS1'],
+    ['GET', '/v1/announcements'], ['GET', '/v1/tongzhi/inbox'], ['GET', '/v1/releases/latest'], ['GET', '/v1/catalog/plans'],
+    ['POST', '/v1/accel/token'], ['GET', '/v1/me/config-sync'], ['PUT', '/v1/me/config-sync'], ['GET', '/v1/me/config-profiles'],
+    ['POST', '/v1/client/telemetry'], ['POST', '/v1/client/nodes'], ['GET', '/v1/fenxiao/me'],
+  ]
+  const exhaustDefault = async (t: Awaited<ReturnType<typeof app>>) => {
+    // 没声明限额的路由（这里用两个后台接口）共用默认桶：用满它
+    for (let i = 0; i < DEFAULT_LIMIT.max; i++) {
+      const r = await t.app.inject({ method: 'GET', url: i % 2 ? '/v1/admin/dashboard' : '/v1/admin/users', remoteAddress: ip })
+      if (r.statusCode === 429) throw new Error(`default bucket ran out early at ${i}`)
+    }
+  }
+
+  it('没声明限额的路由也被限：同一 IP 用满默认额度后 429；别的 IP 不受影响', async () => {
+    const t = await app()
+    await exhaustDefault(t)
+    const over = await t.app.inject({ method: 'GET', url: '/v1/admin/orders', remoteAddress: ip })
+    expect(over.statusCode).toBe(429)
+    expect(over.json()).toMatchObject({ error: { code: 'RATE_LIMITED' } })
+    expect((await t.app.inject({ method: 'GET', url: '/v1/admin/orders', remoteAddress: '203.0.113.78' })).statusCode).not.toBe(429)
+    await t.app.close()
+  }, 30_000)
+
+  it('默认额度用满后：/health、付款回调、客户端定时接口照常（各自豁免或有自己的桶）', async () => {
+    const t = await app()
+    await exhaustDefault(t)
+    expect((await t.app.inject({ method: 'GET', url: '/health', remoteAddress: ip })).statusCode).toBe(200)
+    for (const url of ['/v1/payments/zhongzhuan/notify', '/v1/pay/center/notify']) {
+      expect((await t.app.inject({ method: 'POST', url, remoteAddress: ip, payload: {} })).statusCode, url).not.toBe(429)
+    }
+    for (const [method, url] of fleetRoutes) {
+      expect((await t.app.inject({ method, url, remoteAddress: ip, ...(method === 'GET' ? {} : { payload: {} }) })).statusCode, `${method} ${url}`).not.toBe(429)
+    }
+    await t.app.close()
+  }, 30_000)
+
+  it('/health 完全不限流（探活不能被自己打挂）', async () => {
+    const t = await app()
+    for (let i = 0; i < DEFAULT_LIMIT.max + 50; i++) {
+      const r = await t.app.inject({ method: 'GET', url: '/health', remoteAddress: ip })
+      if (r.statusCode !== 200) throw new Error(`/health answered ${r.statusCode} at ${i}`)
+    }
+    await t.app.close()
+  }, 30_000)
+
+  it('默认额度与定时接口的额度都远高于一个出口 IP 后的正常用量', () => {
+    expect(DEFAULT_LIMIT.max).toBeGreaterThanOrEqual(600)
+    expect(FLEET_LIMIT.max).toBeGreaterThanOrEqual(600)
+    expect(CALLBACK_LIMIT.max).toBeGreaterThanOrEqual(1200)
   })
 })

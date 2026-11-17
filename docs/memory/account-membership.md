@@ -87,6 +87,7 @@ Ed25519 离线租约绑定账号 / 设备 / 硬件 / 期限；minimumVersion 会
 - 登录：账号不存在 / 密码错 / 被锁定 / **没设密码（POWER云、AI 编程官网建的号）** 统一回 `AUTH_INVALID` 401 和同一句文案（锁定期间、没设密码时都不验密码，但照样花一次哈希时间，区别只进审计）。文案末尾带「用 POWER云 或 AI 编程官网账号注册的，请点对应的登录按钮」；`PASSWORD_NOT_SET` 这个码不再回（它等于告诉没登录的人这个号存在）。没设密码的号不累计失败次数。锁定规则在 `core/login-lockout.ts`：最长 30 分钟，成功登录或 24 小时没再被锁则级别归零，自助改密也清零；手机号形状的输入有人绑定就只认绑定者，没人绑定才按用户名找。
 - 自助改密只吊销其它设备的会话，保留本人正在用的这台。
 - 限流（`apps/api/src/rate-limits.ts`）：Redis 不可用时默认放行（skipOnError），只有发短信、客户端注册、官网注册拒绝并回 503 `RATE_LIMIT_UNAVAILABLE`；键前缀 `proxysplit:rl:`。每台在线客户端都会定时调的接口（刷新、POWER云 同步、订单 / 通知轮询、配置同步、日志上报）统一 `FLEET_LIMIT` 每 IP 每分钟 600，刷新另加每会话 family 每分钟 30 次；人手动触发的接口限额不变。
+- **默认就限流（2026-11-18 第二轮）**：插件改成 `global:true`。没声明限额的路由（后台全部接口、少用的手动接口）**共用**一个每 IP 默认桶 `DEFAULT_LIMIT` 每分钟 600；在线客户端定时调的接口必须各自声明 `FLEET_LIMIT`（各有各的桶，本轮补上 lease、`/v1/me`、`/v1/me/devices`、public-key、logout、`/v1/releases/latest`、`/v1/catalog/plans`、`/v1/announcements`、`/v1/fenxiao/*` 查询）；两个支付回调 `CALLBACK_LIMIT` 每分钟 1200；`/health` 完全豁免。**新加客户端定时接口时要声明 FLEET_LIMIT 并加进 `rate-limits.test.ts` 的 fleetRoutes**，否则它会落进共用桶，被同一出口的其它请求挤掉。
 - 匿名节点上报口：每 IP 每 10 分钟 64 MB、库里没见过的设备号每 IP 每小时 30 个（内部功能，见 docs/节点上报.md）。
 - 后台：动管理员账号（改状态 / 重置密码 / 封禁 / 强制下线 / 解绑设备 …）或新建管理员必须是超级管理员（`admin-guard.ts`，`SUPER_ADMIN_USERNAMES`，配成空串按默认 admin）。
 - 会话 / 审计表：迁移 0024 补索引；成功刷新不再写审计；API 进程每小时清过期超过 1 天、或吊销 / 消费超过 7 天的会话行（`session-retention.ts`）。

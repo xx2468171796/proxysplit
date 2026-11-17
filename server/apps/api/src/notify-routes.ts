@@ -18,7 +18,7 @@ const query = (req: FastifyRequest) => req.query as Record<string, string>
 const bodyOf = (req: FastifyRequest) => (req.method === 'GET' || req.method === 'DELETE' ? undefined : (req.body ?? {}))
 
 export function registerNotifyRoutes(app: FastifyInstance, d: Deps) {
-  app.get('/v1/announcements', async () => ({ items: await d.notify.legacyAnnouncements() }))
+  app.get('/v1/announcements', { config: { rateLimit: FLEET_LIMIT } }, async () => ({ items: await d.notify.legacyAnnouncements() }))
 
   const PLAYER = '/v1/tongzhi'
   app.route({

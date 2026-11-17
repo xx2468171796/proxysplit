@@ -63,7 +63,26 @@ export function redisLimitStore(redis: LimitRedis) {
   }
 }
 
-/** 插件全局默认：存储出错放行。 */
-export const LIMITER_DEFAULTS = { global: false, max: 10, timeWindow: '1 minute', skipOnError: true } as const
+// ── 默认就限流（2026-11-18 第二轮审计）──────────────────────────────────────
+// 以前 global:false：路由自己声明才限流，忘了声明就完全不限（lease、/v1/me、全部后台接口都是这样漏掉的）。
+// 现在 global:true：没声明的路由共用一个「每 IP」默认桶（DEFAULT_LIMIT）——注意是共用，不是每条路由各一个桶。
+// 所以三类路由必须自己声明，不能落进默认桶：
+//   · 在线客户端定时调的 → FLEET_LIMIT（各有各的桶；落进共用桶的话，一个出口 IP 后的客户端会互相挤掉）
+//   · 人手动触发、有被刷风险的 → 各自的低限额
+//   · 支付回调 → CALLBACK_LIMIT；/health → NO_LIMIT
+// 新加一条客户端会定时调的接口时，把它加进 rate-limits.test.ts 的 fleetRoutes，测试会拦住漏声明。
+
+/** 没声明限额的路由共用：每 IP 每分钟。后台页面一次打开十来个请求、办公室一个出口多人同时用也远够不着。 */
+export const DEFAULT_LIMIT = { max: 600, timeWindow: '1 minute' } as const
+/**
+ * 支付回调：来源是支付中心 / 网关的固定出口，集中到账时会成批到。不设成完全豁免，是因为这两个地址谁都能打，
+ * 老网关回调验签之前要先查一次订单；额度给到正常峰值的许多倍，被限也只是对方稍后重试。
+ */
+export const CALLBACK_LIMIT = { max: 1200, timeWindow: '1 minute' } as const
+/** 完全不限流（只给 /health：探活、负载均衡、部署脚本都在打，本身不碰数据库）。 */
+export const NO_LIMIT = { rateLimit: false } as const
+
+/** 插件全局默认：所有路由默认限流（DEFAULT_LIMIT），存储出错放行。 */
+export const LIMITER_DEFAULTS = { global: true, ...DEFAULT_LIMIT, skipOnError: true } as const
 /** 发短信 / 注册：存储出错不放行（合并进该路由的 rateLimit 配置）。 */
 export const FAIL_CLOSED = { skipOnError: false } as const

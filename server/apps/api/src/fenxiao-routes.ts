@@ -2,6 +2,7 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 import { AppError } from '@proxysplit/shared'
 import { idParam } from './params.js'
+import { FLEET_LIMIT } from './rate-limits.js'
 import { fenxiaoAdjustSchema, fenxiaoCommissionReviewSchema, fenxiaoCommissionsQuery, fenxiaoGrantSchema, fenxiaoMemberPatchSchema, fenxiaoMembersQuery, fenxiaoMoveSchema, fenxiaoPolicySchema, fenxiaoReviewSchema, fenxiaoTeamQuery, fenxiaoWithdrawalsQuery, fenxiaoWithdrawSchema } from '@proxysplit/contracts'
 import type { FenxiaoService, PgStore } from '@proxysplit/core'
 
@@ -11,18 +12,20 @@ type Deps={
   auth:(req:FastifyRequest)=>Promise<Principal>; admin:(req:FastifyRequest)=>Promise<Principal>
 }
 const userId=(req:FastifyRequest)=>idParam(req,'用户不存在')
+const fleet={rateLimit:FLEET_LIMIT}
 
 export function registerFenxiaoRoutes(app:FastifyInstance,d:Deps){
   const {service:s,store}=d
   const site=d.publicBaseUrl.replace(/\/+$/,'')
   // ---- 推广人 ----
-  app.get('/v1/fenxiao/me',async(req)=>{
+  // 推广人自己的四个查询：客户端打开「推广」页和轮询余额时调，各自的桶（rate-limits.ts FLEET_LIMIT）
+  app.get('/v1/fenxiao/me',{config:fleet},async(req)=>{
     const p=await d.auth(req);const me=await s.me(p.userId)
     return {...me,link:me.code?`${site}/?ref=${me.code}`:null}
   })
-  app.get('/v1/fenxiao/team',async(req)=>{const p=await d.auth(req);return s.myTeam(p.userId,fenxiaoTeamQuery.parse(req.query))})
-  app.get('/v1/fenxiao/commissions',async(req)=>{const p=await d.auth(req);return s.myCommissions(p.userId,fenxiaoTeamQuery.parse(req.query))})
-  app.get('/v1/fenxiao/withdrawals',async(req)=>{const p=await d.auth(req);return s.myWithdrawals(p.userId,fenxiaoTeamQuery.parse(req.query))})
+  app.get('/v1/fenxiao/team',{config:fleet},async(req)=>{const p=await d.auth(req);return s.myTeam(p.userId,fenxiaoTeamQuery.parse(req.query))})
+  app.get('/v1/fenxiao/commissions',{config:fleet},async(req)=>{const p=await d.auth(req);return s.myCommissions(p.userId,fenxiaoTeamQuery.parse(req.query))})
+  app.get('/v1/fenxiao/withdrawals',{config:fleet},async(req)=>{const p=await d.auth(req);return s.myWithdrawals(p.userId,fenxiaoTeamQuery.parse(req.query))})
   app.post('/v1/fenxiao/withdrawals',{config:{rateLimit:{max:5,timeWindow:'1 minute'}}},async(req)=>{
     // 审计行由 FenxiaoService 在记账的同一事务里写（下面的调账 / 佣金复核 / 提现审核同理）
     const p=await d.auth(req);return s.withdraw(p.userId,fenxiaoWithdrawSchema.parse(req.body),req.ip)
