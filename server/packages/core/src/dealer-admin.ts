@@ -1,7 +1,7 @@
 // 后台「代理商分成」：代理商列表（比例可改）、分成流水（筛选 / 分页）、批量标记已结算。线下打款，系统只记账。
 import type { DealerCommissionsQuery, DealerListQuery } from '@proxysplit/contracts'
 import { AppError } from '@proxysplit/shared'
-import { insertAudit, type AuditActor, type AuditRow } from './audit.js'
+import { withAuditedTx, type AuditActor, type AuditEntry } from './audit.js'
 
 type Query=(text:string,params?:unknown[])=>Promise<{rows:unknown[];rowCount:number|null}>
 type Db={ query:Query; connect():Promise<{query:Query;release():void}> }
@@ -23,16 +23,9 @@ const range=(q:DealerCommissionsQuery)=>{
 export class DealerAdmin{
   constructor(private db:Db){}
 
-  /** 改比例 / 标记结算与它的审计行同一个事务：审计写不进去，改动也不落库。 */
-  private async audited<T>(run:(q:Query)=>Promise<{result:T;audit:Omit<AuditRow,'actor'|'ip'|'result'>}>,by:AuditActor):Promise<T>{
-    const client=await this.db.connect()
-    try{
-      await client.query('BEGIN')
-      const {result,audit}=await run((text,params)=>client.query(text,params))
-      await insertAudit(client,{...audit,...by,result:'success'})
-      await client.query('COMMIT')
-      return result
-    }catch(e){await client.query('ROLLBACK').catch(()=>undefined);throw e}finally{client.release()}
+  /** 改比例 / 标记结算与它的审计行同一个事务：审计写不进去，改动也不落库（audit.ts withAuditedTx）。 */
+  private audited<T>(run:(q:Query)=>Promise<{result:T;audit:AuditEntry}>,by:AuditActor):Promise<T>{
+    return withAuditedTx(this.db,by,tx=>run(tx.query))
   }
 
   async list(q:DealerListQuery){
