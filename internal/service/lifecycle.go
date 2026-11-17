@@ -25,7 +25,8 @@ type Status struct {
 	// CaptureNote: 仅接管选中程序 could not load its driver, so the TUN is in use.
 	CaptureNote string `json:"captureNote,omitempty"`
 	// RunState is the service's own view (runhealth.go): stopped | running |
-	// recovering (the core died by itself and is being restarted).
+	// restarting (a changed config is being swapped in) | recovering (the core
+	// died by itself and is being restarted).
 	RunState string `json:"runState"`
 	// StopReason: why the proxy stopped by itself (until the next start / stop).
 	StopReason string `json:"stopReason,omitempty"`
@@ -33,29 +34,112 @@ type Status struct {
 	CaptureState string `json:"captureState,omitempty"`
 }
 
-// applyLive re-applies a rule/line change to the running core. In the
-// sing-box-native model (TUN / 应用分流) the app rules live in the core config,
-// so a change is applied by regenerating + reloading the config (restart while
-// running).
+// applyLive makes a saved change (nodes, subscriptions, lines, rules) take
+// effect on the running core. The new config is generated first: when it is
+// byte-identical to the running one nothing is restarted (a scheduled
+// subscription refresh that changed nothing used to reset every connection);
+// otherwise it is validated and only then swapped in. No-op when stopped.
 func (s *Service) applyLive() error {
-	if err := s.restart(); err != nil {
+	err := s.reload(false)
+	if err != nil {
 		s.log("[service] reload after rule change failed: " + err.Error())
-		return err
 	}
-	return nil
+	return err
 }
 
-// restart stops and starts a running core under one lifecycle lock, so a Stop
-// from the user cannot slip in between and be undone by the Start, and
-// concurrent changes restart one after the other. No-op when stopped.
-func (s *Service) restart() error {
+// restart always replaces a running core (changed binary, rule files, network
+// reset), still validating the new config before the old core is stopped.
+// No-op when stopped.
+func (s *Service) restart() error { return s.reload(true) }
+
+// reload runs under one lifecycle lock, so a Stop from the user cannot slip in
+// between and be undone by the Start, and concurrent changes go one after the
+// other.
+func (s *Service) reload(force bool) error {
 	s.lifecycleMu.Lock()
 	defer s.lifecycleMu.Unlock()
 	if !s.core.Running() {
 		return nil
 	}
-	s.stopLocked()
-	return s.startLocked()
+	if _, err := s.pickNode(); err != nil {
+		s.stopLocked() // nothing left to run (the last node was deleted)
+		return err
+	}
+	plan, err := s.planStart(s.liveReuse())
+	if err != nil {
+		s.stopLocked()
+		return err
+	}
+	return reloadSteps(force, reloadOps{
+		unchanged: func() bool { return s.applyUnchanged(plan) },
+		check:     func() error { return s.core.CheckTUN(plan.node, plan.level, plan.route, plan.opts) },
+		swap:      s.swapCoreLocked,
+	})
+}
+
+// reloadOps are the three steps of a reload (tests fake them).
+type reloadOps struct {
+	unchanged func() bool  // the running core already runs the new config
+	check     func() error // validate the new config; the old core keeps running
+	swap      func() error // stop the old core, start the new one
+}
+
+// reloadSteps is the reload rule: never restart for an identical config, and
+// never stop a working core for a config that does not validate.
+func reloadSteps(force bool, ops reloadOps) error {
+	if !force && ops.unchanged() {
+		return nil
+	}
+	if err := ops.check(); err != nil {
+		return fmt.Errorf("新配置没有通过内核校验，代理仍按原来的配置运行：%w", err)
+	}
+	return ops.swap()
+}
+
+// liveReuse returns the running core's per-run values for planStart.
+func (s *Service) liveReuse() *planReuse {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	r := &planReuse{clashPort: s.clashPort, clashSecret: s.clashSecret, serverIPs: s.liveIPs}
+	if s.run != nil {
+		r.procPorts = s.run.procPorts
+	}
+	return r
+}
+
+// applyUnchanged reports whether the running core already runs p's config. In
+// 应用分流 the app lists live outside the config: they are brought up to date
+// here (rule-set files, capture routes), as a hot app-rule change does.
+func (s *Service) applyUnchanged(p *startPlan) bool {
+	if !p.split {
+		same, err := s.core.RunningConfigIs(p.node, p.level, p.route, p.opts)
+		return err == nil && same
+	}
+	same, err := s.core.ApplySplitLists(p.node, p.level, p.route, nil, p.opts)
+	if err != nil || !same {
+		return false
+	}
+	s.finishHotApply(p.opts, p.sum.targets)
+	return true
+}
+
+// swapCoreLocked replaces the running core. The capture engine stays, holding
+// the selected programs (refused, not direct) until the new core is up; if
+// that fails the proxy ends stopped with the reason. Caller holds lifecycleMu.
+func (s *Service) swapCoreLocked() error {
+	s.mu.Lock()
+	s.health.phase = RunRestarting // an exit while the new core starts is ours, not a crash
+	eng := s.capEng
+	s.mu.Unlock()
+	if eng != nil {
+		eng.SetHold(true)
+	}
+	s.stopCoreLocked()
+	err := s.startLocked()
+	if err != nil {
+		s.failRun(EventCoreFailed, "重新加载配置后内核没有启动成功，代理已停止："+err.Error())
+	}
+	return err
 }
 
 // Start resolves the config into per-line inbounds, launches the core, then the
@@ -74,17 +158,11 @@ func (s *Service) startLocked() error {
 		// overwrite the running core's clash port, secret and stats.
 		return nil
 	}
-	s.mu.Lock()
-	guard := s.startGuard
 	// Before the license check: with no node, every click used to call the
 	// license server too and soon hit its rate limit.
-	picked, auto := s.ensureSelectedLocked()
-	s.mu.Unlock()
-	if picked == nil {
-		return errNoNode
-	}
-	if auto {
-		s.log("[service] 还没选节点，已自动选中「" + picked.Name + "」")
+	guard, err := s.pickNode()
+	if err != nil {
+		return err
 	}
 	if guard != nil {
 		if err := guard(); err != nil {
@@ -96,6 +174,22 @@ func (s *Service) startLocked() error {
 		return err
 	}
 	return s.launch(plan)
+}
+
+// pickNode makes sure a node is selected (the first one when the selected node
+// is gone) and returns the start guard.
+func (s *Service) pickNode() (guard func() error, err error) {
+	s.mu.Lock()
+	guard = s.startGuard
+	picked, auto := s.ensureSelectedLocked()
+	s.mu.Unlock()
+	if picked == nil {
+		return nil, errNoNode
+	}
+	if auto {
+		s.log("[service] 还没选节点，已自动选中「" + picked.Name + "」")
+	}
+	return guard, nil
 }
 
 // runState is what the running app-split core was started with, so an app-rule
@@ -311,6 +405,7 @@ func (s *Service) stopCoreLocked() {
 	s.startedAt = time.Time{}
 	s.activeFP = nil
 	s.run = nil
+	s.liveIPs = nil
 	s.trafficStats = Stats{}
 	clearSysProxy := s.sysProxyOn
 	s.mu.Unlock()

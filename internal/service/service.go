@@ -151,6 +151,7 @@ type Service struct {
 	directDomainList []string          // hosts always routed outside the tunnel (our API)
 	healthCache      atomic.Value      // []LineHealth — refreshed by the background health loop
 	run              *runState         // running app-split core (nil in 整机全局 / stopped)
+	liveIPs          map[string]string // node domain -> IP the running core dials (reload keeps them)
 	accelPort        int               // Claude Code 加速本机入口端口（进程内固定）
 	accelOut         string            // 该入口当前走的出站（Claude Code 所用线路）
 	pv               *powervpn.Client  // POWER云 panel client (nil in tests)

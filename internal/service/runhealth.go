@@ -11,6 +11,7 @@ import (
 const (
 	RunStopped    = "stopped"
 	RunRunning    = "running"
+	RunRestarting = "restarting" // a changed config is being swapped in
 	RunRecovering = "recovering" // the core died by itself: automatic restart in progress
 )
 

@@ -18,6 +18,12 @@
 - 空名单用占位进程 proxysplit-none.invalid（空列表 = 无条件 = 全匹配）；占位还有第二个作用：sing-box 只在启动时根据规则集里有没有进程规则决定是否识别进程（SagerNet/sing-box#4341），去掉占位会让之后热加载进来的应用全部失效。
 - 整机全局下改应用规则不再重启，白名单下改 DefaultLine 不重启。
 
+## 重新加载（applyLive / restart，service/lifecycle.go reload）
+- 启动拆成 planStart（只解析配置，不动运行中的内核）+ launch（startplan.go）。reload 先用运行中内核的 clash 端口 / 密钥 / 接管端口 / 已解析节点 IP（planReuse）重新生成配置。
+- applyLive：新配置与运行中的逐字节相同就不重启（订阅定时刷新没变化时不再断全部连接；应用分流顺带把名单按热更新写回）。不再因此重新校验授权。
+- 配置变了（或 restart 强制重启）：先 `core.CheckTUN`（`sing-box check`，规则集写到 dataDir/check-rules 的副本）校验，不通过就保留原内核继续跑并把错误返回；通过才换内核。换的过程中抓包引擎留着并扣住选中的程序（不直连），新内核没起来则停代理并写 stopReason。
+- restartDroppingDNSCache / 网络重置 / 内核跟随更新仍是「先全停再启动」。
+
 ## 测试
 internal/core/routing_matrix_test.go 用真 sing-box 跑 20 个场景（TUN 换 mixed、节点换假代理、DNS 换 hosts），变异测试能抓到回归。
 - 测试要用 sing-box 私有副本，否则 service 测试的 CleanStrays 会杀掉它。

@@ -178,6 +178,7 @@ func (s *Service) launch(p *startPlan) error {
 	if p.split {
 		s.run = &runState{node: p.node, level: p.level, route: p.route, base: p.base, targets: p.sum.targets, procPorts: processPorts(p.opts)}
 	}
+	s.liveIPs = p.opts.ServerIPs
 	s.accelOut = p.opts.AccelOutbound
 	s.noteAIGuardStartedLocked(&p.opts)
 	s.health.phase, s.health.stopReason = RunRunning, ""

@@ -110,17 +110,7 @@ func (m *Manager) Check(node *nodes.Node, opts Options) error {
 	if err != nil {
 		return err
 	}
-	path := filepath.Join(m.dataDir, "check.json")
-	if err := os.WriteFile(path, cfg, 0o600); err != nil {
-		return err
-	}
-	check := exec.Command(m.binPath, "check", "-c", path)
-	hideWindow(check)
-	out, err := check.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("sing-box check failed: %s", string(out))
-	}
-	return nil
+	return m.checkConfig(cfg)
 }
 
 // Start generates a config for node, launches sing-box on the given inbound port
