@@ -2,14 +2,13 @@
 > 最后更新：2026-11-17。细节按下方路由表读 docs/memory/，逐版发布史在 docs/decisions.md（按标题取）。
 
 ## 当前状态
-- 线上：**v1.12.2 stable（强制，min 1.9.51；Windows + macOS 同号）**，2026-10-31 只发客户端（Xray 内核 26.10.29）。服务端仍是 2026-10-29 的 v1.12.0：current = releases/20261029-141117-5176b61-v1.12.0（tongzhi 消息铃铛，见 docs/memory/notify.md）。Gitea main 上的 zhanghao 账号改动未上线。Mac 构建见 docs/memory/macos.md。
+- 线上：**v1.12.4 stable（强制，min 1.9.51；只发 Windows，macOS 仍 1.12.2）**，2026-11-17 全站发布：current = releases/20261117-153032-9d7d6a3-v1.12.4（同日上一版 20261117-150925-74e0f11-v1.12.3，zhanghao 账号改动随它上线）。Mac 构建见 docs/memory/macos.md。
 - 前端已用 @ankotti/admin-ui 重写（React 19 + Vite 8 + TS 7 + pnpm 12.9.1，替换旧单文件 Svelte），随 v1.9.75 上线（已并入 main）；门禁 `pnpm --dir frontend check`，预览 `pnpm --dir frontend dev`。
 - 技术栈：Go + Wails + React 前端，sing-box 原生 TUN + process_name；服务端 Fastify + 深圳共享 PG（堡垒机数据源 sz-pg-proxysplit）。
 - **下一步**：公司统一服务接入第 2 期 zhanghao 账号（设计 docs/plan-2026-10-29-zhanghao.md），之后 huiyuan 跨站会员；日志详细化（net.conn_summary 连接成败汇总，业主 2026-10-28 要求，方便版本迭代排查）；有真实 IPv6 的电脑仍待实测（claude00002 是现成用户）；socks5 链式前置代理待业主决定；macOS 版：分支 feat/macos 已移植（Apple 芯片，构建机 xuan-macbook-air，见 docs/memory/macos.md），待 root 实测与随版本发布；不买 Apple 开发者账号（ad-hoc 签名）。发版前用正式下载包跑 alonehome2 自检，查别的会话未合并分支，测试机经 coord 轮流用。
 
-- **统一支付中心**：已把会员收款改走 zhifu-service（迁移 0022 设 zhifu-center 为当前通道、不拆单、回调 POST /v1/pay/center/notify），未上线；上线要先配 PAY_CENTER_* env、中心登记回调、并发能显示微信码（weixin://）的新客户端。见 docs/memory/account-membership.md「收款与退款」。
-- 分支 feat/pay-hv（2026-11-17，未合并未部署）：中心要求每笔先过人机验证，否则全部 PAY_CHALLENGE_REQUIRED、没人能付。客户端点购买先弹官网中继页 /pay-verify.html（iframe 里 LcVerify）拿 hvToken → 服务端用 SDK 兑一次再下单。上线 = env PAY_HV_HOST + 官网 + sz nginx 放开两条路径的嵌入 + 发新客户端，步骤见 account-membership.md「付款前人机验证」。
-- 分支 feat/dealer-attribution（2026-11-17，未合并未部署）：AI 中转站代理站归属 + 客服微信 + 代理商分成（迁移 0023、后台「代理商分成」、nginx 两条下载 location、env AIGW_PUBLIC_BASE / AIGW_PUBLIC_HOST），见 docs/中转站渠道.md「代理站」。
+- **统一支付中心（2026-11-17 上线）**：站点 proxysplit（资产 847），通道章鱼哥微信 zyg1103wx，回调 /v1/pay/center/notify。中心强制每单人机验证：客户端经 /pay-verify.html 中继页取 hvToken，服务端兑换；api 容器连不到宿主 127.0.0.1:8976，靠 sz `/www/conf.d/proxysplit-hv-bridge.conf`（172.20.0.1:18976，已 include 进 /etc/openresty/nginx.conf）+ env PAY_HV_URL。伪造凭据已实测被拒。详见 account-membership.md「付款前人机验证」。待办：业主真机付一笔核对到账；macOS 版跟进（老 Mac 客户端显示不了 weixin:// 码）。
+- **代理站与分成（2026-11-17 上线）**：wen 30%（迁移 0023 预置），后台「代理商分成」，aigw v0.36.2 已出下载入口，见 docs/中转站渠道.md「代理站」。
 
 ## 红线（不得做）
 - 不碰腾讯云 110.40.185.27（支付网关），只能以客户端身份调接口。

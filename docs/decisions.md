@@ -4,6 +4,18 @@
 > 结论与坑已提炼到 `docs/memory/<主题>.md`；这里是事实存档，按标题取（`node ~/.ankotti/ai-kit/mem.mjs <关键词>`），不要整份读。
 > 约定：sz = 深圳生产机；incoming = sz `/opt/proxysplit/incoming/`；客户端回滚 = 该版本 incoming 目录 `python3 publish-client.py rollback` 并删 releases 表里该版本那行。
 
+## v1.12.4（2026-11-17 15:35，全站发布，强制；只发 Windows）
+- 内容：付款前人机验证（中心每单强制滑块）：客户端 /pay-verify.html 中继 + 服务端兑换 hvToken；官网带 pay-verify.html。
+- 构建提交 9d7d6a3；release id 20261117-153032-9d7d6a3-v1.12.4（incoming 同名目录）；exe SHA256 07c60a1ac8f8eb57b833c970b0c03e047ab7fcefc27bd3afe8e5f3c90e637403（EV Sign）；服务端包 b65c44bd…；备份 backups/postgres-20261117-153032-9d7d6a3-v1.12.4.sql.gz。
+- sz 配置同时改：proxysplit.zygskins.cn.conf 加 $ps_embed_ok 三个 map，X-Frame-Options / CSP 只对 /pay-verify.html 与 /__leichiwaf/hv/ 放开嵌入（备份 /root/proxysplit.zygskins.cn.conf.bak-20261117-hv）；新增 /www/conf.d/proxysplit-hv-bridge.conf 并 include 进 /etc/openresty/nginx.conf（备份 /root/nginx.conf.bak-20261117-hv）；runtime.env 加 PAY_HV_HOST / PAY_HV_URL。
+- 验收：/health 200；pay-verify.html 带 frame-ancestors CSP、首页仍 DENY；无凭据与伪造凭据下单都 PAY_CHALLENGE_REQUIRED（没有放行）；飞牛 latest = 1.12.4，versioned / latest / ai-latest / ai-d-wen 整包 SHA256 一致。未做：真凭据真付款（无本站 AI 测试通行码，需业主真机）。
+
+## v1.12.3（2026-11-17 15:12，全站发布，强制；只发 Windows）
+- 内容：收款切统一支付中心（迁移 0022，站点 proxysplit / 资产 847，通道 zyg1103wx）；代理站归属 + 客服微信 + 代理商分成（迁移 0023，wen 30%）；zhanghao 账号改动（迁移 0021）一并上线。
+- 构建提交 74e0f11；release id 20261117-150925-74e0f11-v1.12.3；exe SHA256 95d35791fe445c693a6a7b3bab006b7e5b2a3147199491c0fe278f19497a2b16；备份 backups/postgres-20261117-150925-74e0f11-v1.12.3.sql.gz。
+- sz：runtime.env 加 PAY_MODE / PAY_CENTER_*（备份 runtime.env.bak-20261117）；proxysplit.zygskins.cn.conf 加代理站两条下载 location（备份 /root/proxysplit.zygskins.cn.conf.bak-20261117）。
+- 验收：中心 test-notify 签名回调 acked；下单到中心正常（被每单滑块拦，见 v1.12.4）。
+
 ## v1.12.2（2026-10-31 16:00，只发客户端，强制；Windows + macOS 同号）
 - 内容：Xray 旁路内核 26.10.21 → 26.10.29（上游 0afec66，Go 1.27.3）；客户端代码与 v1.12.1 相同，只换内置 xray。服务端没动（zhanghao 改动仍未上线，CHANGELOG 记在「服务端（未发布）」）。
 - 构建提交 66187b0（tag v1.12.2，gitea + GitHub）；incoming/client-v1.12.2-66187b0（previous/ 存 1.12.1 的 exe / manifest / macos zip）；Windows SHA256 f6725f23bb064dfdbbeca8119c1c41c4865a7a1f0dfeed85b85b3e27a6afe59c（EV Sign）；macOS zip SHA256 45ec7d854d4e888327d08b9670dd86420ddea79b0d86adc86e21cb6a7c0a5b94（mac-studio 编）；releases id windows 6926088b…、macos 061f7052…。
