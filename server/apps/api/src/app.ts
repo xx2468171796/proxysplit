@@ -15,8 +15,8 @@ import { registerAccountRoutes } from './account-routes.js'
 import { createAdminGuard } from './admin-guard.js'
 import { DeviceLimiter, registerTelemetryRoutes, type TelemetryDeps } from './telemetry-routes.js'
 import { FAIL_CLOSED, FLEET_LIMIT, LIMITER_DEFAULTS, REFRESH_PER_FAMILY_PER_MINUTE, rateLimited, redisLimitStore, refreshFamilyKey } from './rate-limits.js'
-import { IpByteBudget } from './telemetry-budget.js'
-import { registerClientNodesRoutes, type ClientNodesDeps } from './client-nodes-routes.js'
+import { IpByteBudget, IpNewDeviceBudget } from './telemetry-budget.js'
+import { NODES_IP_BYTES_PER_10MIN, NODES_NEW_DEVICES_PER_IP_PER_HOUR, registerClientNodesRoutes, type ClientNodesDeps } from './client-nodes-routes.js'
 import { registerPhoneRoutes } from './phone-routes.js'
 import { registerSyncRoutes } from './sync-routes.js'
 import { registerAdminStatsRoutes, type AdminStatsDeps } from './admin-stats-routes.js'
@@ -98,7 +98,7 @@ export async function buildApp(config:ApiConfig,provided?:Core){
   // 同事节点上报（client-nodes-routes.ts，docs/节点上报.md）：解密链接只给 SUPER_ADMIN_USERNAMES 里的管理员
   const cipher=new LinkCipher(config.NODE_LINK_KEY)
   const clientNodes=core.clientNodes??{store:new ClientNodesStore(core.store.pool,cipher,msg=>app.log.warn(msg)),query:new ClientNodesQuery(core.store.pool,cipher)}
-  registerClientNodesRoutes(app,{...clientNodes,admin,optionalUser,perDevicePerMinute:6,perIpPerMinute:120,runRetention:config.NODE_ENV!=='test',log:app.log,
+  registerClientNodesRoutes(app,{...clientNodes,admin,optionalUser,perDevicePerMinute:6,perIpPerMinute:120,ipBudget:new IpByteBudget(NODES_IP_BYTES_PER_10MIN,10*60_000,redis,50_000,()=>Date.now(),'nodes'),newDevices:new IpNewDeviceBudget(NODES_NEW_DEVICES_PER_IP_PER_HOUR),runRetention:config.NODE_ENV!=='test',log:app.log,
     isSuperAdmin:guard.isSuperAdmin,
     audit:(actor,action,type,id,ip,result,meta)=>core.store.audit(actor,action,type,id,ip,result,meta)})
   // 分佣冻结期到了转可提现：每 5 分钟扫一次（查余额时也会给本人补跑）。

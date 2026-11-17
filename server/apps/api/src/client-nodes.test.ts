@@ -1,6 +1,10 @@
 import { gzipSync } from 'node:zlib'
 import { describe, expect, it } from 'vitest'
+import Fastify from 'fastify'
+import { AppError } from '@proxysplit/shared'
 import { buildApp } from './app.js'
+import { registerClientNodesRoutes } from './client-nodes-routes.js'
+import { IpByteBudget, IpNewDeviceBudget } from './telemetry-budget.js'
 import type { ApiConfig } from './config.js'
 
 const config: ApiConfig = {
@@ -26,7 +30,7 @@ function setup(opts: { role?: string; username?: string } = {}) {
     },
     telemetry: { store: { ingest: async () => ({}), purge: async () => ({}) }, query: {} },
     clientNodes: {
-      store: { ingest: async (_r: unknown, ctx: { accountId: string | null }) => { ingested.push(ctx); return { nodes: 1, subs: 0, changes: 1, ignored: false } }, purge: async () => ({ changes: 0 }) },
+      store: { ingest: async (_r: unknown, ctx: { accountId: string | null }) => { ingested.push(ctx); return { nodes: 1, subs: 0, changes: 1, ignored: false } }, purge: async () => ({ changes: 0 }), knownDevice: async () => true },
       query: {
         listNodes: async (q: unknown) => ({ items: [], total: 0, q }), listSubs: async (q: unknown) => ({ items: [], q }), changes: async () => ({ items: [] }),
         stats: async () => ({ devices: 1 }),
@@ -110,5 +114,63 @@ describe('admin client node endpoints', () => {
     expect(sub.json()).toEqual({ url: 'https://sub' })
     expect(sup.audits[2]![1]).toBe('admin.client_sub.reveal')
     await app.close()
+  })
+})
+
+// 匿名上报口的三道预算（谁能上报不变）：每 IP 字节数、每 IP 新设备数；直接挂路由，预算调小好测。
+describe('client node upload budgets', () => {
+  async function bare(opts: { maxBytes?: number; newDevices?: number; known?: string[] } = {}) {
+    const ingested: string[] = []
+    const app = Fastify()
+    app.setErrorHandler((error, _req, reply) => reply.code(error instanceof AppError ? error.status : 500).send({ error: { code: error instanceof AppError ? error.code : 'E' } }))
+    registerClientNodesRoutes(app, {
+      store: {
+        ingest: async r => { ingested.push(r.deviceId); return { nodes: r.nodes.length, subs: 0, changes: 0, ignored: false } },
+        purge: async () => ({ changes: 0, clearedLinks: 0, staleRows: 0 }),
+        knownDevice: async id => (opts.known ?? []).includes(id),
+      },
+      query: {} as never, admin: async () => { throw new Error('unused') }, isSuperAdmin: async () => false, audit: async () => {},
+      optionalUser: async req => (req.headers.authorization === 'Bearer good' ? 'u1' : null),
+      perDevicePerMinute: 1000, perIpPerMinute: 1000, runRetention: false, log: { warn() {}, info() {} },
+      ipBudget: new IpByteBudget(opts.maxBytes ?? 1e9, 600_000, undefined, 100, () => 0, 'nodes'),
+      newDevices: new IpNewDeviceBudget(opts.newDevices ?? 1000, 3600_000, 100, () => 0),
+    })
+    const send = (deviceId: string, headers: Record<string, string> = {}) =>
+      app.inject({ method: 'POST', url: '/v1/client/nodes', headers: { 'x-device-id': deviceId, ...headers }, payload: report({ deviceId }) })
+    return { app, ingested, send }
+  }
+  const dev = (n: number) => n.toString(16).padStart(64, '0')
+
+  it('每 IP 字节预算：用完后 429，不再入库', async () => {
+    const one = Buffer.byteLength(JSON.stringify(report()))
+    const t = await bare({ maxBytes: one * 2 })
+    expect((await t.send(DEVICE)).statusCode).toBe(200)
+    expect((await t.send(DEVICE)).statusCode).toBe(200)
+    const over = await t.send(DEVICE)
+    expect(over.statusCode).toBe(429)
+    expect(t.ingested).toHaveLength(2)
+    await t.app.close()
+  })
+
+  it('每 IP 新设备预算：匿名上报的没见过的设备号超过上限后 429；已见过的设备、带有效令牌的不受限', async () => {
+    const t = await bare({ newDevices: 2, known: [dev(9)] })
+    expect((await t.send(dev(1))).statusCode).toBe(200)
+    expect((await t.send(dev(2))).statusCode).toBe(200)
+    expect((await t.send(dev(1))).statusCode).toBe(200) // 同一台再报不重复占名额
+    expect((await t.send(dev(3))).statusCode).toBe(429)
+    expect((await t.send(dev(9))).statusCode).toBe(200) // 库里已有这台
+    expect((await t.send(dev(4), { authorization: 'Bearer good' })).statusCode).toBe(200) // 登录用户可追溯
+    expect(t.ingested).toEqual([dev(1), dev(2), dev(1), dev(9), dev(4)])
+    await t.app.close()
+  })
+
+  it('IpNewDeviceBudget：按窗口清零，不同 IP 各算各的', () => {
+    let now = 0
+    const b = new IpNewDeviceBudget(1, 1000, 100, () => now)
+    expect(b.allow('1.1.1.1', 'a')).toBe(true)
+    expect(b.allow('1.1.1.1', 'b')).toBe(false)
+    expect(b.allow('2.2.2.2', 'b')).toBe(true)
+    now = 1000
+    expect(b.allow('1.1.1.1', 'b')).toBe(true)
   })
 })
