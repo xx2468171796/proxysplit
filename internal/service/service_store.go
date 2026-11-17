@@ -73,7 +73,7 @@ func (s *Service) retireLegacyExeCopy(dataDirConfigGood bool) {
 }
 
 // newAPIToken is a fresh random token for the local control API.
-func newAPIToken() string { return genSecret() + genSecret() }
+func newAPIToken() string { return randomHex(32) }
 
 // RegenerateAPIToken replaces the stored control-API token and returns the new
 // one; the old token stops working with the next request. Factory reset

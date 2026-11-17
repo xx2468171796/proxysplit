@@ -1,8 +1,6 @@
 package service
 
 import (
-	"crypto/rand"
-	"encoding/hex"
 	"fmt"
 	"net"
 	"os"
@@ -79,11 +77,7 @@ func (s *Service) portRuntime(id string) *portRuntime {
 	return rt
 }
 
-func newPortID() string {
-	b := make([]byte, 4)
-	_, _ = rand.Read(b)
-	return hex.EncodeToString(b)
-}
+func newPortID() string { return randomHex(4) }
 
 func (s *Service) singBoxPath() string { return filepath.Join(s.binDir, coreupdate.SingBoxExe) }
 
@@ -402,7 +396,7 @@ func (s *Service) launchPort(id string, rt *portRuntime) error {
 	if err != nil {
 		return err
 	}
-	secret := genSecret()
+	secret := randomHex(16)
 	name := p.Name
 	proc := core.NewPortProcess(s.singBoxPath(), s.dataDir, id, rt.logs.add, func() {
 		rt.setErr("内核意外退出（看端口日志）")

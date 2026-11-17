@@ -2,8 +2,6 @@ package service
 
 import (
 	"bytes"
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -20,15 +18,6 @@ import (
 // "rule" honours the per-line/route rules, "global" forces everything through
 // the node, "direct" forces everything direct — switchable without a restart.
 var clashModes = map[string]bool{"rule": true, "global": true, "direct": true}
-
-// genSecret returns a random bearer token for the clash_api controller.
-func genSecret() string {
-	b := make([]byte, 16)
-	if _, err := rand.Read(b); err != nil {
-		return "proxysplit"
-	}
-	return hex.EncodeToString(b)
-}
 
 // GetClashMode returns the current runtime mode (rule|global|direct).
 func (s *Service) GetClashMode() string {

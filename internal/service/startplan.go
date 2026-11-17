@@ -73,7 +73,7 @@ func (s *Service) planStart(reuse *planReuse) (*startPlan, error) {
 	// the core boots in it — no post-start apply window. TUN has no mixed inbound,
 	// so the clash port can't collide with one.
 	if p.clashSecret == "" {
-		p.clashSecret = genSecret()
+		p.clashSecret = randomHex(16)
 	}
 	if p.clashPort == 0 {
 		p.clashPort, _ = core.FreePort()

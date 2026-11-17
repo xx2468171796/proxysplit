@@ -118,6 +118,10 @@ func loopbackTCPFree(port int) bool {
 	return true
 }
 
+// randomHex returns n random bytes in hex. It is the one source of secrets and
+// ids in this package (clash_api secret, control token, AI-proxy and probe
+// passwords, port ids). crypto/rand never returns an error since Go 1.24 — it
+// aborts the program — so there is no weak fallback value.
 func randomHex(n int) string {
 	b := make([]byte, n)
 	_, _ = rand.Read(b)
