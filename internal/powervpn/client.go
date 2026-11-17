@@ -271,15 +271,40 @@ type tokenResponse struct {
 	ExpiresIn    int64  `json:"expires_in"`
 }
 
+// grantRejected reports whether a token-endpoint answer says the grant itself
+// (refresh token, authorization code, ticket) is dead: the OAuth error
+// "invalid_grant" (RFC 6749 §5.2). Every other failure — another OAuth error,
+// a WAF or proxy page, a rate limit — says nothing about the grant, so the
+// caller keeps it and tries again later.
+func grantRejected(status int, raw []byte) bool {
+	if status != http.StatusBadRequest && status != http.StatusUnauthorized {
+		return false
+	}
+	var e struct {
+		Error any `json:"error"`
+	}
+	if json.Unmarshal(raw, &e) != nil {
+		return false
+	}
+	code, _ := e.Error.(string)
+	return code == "invalid_grant"
+}
+
 func (c *Client) tokenRequest(ctx context.Context, form map[string]string) (*Token, error) {
 	form["client_id"] = ClientID
-	var out tokenResponse
-	status, err := c.doJSON(ctx, http.MethodPost, "/api/oauth/token", form, "", &out)
+	status, _, raw, err := c.do(ctx, http.MethodPost, "/api/oauth/token", form, "")
 	if err != nil {
-		if status == http.StatusBadRequest || status == http.StatusUnauthorized {
+		return nil, err
+	}
+	if status < 200 || status > 299 {
+		if grantRejected(status, raw) {
 			return nil, errGrantRejected
 		}
-		return nil, err
+		return nil, &StatusError{Status: status, Message: panelMessage(status, raw)}
+	}
+	var out tokenResponse
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return nil, fmt.Errorf("POWER云 响应无法解析：%w", err)
 	}
 	if out.AccessToken == "" || out.RefreshToken == "" {
 		return nil, fmt.Errorf("POWER云 返回的令牌无效")
@@ -410,22 +435,6 @@ func (c *Client) doWith(ctx context.Context, hc *http.Client, method, path strin
 		return resp.StatusCode, resp.Header, nil, fmt.Errorf("POWER云 响应过大")
 	}
 	return resp.StatusCode, resp.Header, raw, nil
-}
-
-func (c *Client) doJSON(ctx context.Context, method, path string, body any, bearer string, out any) (int, error) {
-	status, _, raw, err := c.do(ctx, method, path, body, bearer)
-	if err != nil {
-		return status, err
-	}
-	if status < 200 || status > 299 {
-		return status, &StatusError{Status: status, Message: panelMessage(status, raw)}
-	}
-	if out != nil {
-		if err := json.Unmarshal(raw, out); err != nil {
-			return status, fmt.Errorf("POWER云 响应无法解析：%w", err)
-		}
-	}
-	return status, nil
 }
 
 func panelMessage(status int, raw []byte) string {
