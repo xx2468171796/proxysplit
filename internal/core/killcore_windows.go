@@ -10,7 +10,9 @@ import (
 
 // killCoreProcs force-kills sing-box processes started from binPath: the
 // proxy-port ones (command line points into PortDirName) when ports is true,
-// every other one (TUN / main core) when false.
+// every other one (TUN / main core, and any probe) when false. A startup
+// sweep only (Manager.CleanStrays, KillPortStrays): it costs a PowerShell +
+// CIM query and cannot tell the main core from a probe.
 func killCoreProcs(binPath string, ports bool) {
 	like := "-notlike"
 	if ports {

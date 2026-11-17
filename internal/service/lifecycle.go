@@ -1,6 +1,7 @@
 package service
 
 import (
+	"cmp"
 	"fmt"
 	"path/filepath"
 	"sort"
@@ -8,7 +9,6 @@ import (
 	"time"
 
 	"proxysplit/internal/core"
-	"proxysplit/internal/coreupdate"
 	"proxysplit/internal/nodes"
 )
 
@@ -24,31 +24,14 @@ type Status struct {
 	Stats         Stats  `json:"stats"`
 	// CaptureNote: 仅接管选中程序 could not load its driver, so the TUN is in use.
 	CaptureNote string `json:"captureNote,omitempty"`
-}
-
-// applyLive re-applies a rule/line change to the running core. In the
-// sing-box-native model (TUN / 应用分流) the app rules live in the core config,
-// so a change is applied by regenerating + reloading the config (restart while
-// running).
-func (s *Service) applyLive() error {
-	if err := s.restart(); err != nil {
-		s.log("[service] reload after rule change failed: " + err.Error())
-		return err
-	}
-	return nil
-}
-
-// restart stops and starts a running core under one lifecycle lock, so a Stop
-// from the user cannot slip in between and be undone by the Start, and
-// concurrent changes restart one after the other. No-op when stopped.
-func (s *Service) restart() error {
-	s.lifecycleMu.Lock()
-	defer s.lifecycleMu.Unlock()
-	if !s.core.Running() {
-		return nil
-	}
-	s.stopLocked()
-	return s.startLocked()
+	// RunState is the service's own view (runhealth.go): stopped | running |
+	// restarting (a changed config is being swapped in) | recovering (the core
+	// died by itself and is being restarted).
+	RunState string `json:"runState"`
+	// StopReason: why the proxy stopped by itself (until the next start / stop).
+	StopReason string `json:"stopReason,omitempty"`
+	// CaptureState of 仅接管选中程序: ok | restarting ("" = TUN capture / stopped).
+	CaptureState string `json:"captureState,omitempty"`
 }
 
 // Start resolves the config into per-line inbounds, launches the core, then the
@@ -67,163 +50,54 @@ func (s *Service) startLocked() error {
 		// overwrite the running core's clash port, secret and stats.
 		return nil
 	}
-	s.mu.Lock()
-	guard := s.startGuard
 	// Before the license check: with no node, every click used to call the
 	// license server too and soon hit its rate limit.
-	picked, auto := s.ensureSelectedLocked()
-	s.mu.Unlock()
-	if picked == nil {
-		return errNoNode
-	}
-	if auto {
-		s.log("[service] 还没选节点，已自动选中「" + picked.Name + "」")
+	guard, err := s.pickNode()
+	if err != nil {
+		return err
 	}
 	if guard != nil {
 		if err := guard(); err != nil {
 			return fmt.Errorf("授权校验失败：%w", err)
 		}
 	}
-	s.mu.Lock()
-	node := s.chainLocked(s.selectedNode())
-	level := s.cfg.LogLevel
-	mode := s.cfg.RuleMode
-	set := s.cfg.Settings
-	custom := append([]core.RouteRule(nil), s.cfg.CustomRules...)
-	ruleSets := core.RuleSetOptions{
-		GeoSiteCN: s.cfg.RuleSets["geosite-cn.srs"],
-		GeoIPCN:   s.cfg.RuleSets["geoip-cn.srs"],
-		Ads:       s.cfg.RuleSets["geosite-category-ads-all.srs"],
-	}
-	// 整机全局 base = 全局规则 (bypass China: 大陆直连、境外走节点) — the DEFAULT.
-	// The clash mode picks the flavor at run time: 规则=全局规则(智能), 全局=全局
-	// 代理(含大陆全走节点), 直连=暂停. So 整机全局 has two sub-modes, default 全局规则.
-	tunRoute := core.RouteBypassCN
-	s.mu.Unlock()
-
-	// clash_api controller for live mode switching (全局/直连/规则) + a fresh random
-	// secret each run. The selected mode is baked into the config (default_mode) so
-	// the core boots in it — no post-start apply window.
-	clashSecret := genSecret()
-	s.mu.Lock()
-	s.clashSecret = clashSecret
-	if s.clashMode == "" {
-		s.clashMode = "rule"
-	}
-	wantMode := s.clashMode
-	accelPort := 0
-	if !set.ClaudeAccelOff {
-		accelPort = s.accelPortLocked()
-	}
-	s.mu.Unlock()
-	// Bundled core with relayops patch 0005: POWER云 Reality outbounds keep the
-	// X25519MLKEM768 key share. Cached per core file; stock cores never get it.
-	realityHybrid := coreupdate.HasTag(s.binDir, coreupdate.RealityHybridTag)
-	clashOptsFor := func(port int) core.Options {
-		ctl := ""
-		if port > 0 {
-			ctl = fmt.Sprintf("127.0.0.1:%d", port)
-		}
-		return core.Options{RemoteDNS: set.RemoteDNS, DNS: set.Net.coreDNS(), TunMTU: set.Net.TunMTU, StrictRouteOff: set.Net.StrictRouteOff, GeoDir: s.binDir, ClashController: ctl, ClashSecret: clashSecret, ClashMode: wantMode,
-			LanShare: set.LanShare, LanPort: set.LanPort, LanType: set.LanType, LanUser: set.LanUser, LanPass: set.LanPass,
-			CustomRules: custom, RuleSets: &ruleSets, DirectDomains: s.directDomains(),
-			ProxyPrivate: !set.PrivateDirect, BlockQUIC: set.BlockQUIC, SelfProcess: selfProcess(set.ExcludeSelf), PortProcessPath: s.portProcessPath(),
-			AccelPort: accelPort, RealityHybrid: realityHybrid,
-			// Off by itself while the AI guard is active (core/dnscache.go).
-			DNSOptimistic: true, DNSCacheFile: filepath.Join(s.dataDir, dnsCacheFile)}
-	}
-
-	// System-wide mode: sing-box TUN routes the whole machine.
-	if set.TunMode {
-		if node == nil {
-			return errNoNode
-		}
-		// TUN has no mixed inbound, so the clash port can't collide with one.
-		clashPort, _ := core.FreePort()
-		s.mu.Lock()
-		s.clashPort = clashPort
-		s.trafficStats = Stats{}
-		s.mu.Unlock()
-		tunOpts := clashOptsFor(clashPort)
-		tunOpts.AccelOutbound = "proxy" // 整机全局：Claude Code 也走主节点
-		s.mu.Lock()
-		extra := map[string]*nodes.Node{}
-		s.applyAIGuardLocked(&tunOpts, node.ID, extra)
-		for tag, n := range extra {
-			tunOpts.ExtraNodes = append(tunOpts.ExtraNodes, core.ExtraNode{Tag: tag, Node: s.chainLocked(n)})
-		}
-		s.mu.Unlock()
-		tunOpts.ServerIPs = s.serverIPs(startNodes(node, &tunOpts))
-		if err := s.core.StartTUN(node, level, tunRoute, nil, tunOpts); err != nil {
-			return s.withSecurityHint(fmt.Errorf("core(TUN): %w", err))
-		}
-		s.mu.Lock()
-		s.accelOut = tunOpts.AccelOutbound
-		s.noteAIGuardStartedLocked(&tunOpts)
-		s.mu.Unlock()
-		s.mu.Lock()
-		s.startedAt = time.Now()
-		s.activeFP = nil
-		s.run = nil
-		s.mu.Unlock()
-		s.applySystemProxyOnStart()
-		s.startWarm(node, tunOpts, clashPort, clashSecret)
-		s.log(fmt.Sprintf("[service] started — 全局 TUN 模式 (%s), 节点 %s", tunRoute, node.Name))
-		return nil
-	}
-
-	// App-split mode: sing-box TUN + per-app routing. The per-app lists live in
-	// rule-set files, so later app add/remove can apply without a restart.
-	if node == nil {
-		return errNoNode
-	}
-	clashPort, _ := core.FreePort()
-	base := clashOptsFor(clashPort)
-	base.Split = true
-	base.SplitWhitelist = mode != "blacklist"
-	s.mu.Lock()
-	s.clashPort = clashPort
-	s.trafficStats = Stats{}
-	opts := base
-	sum := s.splitOptionsLocked(&opts, node)
-	s.mu.Unlock()
-	// Kept in base too, so hot app-list reloads rebuild the same outbounds.
-	opts.ServerIPs = s.serverIPs(startNodes(node, &opts))
-	base.ServerIPs = opts.ServerIPs
-	if err := s.prepareProcessCapture(set, &opts, nil); err != nil {
+	plan, err := s.planStart(nil)
+	if err != nil {
 		return err
 	}
-	if err := s.core.StartTUN(node, level, tunRoute, nil, opts); err != nil {
-		return s.withSecurityHint(fmt.Errorf("core(应用分流 TUN): %w", err))
+	startErr := s.launch(plan)
+	if startErr == nil {
+		s.confirmPendingCore()
+		return nil
 	}
-	if err := s.startCapture(opts); err != nil {
-		// The driver will not open (security software, a clashing WinDivert,
-		// no kernel resources): never fail the start, run this one on the TUN.
-		_ = s.core.Stop()
-		s.wdBroken.Store(true)
-		s.wdNote.Store(s.captureFallbackNote())
-		s.noteCaptureFailure(err)
-		s.log("[capture] " + err.Error() + "；本次改用整机虚拟网卡，重启软件后再试「仅接管选中程序」")
-		s.log("[capture] 驱动诊断：" + s.captureDiag())
-		opts.Process = nil
-		if err := s.core.StartTUN(node, level, tunRoute, nil, opts); err != nil {
-			return s.withSecurityHint(fmt.Errorf("core(应用分流 TUN): %w", err))
-		}
+	if !s.rollbackPendingCore(startErr) {
+		return startErr
 	}
-
-	s.mu.Lock()
-	s.startedAt = time.Now()
-	s.activeFP = nil
-	s.run = &runState{node: node, level: level, route: tunRoute, base: base, targets: sum.targets, procPorts: processPorts(opts)}
-	s.accelOut = opts.AccelOutbound
-	s.noteAIGuardStartedLocked(&opts)
-	s.mu.Unlock()
-
-	s.applySystemProxyOnStart()
-	s.startWarm(node, opts, clashPort, clashSecret)
-	s.log(fmt.Sprintf("[service] started — 应用分流 (TUN+进程名), 代理 %d / 直连 %d / 拦截 %d 个程序, 额外节点 %d, 主节点 %s",
-		sum.proxied, sum.direct, sum.blocked, len(opts.ExtraNodes), node.Name))
+	// The previous core is back: build the plan again (it depends on the core
+	// file) and start on it.
+	if plan, err = s.planStart(nil); err != nil {
+		return err
+	}
+	if err := s.launch(plan); err != nil {
+		return fmt.Errorf("新内核启动失败（%v），换回旧内核后仍未能启动：%w", startErr, err)
+	}
 	return nil
+}
+
+// pickNode makes sure a node is selected (the first one when the selected node
+// is gone) and returns the start guard.
+func (s *Service) pickNode() (guard func() error, err error) {
+	s.mu.Lock()
+	guard = s.startGuard
+	picked, auto := s.ensureSelectedLocked()
+	s.mu.Unlock()
+	if picked == nil {
+		return nil, errNoNode
+	}
+	if auto {
+		s.log("[service] 还没选节点，已自动选中「" + picked.Name + "」")
+	}
+	return guard, nil
 }
 
 // runState is what the running app-split core was started with, so an app-rule
@@ -420,16 +294,29 @@ func (s *Service) Stop() {
 	s.stopLocked()
 }
 
-// stopLocked stops the core; caller holds lifecycleMu.
+// stopLocked stops the proxy for good (capture engine and core) and calls off
+// any automatic recovery; caller holds lifecycleMu.
 func (s *Service) stopLocked() {
+	s.mu.Lock()
+	s.health.phase, s.health.stopReason = RunStopped, ""
+	s.health.endRecoveryLocked()
+	s.mu.Unlock()
+	s.stopCapture() // before the core: captured apps must not hit dead inbounds
+	s.stopCoreLocked()
+}
+
+// stopCoreLocked stops the core and clears the run state but leaves the
+// capture engine alone (a restart keeps it, holding the selected programs);
+// caller holds lifecycleMu.
+func (s *Service) stopCoreLocked() {
 	s.mu.Lock()
 	s.startedAt = time.Time{}
 	s.activeFP = nil
 	s.run = nil
+	s.liveIPs = nil
 	s.trafficStats = Stats{}
 	clearSysProxy := s.sysProxyOn
 	s.mu.Unlock()
-	s.stopCapture() // before the core: captured apps must not hit dead inbounds
 	s.stopWarm()
 	s.core.Stop()
 	s.flushAIDNSOnStop()
@@ -445,6 +332,13 @@ func (s *Service) stopLocked() {
 	s.log("[service] stopped")
 }
 
+// engineUp reports whether traffic is actually being taken: the core alone in
+// TUN capture; in 仅接管选中程序 the capture engine must be alive as well (a
+// core without it proxies nothing).
+func engineUp(coreRunning, processCapture, engine bool) bool {
+	return coreRunning && (!processCapture || engine)
+}
+
 // Status returns a UI snapshot.
 func (s *Service) Status() Status {
 	s.mu.Lock()
@@ -455,6 +349,8 @@ func (s *Service) Status() Status {
 	clashPort := s.clashPort
 	clashSecret := s.clashSecret
 	stats := s.trafficStats
+	health := s.health
+	processCapture, engine := s.run != nil && s.run.procPorts != nil, s.capEng != nil
 	s.mu.Unlock()
 
 	running := s.core.Running()
@@ -463,7 +359,10 @@ func (s *Service) Status() Status {
 		CorePort:      s.core.Port(),
 		SelectedID:    sel,
 		RuleMode:      mode,
-		EngineRunning: running,
+		EngineRunning: engineUp(running, processCapture, engine),
+		RunState:      cmp.Or(health.phase, RunStopped),
+		StopReason:    health.stopReason,
+		CaptureState:  health.capture,
 	}
 	if note, _ := s.wdNote.Load().(string); running && note != "" {
 		st.CaptureNote = note

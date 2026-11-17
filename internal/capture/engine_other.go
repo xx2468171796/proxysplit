@@ -21,6 +21,7 @@ func Start(Options, *Routes) (*Engine, error) {
 }
 
 func (e *Engine) SetRoutes(*Routes)        {}
+func (e *Engine) SetHold(bool)             {}
 func (e *Engine) Flows() int               { return 0 }
 func (e *Engine) ProgramFor(uint16) string { return "" }
 func (e *Engine) Stop()                    {}

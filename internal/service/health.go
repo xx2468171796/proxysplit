@@ -43,18 +43,86 @@ func (s *Service) Health() Health {
 	return h
 }
 
-// healthLoop periodically probes each line's node so the UI can show live
-// reachability. A direct TCP connect measures whether the node server is up.
+// Background polling follows demand (pollgate below): nothing is measured for
+// a stopped proxy, and little while no window is there to show it. They used
+// to run flat out for the life of the process — a TCP dial to every node
+// server every 10 s and a full /connections fetch every second, in the tray,
+// proxy off.
+const (
+	healthEveryVisible     = 10 * time.Second
+	healthEveryHidden      = 2 * time.Minute
+	appMonitorEveryVisible = time.Second
+	appMonitorEveryHidden  = 5 * time.Second
+)
+
+// healthEvery is the line-reachability cadence; 0 = paused.
+func healthEvery(running, visible bool) time.Duration {
+	switch {
+	case !running:
+		return 0
+	case visible:
+		return healthEveryVisible
+	}
+	return healthEveryHidden
+}
+
+// appMonitorEvery is the per-app connection poll cadence; 0 = paused.
+func appMonitorEvery(running, visible bool) time.Duration {
+	switch {
+	case !running:
+		return 0
+	case visible:
+		return appMonitorEveryVisible
+	}
+	return appMonitorEveryHidden
+}
+
+// pollGate decides, tick by tick, whether a background poll is due.
+type pollGate struct {
+	last       time.Time
+	wasRunning bool
+}
+
+// due reports whether to poll now: at the cadence every (0 = paused), and at
+// once when the proxy has just started or wake is set (the window came back).
+func (g *pollGate) due(now time.Time, every time.Duration, running, wake bool) bool {
+	started := running && !g.wasRunning
+	g.wasRunning = running
+	if every == 0 || (!started && !wake && now.Sub(g.last) < every) {
+		return false
+	}
+	g.last = now
+	return true
+}
+
+// SetUIVisible tells the service whether a window is showing its data. Hidden
+// (tray, minimised) slows the background polls down; showing it again
+// refreshes at once. Until it is called the UI counts as visible.
+func (s *Service) SetUIVisible(visible bool) {
+	if s.uiHidden.Swap(!visible) && visible {
+		s.uiWake.Store(true)
+	}
+}
+
+// UIVisible reports the last SetUIVisible value (true before any call).
+func (s *Service) UIVisible() bool { return !s.uiHidden.Load() }
+
+// healthLoop probes each line's node while the proxy runs so the UI can show
+// live reachability. A direct TCP connect measures whether the node server is up.
 func (s *Service) healthLoop() {
-	s.refreshHealth()
-	t := time.NewTicker(10 * time.Second)
+	s.refreshHealth() // one pass at launch so the panel is not empty
+	gate := pollGate{last: time.Now()}
+	t := time.NewTicker(time.Second)
 	defer t.Stop()
 	for {
 		select {
 		case <-s.quit:
 			return
-		case <-t.C:
-			s.refreshHealth()
+		case now := <-t.C:
+			running, visible := s.core.Running(), s.UIVisible()
+			if gate.due(now, healthEvery(running, visible), running, s.uiWake.Swap(false)) {
+				s.refreshHealth()
+			}
 		}
 	}
 }

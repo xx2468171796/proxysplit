@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"proxysplit/internal/core"
 	"proxysplit/internal/icon"
 	"proxysplit/internal/nodes"
 	"proxysplit/internal/proc"
@@ -196,7 +197,6 @@ func (s *Service) applyAppRules() error {
 	}
 	opts := run.base
 	sum := s.splitOptionsLocked(&opts, run.node)
-	port, secret := s.clashPort, s.clashSecret
 	set := s.cfg.Settings
 	s.mu.Unlock()
 	if run.procPorts != nil {
@@ -213,15 +213,28 @@ func (s *Service) applyAppRules() error {
 		}
 		return s.applyLive()
 	}
-	s.updateCaptureRoutes(opts)
-	changed := changedApps(run.targets, sum.targets)
-	s.mu.Lock()
-	run.targets = sum.targets
-	s.mu.Unlock()
+	s.finishHotApply(opts, sum.targets)
 	s.lifecycleMu.Unlock()
+	return nil
+}
+
+// finishHotApply completes an app-list change the core took without a
+// restart: the capture engine gets the new routes and the apps whose route
+// changed lose their old connections. Caller holds lifecycleMu.
+func (s *Service) finishHotApply(opts core.Options, targets map[string]string) {
+	s.updateCaptureRoutes(opts)
+	s.mu.Lock()
+	run := s.run
+	port, secret := s.clashPort, s.clashSecret
+	var changed map[string]bool
+	if run != nil {
+		changed = changedApps(run.targets, targets)
+		run.targets = targets
+	}
+	s.mu.Unlock()
 	if len(changed) == 0 {
 		s.log("[service] 应用规则已实时生效(未重启)")
-		return nil
+		return
 	}
 	// sing-box reloads a rewritten rule-set file asynchronously (file watcher,
 	// ~0.1 s measured). Closing right away lets an app that reconnects at once
@@ -232,7 +245,6 @@ func (s *Service) applyAppRules() error {
 		closed := closeProcessConnections(port, secret, changed)
 		s.log(fmt.Sprintf("[service] 应用规则已实时生效(未重启): %d 个应用变动, 断开其旧连接 %d 条", len(changed), closed))
 	}()
-	return nil
 }
 
 // ruleSetReloadWait is how long to give sing-box to pick up rewritten app

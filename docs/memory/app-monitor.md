@@ -27,3 +27,8 @@
 - 每进程访问日志最多 1000 条、最多跟踪 500 个进程；详情里「失败相关的内核日志」= 含失败目标的 WARN/ERROR 行。「立即检测」复用 RouteTest。
 - 真机里看到的「拦截」多为 QUIC（UDP 443，配置 BlockQUIC 有意拦截，应用自动回落 TCP），监测里带说明不算失败；经 twpro 的 UDP（NTP 48 字节）无回包会记为失败，属实。
 - 实测方法：cmd/diagrun 加 -test 或 -hold <时长> 时输出 appMonitor（每个 -test / -app 进程的统计和访问日志）；-hold 期间可用 ldconsole reboot 让模拟器产生真实流量；本机管理员 shell 可直接跑（先确认本机没有正在跑的 sing-box/TUN）。
+
+## 后台轮询按需（审计 2026-11-18，service/health.go pollGate）
+- 线路可达性（healthLoop：对每条线路的节点做一次直连 TCP 拨号）和逐应用监测（appMonitorLoop：读主内核 /connections）不再全程满速：代理停止时都暂停（启动时仍做一次线路探测，代理一启动立刻补一次）；窗口不可见时线路探测 10 秒 → 2 分钟，逐应用监测 1 秒 → 5 秒（隐藏期间开了又关的短连接流量会少记，连接本身仍由内核日志记录）。
+- 窗口可见性由 `Service.SetUIVisible(bool)` 告知（未调用前按可见处理）；需要 App 层在显示 / 隐藏窗口处调用，见下。
+- 待接线（根目录文件归别的组）：tray.go `showWindow()` 和 app.go 第二实例唤起窗口处调 `a.svc.SetUIVisible(true)`；tray.go `beforeClose` 里 `runtime.WindowHide` 之后调 `a.svc.SetUIVisible(false)`。

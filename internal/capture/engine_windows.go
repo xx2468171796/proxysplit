@@ -27,22 +27,24 @@ type Engine struct {
 	exclude map[string]bool // lower-case exe paths never captured (core, port proxies)
 	selfPID uint32
 
-	own     *owners
-	ct      *conntrack
-	udp     *udpTable
-	relay   *relay
-	data    *dataSet
-	probe   *divert.Handle
-	reply   *divert.Handle
-	sock    *divert.Handle
-	sender  *divert.Handle
-	wd      *watchdog
-	pending chan heldPkt
-	onFail  func(string)
-	stop    chan struct{}
-	wg      sync.WaitGroup
-	once    sync.Once
-	shut    sync.Once
+	own        *owners
+	ct         *conntrack
+	udp        *udpTable
+	relay      *relay
+	data       *dataSet
+	probe      *divert.Handle
+	reply      *divert.Handle
+	sock       *divert.Handle
+	sender     *divert.Handle
+	wd         *watchdog
+	pending    chan heldPkt // SYN / DNS queries waiting for their owner
+	pendingUDP chan heldPkt // datagrams of unclassified UDP ports
+	onFail     func(string)
+	held       atomic.Bool // core down: selected programs are refused, not relayed
+	stop       chan struct{}
+	wg         sync.WaitGroup
+	once       sync.Once
+	shut       sync.Once
 }
 
 // Options configures Start.
@@ -68,7 +70,7 @@ func Start(opts Options, routes *Routes) (*Engine, error) {
 	}
 	e := &Engine{log: opts.Log, exclude: map[string]bool{}, selfPID: uint32(os.Getpid()),
 		own: newOwners(), ct: newConntrack(), stop: make(chan struct{}), onFail: opts.OnFail,
-		wd: newWatchdog(StallLimit, nil), pending: make(chan heldPkt, pendingCap)}
+		wd: newWatchdog(StallLimit, nil), pending: make(chan heldPkt, pendingCap), pendingUDP: make(chan heldPkt, pendingCap)}
 	for _, p := range opts.Exclude {
 		if p != "" {
 			e.exclude[normPath(p)] = true
@@ -116,8 +118,24 @@ func (e *Engine) open() error {
 }
 
 // SetRoutes swaps the app lists live (no core restart). New connections follow
-// the new lists; flows already relayed keep their inbound until they close.
-func (e *Engine) SetRoutes(r *Routes) { e.routes.Store(r) }
+// the new lists; TCP flows already relayed keep their inbound until they
+// close. Every UDP port is classified again on its next datagram.
+func (e *Engine) SetRoutes(r *Routes) {
+	e.routes.Store(r)
+	if e.data != nil {
+		e.data.udpChange((*udpPorts).reset)
+	}
+}
+
+// SetHold switches the engine between relaying and holding. While held (the
+// core is down or restarting) selected programs stay captured but their new
+// connections and datagrams are dropped instead of relayed to dead inbounds —
+// they never fall back to a direct connection. Everything else is untouched.
+func (e *Engine) SetHold(on bool) {
+	if e.held.Swap(on) != on && e.udp != nil {
+		e.udp.closeAll() // SOCKS associations died with the core: make new ones after it
+	}
+}
 
 // Flows reports the number of relayed TCP flows (diagnostics).
 func (e *Engine) Flows() int { return e.ct.count() }
@@ -200,12 +218,37 @@ func (e *Engine) sweepLoop() {
 		case <-e.stop:
 			return
 		case now := <-t.C:
-			if gone := e.ct.sweep(now, 15*time.Minute, 30*time.Second); len(gone) > 0 {
-				e.data.remove(divert.ProtoTCP, gone)
+			if gone := e.ct.sweep(now, 15*time.Minute, 30*time.Second, tcpBound()); len(gone) > 0 {
+				e.data.removeTCP(gone)
 			}
 			e.udp.sweep(now, 2*time.Minute)
+			e.revalidateUDP()
 		}
 	}
+}
+
+// tcpBound returns the conntrack sweep's "is this local port still bound"
+// check. The system table is read once, on the first idle flow of a sweep; if
+// it cannot be read every port counts as bound (keep, never guess).
+func tcpBound() func(port uint16) bool {
+	snapshot := sync.OnceValues(func() (map[uint16][]uint32, bool) { return portOwners(divert.ProtoTCP) })
+	return func(port uint16) bool {
+		owners, ok := snapshot()
+		return !ok || len(owners[port]) > 0
+	}
+}
+
+// revalidateUDP re-checks the UDP classification against the system's socket
+// tables and the current lists: socket events can be missed under load, and
+// a pass entry that outlives its socket would let the port's next owner out.
+func (e *Engine) revalidateUDP() {
+	owners, ok := portOwners(divert.ProtoUDP)
+	if !ok {
+		return
+	}
+	selected := func(pid uint32) bool { return e.verdictPID(pid).Action != Pass }
+	decide := func(pid uint32) (udpEntry, bool) { return udpEntryFor(e.verdictPID(pid), pid) }
+	e.data.udpChange(func(u *udpPorts) bool { return u.revalidate(decide, passOwnersOK(owners, selected)) })
 }
 
 func normPath(p string) string { return strings.ToLower(filepath.Clean(p)) }

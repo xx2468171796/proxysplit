@@ -3,15 +3,18 @@ package core
 // TUN start and hot-reload of the app split lists (moved out of manager.go).
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
 	"time"
 
 	"proxysplit/internal/nodes"
+	"proxysplit/internal/xray"
 )
 
 // StartTUN launches sing-box in system-wide TUN mode (wintun) routing all
@@ -47,8 +50,6 @@ func (m *Manager) StartTUN(node *nodes.Node, logLevel, routeMode string, routeRu
 	if err := os.WriteFile(cfgPath, cfg, 0o600); err != nil {
 		return err
 	}
-
-	m.killStrays() // clean slate: remove any orphaned sing-box before starting
 
 	// Spawn with a retry: a TUN start can transiently fail if a previous wintun
 	// adapter is still being released by the driver. Retry once after a short
@@ -102,22 +103,95 @@ func (m *Manager) tunConfig(node *nodes.Node, logLevel, routeMode string, routeR
 // files differ, and sing-box reloads those by itself. It returns false when the
 // core is not running a TUN config or the config differs (restart needed).
 func (m *Manager) ApplySplitLists(node *nodes.Node, logLevel, routeMode string, routeRules []RouteRule, opts Options) (bool, error) {
+	same, opts, err := m.sameAsRunning(node, logLevel, routeMode, routeRules, opts)
+	if err != nil || !same || !opts.Split {
+		return false, err
+	}
+	return true, writeRuleSets(opts)
+}
+
+// RunningConfigIs reports whether the running core was started with exactly
+// the config these options build (then a reload has nothing to do).
+func (m *Manager) RunningConfigIs(node *nodes.Node, logLevel, routeMode string, opts Options) (bool, error) {
+	same, _, err := m.sameAsRunning(node, logLevel, routeMode, nil, opts)
+	return same, err
+}
+
+// sameAsRunning builds the TUN config for the options and compares it, byte
+// for byte, with the one the running core was started with.
+func (m *Manager) sameAsRunning(node *nodes.Node, logLevel, routeMode string, routeRules []RouteRule, opts Options) (bool, Options, error) {
 	// The running sidecar's ports: a changed Xray node set builds a different
 	// config (or none) and so takes the restart path.
 	cfg, opts, err := m.tunConfig(node, logLevel, routeMode, routeRules, m.xrayOpts(opts, m.xray.Ports()))
 	if isXrayErr(err) {
-		return false, nil
+		return false, opts, nil
 	}
 	if err != nil {
-		return false, err
+		return false, opts, err
 	}
 	m.mu.Lock()
 	same := m.running && m.tunCfg != nil && string(m.tunCfg) == string(cfg)
 	m.mu.Unlock()
-	if !same || !opts.Split {
-		return false, nil
+	return same, opts, nil
+}
+
+// checkTimeout bounds one `sing-box check` run.
+const checkTimeout = 20 * time.Second
+
+// CheckTUN validates the TUN / process-capture config these options build with
+// `sing-box check`, without starting anything and without touching the running
+// core or its files. A reload calls it before the old core is stopped.
+func (m *Manager) CheckTUN(node *nodes.Node, logLevel, routeMode string, opts Options) error {
+	opts = m.xrayOpts(opts, m.xray.Ports())
+	if node.UseXray() {
+		// The sidecar for this node may not run yet: sing-box only sees its
+		// SOCKS outbound, any port validates the same.
+		key := xray.Key(PinNode(node, opts.ServerIPs))
+		if opts.XrayPorts[key].Port == 0 {
+			ports := map[string]xray.Endpoint{key: {Port: deadXrayPort}}
+			for k, v := range opts.XrayPorts {
+				ports[k] = v
+			}
+			opts.XrayPorts = ports
+		}
 	}
-	return true, writeRuleSets(opts)
+	if opts.Split {
+		// `check` opens the app rule-set files: give it its own copies, the
+		// running core is watching the real ones.
+		opts.RuleDir = filepath.Join(m.dataDir, "check-rules")
+		defer os.RemoveAll(opts.RuleDir)
+	}
+	cfg, opts, err := m.tunConfig(node, logLevel, routeMode, nil, opts)
+	if err != nil {
+		return err
+	}
+	if err := writeRuleSets(opts); err != nil {
+		return err
+	}
+	return m.checkConfig(cfg)
+}
+
+// checkConfig runs `sing-box check` on cfg (written next to the live config,
+// under its own name).
+func (m *Manager) checkConfig(cfg []byte) error {
+	if err := os.MkdirAll(m.dataDir, 0o755); err != nil {
+		return err
+	}
+	path := filepath.Join(m.dataDir, "check.json")
+	if err := os.WriteFile(path, cfg, 0o600); err != nil {
+		return err
+	}
+	defer os.Remove(path)
+	ctx, cancel := context.WithTimeout(context.Background(), checkTimeout)
+	defer cancel()
+	check := exec.CommandContext(ctx, m.binPath, "check", "-c", path)
+	check.Dir = m.dataDir
+	hideWindow(check)
+	out, err := check.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("sing-box check failed: %s", strings.TrimSpace(string(out)+" "+err.Error()))
+	}
+	return nil
 }
 
 // writeRuleSets writes the per-app process rule-sets atomically (temp + rename),

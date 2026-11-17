@@ -25,8 +25,9 @@ func (s *Service) appMonitorLoop() {
 		defer s.mu.Unlock()
 		return labelOutbound(tag, s.outboundLabelsLocked())
 	})
-	t := time.NewTicker(time.Second)
+	t := time.NewTicker(appMonitorEveryVisible)
 	defer t.Stop()
+	var gate pollGate
 	for {
 		var now time.Time
 		select {
@@ -34,7 +35,13 @@ func (s *Service) appMonitorLoop() {
 			return
 		case now = <-t.C:
 		}
-		if !s.core.Running() {
+		running := s.core.Running()
+		// Paused while stopped, slower while no window shows it (health.go).
+		every := appMonitorEvery(running, s.UIVisible())
+		if every == appMonitorEveryVisible {
+			every /= 2 // the ticker is the one-second step: every tick is due
+		}
+		if !gate.due(now, every, running, false) {
 			continue
 		}
 		s.mu.Lock()

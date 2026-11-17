@@ -110,6 +110,42 @@
         "action": "sniff"
       },
       {
+        "action": "reject",
+        "inbound": [
+          "in-port"
+        ],
+        "ip_cidr": [
+          "127.0.0.0/8",
+          "0.0.0.0/32",
+          "::1/128",
+          "::/128",
+          "::ffff:127.0.0.0/104"
+        ]
+      },
+      {
+        "action": "reject",
+        "domain": [
+          "localhost"
+        ],
+        "domain_suffix": [
+          ".localhost"
+        ],
+        "inbound": [
+          "in-port"
+        ]
+      },
+      {
+        "action": "reject",
+        "inbound": [
+          "in-port"
+        ],
+        "ip_is_private": true,
+        "port": [
+          1,
+          10801
+        ]
+      },
+      {
         "domain": [
           "api.example.cn"
         ],

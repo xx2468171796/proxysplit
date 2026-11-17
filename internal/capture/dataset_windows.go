@@ -6,23 +6,17 @@ import (
 	"proxysplit/internal/divert"
 )
 
-// udpEntry is one captured UDP port: where its datagrams go and which process
-// registered it (a reused port with another owner is not captured).
-type udpEntry struct {
-	inbound int // sing-box inbound port; -1 = drop (拦截)
-	pid     uint32
-}
-
-// dataSet owns the data handle whose filter lists exactly the captured local
-// ports. Changes are batched (FilterBatchWindow): one replacement handle is
-// opened for many new ports BEFORE the old one is shut down (no gap), and a
-// held SYN is released only after the swap that covers its port.
+// dataSet owns the data handle: its filter lists the captured TCP ports and
+// the UDP pass list (filter.go). Changes are batched (FilterBatchWindow): one
+// replacement handle is opened for many changes BEFORE the old one is shut
+// down (no gap), and a held SYN is released only after the swap that covers
+// its port. UDP needs no such wait: an unclassified port is diverted already.
 type dataSet struct {
 	e       *Engine
 	mu      sync.Mutex
 	tcp     map[uint16]bool
 	applied map[uint16]bool // tcp ports covered by the live handle
-	udp     map[uint16]udpEntry
+	udp     *udpPorts
 	h       *divert.Handle
 	filter  string
 	closed  bool
@@ -30,7 +24,7 @@ type dataSet struct {
 }
 
 func newDataSet(e *Engine) *dataSet {
-	d := &dataSet{e: e, tcp: map[uint16]bool{}, applied: map[uint16]bool{}, udp: map[uint16]udpEntry{}}
+	d := &dataSet{e: e, tcp: map[uint16]bool{}, applied: map[uint16]bool{}, udp: newUDPPorts()}
 	d.batch = newBatcher(d.rebuild, FilterBatchWindow)
 	return d
 }
@@ -55,7 +49,7 @@ func (d *dataSet) rebuild() error {
 	for p := range d.tcp {
 		tcp[p] = true
 	}
-	f := DataFilter(keys(d.tcp), keys(d.udp))
+	f := DataFilter(keys(d.tcp), d.udp.passList())
 	same := f == d.filter && d.h != nil
 	d.mu.Unlock()
 	if same {
@@ -109,41 +103,39 @@ func (d *dataSet) addTCP(port uint16, done func(error)) {
 	d.batch.request(done)
 }
 
-// setUDP registers a captured UDP port (inbound > 0 relay, -1 drop).
-func (d *dataSet) setUDP(port uint16, ent udpEntry) {
-	d.mu.Lock()
-	if d.closed || d.udp[port] == ent {
-		d.mu.Unlock()
-		return
-	}
-	d.udp[port] = ent
-	d.mu.Unlock()
-	d.batch.request(nil)
-}
-
-func (d *dataSet) udpEntry(port uint16) (udpEntry, bool) {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	v, ok := d.udp[port]
-	return v, ok
-}
-
-// remove drops ports (TCP or UDP); the next batch rebuilds once.
-func (d *dataSet) remove(proto uint8, ports []uint16) {
+// removeTCP drops captured TCP ports; the next batch rebuilds once.
+func (d *dataSet) removeTCP(ports []uint16) {
 	d.mu.Lock()
 	if d.closed {
 		d.mu.Unlock()
 		return
 	}
 	for _, p := range ports {
-		if proto == divert.ProtoTCP {
-			delete(d.tcp, p)
-		} else {
-			delete(d.udp, p)
-		}
+		delete(d.tcp, p)
 	}
 	d.mu.Unlock()
 	d.batch.request(nil)
+}
+
+// udpChange runs fn on the UDP classification and schedules a filter swap
+// when fn reports that the pass list changed.
+func (d *dataSet) udpChange(fn func(u *udpPorts) bool) {
+	d.mu.Lock()
+	if d.closed {
+		d.mu.Unlock()
+		return
+	}
+	changed := fn(d.udp)
+	d.mu.Unlock()
+	if changed {
+		d.batch.request(nil)
+	}
+}
+
+func (d *dataSet) udpEntry(port uint16) (udpEntry, bool) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.udp.entry(port)
 }
 
 func (d *dataSet) close() {

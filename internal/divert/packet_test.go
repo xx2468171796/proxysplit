@@ -91,3 +91,64 @@ func TestBuildRSTv6(t *testing.T) {
 		t.Fatal("SYN-ACK must not be answered")
 	}
 }
+
+// v6Packet builds an IPv6 packet: fixed header, the given extension headers
+// (each: its type and total length in bytes), then a transport header of proto
+// with the given ports.
+func v6Packet(exts [][2]int, proto byte, sport, dport uint16) []byte {
+	b := make([]byte, 40)
+	b[0] = 0x60
+	next := &b[6]
+	for _, e := range exts {
+		*next = byte(e[0])
+		h := make([]byte, e[1])
+		switch e[0] {
+		case ext6AH:
+			h[1] = byte(e[1]/4 - 2)
+		case ext6Fragment:
+		default:
+			h[1] = byte(e[1]/8 - 1)
+		}
+		b = append(b, h...)
+		next = &b[len(b)-e[1]]
+	}
+	*next = proto
+	t := make([]byte, 20)
+	binary.BigEndian.PutUint16(t[0:], sport)
+	binary.BigEndian.PutUint16(t[2:], dport)
+	return append(b, t...)
+}
+
+// The capture filter matches `udp` / `tcp` behind IPv6 extension headers; the
+// packet reader must find the same header, or such a packet is taken for
+// "neither" and reinjected untouched.
+func TestIPv6ExtensionHeadersAreWalked(t *testing.T) {
+	cases := map[string][][2]int{
+		"none":             nil,
+		"hop-by-hop":       {{ext6HopByHop, 8}},
+		"dest opts 16":     {{ext6DestOpts, 16}},
+		"routing+dest":     {{ext6Routing, 24}, {ext6DestOpts, 8}},
+		"first fragment":   {{ext6Fragment, 8}},
+		"auth header":      {{ext6AH, 24}},
+		"hop+frag+destopt": {{ext6HopByHop, 8}, {ext6Fragment, 8}, {ext6DestOpts, 8}},
+	}
+	for name, exts := range cases {
+		for _, proto := range []byte{ProtoUDP, ProtoTCP} {
+			p := v6Packet(exts, proto, 50123, 443)
+			if Protocol(p) != proto || SrcPort(p) != 50123 || DstPort(p) != 443 {
+				t.Errorf("%s proto %d: got proto=%d sport=%d dport=%d", name, proto, Protocol(p), SrcPort(p), DstPort(p))
+			}
+		}
+	}
+	// A later fragment carries no transport header: no ports, not UDP.
+	later := v6Packet([][2]int{{ext6Fragment, 8}}, ProtoUDP, 50123, 443)
+	binary.BigEndian.PutUint16(later[42:], 185<<3)
+	if Protocol(later) == ProtoUDP || SrcPort(later) != 0 {
+		t.Errorf("non-first fragment read as UDP: proto=%d sport=%d", Protocol(later), SrcPort(later))
+	}
+	// Truncated in the middle of an extension header: nothing readable.
+	short := v6Packet([][2]int{{ext6DestOpts, 16}}, ProtoUDP, 1, 2)[:44]
+	if SrcPort(short) != 0 {
+		t.Error("truncated packet must yield no port")
+	}
+}

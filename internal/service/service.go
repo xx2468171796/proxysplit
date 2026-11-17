@@ -151,6 +151,7 @@ type Service struct {
 	directDomainList []string          // hosts always routed outside the tunnel (our API)
 	healthCache      atomic.Value      // []LineHealth — refreshed by the background health loop
 	run              *runState         // running app-split core (nil in 整机全局 / stopped)
+	liveIPs          map[string]string // node domain -> IP the running core dials (reload keeps them)
 	accelPort        int               // Claude Code 加速本机入口端口（进程内固定）
 	accelOut         string            // 该入口当前走的出站（Claude Code 所用线路）
 	pv               *powervpn.Client  // POWER云 panel client (nil in tests)
@@ -165,17 +166,19 @@ type Service struct {
 	exitProbe        core.AIProxy // AI 页测分应用代理出口的本机入口（TUN 模式，本次运行固定）
 	hostIPv6Seen     atomic.Bool  // hostIPv6: last answer measured with the core stopped
 	hostIPv6Known    atomic.Bool
-	exits            exitsCache      // AI 页实时出口 IP（exits.go）
-	google           googleProbe     // 概览 Google 延迟（link_svc.go）
-	capEng           *capture.Engine // 仅接管选中程序的抓包引擎（capture_svc.go；nil = TUN）
-	wdFetch          chan struct{}   // in-flight WinDivert download (prefetchWinDivert)
-	wdReady          func() bool     // nil = coreupdate.WinDivertReady (tests stub it)
-	wdBroken         atomic.Bool     // WinDivert failed to open this run: use the TUN until restart
-	wdNote           atomic.Value    // string: captureFallbackNote, computed once at the fallback
-	followOnce    sync.Once // core follow (corefollow.go)
-	followStart   sync.Once
-	follower      *coreFollower
-	followTrigger chan struct{}
+	exits            exitsCache                                                    // AI 页实时出口 IP（exits.go）
+	google           googleProbe                                                   // 概览 Google 延迟（link_svc.go）
+	capEng           captureEngine                                                 // 仅接管选中程序的抓包引擎（capture_svc.go；nil = TUN）
+	capStart         func(capture.Options, *capture.Routes) (captureEngine, error) // nil = openCaptureEngine (tests fake it)
+	health           runHealth                                                     // 运行健康状态：自动停止的原因、抓包引擎状态（runhealth.go）
+	wdFetch          chan struct{}                                                 // in-flight WinDivert download (prefetchWinDivert)
+	wdReady          func() bool                                                   // nil = coreupdate.WinDivertReady (tests stub it)
+	wdBroken         atomic.Bool                                                   // WinDivert failed to open this run: use the TUN until restart
+	wdNote           atomic.Value                                                  // string: captureFallbackNote, computed once at the fallback
+	followOnce       sync.Once                                                     // core follow (corefollow.go)
+	followStart      sync.Once
+	follower         *coreFollower
+	followTrigger    chan struct{}
 
 	ruleSyncStart sync.Once // rule-set mirror sync (rulesets.go)
 
@@ -184,6 +187,9 @@ type Service struct {
 	appMon appid.Monitor // 逐应用连接监测（appmonitor.go）
 	tap    logTap        // 客户端日志上报（telemetry_tap.go）
 	warm   warmState     // 节点保活 + DNS 预热（warm_svc.go）
+
+	uiHidden atomic.Bool // no window is showing our data: background polls slow down (health.go)
+	uiWake   atomic.Bool // the window just came back: refresh line health at once
 
 	quit      chan struct{} // closed by Close: stops the background loops
 	closeOnce sync.Once

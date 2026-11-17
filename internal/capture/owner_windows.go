@@ -88,38 +88,67 @@ var (
 	procGetExtendedUdp = iphlpapi.NewProc("GetExtendedUdpTable")
 )
 
-// tableOwner scans the IPv4 owner-pid table (TCP_TABLE_OWNER_PID_ALL = 5,
-// UDP_TABLE_OWNER_PID = 1). Rows: TCP 6×u32 (pid last), UDP 3×u32.
-func tableOwner(proto uint8, port uint16) (uint32, bool) {
-	proc, class, words := procGetExtendedTcp, uintptr(5), 6
+const (
+	afInet  = 2
+	afInet6 = 23
+)
+
+// ownerTables lists the owner-pid tables of a protocol, IPv4 then IPv6
+// (TCP_TABLE_OWNER_PID_ALL = 5, UDP_TABLE_OWNER_PID = 1).
+func ownerTables(proto uint8) (proc *windows.LazyProc, class uintptr, v4, v6 ownerLayout) {
 	if proto == 17 {
-		proc, class, words = procGetExtendedUdp, 1, 3
+		return procGetExtendedUdp, 1, udp4Owners, udp6Owners
 	}
-	buf, err := ownerTable(proc, class)
-	if err != nil || len(buf) < 4 {
-		return 0, false
-	}
-	n := int(*(*uint32)(unsafe.Pointer(&buf[0])))
-	rowSize := words * 4
-	localPortWord := 2
-	if proto == 17 {
-		localPortWord = 1
-	}
-	for i := 0; i < n; i++ {
-		off := 4 + i*rowSize
-		if off+rowSize > len(buf) {
-			break
+	return procGetExtendedTcp, 5, tcp4Owners, tcp6Owners
+}
+
+// tableOwner looks a local port up in the system owner-pid tables of both
+// address families (a dual-stack socket is only in the IPv6 one).
+func tableOwner(proto uint8, port uint16) (pid uint32, found bool) {
+	proc, class, v4, v6 := ownerTables(proto)
+	for _, t := range []struct {
+		family uintptr
+		layout ownerLayout
+	}{{afInet, v4}, {afInet6, v6}} {
+		buf, err := ownerTable(proc, class, t.family)
+		if err != nil {
+			continue
 		}
-		raw := *(*uint32)(unsafe.Pointer(&buf[off+localPortWord*4]))
-		p := uint16(raw&0xff)<<8 | uint16(raw>>8&0xff)
-		if p == port {
-			return *(*uint32)(unsafe.Pointer(&buf[off+(words-1)*4])), true
+		scanOwners(buf, t.layout, func(p uint16, owner uint32) bool {
+			if p == port {
+				pid, found = owner, true
+			}
+			return !found
+		})
+		if found {
+			return pid, true
 		}
 	}
 	return 0, false
 }
 
-func ownerTable(proc *windows.LazyProc, class uintptr) ([]byte, error) {
+// portOwners snapshots which processes have each local port of a protocol
+// bound (both families); ok=false when a table could not be read.
+func portOwners(proto uint8) (owners map[uint16][]uint32, ok bool) {
+	proc, class, v4, v6 := ownerTables(proto)
+	owners = map[uint16][]uint32{}
+	for _, t := range []struct {
+		family uintptr
+		layout ownerLayout
+	}{{afInet, v4}, {afInet6, v6}} {
+		buf, err := ownerTable(proc, class, t.family)
+		if err != nil {
+			return nil, false
+		}
+		scanOwners(buf, t.layout, func(p uint16, owner uint32) bool {
+			owners[p] = append(owners[p], owner)
+			return true
+		})
+	}
+	return owners, true
+}
+
+func ownerTable(proc *windows.LazyProc, class, family uintptr) ([]byte, error) {
 	var size uint32
 	for i := 0; i < 3; i++ {
 		var p uintptr
@@ -127,7 +156,7 @@ func ownerTable(proc *windows.LazyProc, class uintptr) ([]byte, error) {
 		if size > 0 {
 			p = uintptr(unsafe.Pointer(&buf[0]))
 		}
-		r, _, _ := proc.Call(p, uintptr(unsafe.Pointer(&size)), 0, 2 /*AF_INET*/, class, 0)
+		r, _, _ := proc.Call(p, uintptr(unsafe.Pointer(&size)), 0, family, class, 0)
 		if r == 0 && p != 0 {
 			return buf, nil
 		}

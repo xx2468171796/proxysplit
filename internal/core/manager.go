@@ -110,17 +110,7 @@ func (m *Manager) Check(node *nodes.Node, opts Options) error {
 	if err != nil {
 		return err
 	}
-	path := filepath.Join(m.dataDir, "check.json")
-	if err := os.WriteFile(path, cfg, 0o600); err != nil {
-		return err
-	}
-	check := exec.Command(m.binPath, "check", "-c", path)
-	hideWindow(check)
-	out, err := check.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("sing-box check failed: %s", string(out))
-	}
-	return nil
+	return m.checkConfig(cfg)
 }
 
 // Start generates a config for node, launches sing-box on the given inbound port
@@ -309,8 +299,14 @@ func (m *Manager) spawn(cfgPath string) error {
 	return nil
 }
 
+// stopWait is how long Stop waits for the core to exit after terminating it.
+const stopWait = 4 * time.Second
+
 // Stop terminates the core process and WAITS for it to actually exit, so the
-// wintun adapter + routes are fully released before any following Start.
+// wintun adapter + routes are fully released before any following Start. It
+// ends exactly the process this manager started: every other sing-box from the
+// same path (latency / speed probes, proxy ports) is somebody else's, and a
+// sweep by image path used to kill those on every stop and restart.
 func (m *Manager) Stop() error {
 	m.mu.Lock()
 	cmd := m.cmd
@@ -328,27 +324,26 @@ func (m *Manager) Stop() error {
 	if done != nil {
 		select {
 		case <-done:
-		case <-time.After(4 * time.Second):
+		case <-time.After(stopWait):
+			// Still there: say so. The next start fails loudly on the busy
+			// adapter instead of this silently killing unrelated processes.
+			m.onLog(fmt.Sprintf("[core] sing-box (pid %d) 在 %s 内没有退出", cmd.Process.Pid, stopWait))
 		}
 	}
-	m.killStrays()                     // nuke any orphaned sing-box (else Stop leaves proxying alive)
 	m.xray.Stop()                      // sidecar after sing-box: nothing dials it any more
 	time.Sleep(300 * time.Millisecond) // grace for the wintun driver to release
 	return nil
 }
 
 // CleanStrays kills orphaned sing-box (and Xray sidecar) processes from a
-// prior crash. Call once on startup so a leftover core isn't left proxying
-// after the app restarts.
+// prior crash: every main-core sing-box running from OUR bin path. Only for
+// app startup (and the network reset), when nothing of ours may be running —
+// a leftover core would keep the TUN adapter up, i.e. keep proxying. Never on
+// a normal stop / start: Stop ends the process it recorded.
 func (m *Manager) CleanStrays() {
-	m.killStrays()
+	killCoreProcs(m.binPath, false)
 	m.xray.CleanStrays()
 }
-
-// killStrays force-kills every sing-box.exe running from OUR bin path. This
-// catches orphans left by a crash or a botched restart that would otherwise
-// keep the TUN adapter up (proxying) after Stop, or collide with a new Start.
-func (m *Manager) killStrays() { killCoreProcs(m.binPath, false) }
 
 func (m *Manager) pump(r interface{ Read([]byte) (int, error) }) { pumpLines(r, m.onLog) }
 

@@ -13,11 +13,11 @@ import (
 )
 
 func TestDataFilter(t *testing.T) {
-	if got := DataFilter(nil, nil); got != "false" {
-		t.Fatalf("empty set must match nothing, got %q", got)
+	if got, want := DataFilter(nil, nil), "outbound and !loopback and udp and udp.DstPort != 53"; got != want {
+		t.Fatalf("nothing captured: all non-DNS UDP and no TCP, got %q", got)
 	}
 	got := DataFilter([]uint16{5001, 4000}, []uint16{6000})
-	want := "outbound and !loopback and ip and ((tcp and !tcp.Syn and (tcp.SrcPort == 4000 or tcp.SrcPort == 5001)) or (udp and udp.DstPort != 53 and (udp.SrcPort == 6000)))"
+	want := "outbound and !loopback and ((ip and tcp and !tcp.Syn and (tcp.SrcPort == 4000 or tcp.SrcPort == 5001)) or (udp and udp.DstPort != 53 and udp.SrcPort != 6000))"
 	if got != want {
 		t.Fatalf("filter\n got %s\nwant %s", got, want)
 	}
@@ -113,10 +113,11 @@ func TestConntrackSweep(t *testing.T) {
 	c.put(2, Flow{})
 	c.markClosed(2)
 	now := time.Now()
-	if gone := c.sweep(now.Add(time.Second), time.Hour, 30*time.Second); len(gone) != 0 {
+	bound := func(uint16) bool { return true }
+	if gone := c.sweep(now.Add(time.Second), time.Hour, 30*time.Second, bound); len(gone) != 0 {
 		t.Fatalf("nothing should expire yet: %v", gone)
 	}
-	if gone := c.sweep(now.Add(time.Minute), time.Hour, 30*time.Second); len(gone) != 1 || gone[0] != 2 {
+	if gone := c.sweep(now.Add(time.Minute), time.Hour, 30*time.Second, bound); len(gone) != 1 || gone[0] != 2 {
 		t.Fatalf("closed flow must expire after grace: %v", gone)
 	}
 	if _, ok := c.get(1); !ok || c.count() != 1 {
@@ -170,5 +171,39 @@ func TestUDPAssociate(t *testing.T) {
 	defer ctrl.Close()
 	if got.Port != 40404 || !got.IP.Equal(relay.IP) {
 		t.Fatalf("relay address %v", got)
+	}
+}
+
+// A quiet connection must not lose its conntrack entry: once the port leaves
+// the data filter its next segment would go out from the real address. Only a
+// closed socket — the close event, or a port that is no longer bound — goes.
+func TestConntrackKeepsIdleFlowsWhileSocketExists(t *testing.T) {
+	c := newConntrack()
+	for _, p := range []uint16{1000, 1001, 1002, 1003} {
+		c.put(p, Flow{DstPort: 443})
+	}
+	c.markClosed(1002)
+	start := time.Now()
+	bound := func(port uint16) bool { return port != 1001 } // 1001: close event was missed
+	checked := map[uint16]int{}
+	alive := func(port uint16) bool { checked[port]++; return bound(port) }
+
+	if gone := c.sweep(start.Add(20*time.Second), 15*time.Minute, 30*time.Second, alive); len(gone) != 0 || len(checked) != 0 {
+		t.Fatalf("nothing is idle or past its grace yet: gone=%v checked=%v", gone, checked)
+	}
+	gone := c.sweep(start.Add(16*time.Minute), 15*time.Minute, 30*time.Second, alive)
+	removed := map[uint16]bool{}
+	for _, p := range gone {
+		removed[p] = true
+	}
+	if len(gone) != 2 || !removed[1001] || !removed[1002] {
+		t.Fatalf("only the closed socket and the unbound port may go, got %v", gone)
+	}
+	if c.count() != 2 {
+		t.Fatal("an idle flow whose socket still exists was evicted: its next segment would leak")
+	}
+	checked = map[uint16]int{}
+	if gone := c.sweep(start.Add(17*time.Minute), 15*time.Minute, 30*time.Second, alive); len(gone) != 0 || len(checked) != 0 {
+		t.Fatalf("a flow just verified is not checked again until idle once more: gone=%v checked=%v", gone, checked)
 	}
 }

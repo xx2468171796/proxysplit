@@ -10,19 +10,29 @@ import (
 // kernel owner table is scanned (the event usually arrives first).
 const ownerGrace = 2 * time.Millisecond
 
-// pendingCap bounds held packets; past it new unknowns fail open (reinjected).
+// pendingCap bounds each queue of held packets. Past it a new connection's SYN
+// / DNS query fails open (reinjected: the machine's connections must not hang
+// behind us); a datagram of an unclassified UDP port is dropped (UDP is lossy,
+// and passing it could be a selected program's).
 const pendingCap = 512
 
-// heldPkt is a SYN / DNS query whose owner was not known when it arrived. The
-// probe loop never waits for it: it is copied here and decided by resolveLoop.
+// unknownTTL is how long "no owner in the system tables" is trusted for a UDP
+// port before the tables are scanned again (a flood from such a port must not
+// cost one scan per datagram).
+const unknownTTL = time.Second
+
+// heldPkt is a packet whose owner was not known when it arrived. The loop that
+// received it never waits: it is copied here and decided by resolveLoop.
 type heldPkt struct {
 	pkt    []byte
 	addr   divert.Address
 	at     time.Time
 	ticket uint64
+	data   bool // a datagram from the data handle (else a SYN / DNS query from the probe)
 }
 
-// hold queues pkt for an async owner lookup; reinjects when the queue is full.
+// hold queues a probe packet (SYN / DNS query) for an async owner lookup;
+// reinjects when the queue is full.
 func (e *Engine) hold(pkt []byte, a *divert.Address) {
 	h := heldPkt{pkt: append([]byte(nil), pkt...), addr: *a, at: time.Now(), ticket: e.wd.begin()}
 	select {
@@ -33,34 +43,58 @@ func (e *Engine) hold(pkt []byte, a *divert.Address) {
 	}
 }
 
+// holdUDP queues a datagram of an unclassified port; dropped when the queue
+// is full.
+func (e *Engine) holdUDP(pkt []byte, a *divert.Address) {
+	h := heldPkt{pkt: append([]byte(nil), pkt...), addr: *a, at: time.Now(), ticket: e.wd.begin(), data: true}
+	select {
+	case e.pendingUDP <- h:
+	default:
+		e.wd.end(h.ticket)
+	}
+}
+
 // resolveLoop decides held packets in arrival order. Each waits at most
 // ownerGrace after it arrived (not per item), then falls back to the table.
 func (e *Engine) resolveLoop() {
 	defer e.wg.Done()
+	unknown := map[uint16]time.Time{} // UDP ports the tables had no owner for
 	for {
+		var h heldPkt
 		select {
 		case <-e.stop:
 			e.drainPending()
 			return
-		case h := <-e.pending:
+		case h = <-e.pending:
+		case h = <-e.pendingUDP:
+		}
+		if h.data {
+			e.decideHeldUDP(h, unknown)
+		} else {
 			if d := time.Until(h.at.Add(ownerGrace)); d > 0 {
 				time.Sleep(d)
 			}
 			e.decideHeld(h)
-			e.wd.end(h.ticket)
 		}
+		e.wd.end(h.ticket)
 	}
 }
 
-func (e *Engine) decideHeld(h heldPkt) {
-	proto := divert.Protocol(h.pkt)
-	sport := divert.SrcPort(h.pkt)
+// heldOwner finds the owner of a held packet's local port: the socket event
+// that arrived meanwhile, else the system tables.
+func (e *Engine) heldOwner(proto uint8, sport uint16) (uint32, bool) {
 	pid, ok := e.own.peek(proto, sport)
 	if !ok {
 		if pid, ok = tableOwner(proto, sport); ok {
 			e.own.set(proto, sport, pid)
 		}
 	}
+	return pid, ok
+}
+
+func (e *Engine) decideHeld(h heldPkt) {
+	proto := divert.Protocol(h.pkt)
+	pid, ok := e.heldOwner(proto, divert.SrcPort(h.pkt))
 	v := Verdict{}
 	if ok {
 		v = e.verdictPID(pid)
@@ -73,6 +107,37 @@ func (e *Engine) decideHeld(h heldPkt) {
 	e.decideUDP(e.probe, h.pkt, &h.addr, ent, captured)
 }
 
+// decideHeldUDP classifies the port of a held datagram and applies the result.
+// It is reinjected through the send-only handle: that one sits below the data
+// handle, so the datagram is not diverted a second time.
+func (e *Engine) decideHeldUDP(h heldPkt, unknown map[uint16]time.Time) {
+	sport := divert.SrcPort(h.pkt)
+	if ent, ok := e.liveUDP(sport); ok { // classified while it waited
+		e.decideUDP(e.sender, h.pkt, &h.addr, ent, true)
+		return
+	}
+	pid, ok := e.own.peek(divert.ProtoUDP, sport)
+	if !ok && time.Since(unknown[sport]) > unknownTTL {
+		if d := time.Until(h.at.Add(ownerGrace)); d > 0 {
+			time.Sleep(d)
+		}
+		if pid, ok = e.heldOwner(divert.ProtoUDP, sport); !ok {
+			if len(unknown) > udpSeenCap {
+				clear(unknown)
+			}
+			unknown[sport] = time.Now()
+		}
+	}
+	if !ok {
+		// No process owns it (a kernel socket): nothing of ours to protect.
+		e.data.udpChange(func(u *udpPorts) bool { return u.notePass(sport, 0) })
+		_ = e.sender.Send(h.pkt, &h.addr)
+		return
+	}
+	delete(unknown, sport)
+	e.classifyUDP(e.sender, h.pkt, &h.addr, pid)
+}
+
 // drainPending reinjects what is still held at shutdown (fail open).
 func (e *Engine) drainPending() {
 	for {
@@ -80,21 +145,13 @@ func (e *Engine) drainPending() {
 		case h := <-e.pending:
 			_ = e.probe.Send(h.pkt, &h.addr)
 			e.wd.end(h.ticket)
+		case h := <-e.pendingUDP:
+			_ = e.sender.Send(h.pkt, &h.addr)
+			e.wd.end(h.ticket)
 		default:
 			return
 		}
 	}
-}
-
-// udpEntryFor maps a verdict to a UDP registration (ok=false: not captured).
-func udpEntryFor(v Verdict, pid uint32) (udpEntry, bool) {
-	switch v.Action {
-	case Proxy:
-		return udpEntry{inbound: v.Port, pid: pid}, true
-	case Drop:
-		return udpEntry{inbound: -1, pid: pid}, true
-	}
-	return udpEntry{}, false
 }
 
 // watchLoop stops the engine when a packet has been stuck for StallLimit, so

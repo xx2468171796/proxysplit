@@ -65,7 +65,7 @@ func buildMultiTree(lines []LineConfig, logLevel string, opts Options) (multiTre
 		t.dns = multiDNS(opts, primaryTag)
 		rules = append(rules, M{"action": "sniff"}) // must be first
 	}
-	rules = append(rules, multiGlobalRules(opts, primaryTag, t.experimental != nil)...)
+	rules = append(rules, multiGlobalRules(opts, lines, primaryTag, t.experimental != nil)...)
 	rules = append(rules, multiLineRules(lines, opts, nodeTag)...)
 	t.route = multiRoute(rules, opts, restricted, needDomain, geoNeeded)
 	return t, nil
@@ -140,8 +140,13 @@ func multiDNS(opts Options, primaryTag string) M {
 }
 
 // multiGlobalRules are the rules that precede the per-line ones.
-func multiGlobalRules(opts Options, primaryTag string, clashOn bool) []M {
-	var rules []M
+func multiGlobalRules(opts Options, lines []LineConfig, primaryTag string, clashOn bool) []M {
+	// LAN clients never reach this machine itself: ahead of every direct rule.
+	linePorts := make([]int, 0, len(lines))
+	for _, ln := range lines {
+		linePorts = append(linePorts, ln.InboundPort)
+	}
+	rules := lanSelfRules(opts, linePorts...)
 	// Our own API must never be tunnelled (domestic backend): put it ahead of the
 	// clash_mode overrides so even 全局 mode keeps it direct.
 	if r := directDomainRules(opts); r != nil {

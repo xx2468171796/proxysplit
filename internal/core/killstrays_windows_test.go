@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-// killStrays must find a leftover core even when the data directory (from
+// CleanStrays must find a leftover core even when the data directory (from
 // %APPDATA%, i.e. the Windows user name) contains a typographic quote, which
 // PowerShell would otherwise treat as the end of a '…' string.
 func TestKillStraysOddPath(t *testing.T) {

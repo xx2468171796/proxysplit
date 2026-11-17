@@ -15,11 +15,24 @@
 
 ## 多源下载（internal/coreupdate/mirror.go，v1.9.66）
 内核更新从面板 /api/client/core 的 urls 多源下载：深圳 powerdl → DC9 → tw-pro → 天理云 → 源站最后，测速择优、跨源续传、每源校验 sha256。
+- 续传下载只有一份实现：`internal/download`（Resume：Range 续传、无总超时、进度看门狗；WithPhaseTimeouts：连接 15 s / TLS 15 s / 响应头 30 s）。内核安装（coreupdate）和客户端自动更新（updater）共用（审计 2026-11-18）。
+- 看门狗两种用法：镜像带速度下限（20 秒内低于 30 KB/s 就换下一个源）；源站和客户端更新包只判「停住」（一个窗口内一个字节都没来才中断，慢但在走的不打断）。源站原来既无超时也无看门狗，连接僵死会永远挂住。
+- 没有镜像的情况也走同一条路（fetchMultiSource），不再有单独的「5 分钟一次性下载」。
+- 续传后校验不过：清空临时文件，从 0 再下一次（坏的可能是前一个源留下的那段），仍不过才判失败。
+- InstallRelease 下载期间不持有 installMu（Rollback / ClearBackup / 内置内核检查都等这把锁）；下载完再加锁安装，加锁后发现同版本已装好就直接返回，避免把「旧内核备份」覆盖成新内核的拷贝。
+
+## 客户端更新包下载（internal/updater，审计 2026-11-18）
+- 原来 http.Client.Timeout = 90 秒管到整个响应体，约 130 MB 的包慢线路永远下不完，每小时从 0 重来。现在客户端无总超时（Check 自带 90 秒），分阶段超时 + 30 秒停住看门狗。
+- 半截文件 `updates/proxysplit-v<版本>.<ext>.download` 失败后保留，下次用 Range 接着下；别的版本的半截文件在开始时清掉。最终仍然只认签名里的 SHA256：续传后不符就删掉从头再下一次，从头下的也不符才报「SHA256 校验失败」。
+- autoupdate.go：下载 / 安装失败后不再等满一小时，按 2 分钟起翻倍（封顶一小时）重试，每次等待带 50%–150% 抖动；正常间隔也带 ±10% 抖动，强制版本发布后全网客户端不会同一分钟重试。
+- 待接线（app.go 归别的组）：`InstallAppUpdate` 里给 Download 的 context 还是 3 分钟总超时。现在每次失败会留下进度、几分钟后续传，慢线路能下完；把它放宽（例如 30 分钟，靠看门狗兜底）可以少几轮重试。
 
 ## 自动跟随（internal/service/corefollow.go，v1.9.65）
 公司规定面板发布新标准内核后所有客户端自动跟上：启动 30 秒后 + 每小时 + POWER云 登录后查 /api/client/core，比本机新就装。
 - coreupdate 保留 sing-box.exe.old + 版本标记备份；代理在跑则在 lifecycleMu 下停 + 启。
-- 新内核起不来 → coreupdate.Rollback 换回旧内核再启，该版本 24 小时内不自动装。
+- 新内核起不来 → coreupdate.Rollback 换回旧内核再启，该版本 24 小时内不自动装（现在写入 dataDir/core-hold.json，重开软件也记得）。
+- 换文件之前先验新内核（审计 2026-11-18，service/corepending.go verifyNewCore，经 coreupdate.InstallVerified 的 verify 回调）：下载的文件以临时名落在 bin 目录，先跑 `version`（coreupdate.VerifyCore），再用它对「本机现在会用的配置」跑 `sing-box check`（core.CheckTUN，独立的 dataDir/core-verify）；任何一步不过都不替换，旧内核原样保留。还没有节点时只验 `version`。
+- 代理没在跑时装的内核是「待验证」：原来这里立刻删备份，之后第一次启动失败就无从回滚。现在写 bin/sing-box.pending（版本号）并保留 sing-box.exe.old；startLocked 启动成功 → confirmPendingCore 删标记和备份，启动失败 → rollbackPendingCore 换回旧内核、把该版本按住 24 小时，再用旧内核启动一次。待验证期间任何启动失败都算在新内核头上（没跑过的内核不给它无罪推定）；备份已不在（客户端升级替换过内核）则只清标记。
 - 失败指数退避（2 分钟起、封顶 1 小时）；与手动按钮共用单飞；设置 autoUpdateCoreOff（零值 = 开）；下载上限 160 MB。
 - 发布顺序 面板 → 节点 → 本仓服务端 → 客户端；改 core-release.json / PanelPublicKey 前先读接入标准。
 

@@ -2,6 +2,7 @@ package core
 
 import (
 	"fmt"
+	"net"
 
 	"proxysplit/internal/nodes"
 	"proxysplit/internal/xray"
@@ -73,6 +74,10 @@ func BuildPortConfig(pc PortConfig) ([]byte, error) {
 
 	opts := Options{RuleSets: pc.RuleSets, DirectDomains: pc.DirectDomains, ClashController: pc.ClashController, ClashSecret: pc.ClashSecret, ClashMode: pc.Mode}
 	rules := []M{{"action": "sniff"}}
+	if ip := net.ParseIP(listen); ip == nil || !ip.IsLoopback() {
+		// Shared with the LAN: its clients never reach this machine itself.
+		rules = append(rules, lanGuardRules(PortInboundTag, []int{pc.Port, controllerPort(pc.ClashController)})...)
+	}
 	rules = append(rules, directDomainRules(opts)...)
 	rules = append(rules, M{"ip_is_private": true, "outbound": "direct"})
 	rules = append(rules, clashRules(proxyTag)...)

@@ -22,7 +22,11 @@ import (
 // lifecycle lock (stop + start, the same path as any settings restart); if the
 // new core does not come up the previous file is put back and the proxy
 // started again, and that version is not installed automatically again for
-// coreFailedHold. A stopped proxy just picks up the new file on its next start.
+// coreFailedHold. A stopped proxy picks up the new file on its next start —
+// until that start has succeeded the core stays "pending" and the previous
+// one is kept: a first start that fails rolls back and holds the version
+// (corepending.go). Before any swap the new executable must run here and
+// accept this client's config (verifyNewCore).
 // The manual 更新内核 button runs the same check; only one runs at a time.
 
 const (
@@ -65,8 +69,14 @@ type coreFollowDeps struct {
 	// failed to start and the previous one was put back (err says how it went).
 	apply       func() (restarted, rolledBack bool, err error)
 	clearBackup func() error // drop the kept previous core (best effort)
-	log         func(string)
-	now         func() time.Time
+	// markPending records that the installed core has not started yet: the
+	// previous one stays until its first start succeeds (or rolls back).
+	markPending func(version string)
+	// saveHold persists the version that failed to start (nil = memory only),
+	// so a restart of the app does not install it straight away again.
+	saveHold func(version string, at time.Time)
+	log      func(string)
+	now      func() time.Time
 }
 
 type coreFollower struct {
@@ -85,6 +95,9 @@ func newCoreFollower(d coreFollowDeps) *coreFollower {
 	}
 	if d.now == nil {
 		d.now = time.Now
+	}
+	if d.markPending == nil {
+		d.markPending = func(string) {}
 	}
 	return &coreFollower{deps: d}
 }
@@ -141,18 +154,21 @@ func (f *coreFollower) round(ctx context.Context, manual bool) coreFollowResult 
 		f.hold(r.Version)
 		return coreFollowResult{Outcome: coreFailed, Version: d.installed(), Err: err}
 	}
-	_ = d.clearBackup() // still locked? cleaned before the next install / at startup
-	if err != nil {
-		// Not restarted for a reason unrelated to the core (e.g. authorization):
-		// the new file stays and applies on the next start.
-		d.log("[core] 新内核下次启动生效：" + err.Error())
-		return coreFollowResult{Outcome: coreInstalled, Version: r.Version}
-	}
-	if restarted {
+	if restarted && err == nil {
+		_ = d.clearBackup() // still locked? cleaned before the next install / at startup
 		d.log(fmt.Sprintf("[core] 已切换到新内核 sing-box %s", r.Version))
 		return coreFollowResult{Outcome: coreApplied, Version: r.Version}
 	}
-	d.log(fmt.Sprintf("[core] 新内核 sing-box %s 下次启动生效", r.Version))
+	// Nothing has run on the new core yet (proxy stopped, or not restarted for
+	// a reason unrelated to the core, e.g. authorization). Its backup used to
+	// be dropped right here, so a core that then failed its first start had
+	// nothing to roll back to. Keep it until that start has succeeded.
+	d.markPending(r.Version)
+	if err != nil {
+		d.log("[core] 新内核下次启动生效：" + err.Error())
+	} else {
+		d.log(fmt.Sprintf("[core] 新内核 sing-box %s 下次启动生效", r.Version))
+	}
 	return coreFollowResult{Outcome: coreInstalled, Version: r.Version}
 }
 
@@ -166,6 +182,17 @@ func displayVersion(v string) string {
 func (f *coreFollower) hold(version string) {
 	f.mu.Lock()
 	f.held, f.heldAt = version, f.deps.now()
+	at := f.heldAt
+	f.mu.Unlock()
+	if f.deps.saveHold != nil {
+		f.deps.saveHold(version, at)
+	}
+}
+
+// restoreHold loads a hold saved by an earlier run of the app.
+func (f *coreFollower) restoreHold(version string, at time.Time) {
+	f.mu.Lock()
+	f.held, f.heldAt = version, at
 	f.mu.Unlock()
 }
 
@@ -233,8 +260,11 @@ func (s *Service) coreFollow() *coreFollower {
 			install:     s.installCore,
 			apply:       s.applyInstalledCore,
 			clearBackup: func() error { return coreupdate.ClearBackup(s.binDir) },
+			markPending: func(v string) { _ = coreupdate.MarkPending(s.binDir, v) },
+			saveHold:    s.saveCoreHold,
 			log:         s.log,
 		})
+		s.follower.restoreHold(s.loadCoreHold())
 		s.followTrigger = make(chan struct{}, 1)
 	})
 	return s.follower
@@ -295,7 +325,7 @@ func (s *Service) latestCore(ctx context.Context) (coreupdate.Release, error) {
 func (s *Service) installCore(r coreupdate.Release) error {
 	via, closeVia := s.panelVia() // fallback only: direct is tried first, SHA256 checked
 	defer closeVia()
-	_, err := coreupdate.InstallRelease(s.binDir, s.GetCoreVersion(), r, via)
+	_, err := coreupdate.InstallVerified(s.binDir, s.GetCoreVersion(), r, via, s.verifyNewCore)
 	return err
 }
 
