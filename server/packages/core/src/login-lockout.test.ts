@@ -30,6 +30,17 @@ describe('登录锁定落库', () => {
     expect(calls.at(-1)?.sql).toBe('ROLLBACK')
   })
 
+  it('改密码：吊销该账号的会话，但留下指定设备（本人正在用的那台）的', async () => {
+    const { store, calls } = storeWith(undefined)
+    await store.setUserPassword('u1', 'hash', 'device-1')
+    const revoke = calls.find(c => c.sql.startsWith('UPDATE sessions'))
+    expect(revoke?.sql).toContain('device_id IS DISTINCT FROM $2::uuid')
+    expect(revoke?.params).toEqual(['u1', 'device-1'])
+    const all = storeWith(undefined)
+    await all.store.setUserPassword('u1', 'hash', null)
+    expect(all.calls.find(c => c.sql.startsWith('UPDATE sessions'))?.params).toEqual(['u1', null])
+  })
+
   it('成功登录：失败次数、锁定时间、锁定级别一起清零（原来级别只增不减）', async () => {
     const { store, calls } = storeWith(undefined)
     await store.recordLoginSuccess('u1')

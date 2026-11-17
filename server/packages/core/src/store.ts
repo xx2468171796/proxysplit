@@ -667,12 +667,13 @@ export class PgStore {
     if(status!=='active')await this.pool.query('UPDATE sessions SET revoked_at=coalesce(revoked_at,now()) WHERE user_id=$1',[id])
     return r.rowCount===1
   }
-  async setUserPassword(id:string,passwordHash:string){
+  // keepDeviceId：本人自助改密时留下他正在用的那台设备的会话（其余全部吊销）；null = 一个不留。
+  async setUserPassword(id:string,passwordHash:string,keepDeviceId:string|null){
     const client=await this.pool.connect()
     try{
       await client.query('BEGIN')
-      const r=await client.query('UPDATE users SET password_hash=$2,failed_login_count=0,locked_until=NULL,updated_at=now() WHERE id=$1 RETURNING id',[id,passwordHash])
-      if(r.rowCount)await client.query('UPDATE sessions SET revoked_at=coalesce(revoked_at,now()) WHERE user_id=$1',[id])
+      const r=await client.query('UPDATE users SET password_hash=$2,failed_login_count=0,lockout_level=0,locked_until=NULL,updated_at=now() WHERE id=$1 RETURNING id',[id,passwordHash])
+      if(r.rowCount)await client.query('UPDATE sessions SET revoked_at=coalesce(revoked_at,now()) WHERE user_id=$1 AND device_id IS DISTINCT FROM $2::uuid',[id,keepDeviceId])
       await client.query('COMMIT')
       return r.rowCount===1
     }catch(e){await client.query('ROLLBACK');throw e}finally{client.release()}

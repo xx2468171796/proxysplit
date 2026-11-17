@@ -284,6 +284,19 @@ describe('commercial auth', () => {
     await expect(auth.changeOwnPassword(store.user.id, { currentPassword: '', newPassword: 'another-password' })).rejects.toMatchObject({ code: 'PASSWORD_INVALID' })
   })
 
+  // 原来改密把本人所有会话（含正在用的这条）一起吊销：15 分钟后刷新令牌被判「重放」，改完密码的人被踢下线。
+  it('changing your own password keeps the session of the device you are on and drops the others', async () => {
+    const { store, auth, device } = await fixture()
+    const kept: Array<string | null> = []
+    ;(store as unknown as { setUserPassword: (id: string, hash: string, keepDeviceId: string | null) => Promise<boolean> }).setUserPassword = async (_id, _hash, keepDeviceId) => { kept.push(keepDeviceId); return true }
+    const login = await auth.login({ username: 'alice', password: 'correct horse battery staple', device })
+    const principal = await auth.verifyAccess(login.accessToken)
+    await auth.changeOwnPassword(principal.userId, { currentPassword: 'correct horse battery staple', newPassword: 'brand-new-password' }, '', principal.deviceId)
+    // 设备名额满时拿到的 pending 令牌没有会话可留：全部吊销
+    await auth.changeOwnPassword(principal.userId, { currentPassword: 'correct horse battery staple', newPassword: 'brand-new-password' }, '', 'pending')
+    expect(kept).toEqual([principal.deviceId, null])
+  })
+
   it('rejects an invalid POWER云 token and reports panel outages', async () => {
     const { store, device } = await fixture()
     const make = (status: number) => AuthService.create(store as unknown as PgStore, { accessSecret: 'test-secret-must-be-at-least-32-bytes-long', refreshDays: 30, powervpn: { baseUrl: 'https://panel.test', fetch: (async () => new Response('{}', { status })) as unknown as typeof fetch } })

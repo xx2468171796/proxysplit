@@ -177,8 +177,9 @@ export class AuthService{
       throw error
     }
   }
-  // 用户自助改密：校验原密码后更新，并撤销该账号其它会话。
-  async changeOwnPassword(userId:string,input:SelfPasswordInput,ip=''){
+  // 用户自助改密：校验原密码后更新，并撤销该账号「其它」会话——本人正在用的这台设备（deviceId）的会话留着，
+  // 否则 15 分钟后刷新令牌被判重放，刚改完密码的人被踢下线。pending 令牌（设备名额满）没有会话可留。
+  async changeOwnPassword(userId:string,input:SelfPasswordInput,ip='',deviceId='pending'){
     const user=await this.store.findUserById(userId)
     if(!user)throw new AppError('NOT_FOUND','用户不存在',404)
     // POWER云 建的账号没有密码：首次设置不校验原密码（已通过登录会话认证）。
@@ -188,7 +189,7 @@ export class AuthService{
       throw new AppError('PASSWORD_INVALID','原密码不正确',401)
     }
     if(input.currentPassword===input.newPassword)throw new AppError('PASSWORD_SAME','新密码不能与原密码相同',400)
-    await this.store.setUserPassword(userId,await hashPassword(input.newPassword))
+    await this.store.setUserPassword(userId,await hashPassword(input.newPassword),deviceId==='pending'?null:deviceId)
     await this.store.audit(userId,'user.password','user',userId,ip,'success')
     return {ok:true}
   }
