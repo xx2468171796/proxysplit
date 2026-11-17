@@ -1,6 +1,7 @@
 // 多级分销接口：推广人自己 /v1/fenxiao/*，后台 /v1/admin/fenxiao/*。业务在 core 的 FenxiaoService。
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 import { AppError } from '@proxysplit/shared'
+import { idParam } from './params.js'
 import { fenxiaoAdjustSchema, fenxiaoCommissionReviewSchema, fenxiaoCommissionsQuery, fenxiaoGrantSchema, fenxiaoMemberPatchSchema, fenxiaoMembersQuery, fenxiaoMoveSchema, fenxiaoPolicySchema, fenxiaoReviewSchema, fenxiaoTeamQuery, fenxiaoWithdrawalsQuery, fenxiaoWithdrawSchema } from '@proxysplit/contracts'
 import type { FenxiaoService, PgStore } from '@proxysplit/core'
 
@@ -9,11 +10,7 @@ type Deps={
   service:FenxiaoService; store:PgStore; publicBaseUrl:string
   auth:(req:FastifyRequest)=>Promise<Principal>; admin:(req:FastifyRequest)=>Promise<Principal>
 }
-const idParam=(req:FastifyRequest)=>{
-  const id=(req.params as {id?:string}).id??''
-  if(!/^[0-9a-f-]{36}$/i.test(id))throw new AppError('NOT_FOUND','用户不存在',404)
-  return id
-}
+const userId=(req:FastifyRequest)=>idParam(req,'用户不存在')
 
 export function registerFenxiaoRoutes(app:FastifyInstance,d:Deps){
   const {service:s,store}=d
@@ -49,12 +46,12 @@ export function registerFenxiaoRoutes(app:FastifyInstance,d:Deps){
     return row
   })
   app.patch('/v1/admin/fenxiao/members/:id',async(req)=>{
-    const p=await d.admin(req);const id=idParam(req);const row=await s.patchMember(id,fenxiaoMemberPatchSchema.parse(req.body),p.userId)
+    const p=await d.admin(req);const id=userId(req);const row=await s.patchMember(id,fenxiaoMemberPatchSchema.parse(req.body),p.userId)
     await store.audit(p.userId,'admin.fenxiao.member','user',id,req.ip,'success',{tierCode:row.tierCode,enabled:row.enabled})
     return row
   })
   app.post('/v1/admin/fenxiao/members/:id/move',async(req)=>{
-    const p=await d.admin(req);const id=idParam(req);const input=fenxiaoMoveSchema.parse(req.body);const row=await s.move(id,input.parentUsername,p.userId)
+    const p=await d.admin(req);const id=userId(req);const input=fenxiaoMoveSchema.parse(req.body);const row=await s.move(id,input.parentUsername,p.userId)
     await store.audit(p.userId,'admin.fenxiao.move','user',id,req.ip,'success',{parent:input.parentUsername})
     return row
   })

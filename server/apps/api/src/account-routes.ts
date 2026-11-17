@@ -2,13 +2,13 @@
 // 每个动作带 requestId 幂等（老后台不传时服务端现生成）；会让人下线的动作同时吊销本项目会话。
 import { randomUUID } from 'node:crypto'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
-import { z } from 'zod'
 import type { AccountService } from '@proxysplit/core'
 import type { AdminGuard } from './admin-guard.js'
+import { idParam } from './params.js'
 import { adminActionsQuery, adminBanSchema, adminNicknameSchema, adminReasonSchema } from '@proxysplit/contracts'
 
 type Deps = { account: AccountService; admin: (req: FastifyRequest) => Promise<{ userId: string; role: string }>; guard: Pick<AdminGuard, 'mayActOn'> }
-const idOf = (req: FastifyRequest) => z.object({ id: z.guid() }).parse(req.params).id
+const idOf = (req: FastifyRequest) => idParam(req, '用户不存在')
 const view = (u: { userId: string; status: string; bannedUntil: Date | null; bannedReason: string | null; nickname: string | null }) => ({
   id: u.userId, status: u.status, bannedUntil: u.bannedUntil?.toISOString() ?? null, bannedReason: u.bannedReason, nickname: u.nickname,
 })

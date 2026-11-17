@@ -1,9 +1,9 @@
 // 配置云同步 + 云端命名配置（会员专属）+ 分享导入（任何已登录用户）。
 // 存储在 core config-sync.ts / config-profiles.ts，合同 docs/plan-2026-10-29-free-sync-phone.md。
 import type { FastifyInstance, FastifyRequest } from 'fastify'
-import { z } from 'zod'
 import { AppError } from '@proxysplit/shared'
 import { FLEET_LIMIT } from './rate-limits.js'
+import { idParam } from './params.js'
 import { CONFIG_PAYLOAD_MAX, configProfileCreateSchema, configProfileUpdateSchema, configRestorePasswordSchema, configRestoreSchema, configShareImportSchema, configShareSchema, configSyncGetQuery, configSyncPutSchema } from '@proxysplit/contracts'
 import { profileQuota, type ConfigProfilesStore, type ConfigSyncStore, type Effective } from '@proxysplit/core'
 
@@ -20,12 +20,7 @@ const BODY_LIMIT = CONFIG_PAYLOAD_MAX * 2
 const limit = { rateLimit: { max: 30, timeWindow: '1 minute' } }
 // 配置同步 / 云端配置列表是客户端后台定时、改动后自动调的：按 IP 用 FLEET_LIMIT（rate-limits.ts）。
 const fleet = { rateLimit: FLEET_LIMIT }
-const idParam = z.object({ id: z.string().uuid() })
-const profileId = (req: FastifyRequest) => {
-  const r = idParam.safeParse(req.params)
-  if (!r.success) throw new AppError('NOT_FOUND', '配置不存在', 404)
-  return r.data.id
-}
+const profileId = (req: FastifyRequest) => idParam(req, '配置不存在')
 
 /** 设了恢复密码的配置：GET / DELETE 用请求头 x-restore-password 带恢复密码。 */
 const restoreHeader = (req: FastifyRequest) => {
