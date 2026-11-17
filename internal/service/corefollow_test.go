@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -26,6 +28,8 @@ type fakeCore struct {
 	installs   int
 	applies    int
 	cleared    int
+	pending    string        // version marked "not started yet"
+	heldSaved  string        // version handed to saveHold
 	block      chan struct{} // when set, install waits on it
 }
 
@@ -90,6 +94,16 @@ func (c *fakeCore) deps(now *time.Time) coreFollowDeps {
 			c.mu.Unlock()
 			return nil
 		},
+		markPending: func(v string) {
+			c.mu.Lock()
+			c.pending = v
+			c.mu.Unlock()
+		},
+		saveHold: func(v string, _ time.Time) {
+			c.mu.Lock()
+			c.heldSaved = v
+			c.mu.Unlock()
+		},
 		now: func() time.Time { return *now },
 	}
 }
@@ -131,12 +145,26 @@ func TestCoreFollowInstallsAndRestartsWhenNewer(t *testing.T) {
 	}
 }
 
-func TestCoreFollowStoppedProxyJustInstalls(t *testing.T) {
+// A core installed while the proxy is stopped has not proven it can start:
+// its backup must stay (it used to be dropped here, leaving nothing to roll
+// back to) and the core is marked pending until the first start.
+func TestCoreFollowStoppedProxyKeepsBackupUntilFirstStart(t *testing.T) {
 	c, f, _ := newFake("1.14.2-relayops.9", "1.14.2-relayops.15")
 	c.running = false
 	res := f.check(context.Background(), false)
-	if res.Outcome != coreInstalled || res.Err != nil || c.installed != "1.14.2-relayops.15" || c.cleared != 1 {
-		t.Fatalf("got %+v installed=%s cleared=%d", res, c.installed, c.cleared)
+	if res.Outcome != coreInstalled || res.Err != nil || c.installed != "1.14.2-relayops.15" {
+		t.Fatalf("got %+v installed=%s", res, c.installed)
+	}
+	if c.cleared != 0 || c.backup != "1.14.2-relayops.9" || c.pending != "1.14.2-relayops.15" {
+		t.Fatalf("backup must be kept and the core marked pending: cleared=%d backup=%q pending=%q", c.cleared, c.backup, c.pending)
+	}
+}
+
+// A core the running proxy restarted on is proven: no pending mark.
+func TestCoreFollowAppliedCoreIsNotPending(t *testing.T) {
+	c, f, _ := newFake("1.14.2-relayops.9", "1.14.2-relayops.15")
+	if res := f.check(context.Background(), false); res.Outcome != coreApplied || c.pending != "" || c.cleared != 1 {
+		t.Fatalf("got %+v pending=%q cleared=%d", res, c.pending, c.cleared)
 	}
 }
 
@@ -344,5 +372,84 @@ func waitFor(t *testing.T, cond func() bool) {
 			t.Fatal("timed out")
 		}
 		time.Sleep(time.Millisecond)
+	}
+}
+
+// pendingFixture is a bin dir holding a pending new core and the previous one.
+func pendingFixture(t *testing.T) *Service {
+	t.Helper()
+	bin, data := t.TempDir(), t.TempDir()
+	write := func(name, content string) {
+		if err := os.WriteFile(filepath.Join(bin, name), []byte(content), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(coreupdate.SingBoxExe, "new core")
+	write(coreupdate.SingBoxExe+".old", "old core")
+	if err := coreupdate.MarkPending(bin, "1.14.2-relayops.15"); err != nil {
+		t.Fatal(err)
+	}
+	return &Service{onLog: func(string) {}, binDir: bin, dataDir: data}
+}
+
+func coreFile(t *testing.T, s *Service) string {
+	t.Helper()
+	b, err := os.ReadFile(filepath.Join(s.binDir, coreupdate.SingBoxExe))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
+}
+
+// The first start of a pending core fails: the previous core comes back and
+// the version is held — also for the next run of the app.
+func TestPendingCoreRollsBackWhenFirstStartFails(t *testing.T) {
+	s := pendingFixture(t)
+	if !s.rollbackPendingCore(errors.New("core exited on start")) {
+		t.Fatal("a failed first start of a pending core must roll back")
+	}
+	if got := coreFile(t, s); got != "old core" {
+		t.Fatalf("installed core = %q, want the previous one", got)
+	}
+	if coreupdate.PendingVersion(s.binDir) != "" || coreupdate.HasBackup(s.binDir) {
+		t.Fatal("pending mark and backup must be gone after the rollback")
+	}
+	if !s.coreFollow().onHold("1.14.2-relayops.15") {
+		t.Fatal("the failed version must be held")
+	}
+	again := &Service{onLog: func(string) {}, binDir: s.binDir, dataDir: s.dataDir}
+	if !again.coreFollow().onHold("1.14.2-relayops.15") {
+		t.Fatal("the hold must survive an app restart")
+	}
+	if s.rollbackPendingCore(errors.New("again")) {
+		t.Fatal("nothing pending any more: a later failure is not the new core's")
+	}
+}
+
+// The first start works: the core is confirmed and its backup dropped.
+func TestPendingCoreConfirmedByFirstStart(t *testing.T) {
+	s := pendingFixture(t)
+	s.confirmPendingCore()
+	if coreupdate.PendingVersion(s.binDir) != "" || coreupdate.HasBackup(s.binDir) {
+		t.Fatal("a core that started must lose its pending mark and backup")
+	}
+	if got := coreFile(t, s); got != "new core" {
+		t.Fatalf("installed core = %q", got)
+	}
+	if s.rollbackPendingCore(errors.New("later failure")) {
+		t.Fatal("a confirmed core is never rolled back by a later start failure")
+	}
+}
+
+// Without a backup (a client upgrade replaced the core meanwhile) there is
+// nothing to go back to: the mark is dropped, the start error stands.
+func TestPendingCoreWithoutBackupIsNotRolledBack(t *testing.T) {
+	s := pendingFixture(t)
+	_ = os.Remove(filepath.Join(s.binDir, coreupdate.SingBoxExe+".old"))
+	if s.rollbackPendingCore(errors.New("x")) || coreupdate.PendingVersion(s.binDir) != "" {
+		t.Fatal("no backup: no rollback, mark cleared")
+	}
+	if got := coreFile(t, s); got != "new core" {
+		t.Fatalf("installed core = %q", got)
 	}
 }

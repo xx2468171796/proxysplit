@@ -30,7 +30,9 @@
 ## 自动跟随（internal/service/corefollow.go，v1.9.65）
 公司规定面板发布新标准内核后所有客户端自动跟上：启动 30 秒后 + 每小时 + POWER云 登录后查 /api/client/core，比本机新就装。
 - coreupdate 保留 sing-box.exe.old + 版本标记备份；代理在跑则在 lifecycleMu 下停 + 启。
-- 新内核起不来 → coreupdate.Rollback 换回旧内核再启，该版本 24 小时内不自动装。
+- 新内核起不来 → coreupdate.Rollback 换回旧内核再启，该版本 24 小时内不自动装（现在写入 dataDir/core-hold.json，重开软件也记得）。
+- 换文件之前先验新内核（审计 2026-11-18，service/corepending.go verifyNewCore，经 coreupdate.InstallVerified 的 verify 回调）：下载的文件以临时名落在 bin 目录，先跑 `version`（coreupdate.VerifyCore），再用它对「本机现在会用的配置」跑 `sing-box check`（core.CheckTUN，独立的 dataDir/core-verify）；任何一步不过都不替换，旧内核原样保留。还没有节点时只验 `version`。
+- 代理没在跑时装的内核是「待验证」：原来这里立刻删备份，之后第一次启动失败就无从回滚。现在写 bin/sing-box.pending（版本号）并保留 sing-box.exe.old；startLocked 启动成功 → confirmPendingCore 删标记和备份，启动失败 → rollbackPendingCore 换回旧内核、把该版本按住 24 小时，再用旧内核启动一次。待验证期间任何启动失败都算在新内核头上（没跑过的内核不给它无罪推定）；备份已不在（客户端升级替换过内核）则只清标记。
 - 失败指数退避（2 分钟起、封顶 1 小时）；与手动按钮共用单飞；设置 autoUpdateCoreOff（零值 = 开）；下载上限 160 MB。
 - 发布顺序 面板 → 节点 → 本仓服务端 → 客户端；改 core-release.json / PanelPublicKey 前先读接入标准。
 

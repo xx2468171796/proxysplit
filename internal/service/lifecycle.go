@@ -173,7 +173,23 @@ func (s *Service) startLocked() error {
 	if err != nil {
 		return err
 	}
-	return s.launch(plan)
+	startErr := s.launch(plan)
+	if startErr == nil {
+		s.confirmPendingCore()
+		return nil
+	}
+	if !s.rollbackPendingCore(startErr) {
+		return startErr
+	}
+	// The previous core is back: build the plan again (it depends on the core
+	// file) and start on it.
+	if plan, err = s.planStart(nil); err != nil {
+		return err
+	}
+	if err := s.launch(plan); err != nil {
+		return fmt.Errorf("新内核启动失败（%v），换回旧内核后仍未能启动：%w", startErr, err)
+	}
+	return nil
 }
 
 // pickNode makes sure a node is selected (the first one when the selected node

@@ -1,10 +1,13 @@
 package coreupdate
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -106,4 +109,70 @@ func Rollback(dir string) error {
 		_ = os.Remove(marker)
 	}
 	return nil
+}
+
+// pendingFile marks an installed core that has not started successfully yet:
+// it holds that core's version. While it exists the previous core is kept
+// (sing-box.exe.old), so the first start can still roll back.
+const pendingFile = "sing-box.pending"
+
+// MarkPending records that the installed core (version) is still unproven.
+func MarkPending(dir, version string) error {
+	return os.WriteFile(filepath.Join(dir, pendingFile), []byte(version), 0o644)
+}
+
+// PendingVersion returns the version of an installed core that has not started
+// successfully yet ("" = none).
+func PendingVersion(dir string) string {
+	raw, err := os.ReadFile(filepath.Join(dir, pendingFile))
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(raw))
+}
+
+// ClearPending forgets the pending mark (the core started, or was rolled back).
+func ClearPending(dir string) { _ = os.Remove(filepath.Join(dir, pendingFile)) }
+
+// VerifyCore runs `<exe> version` on a candidate core before it replaces the
+// installed one: a file that passed the hash but cannot run here (blocked or
+// damaged by security software, wrong architecture) must never be swapped in.
+func VerifyCore(exePath string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, exePath, "version")
+	hideVersionWindow(cmd)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("新内核无法运行（%v）：%s", err, strings.TrimSpace(string(out)))
+	}
+	if !strings.Contains(string(out), "sing-box") {
+		return fmt.Errorf("新内核的版本输出不对：%.80s", strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
+// verifyCandidate writes exe next to the installed core under a temporary
+// name and runs verify on it.
+func verifyCandidate(destDir string, exe []byte, verify func(exePath string) error) error {
+	if err := os.MkdirAll(destDir, 0o755); err != nil {
+		return err
+	}
+	f, err := os.CreateTemp(destDir, "sing-box-verify-*"+filepath.Ext(SingBoxExe))
+	if err != nil {
+		return err
+	}
+	tmp := f.Name()
+	defer os.Remove(tmp)
+	_, writeErr := f.Write(exe)
+	if writeErr == nil {
+		writeErr = f.Chmod(0o755)
+	}
+	if closeErr := f.Close(); writeErr == nil {
+		writeErr = closeErr
+	}
+	if writeErr != nil {
+		return writeErr
+	}
+	return verify(tmp)
 }

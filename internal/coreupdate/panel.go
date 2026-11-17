@@ -43,6 +43,13 @@ func NeedsRelease(installed, offered string) (bool, error) {
 // Rollback / ClearBackup); a leftover backup that is still locked fails with
 // ErrBackupBusy before anything is downloaded.
 func InstallRelease(destDir, installed string, r Release, viaProxy string) (string, error) {
+	return InstallVerified(destDir, installed, r, viaProxy, nil)
+}
+
+// InstallVerified is InstallRelease with a check of the new executable before
+// it replaces the installed core: verify (nil = none) gets the path of the
+// downloaded core under a temporary name; an error leaves everything as it was.
+func InstallVerified(destDir, installed string, r Release, viaProxy string, verify func(exePath string) error) (string, error) {
 	need, err := NeedsRelease(installed, r.Version)
 	if err != nil {
 		return "", err
@@ -87,6 +94,11 @@ func InstallRelease(destDir, installed string, r Release, viaProxy string) (stri
 	}
 	if len(exe) <= minExeBytes {
 		return "", fmt.Errorf("invalid sing-box.exe: only %d bytes (expected > %d)", len(exe), minExeBytes)
+	}
+	if verify != nil {
+		if err := verifyCandidate(destDir, exe, verify); err != nil {
+			return "", err
+		}
 	}
 	installMu.Lock()
 	defer installMu.Unlock()

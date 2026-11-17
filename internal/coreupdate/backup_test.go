@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -166,5 +167,80 @@ func TestDownloadLimitFitsCurrentCore(t *testing.T) {
 	// 1.14.2-relayops.15 windows-amd64 is 82,191,360 bytes.
 	if maxZipBytes < 82191360*3/2 || maxExeBytes < 82191360*3/2 {
 		t.Fatalf("download limits too small for the current core: zip %d exe %d", maxZipBytes, maxExeBytes)
+	}
+}
+
+// A new core that cannot run here must never replace the installed one.
+func TestInstallVerifiedRejectsCoreThatFailsItsCheck(t *testing.T) {
+	exe, sum := testExe()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write(exe) }))
+	defer srv.Close()
+	dir := t.TempDir()
+	old := filepath.Join(dir, SingBoxExe)
+	if err := os.WriteFile(old, []byte("the working core"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	var checked string
+	_, err := InstallVerified(dir, "", Release{Version: "1.14.2-relayops.6", URL: srv.URL, SHA256: sum}, "", func(p string) error {
+		checked = p
+		if b, _ := os.ReadFile(p); !bytes.Equal(b, exe) {
+			t.Error("the candidate file must hold the downloaded core")
+		}
+		return errors.New("新内核无法运行")
+	})
+	if err == nil || !strings.Contains(err.Error(), "新内核无法运行") {
+		t.Fatalf("want the check's error, got %v", err)
+	}
+	if got, _ := os.ReadFile(old); string(got) != "the working core" {
+		t.Fatal("the installed core was replaced by one that failed its check")
+	}
+	if HasBackup(dir) {
+		t.Fatal("nothing was swapped: there must be no backup")
+	}
+	if _, err := os.Stat(checked); !os.IsNotExist(err) {
+		t.Fatalf("candidate file left behind: %s", checked)
+	}
+	// A core that passes is installed as before.
+	if _, err := InstallVerified(dir, "", Release{Version: "1.14.2-relayops.6", URL: srv.URL, SHA256: sum}, "", func(string) error { return nil }); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := os.ReadFile(old); !bytes.Equal(got, exe) || !HasBackup(dir) {
+		t.Fatal("a verified core must be installed with the previous one kept")
+	}
+}
+
+func TestPendingMark(t *testing.T) {
+	dir := t.TempDir()
+	if PendingVersion(dir) != "" {
+		t.Fatal("no mark yet")
+	}
+	if err := MarkPending(dir, "1.14.2-relayops.15"); err != nil {
+		t.Fatal(err)
+	}
+	if got := PendingVersion(dir); got != "1.14.2-relayops.15" {
+		t.Fatalf("pending = %q", got)
+	}
+	ClearPending(dir)
+	if PendingVersion(dir) != "" {
+		t.Fatal("mark not cleared")
+	}
+}
+
+// VerifyCore: the real core runs, a file that is not an executable does not.
+func TestVerifyCore(t *testing.T) {
+	real, err := filepath.Abs(filepath.Join("..", "..", "bin", SingBoxExe))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(real); err != nil {
+		t.Skipf("no core binary at %s", real)
+	}
+	if err := VerifyCore(real); err != nil {
+		t.Fatalf("the bundled core must verify: %v", err)
+	}
+	junk := filepath.Join(t.TempDir(), SingBoxExe)
+	_ = os.WriteFile(junk, []byte("MZ this is not a program"), 0o755)
+	if err := VerifyCore(junk); err == nil {
+		t.Fatal("a file that cannot run must fail")
 	}
 }
