@@ -20,8 +20,9 @@ const safeHexEqual=(a:string,b:string)=>{
   const left=Buffer.from(a,'hex'),right=Buffer.from(b,'hex')
   return left.length===right.length&&timingSafeEqual(left,right)
 }
+const credentialOrNull=(provider:PaymentProviderRecord,name:'APP_ID'|'APP_SECRET')=>process.env[`${provider.credentialRef}_${name}`]||null
 const credential=(provider:PaymentProviderRecord,name:'APP_ID'|'APP_SECRET')=>{
-  const value=process.env[`${provider.credentialRef}_${name}`]
+  const value=credentialOrNull(provider,name)
   if(!value)throw new AppError('PAYMENT_UNAVAILABLE','支付通道凭据尚未配置',503)
   return value
 }
@@ -193,13 +194,20 @@ export class PaymentService{
     if(!body||typeof body!=='object')throw new AppError('PAYMENT_CALLBACK_INVALID','无效支付回调',400)
     const callback=body as ZhongzhuanCallback
     if(!callback.app_order_no||!callback.sign||!callback.app_id||callback.timestamp===undefined)throw new AppError('PAYMENT_CALLBACK_INVALID','支付回调字段不完整',400)
+    // 验签要用订单所属通道的密钥，所以只能先查订单。订单不存在 / 不是这个通道的 / 通道密钥没配 / 签名不对，
+    // 对外一律是同一个 401：分开回 404 / 400 / 401 的话，不知道密钥的人也能探出哪些订单号存在。原因只进日志。
+    const rejected=(why:string)=>{
+      this.log(`[payments] zhongzhuan callback rejected (${why}) order=${String(callback.app_order_no).slice(0,64)}`)
+      return new AppError('PAYMENT_SIGNATURE_INVALID','支付签名验证失败',401)
+    }
     const order=await this.store.getOrderForCallback(callback.app_order_no)
-    if(!order)throw new AppError('PAYMENT_ORDER_NOT_FOUND','支付订单不存在',404)
+    if(!order)throw rejected('unknown order')
     const provider=await this.store.getProvider(order.providerCode)
-    if(!provider||provider.adapter!=='zhongzhuan')throw new AppError('PAYMENT_PROVIDER_INVALID','支付通道不匹配',400)
-    const appId=credential(provider,'APP_ID'),secret=credential(provider,'APP_SECRET')
+    if(!provider||provider.adapter!=='zhongzhuan')throw rejected('provider mismatch')
+    const appId=credentialOrNull(provider,'APP_ID'),secret=credentialOrNull(provider,'APP_SECRET')
+    if(!appId||!secret)throw rejected('credentials not configured')
     const {sign:signature,...params}=callback
-    if(callback.app_id!==appId||!safeHexEqual(sign(params,secret),signature))throw new AppError('PAYMENT_SIGNATURE_INVALID','支付签名验证失败',401)
+    if(callback.app_id!==appId||!safeHexEqual(sign(params,secret),signature))throw rejected('bad signature')
     const timestamp=Number(callback.timestamp)
     if(!Number.isFinite(timestamp)||Math.abs(Math.floor(Date.now()/1000)-timestamp)>300)throw new AppError('PAYMENT_CALLBACK_EXPIRED','支付回调已过期',401)
     if(String(callback.status??'').toUpperCase()!=='PAID')return {ok:true,ignored:true}

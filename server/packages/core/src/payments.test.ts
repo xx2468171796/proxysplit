@@ -125,6 +125,23 @@ describe('zhongzhuan payment adapter',()=>{
     await expect(service.handleZhongzhuanCallback({...stale,sign:sign(stale)})).rejects.toMatchObject({code:'PAYMENT_CALLBACK_EXPIRED'})
   })
 
+  it('answers unknown order / wrong provider / bad signature with the same 401 (no order-number oracle)',async()=>{
+    process.env.PAYMENT_TEST_APP_ID='app-test'
+    process.env.PAYMENT_TEST_APP_SECRET='test-secret'
+    const fulfill=vi.fn()
+    const data:Record<string,unknown>={app_id:'app-test',app_order_no:order.orderNo,amount:299,status:'PAID',timestamp:Math.floor(Date.now()/1000),sn:'event-1'}
+    const answer=async(store:object,body:Record<string,unknown>)=>new PaymentService({fulfillPaidOrder:fulfill,...store} as unknown as PgStore,'https://proxysplit.invalid')
+      .handleZhongzhuanCallback(body).then(()=>null,(e:{code:string;status:number;message:string})=>({code:e.code,status:e.status,message:e.message}))
+    const known={getOrderForCallback:async()=>({...order}),getProvider:async()=>provider}
+    const badSignature=await answer(known,{...data,sign:'0'.repeat(64)})
+    expect(badSignature).toMatchObject({code:'PAYMENT_SIGNATURE_INVALID',status:401})
+    // 原来：订单不存在 404、通道不对 400、签名错 401 —— 不用知道密钥就能探出哪些订单号存在
+    expect(await answer({getOrderForCallback:async()=>null,getProvider:async()=>provider},{...data,sign:sign(data)})).toEqual(badSignature)
+    expect(await answer({...known,getProvider:async()=>({...provider,adapter:'center'})},{...data,sign:sign(data)})).toEqual(badSignature)
+    expect(await answer({...known,getProvider:async()=>({...provider,credentialRef:'PAYMENT_NOT_CONFIGURED'})},{...data,sign:sign(data)})).toEqual(badSignature)
+    expect(fulfill).not.toHaveBeenCalled()
+  })
+
   it('sync polls the gateway and idempotently fulfills a pending order',async()=>{
     process.env.PAYMENT_TEST_APP_ID='app-test'
     process.env.PAYMENT_TEST_APP_SECRET='test-secret'
