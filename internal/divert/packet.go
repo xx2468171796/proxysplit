@@ -25,15 +25,54 @@ func IsIPv6(b []byte) bool { return len(b) >= 40 && b[0]>>4 == 6 }
 
 func ihl(b []byte) int { return int(b[0]&0x0f) * 4 }
 
-// Protocol returns the IPv4 protocol (or IPv6 next header, no extension walk).
-func Protocol(b []byte) byte {
-	switch {
-	case IsIPv4(b):
-		return b[9]
-	case IsIPv6(b):
-		return b[6]
+// IPv6 extension headers that can sit in front of the transport header.
+const (
+	ext6HopByHop = 0
+	ext6Routing  = 43
+	ext6Fragment = 44
+	ext6AH       = 51
+	ext6DestOpts = 60
+)
+
+// transport locates the transport header: its protocol and offset (-1 when it
+// is not in this packet). IPv6 extension headers are walked: the capture
+// filter matches `tcp` / `udp` behind them, so a reader that looked only at
+// the fixed header's next-header field would take such a packet for neither
+// and let it through.
+func transport(b []byte) (proto byte, off int) {
+	if IsIPv4(b) {
+		return b[9], ihl(b)
 	}
-	return 0
+	if !IsIPv6(b) {
+		return 0, -1
+	}
+	proto, off = b[6], 40
+	for range 8 { // more extension headers than this is not a real packet
+		if len(b) < off+8 {
+			return proto, -1
+		}
+		switch proto {
+		case ext6HopByHop, ext6Routing, ext6DestOpts:
+			proto, off = b[off], off+(int(b[off+1])+1)*8
+		case ext6AH:
+			proto, off = b[off], off+(int(b[off+1])+2)*4
+		case ext6Fragment:
+			if binary.BigEndian.Uint16(b[off+2:])&0xfff8 != 0 {
+				return ext6Fragment, -1 // not the first fragment: no transport header here
+			}
+			proto, off = b[off], off+8
+		default:
+			return proto, off
+		}
+	}
+	return proto, -1
+}
+
+// Protocol returns the transport protocol (IPv4 protocol field, or the IPv6
+// next header behind any extension headers).
+func Protocol(b []byte) byte {
+	proto, _ := transport(b)
+	return proto
 }
 
 func SrcIP(b []byte) netip.Addr {
@@ -64,15 +103,10 @@ func SetDstIP(b []byte, ip netip.Addr) {
 	}
 }
 
-// l4 returns the transport header offset, or -1 (IPv6 uses the fixed header).
+// l4 returns the transport header offset, or -1.
 func l4(b []byte) int {
-	switch {
-	case IsIPv4(b):
-		return ihl(b)
-	case IsIPv6(b):
-		return 40
-	}
-	return -1
+	_, off := transport(b)
+	return off
 }
 
 // SrcPort / DstPort read TCP or UDP ports (same offsets for both).
