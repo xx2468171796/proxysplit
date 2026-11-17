@@ -15,7 +15,10 @@ export type PaymentState = {
   qrError: string;
   split: MemberOrder[];
   splitIdx: number;
-  busy: boolean;
+  /** 正在下单（「立即购买」「继续支付」转圈） */
+  buying: boolean;
+  /** 正在确认到账（「我已支付，刷新状态」转圈）。和 buying 分开：一个结束不能把另一个的转圈关掉 */
+  confirming: boolean;
 };
 
 export const payment = createStore<PaymentState>({
@@ -24,7 +27,8 @@ export const payment = createStore<PaymentState>({
   qrError: "",
   split: [],
   splitIdx: 0,
-  busy: false,
+  buying: false,
+  confirming: false,
 });
 
 let pollTimer: ReturnType<typeof setInterval> | null = null;
@@ -96,7 +100,7 @@ export function splitProgress(
 onAccountReset(closePayment);
 
 export async function buyPlan(plan: MemberPlan): Promise<void> {
-  payment.set({ busy: true });
+  payment.set({ buying: true });
   license.set({ error: "" });
   const at = session;
   try {
@@ -114,7 +118,7 @@ export async function buyPlan(plan: MemberPlan): Promise<void> {
     closePayment();
     fail(e instanceof Error ? e.message : "创建订单失败，请重试");
   } finally {
-    payment.set({ busy: false });
+    payment.set({ buying: false });
   }
 }
 
@@ -182,7 +186,7 @@ async function pollOnce(): Promise<void> {
 
 /** 「我已支付，刷新状态」。 */
 export async function confirmPaid(): Promise<void> {
-  payment.set({ busy: true });
+  payment.set({ confirming: true });
   license.set({ error: "" });
   const showing = payment.get().order?.orderNo ?? "";
   try {
@@ -201,7 +205,7 @@ export async function confirmPaid(): Promise<void> {
   } catch (e) {
     if (isShowing(showing)) fail(e instanceof Error ? e.message : "刷新到账失败，请重试");
   } finally {
-    payment.set({ busy: false });
+    payment.set({ confirming: false });
   }
 }
 

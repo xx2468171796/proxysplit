@@ -18,7 +18,7 @@ export function GeneralSection() {
   const theme = useStore(data, (s) => s.settings.theme);
   const autostart = useStore(system, (s) => s.autostart);
   const current = useStore(appUpdate, (s) => s.info.current);
-  const checking = useStore(appUpdate, (s) => s.busy);
+  const checking = useStore(appUpdate, (s) => s.checking);
 
   return (
     <Panel className="qd-pane" title="常规" description="启动、托盘、外观和软件更新。">

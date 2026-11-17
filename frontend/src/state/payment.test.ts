@@ -155,6 +155,24 @@ describe("付款框关掉之后，晚回来的结果不再生效", () => {
   });
 });
 
+describe("下单和确认到账各转各的圈", () => {
+  it("下单还在等的时候点完「我已支付」：购买按钮仍在转圈", async () => {
+    serverOrders([piece("P1", 1, "paid"), piece("P2", 2), piece("P3", 3)]);
+    await resumePayment();
+    const created = Promise.withResolvers<unknown>();
+    api.createOrder.mockReturnValue(created.promise);
+    const buying = buyPlan(plan);
+    expect(payment.get()).toMatchObject({ buying: true, confirming: false });
+
+    await confirmPaid();
+    expect(payment.get()).toMatchObject({ buying: true, confirming: false });
+
+    created.resolve({ split: false, orders: [], err: "通道维护中" });
+    await buying;
+    expect(payment.get().buying).toBe(false);
+  });
+});
+
 describe("二维码生成失败", () => {
   it("显示原因并可以重新生成，不再一直转圈", async () => {
     serverOrders([piece("P1", 1, "paid"), piece("P2", 2), piece("P3", 3)]);

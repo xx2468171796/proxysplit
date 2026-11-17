@@ -10,7 +10,7 @@ import { findResumable, resumeLine } from "../../state/payment-resume";
 export function ResumeOrderAlert({ banner = false }: { banner?: boolean }) {
   const orders = useStore(license, (s) => s.orders);
   const paying = useStore(payment, (s) => s.order !== null);
-  const busy = useStore(payment, (s) => s.busy);
+  const busy = useStore(payment, (s) => s.buying);
   // 订单列表每分钟重读一次（每次都是新数组），到期的订单随之消失
   const open = useMemo(() => findResumable(orders, Date.now()), [orders]);
   if (!open || paying || (banner && open.paid === 0)) return null;

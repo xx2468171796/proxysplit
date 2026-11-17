@@ -91,7 +91,7 @@ function QrTile({ order }: { order: MemberOrder }) {
 export function PaymentDialog() {
   const { say } = useFeedback();
   const order = useStore(payment, (s) => s.order);
-  const busy = useStore(payment, (s) => s.busy);
+  const busy = useStore(payment, (s) => s.confirming);
   const error = useStore(license, (s) => s.error);
   if (!order) return null;
   return (
