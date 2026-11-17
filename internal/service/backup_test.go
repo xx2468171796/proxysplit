@@ -109,11 +109,7 @@ func TestImportRunsTheUIValidators(t *testing.T) {
 		"proxy port out of range": with(func(c *Config) { c.ProxyPorts = []ProxyPort{port("a", 70000)} }),
 		"duplicate proxy port":    with(func(c *Config) { c.ProxyPorts = []ProxyPort{port("a", 20001), port("b", 20001)} }),
 		"proxy port without ID":   with(func(c *Config) { c.ProxyPorts = []ProxyPort{port("", 20001)} }),
-		"proxy port on a missing node": with(func(c *Config) {
-			p := port("a", 20001)
-			p.Node = "no-such-node"
-			c.ProxyPorts = []ProxyPort{p}
-		}),
+
 		"subscription filter that is not a regex": with(func(c *Config) { c.Subs = []Sub{{ID: "s", Name: "s", URL: "https://example.invalid/s", Include: "("}} }),
 		"subscription interval out of range": with(func(c *Config) {
 			c.Subs = []Sub{{ID: "s", Name: "s", URL: "https://example.invalid/s", IntervalMin: 999999}}
@@ -130,7 +126,10 @@ func TestImportRunsTheUIValidators(t *testing.T) {
 
 	good := with(func(c *Config) {
 		c.APIToken = "planted-control-token"
-		c.ProxyPorts = []ProxyPort{{ID: "a", Port: 20001, Protocol: "bogus", Mode: "bogus"}}
+		// "a": pinned to a node that was deleted since; "b": the LAN share port.
+		// The app can store both, so a backup holding them must still import.
+		c.Settings.LanShare, c.Settings.LanPort = true, 20002
+		c.ProxyPorts = []ProxyPort{{ID: "a", Port: 20001, Protocol: "bogus", Mode: "bogus", Node: "deleted-node"}, port("b", 20002)}
 		c.Subs = []Sub{{ID: "s", Name: "s", URL: "https://example.invalid/s", IntervalMin: 3, UserAgent: "  ua  "}}
 	})
 	if err := s.ImportAll(good); err != nil {
@@ -142,7 +141,7 @@ func TestImportRunsTheUIValidators(t *testing.T) {
 	s.mu.Lock()
 	p, sub := s.cfg.ProxyPorts[0], s.cfg.Subs[0]
 	s.mu.Unlock()
-	if p.Protocol != "mixed" || p.Mode != "rule" || p.Name == "" {
+	if p.Protocol != "mixed" || p.Mode != "rule" || p.Name == "" || p.Node != "" || len(s.ListProxyPorts()) != 2 {
 		t.Fatalf("proxy port was not normalised like the form does: %+v", p)
 	}
 	if sub.IntervalMin != 10 || sub.UserAgent != "ua" {

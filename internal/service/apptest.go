@@ -124,22 +124,35 @@ func (s *Service) validateImportedConfigLocked(cfg *Config) error {
 	return nil
 }
 
-// validateImportedEditablesLocked runs the validators of the UI save paths
-// (SetNetSettings, SaveProxyPort, SaveSub) over the candidate installed in
-// s.cfg, so a backup cannot carry values the UI would reject. Caller holds s.mu.
+// validateImportedEditablesLocked runs the field validators of the UI save
+// paths (SetNetSettings, SaveProxyPort, SaveSub) over the candidate installed
+// in s.cfg, so a backup cannot carry values the forms would reject. States the
+// app itself can end up storing are not rejected — a reset backup or a synced
+// config must stay importable: a port pinned to a node that was deleted since
+// follows the selected node (as configsync does), and a port equal to the LAN
+// share port is kept (SetSettings allows turning sharing on over it).
+// Caller holds s.mu.
 func (s *Service) validateImportedEditablesLocked() error {
 	if err := s.cfg.Settings.Net.validate(); err != nil {
 		return fmt.Errorf("invalid network settings: %w", err)
 	}
-	seenPorts := make(map[string]bool, len(s.cfg.ProxyPorts))
+	seenIDs := make(map[string]bool, len(s.cfg.ProxyPorts))
+	seenPorts := make(map[int]bool, len(s.cfg.ProxyPorts))
 	for i := range s.cfg.ProxyPorts {
 		p := &s.cfg.ProxyPorts[i]
-		if strings.TrimSpace(p.ID) == "" || seenPorts[p.ID] {
+		if strings.TrimSpace(p.ID) == "" || seenIDs[p.ID] {
 			return fmt.Errorf("proxy port %d has a missing or duplicate ID", i+1)
 		}
-		seenPorts[p.ID] = true
-		if err := s.normalizePortLocked(p); err != nil {
+		seenIDs[p.ID] = true
+		if err := normalizePortFields(p); err != nil {
 			return fmt.Errorf("invalid proxy port %d: %w", i+1, err)
+		}
+		if seenPorts[p.Port] {
+			return fmt.Errorf("proxy port %d is listed twice", p.Port)
+		}
+		seenPorts[p.Port] = true
+		if p.Node != "" && s.nodeByID(p.Node) == nil {
+			p.Node = ""
 		}
 	}
 	for i := range s.cfg.Subs {

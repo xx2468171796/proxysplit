@@ -106,8 +106,9 @@ func (s *Service) ListProxyPorts() []ProxyPortStatus {
 	return out
 }
 
-// normalizePort validates and fills defaults; caller holds s.mu.
-func (s *Service) normalizePortLocked(p *ProxyPort) error {
+// normalizePortFields validates and fills the fields of one port that depend
+// on nothing else (the form and a config import both go through it).
+func normalizePortFields(p *ProxyPort) error {
 	p.Name = strings.TrimSpace(p.Name)
 	p.User = strings.TrimSpace(p.User)
 	if p.Port < 1 || p.Port > 65535 {
@@ -124,6 +125,18 @@ func (s *Service) normalizePortLocked(p *ProxyPort) error {
 	if p.User == "" {
 		p.Pass = ""
 	}
+	if p.Name == "" {
+		p.Name = fmt.Sprintf("端口 %d", p.Port)
+	}
+	return nil
+}
+
+// normalizePortLocked is the form's check: the fields, plus what the port
+// refers to and collides with right now. Caller holds s.mu.
+func (s *Service) normalizePortLocked(p *ProxyPort) error {
+	if err := normalizePortFields(p); err != nil {
+		return err
+	}
 	if p.Node != "" && s.nodeByID(p.Node) == nil {
 		return fmt.Errorf("选的节点不存在了，请重新选择")
 	}
@@ -134,9 +147,6 @@ func (s *Service) normalizePortLocked(p *ProxyPort) error {
 	}
 	if s.cfg.Settings.LanShare && s.cfg.Settings.LanPort == p.Port {
 		return fmt.Errorf("端口 %d 已被「局域网共享」使用", p.Port)
-	}
-	if p.Name == "" {
-		p.Name = fmt.Sprintf("端口 %d", p.Port)
 	}
 	return nil
 }

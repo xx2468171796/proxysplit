@@ -182,3 +182,22 @@ func TestResetsKeepDeviceIdentityAndControlEndpoint(t *testing.T) {
 		}
 	}
 }
+
+// A reset backup holds whatever the app had stored — including a port still
+// pinned to a node that was deleted before the reset. Undo must restore it.
+func TestUndoResetRestoresAPortPinnedToADeletedNode(t *testing.T) {
+	s, _ := newResetSvc(t)
+	s.mu.Lock()
+	s.cfg.ProxyPorts = []ProxyPort{{ID: "p1", Name: "port", Port: 20011, Protocol: "mixed", Mode: "rule", Node: "deleted-node"}}
+	s.save()
+	s.mu.Unlock()
+	if r := result(t, s.RunReset(context.Background(), []string{"app-rules"}, ""), "app-rules"); !r.OK {
+		t.Fatalf("reset: %+v", r)
+	}
+	if _, err := s.UndoReset(); err != nil {
+		t.Fatalf("undo failed on a config the app itself stored: %v", err)
+	}
+	if got := s.GetAppRules(); len(got) != 1 {
+		t.Fatalf("rules not restored: %+v", got)
+	}
+}
