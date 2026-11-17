@@ -1177,10 +1177,14 @@ export class PgStore {
     const client=await this.pool.connect()
     try{
       await client.query('BEGIN')
+      // 加锁顺序必须和 fulfillPaidOrder 一样：先占事件号（唯一键）、再锁订单行。反过来的话，同一张单的付款通知和退款通知
+      // 同时到会互相等对方手里的锁（死锁）。通道代码不会变，先不加锁读出来；回滚时刚占的事件号一并撤销。
+      const peek=(await client.query('SELECT provider_code FROM orders WHERE order_no=$1',[orderNoValue])).rows[0]
+      if(!peek){await client.query('ROLLBACK');return 'missing'}
+      const event=await client.query(`INSERT INTO payment_events(provider_code,event_id,order_no,payload_hash,verified,result)
+        VALUES($1,$2,$3,'refund',true,'refunded-unfulfilled') ON CONFLICT(provider_code,event_id) DO NOTHING RETURNING id`,[peek.provider_code,input.eventId,orderNoValue])
       const order=(await client.query('SELECT id,status,provider_code FROM orders WHERE order_no=$1 FOR UPDATE',[orderNoValue])).rows[0]
       if(!order||order.status==='paid'||order.status==='refunded'){await client.query('ROLLBACK');return order?order.status:'missing'}
-      const event=await client.query(`INSERT INTO payment_events(provider_code,event_id,order_no,payload_hash,verified,result)
-        VALUES($1,$2,$3,'refund',true,'refunded-unfulfilled') ON CONFLICT(provider_code,event_id) DO NOTHING RETURNING id`,[order.provider_code,input.eventId,orderNoValue])
       const closed=await client.query(`UPDATE orders SET status='closed',refund_reason=$2,pay_url=NULL,updated_at=now() WHERE id=$1 AND status IN ('pending','failed') RETURNING id`,[order.id,input.reason])
       if(event.rows[0]||closed.rows[0])await insertAudit(client,{actor:null,action:'payment.center.refund',targetType:'order',targetId:orderNoValue,ip:'',result:'unfulfilled',metadata:{...input.metadata,reason:input.reason}})
       await client.query('COMMIT')

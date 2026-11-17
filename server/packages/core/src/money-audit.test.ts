@@ -76,19 +76,25 @@ describe('动钱操作的审计与业务同事务', () => {
   it('中心已退款的未发放订单：关单、占事件号、审计同事务；已经处理过的不再写审计', async () => {
     const input = { eventId: 'center:PR1', reason: '支付中心退款（未发放）', metadata: { refundNo: 'RF1' } }
     const row = (status: string): Reply => [{ id: 'o1', status, provider_code: 'zhifu-center' }]
-    const fresh = fakePool([['FROM orders WHERE order_no=$1 FOR UPDATE', row('failed')], ['INSERT INTO payment_events', [{ id: 'e1' }]], ["UPDATE orders SET status='closed'", [{ id: 'o1' }]]])
+    const peek: [string, Reply] = ['SELECT provider_code FROM orders WHERE order_no=$1', [{ provider_code: 'zhifu-center' }]]
+    const fresh = fakePool([peek, ['FROM orders WHERE order_no=$1 FOR UPDATE', row('failed')], ['INSERT INTO payment_events', [{ id: 'e1' }]], ["UPDATE orders SET status='closed'", [{ id: 'o1' }]]])
     expect(await storeOn(fresh).closeRefundedUnpaidOrder('PS1', input)).toBe('closed')
     expect(fresh.verbs()).toEqual(['BEGIN', 'AUDIT', 'COMMIT'])
     expect(fresh.calls.find(c => c.sql.startsWith('INSERT INTO payment_events'))?.params).toEqual(['zhifu-center', 'center:PR1', 'PS1'])
     expect(fresh.audit()?.params).toEqual([null, 'payment.center.refund', 'order', 'PS1', '', 'unfulfilled', { refundNo: 'RF1', reason: '支付中心退款（未发放）' }])
+    // 加锁顺序和 fulfillPaidOrder 一样：先占事件号、再锁订单（反过来的话付款通知和退款通知同时到会死锁）
+    const sqls = fresh.calls.map(c => c.sql)
+    expect(sqls.findIndex(s => s.startsWith('INSERT INTO payment_events'))).toBeLessThan(sqls.findIndex(s => s.includes('FOR UPDATE')))
+    expect(sqls.filter(s => s.includes('FOR UPDATE')).length).toBe(1)
     // 重复的退款回调：事件号已占、订单已关 → 不再写审计
-    const again = fakePool([['FROM orders WHERE order_no=$1 FOR UPDATE', row('closed')]])
+    const again = fakePool([peek, ['FROM orders WHERE order_no=$1 FOR UPDATE', row('closed')]])
     expect(await storeOn(again).closeRefundedUnpaidOrder('PS1', input)).toBe('closed')
     expect(again.verbs()).toEqual(['BEGIN', 'COMMIT'])
     // 付款抢先落地：什么都不改，交回调用方走正常退款
-    const paid = fakePool([['FROM orders WHERE order_no=$1 FOR UPDATE', row('paid')]])
+    const paid = fakePool([peek, ['FROM orders WHERE order_no=$1 FOR UPDATE', row('paid')]])
     expect(await storeOn(paid).closeRefundedUnpaidOrder('PS1', input)).toBe('paid')
     expect(paid.verbs()).toEqual(['BEGIN', 'ROLLBACK'])
+    expect(await storeOn(fakePool([])).closeRefundedUnpaidOrder('PS404', input)).toBe('missing')
   })
 
   it('用户兑换码：发放与审计同事务；审计写不进去就不发放', async () => {
