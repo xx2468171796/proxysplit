@@ -12,6 +12,7 @@ import { registerFenxiaoRoutes } from './fenxiao-routes.js'
 import { registerDealerRoutes } from './dealer-routes.js'
 import { registerNotifyRoutes } from './notify-routes.js'
 import { registerAccountRoutes } from './account-routes.js'
+import { createAdminGuard } from './admin-guard.js'
 import { DeviceLimiter, registerTelemetryRoutes, type TelemetryDeps } from './telemetry-routes.js'
 import { FAIL_CLOSED, FLEET_LIMIT, LIMITER_DEFAULTS, REFRESH_PER_FAMILY_PER_MINUTE, rateLimited, redisLimitStore, refreshFamilyKey } from './rate-limits.js'
 import { IpByteBudget } from './telemetry-budget.js'
@@ -66,6 +67,8 @@ export async function buildApp(config:ApiConfig,provided?:Core){
     return principal
   }
   const admin=async(req:FastifyRequest)=>{const principal=await auth(req);if(principal.role!=='admin')throw new AppError('ADMIN_REQUIRED','Administrator permission required',403);return principal}
+  // 动管理员账号 / 新建管理员要超级管理员（admin-guard.ts）；解密节点链接也用同一个「超管」定义。
+  const guard=createAdminGuard({findUser:id=>core.store.findUserById(id),superAdminUsernames:config.SUPER_ADMIN_USERNAMES})
 
   app.get('/health',async()=>({ok:true,service:'proxysplit-commercial-api'}))
   // 代理站：归属 / 客服联系方式 / 分成（dealer.ts）。aigw 公开接口可走内网地址 + Host 头绕开公网 WAF。
@@ -76,7 +79,7 @@ export async function buildApp(config:ApiConfig,provided?:Core){
   const notify=core.notify??createNotify(core.store.pool,{aiToken:config.TZ_AI_TOKEN,log:{warn:(msg,detail)=>app.log.warn({detail},msg)},audit:(actor,action,type,id,meta)=>core.store.audit(actor,action,type,id,'',meta.source==='cli'?'ai':'ok',meta)})
   registerNotifyRoutes(app,{notify,auth:req=>auth(req),admin,tierOf:async id=>(await core.auth.effectiveFor(id)).ent.tier})
   const account=createAccount(core.store.pool,{accessSecret:config.ACCESS_TOKEN_SECRET,redis,revokeSessions:id=>core.store.revokeUserSessions(id),audit:(actor,action,id,meta)=>core.store.audit(actor,action,'user',id,'','success',meta),warn:(msg,detail)=>app.log.warn({detail},msg)})
-  registerAccountRoutes(app,{account,admin})
+  registerAccountRoutes(app,{account,admin,guard})
   const notifyEvents=createNotifyEvents(core.store.pool,notify)
   core.store.notifySink=n=>notify.send({userId:n.userId,kind:n.kind,title:n.title,body:n.body,idemKey:n.idemKey,surfaces:['inbox','toast'],actions:n.url?[{label:'查看',url:n.url}]:[]})
   // 会员快到期提醒 + 过期通知清理：每 6 小时一轮（幂等键保证同一到期日只提醒一次，重启 / 多跑无害）
@@ -93,11 +96,10 @@ export async function buildApp(config:ApiConfig,provided?:Core){
     perDevicePerMinute:config.TELEMETRY_PER_DEVICE_PER_MINUTE??30,ipBudget:new IpByteBudget(config.TELEMETRY_IP_BYTES_PER_10MIN??20*1024*1024,10*60_000,redis),runRetention:config.NODE_ENV!=='test',log:app.log,
     optionalUser})
   // 同事节点上报（client-nodes-routes.ts，docs/节点上报.md）：解密链接只给 SUPER_ADMIN_USERNAMES 里的管理员
-  const superNames=new Set((config.SUPER_ADMIN_USERNAMES??'admin').split(',').map(s=>s.trim().toLowerCase()).filter(Boolean))
   const cipher=new LinkCipher(config.NODE_LINK_KEY)
   const clientNodes=core.clientNodes??{store:new ClientNodesStore(core.store.pool,cipher,msg=>app.log.warn(msg)),query:new ClientNodesQuery(core.store.pool,cipher)}
   registerClientNodesRoutes(app,{...clientNodes,admin,optionalUser,perDevicePerMinute:6,perIpPerMinute:120,runRetention:config.NODE_ENV!=='test',log:app.log,
-    isSuperAdmin:async p=>{if(p.role!=='admin')return false;const u=await core.store.findUserById(p.userId);return !!u&&superNames.has(u.username.toLowerCase())},
+    isSuperAdmin:guard.isSuperAdmin,
     audit:(actor,action,type,id,ip,result,meta)=>core.store.audit(actor,action,type,id,ip,result,meta)})
   // 分佣冻结期到了转可提现：每 5 分钟扫一次（查余额时也会给本人补跑）。
   const fenxiaoReleaseTimer=config.NODE_ENV==='test'?undefined:setInterval(()=>{core.store.fx.releaseDue().catch(e=>app.log.warn({err:e},'fenxiao releaseDue failed'))},5*60_000)
@@ -264,12 +266,12 @@ export async function buildApp(config:ApiConfig,provided?:Core){
   })
   app.get('/v1/admin/users',async(req)=>{await admin(req);return core.store.listUsers(userListQuery.parse(req.query))})
   app.get('/v1/admin/users/:id',async(req)=>{await admin(req);const row=await core.store.getUserDetail((req.params as {id:string}).id);if(!row)throw new AppError('NOT_FOUND','用户不存在',404);return row})
-  app.post('/v1/admin/users',async(req)=>{const p=await admin(req);const input=userCreateSchema.parse(req.body);const passwordHash=await hashPassword(input.password);const created=await core.store.createUserWithLicense({username:normalizeUsername(input.username),role:input.role,days:input.days,passwordHash,...(input.planId?{planId:input.planId}:{})});await core.store.audit(p.userId,'admin.user.create','user',created.id,req.ip,'success');return created})
-  app.patch('/v1/admin/users/:id/status',async(req)=>{const p=await admin(req);const input=userStatusSchema.parse(req.body);const id=(req.params as {id:string}).id;if(!await core.store.setUserStatus(id,input.status))throw new AppError('NOT_FOUND','Resource not found',404);await core.store.audit(p.userId,'admin.user.status','user',id,req.ip,'success',{status:input.status});return {ok:true}})
-  app.patch('/v1/admin/users/:id/password',async(req)=>{const p=await admin(req);const input=userPasswordSchema.parse(req.body);const id=z.object({id:z.guid()}).parse(req.params).id;await account.resetPassword(id,input.password,{operatorId:p.userId,requestId:input.requestId??randomUUID()});return {ok:true}})
-  app.post('/v1/admin/users/:id/extend',async(req)=>{const p=await admin(req);const input=licenseExtendSchema.parse(req.body);const id=(req.params as {id:string}).id;const license=await core.store.extendLicense(id,input.days);if(!license)throw new AppError('NOT_FOUND','Resource not found',404);await core.store.audit(p.userId,'admin.license.extend','user',id,req.ip,'success',{days:input.days});return license})
+  app.post('/v1/admin/users',async(req)=>{const p=await admin(req);const input=userCreateSchema.parse(req.body);await guard.mayCreate(p,input.role);const passwordHash=await hashPassword(input.password);const created=await core.store.createUserWithLicense({username:normalizeUsername(input.username),role:input.role,days:input.days,passwordHash,...(input.planId?{planId:input.planId}:{})});await core.store.audit(p.userId,'admin.user.create','user',created.id,req.ip,'success');return created})
+  app.patch('/v1/admin/users/:id/status',async(req)=>{const p=await admin(req);const id=(req.params as {id:string}).id;await guard.mayActOn(p,id);const input=userStatusSchema.parse(req.body);if(!await core.store.setUserStatus(id,input.status))throw new AppError('NOT_FOUND','Resource not found',404);await core.store.audit(p.userId,'admin.user.status','user',id,req.ip,'success',{status:input.status});return {ok:true}})
+  app.patch('/v1/admin/users/:id/password',async(req)=>{const p=await admin(req);const id=z.object({id:z.guid()}).parse(req.params).id;await guard.mayActOn(p,id);const input=userPasswordSchema.parse(req.body);await account.resetPassword(id,input.password,{operatorId:p.userId,requestId:input.requestId??randomUUID()});return {ok:true}})
+  app.post('/v1/admin/users/:id/extend',async(req)=>{const p=await admin(req);const id=(req.params as {id:string}).id;await guard.mayActOn(p,id);const input=licenseExtendSchema.parse(req.body);const license=await core.store.extendLicense(id,input.days);if(!license)throw new AppError('NOT_FOUND','Resource not found',404);await core.store.audit(p.userId,'admin.license.extend','user',id,req.ip,'success',{days:input.days});return license})
   app.delete('/v1/admin/users/:id',async(req)=>{
-    const p=await admin(req);const id=(req.params as {id:string}).id
+    const p=await admin(req);const id=(req.params as {id:string}).id;await guard.mayActOn(p,id)
     if(id===p.userId)throw new AppError('CANNOT_DELETE_SELF','不能删除当前登录的管理员账号',409)
     const res=await core.store.deleteUser(id)
     if(!res.ok){
@@ -281,7 +283,7 @@ export async function buildApp(config:ApiConfig,provided?:Core){
     return {ok:true}
   })
   app.get('/v1/admin/devices',async(req)=>{await admin(req);return core.store.listDevices(deviceListQuery.parse(req.query))})
-  app.delete('/v1/admin/devices/:id',async(req)=>{const p=await admin(req);const id=(req.params as {id:string}).id;const row=await core.store.unbindDevice(id);if(!row)throw new AppError('NOT_FOUND','Resource not found',404);await core.store.audit(p.userId,'admin.device.unbind','device',id,req.ip,'success');return {ok:true}})
+  app.delete('/v1/admin/devices/:id',async(req)=>{const p=await admin(req);const id=(req.params as {id:string}).id;const owner=(await core.store.findDevice(id))?.userId;if(owner)await guard.mayActOn(p,owner);const row=await core.store.unbindDevice(id);if(!row)throw new AppError('NOT_FOUND','Resource not found',404);await core.store.audit(p.userId,'admin.device.unbind','device',id,req.ip,'success');return {ok:true}})
   app.get('/v1/admin/plans',async(req)=>{await admin(req);return core.store.listPlans(planListQuery.parse(req.query))})
   app.post('/v1/admin/plans',async(req)=>{const p=await admin(req);const input=planUpsertSchema.parse(req.body);const row=await core.store.createPlan(input);await core.store.audit(p.userId,'admin.plan.create','plan',row.id,req.ip,'success',{code:row.code});return row})
   app.patch('/v1/admin/plans/:id',async(req)=>{const p=await admin(req);const id=(req.params as {id:string}).id;const row=await core.store.updatePlan(id,planPatchSchema.parse(req.body));if(!row)throw new AppError('NOT_FOUND','套餐不存在',404);await core.store.audit(p.userId,'admin.plan.update','plan',id,req.ip,'success');return row})
@@ -301,7 +303,7 @@ export async function buildApp(config:ApiConfig,provided?:Core){
   app.put('/v1/admin/payment-providers/:code',async(req)=>{const p=await admin(req);const code=(req.params as {code:string}).code;const input=providerUpsertSchema.parse({...req.body as object,code});const row=await core.store.upsertProvider(input);await core.store.audit(p.userId,'admin.payment-provider.update','payment-provider',code,req.ip,'success');return row})
   app.post('/v1/admin/payment-providers/:code/activate',async(req)=>{const p=await admin(req);const code=(req.params as {code:string}).code;const provider=await core.store.getProvider(code);if(!provider||!provider.enabled)throw new AppError('PAYMENT_PROVIDER_DISABLED','支付通道未启用',409);const row=await core.store.updateCommerceSettings({activePaymentProvider:code},p.userId);await core.store.audit(p.userId,'admin.payment-provider.activate','payment-provider',code,req.ip,'success');return row})
   app.post('/v1/admin/users/powervpn',async(req)=>{const p=await admin(req);const input=adminPowervpnProvisionSchema.parse(req.body);const user=await core.auth.provisionPowervpnUser(input,req.ip);await core.store.audit(p.userId,'admin.user.provision_powervpn','user',user.id,req.ip,'success',{externalId:input.externalId,channel:user.channel,created:user.created});return user})
-  app.post('/v1/admin/users/:id/grant',async(req)=>{const p=await admin(req);const input=adminGrantSchema.parse(req.body);const id=(req.params as {id:string}).id;const grant=await core.store.adminGrantLicense(id,{planId:input.planId,lifetime:!!input.lifetime,durationDays:input.durationDays??null});await core.store.audit(p.userId,'admin.license.grant','user',id,req.ip,'success',{planId:input.planId,lifetime:!!input.lifetime,durationDays:input.durationDays??null});return grant})
+  app.post('/v1/admin/users/:id/grant',async(req)=>{const p=await admin(req);const id=(req.params as {id:string}).id;await guard.mayActOn(p,id);const input=adminGrantSchema.parse(req.body);const grant=await core.store.adminGrantLicense(id,{planId:input.planId,lifetime:!!input.lifetime,durationDays:input.durationDays??null});await core.store.audit(p.userId,'admin.license.grant','user',id,req.ip,'success',{planId:input.planId,lifetime:!!input.lifetime,durationDays:input.durationDays??null});return grant})
   app.get('/v1/admin/orders',async(req)=>{await admin(req);return core.store.listOrders(orderListQuery.parse(req.query))})
   app.post('/v1/admin/orders/:orderNo/refund',async(req)=>{const p=await admin(req);const orderNo=(req.params as {orderNo:string}).orderNo;const {reason}=orderRefundSchema.parse(req.body??{});const result=await core.store.refundOrder(orderNo,reason);await core.store.audit(p.userId,'admin.order.refund','order',orderNo,req.ip,'success',{reason,orders:result.orders,licenseAdjusted:result.licenseAdjusted,removedDays:result.removedDays??null});return result})
   app.post('/v1/admin/orders/:orderNo/confirm',async(req)=>{const p=await admin(req);const orderNo=(req.params as {orderNo:string}).orderNo;const result=await core.store.confirmOrderManually(orderNo);await core.store.audit(p.userId,'admin.order.confirm','order',orderNo,req.ip,'success',{duplicate:!!result.duplicate});if(!result.duplicate)await notifyEvents.membershipPaid(orderNo).catch(e=>app.log.warn({err:e},'notify paid failed'));return result})
