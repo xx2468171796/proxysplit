@@ -11,7 +11,11 @@ export const phoneSchema = z.string().trim().max(20).transform((v, ctx) => {
 export const smsCodeSchema = z.string().trim().regex(/^\d{6}$/)
 export const smsPurposes = ['register', 'reset', 'bind'] as const
 export type SmsPurpose = (typeof smsPurposes)[number]
-export const smsSendSchema = z.object({ phone: phoneSchema, purpose: z.enum(smsPurposes) })
+/**
+ * captchaTicket：人机验证凭证（雷池 LcVerify action=sms）。新客户端 / 官网一律带这个字段（没拿到凭证带空串）；
+ * 已发版老客户端没有这个字段，中心模式下服务端据此提示升级。deviceFp：设备标识（可选，中心按它限量）。
+ */
+export const smsSendSchema = z.object({ phone: phoneSchema, purpose: z.enum(smsPurposes), captchaTicket: z.string().max(2048).optional(), deviceFp: z.string().max(128).optional() })
 export const passwordResetSchema = z.object({ phone: phoneSchema, code: smsCodeSchema, password: z.string().min(8).max(256) })
 /** 账号已有手机号时换绑必须带当前登录密码 currentPassword（首次补绑不用）。 */
 export const bindPhoneSchema = z.object({ phone: phoneSchema, code: smsCodeSchema, currentPassword: z.string().max(256).optional() })

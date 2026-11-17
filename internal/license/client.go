@@ -219,6 +219,9 @@ type APIError struct {
 	Status  int
 	Code    string // server error code, e.g. DEVICE_LIMIT / SYNC_CONFLICT
 	Message string
+	// CooldownSeconds is how long to wait before retrying, when the server
+	// says so (SMS_COOLDOWN); 0 otherwise.
+	CooldownSeconds int
 }
 
 func (e *APIError) Error() string { return e.Message }
@@ -397,15 +400,20 @@ func (c *Client) request(ctx context.Context, method, path string, input any, ou
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		var envelope struct {
 			Error struct {
-				Code    string `json:"code"`
-				Message string `json:"message"`
+				Code            string `json:"code"`
+				Message         string `json:"message"`
+				CooldownSeconds int    `json:"cooldownSeconds"`
 			} `json:"error"`
 		}
 		_ = json.Unmarshal(raw, &envelope)
-		if envelope.Error.Message != "" {
-			return &APIError{Status: resp.StatusCode, Code: envelope.Error.Code, Message: envelope.Error.Message}
+		apiErr := &APIError{Status: resp.StatusCode, Code: envelope.Error.Code, Message: envelope.Error.Message}
+		if s := envelope.Error.CooldownSeconds; s > 0 && s <= 3600 {
+			apiErr.CooldownSeconds = s
 		}
-		return &APIError{Status: resp.StatusCode, Code: envelope.Error.Code, Message: fmt.Sprintf("授权服务返回 HTTP %d", resp.StatusCode)}
+		if apiErr.Message == "" {
+			apiErr.Message = fmt.Sprintf("授权服务返回 HTTP %d", resp.StatusCode)
+		}
+		return apiErr
 	}
 	if output != nil {
 		return json.Unmarshal(raw, output)

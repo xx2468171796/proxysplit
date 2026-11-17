@@ -13,6 +13,7 @@ export { ClientNodesStore, LinkCipher, diffInventory, sha256Hex } from './client
 export { ClientNodesQuery, type RevealResult } from './client-nodes-query.js'
 export * from './entitlement.js'
 export * from './phone-auth.js'
+export * from './sms-center.js'
 export * from './notify.js'
 export * from './notify-events.js'
 export * from './account.js'

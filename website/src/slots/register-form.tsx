@@ -2,7 +2,15 @@
 // admin-ui-audit-ignore-file raw-control: 官网是 qiantai 前台页，不加载 admin-ui 样式，控件用 qiantai 的 q-btn / q-input 类
 import { Card } from "qiantai";
 import { type FormEvent, useEffect, useRef, useState } from "react";
-import { isPhone, normalizePhone, readReferralCode, registerWeb, sendRegisterCode, validateRegister } from "../api";
+import {
+  isPhone,
+  normalizePhone,
+  readReferralCode,
+  registerWeb,
+  type SendCodeResult,
+  sendRegisterCode,
+  validateRegister,
+} from "../api";
 
 type Msg = { ok: boolean; text: string } | null;
 
@@ -17,6 +25,13 @@ function useSecondsLeft(): [number, (seconds: number) => void] {
   return [left, setLeft];
 }
 
+/** 发码结果 → 提示。用户自己关掉人机验证：什么都没发，不提示。 */
+function sendCodeMsg(r: SendCodeResult): Msg {
+  if (r.cancelled) return null;
+  if (r.error) return { ok: false, text: r.error };
+  return { ok: true, text: r.message || "验证码已发送，5 分钟内有效。" };
+}
+
 export function RegisterForm() {
   const [busy, setBusy] = useState(false);
   const [sending, setSending] = useState(false);
@@ -29,9 +44,9 @@ export function RegisterForm() {
     if (!isPhone(phone)) return setMsg({ ok: false, text: "请先输入正确的 11 位手机号。" });
     setSending(true);
     setMsg(null);
-    const r = await sendRegisterCode(phone).finally(() => setSending(false));
+    const r = await sendRegisterCode(phone).finally(() => setSending(false)); // 先弹人机验证，过了才发
     if (r.cooldown > 0) startCountdown(r.cooldown);
-    setMsg(r.error ? { ok: false, text: r.error } : { ok: true, text: "验证码已发送，5 分钟内有效。" });
+    setMsg(sendCodeMsg(r));
   };
 
   const submit = async (e: FormEvent<HTMLFormElement>) => {

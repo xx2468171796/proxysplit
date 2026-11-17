@@ -15,6 +15,8 @@ const PACKAGES = {
   zhanghao: { tag: 'zhanghao-v1.19.1', skip: ['react/', 'store/drizzle-pg', 'zhctl'] },
   // 统一支付中心（PAY_MODE=center）：只用 zhifu/site + zhifu/center；运行时依赖 zod（core package.json 已加）
   zhifu: { tag: 'zhifu-v6.17.1', skip: [], entries: ['site/index.js', 'center/index.js'] },
+  // 雷池验证中心客户端（短信验证码走中心，sms-center.ts）：只用 verify-client + 纯函数 sms/phone；只依赖 node:http / https / crypto / net
+  yanzheng: { tag: 'yanzheng-v2.43.0', skip: [], entries: ['verify-client/index.js', 'sms/phone.js'] },
 }
 
 const repo = process.argv[2]

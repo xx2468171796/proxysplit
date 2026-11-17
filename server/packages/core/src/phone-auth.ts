@@ -1,4 +1,5 @@
-// 手机号：短信验证码（云片）、注册验码、找回密码（每号每北京日 1 次）、补绑手机号。
+// 手机号：短信验证码、注册验码、找回密码（每号每北京日 1 次）、补绑手机号。
+// 两种模式（没有第三种）：配了 LCV_* = 走公司雷池验证中心（sms-center.ts，本文件只管业务闸门）；没配 = 本地模式（云片直发 + sms_codes 表，开发 / 测试 / 回退用）。
 // 表结构 migrations/0019_free_sync_phone.sql；合同 docs/plan-2026-10-29-free-sync-phone.md「手机号」。
 import { createHash, randomInt, timingSafeEqual } from 'node:crypto'
 import { AppError, maskPhone } from '@proxysplit/shared'
@@ -44,16 +45,17 @@ export const devSmsLog = (purpose: SmsPurpose, phone: string, code: string, show
   `[dev] sms code ${purpose} ${maskPhone(phone)}: ${showCode ? code : '******'}`
 
 export type SmsSender = (phone: string, code: string) => Promise<void>
-/** 云片单条模板短信；apikey 只放请求体，不写日志。 */
-export function yunpianSender(cfg: { apiKey: string; tplId: string; fetch?: typeof fetch }): SmsSender {
+/** 云片单条模板短信；apikey 只放请求体，不写日志。失败记一行：打码手机号 + HTTP 状态 + 云片错误码（不记验证码）。 */
+export function yunpianSender(cfg: { apiKey: string; tplId: string; fetch?: typeof fetch; log?: ((msg: string) => void) | undefined }): SmsSender {
   const doFetch = cfg.fetch ?? fetch
+  const failed = (phone: string, why: string) => cfg.log?.(`[warn] sms yunpian send failed phone=${maskPhone(phone)} ${why}`)
   return async (phone, code) => {
     const body = new URLSearchParams({ apikey: cfg.apiKey, mobile: phone, tpl_id: cfg.tplId, tpl_value: `${encodeURIComponent('#code#')}=${encodeURIComponent(code)}` })
     let res: Response
     try { res = await doFetch('https://sms.yunpian.com/v2/sms/tpl_single_send.json', { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded;charset=utf-8', accept: 'application/json' }, body, signal: AbortSignal.timeout(8000) }) }
-    catch { throw new AppError('SMS_SEND_FAILED', '短信发送失败，请稍后再试', 502) }
+    catch (e) { failed(phone, `network=${(e as Error)?.name ?? 'error'}`); throw new AppError('SMS_SEND_FAILED', '短信发送失败，请稍后再试', 502) }
     const json = await res.json().catch(() => null) as { code?: number } | null
-    if (!res.ok || json?.code !== 0) throw new AppError('SMS_SEND_FAILED', '短信发送失败，请稍后再试', 502)
+    if (!res.ok || json?.code !== 0) { failed(phone, `http=${res.status} code=${typeof json?.code === 'number' ? json.code : 'none'}`); throw new AppError('SMS_SEND_FAILED', '短信发送失败，请稍后再试', 502) }
   }
 }
 
@@ -61,6 +63,9 @@ export type PhoneAuthOptions = { sender: SmsSender | null; production: boolean; 
 /** 全站每日（北京日）短信总量熔断，防刷短信费；超了全站暂停发送到次日。 */
 export const SMS_DAILY_GLOBAL_CAP = 300
 type Tx = Awaited<ReturnType<Db['connect']>>
+/** 中心模式的核码函数：consume=false 只读，true 真正消费；不通过就抛 AppError（sms-center.ts SmsCenter.check）。 */
+export type CodeCheck = (consume: boolean) => Promise<void>
+const resetLimitError = () => new AppError('RESET_DAILY_LIMIT', '该手机号今天已经找回过密码，请明天再试', 429)
 const SENT = { ok: true, cooldownSeconds: SMS_COOLDOWN_MS / 1000 } as const
 const phoneTakenError = () => new AppError('PHONE_TAKEN', '该手机号已被其他账号使用', 409)
 
@@ -152,8 +157,37 @@ export class PhoneAuth {
     })
     return { ok: true, userId }
   }
-  /** 已登录用户补绑 / 换绑手机号（换绑要的当前密码在 AuthService.bindPhone 里校验）。 */
-  async bindPhone(userId: string, phone: string, code: string) {
+  /**
+   * 中心模式找回密码（顺序同 V7）：只读核码 → 查号 → 当天配额 → 消费 → 事务里记当天 + 改密 + 吊销全部会话。
+   * 被配额拒掉的人码不会被烧掉。核码失败的对外文案由调用方统一（防枚举）。
+   */
+  async resetPasswordChecked(phone: string, passwordHash: string, check: CodeCheck) {
+    await check(false)
+    const userId = await this.phoneOwner(phone)
+    if (!userId) throw new AppError('SMS_CODE_INVALID', CODE_WRONG, 400)
+    if (await this.resetUsedToday(phone)) throw resetLimitError()
+    await check(true)
+    await this.tx(async c => {
+      const day = await c.query('INSERT INTO password_reset_daily(phone,day,user_id) VALUES($1,$2,$3) ON CONFLICT DO NOTHING', [phone, beijingDay(new Date()), userId])
+      if (day.rowCount !== 1) throw resetLimitError()
+      await c.query('UPDATE users SET password_hash=$2,failed_login_count=0,locked_until=NULL,updated_at=now() WHERE id=$1', [userId, passwordHash])
+      await c.query('UPDATE sessions SET revoked_at=coalesce(revoked_at,now()) WHERE user_id=$1', [userId])
+    })
+    return { ok: true, userId }
+  }
+  /**
+   * 已登录用户补绑 / 换绑手机号（换绑要的当前密码在 AuthService.bindPhone 里校验）。
+   * 给了 check = 中心模式：只读核码 → 查占用 → 消费 → 写库；不给 = 本地模式（sms_codes 表），行为不变。
+   */
+  async bindPhone(userId: string, phone: string, code: string, check?: CodeCheck) {
+    if (check) {
+      await check(false)
+      if (await this.phoneTaken(phone, userId)) throw phoneTakenError()
+      await check(true)
+      try { await this.db.query('UPDATE users SET phone=$2,updated_at=now() WHERE id=$1', [userId, phone]) }
+      catch (e) { if ((e as { code?: string }).code === '23505') throw phoneTakenError(); throw e }
+      return { ok: true }
+    }
     if (await this.phoneTaken(phone, userId)) throw phoneTakenError()
     const codeId = await this.verify(phone, 'bind', code)
     try {

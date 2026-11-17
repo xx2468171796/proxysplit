@@ -12,11 +12,15 @@ export type PhoneDeps = {
 }
 
 export function registerPhoneRoutes(app: FastifyInstance, d: PhoneDeps) {
-  // 每 IP 每小时 20 条；同号 60 秒 1 条、每小时 5 条、每天 10 条在 core 里按库判断。
-  // TODO（后续）：未登录用途（注册 / 找回）接滑块人机验证，见计划文档「手机号」。
+  // 每 IP 每小时 20 条。中心模式（配了 LCV_*）：人机凭证 captchaTicket + 用户真实 IP + 设备标识交给雷池验证中心，冷却 / 限额在中心；
+  // 本地模式：同号 60 秒 1 条、每小时 5 条、每天 10 条在 core 里按库判断，captchaTicket 忽略。
+  // req.ip = 用户 IP：app.ts trustProxy 只信 1 跳，nginx 覆盖（不是追加）X-Forwarded-For。
   app.post('/v1/auth/sms/send', { config: { rateLimit: { max: 20, timeWindow: '1 hour' } } }, async (req) => {
     const input = smsSendSchema.parse(req.body)
-    return d.auth.phone.send(input.phone, input.purpose, input.purpose === 'bind' ? (await d.user(req)).userId : null)
+    const header = req.headers['x-device-fingerprint']
+    const deviceFp = input.deviceFp || (typeof header === 'string' && header.length <= 128 ? header : null)
+    const userId = input.purpose === 'bind' ? (await d.user(req)).userId : null
+    return d.auth.sendSmsCode(input, userId, { captchaTicket: input.captchaTicket, clientIp: req.ip, deviceFp })
   })
   app.post('/v1/auth/password/reset', { config: { rateLimit: { max: 10, timeWindow: '10 minutes' } } }, async (req) =>
     d.auth.resetPasswordByPhone(passwordResetSchema.parse(req.body), req.ip))

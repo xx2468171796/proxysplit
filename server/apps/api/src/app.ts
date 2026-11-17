@@ -6,7 +6,7 @@ import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
 import { AppError, maskPhone, normalizeUsername } from '@proxysplit/shared'
 import { activateDeviceSchema, powervpnLoginSchema, powervpnSyncSchema, adminGrantSchema, adminPowervpnProvisionSchema, selfPasswordSchema, webRegisterSchema, analyticsQuerySchema, auditListQuery, deviceListQuery, downloadStatsQuery, leaseSchema, licenseExtendSchema, loginSchema, orderCreateSchema, orderListQuery, orderRefundSchema, planListQuery, planPatchSchema, planUpsertSchema, providerUpsertSchema, redeemCodeCreateSchema, redeemListQuery, redeemSchema, refreshSchema, registerSchema, releaseCreateSchema, releaseListQuery, settingPatchSchema, trackViewSchema, userCreateSchema, userListQuery, userPasswordSchema, userStatusSchema } from '@proxysplit/contracts'
-import { AccelTokens, ClientNodesQuery, ClientNodesStore, ConfigProfilesStore, ConfigSyncStore, LinkCipher, SyncCipher, createAccount, createCommercialCore, DealerAdmin, DealerService, createNotify, createNotifyEvents, type Notify, licenseView, FenxiaoService, hashPassword, PaymentService, createCenterPayFromEnv, type CenterPayContext, TelemetryQuery, TelemetryStore, type AuthService, type PgStore } from '@proxysplit/core'
+import { AccelTokens, ClientNodesQuery, ClientNodesStore, ConfigProfilesStore, ConfigSyncStore, LinkCipher, SyncCipher, createAccount, createCommercialCore, DealerAdmin, DealerService, createNotify, createNotifyEvents, type Notify, licenseView, FenxiaoService, hashPassword, PaymentService, createCenterPayFromEnv, createSmsCenterFromEnv, type CenterPayContext, TelemetryQuery, TelemetryStore, type AuthService, type PgStore } from '@proxysplit/core'
 import type { ApiConfig } from './config.js'
 import { registerFenxiaoRoutes } from './fenxiao-routes.js'
 import { registerDealerRoutes } from './dealer-routes.js'
@@ -39,10 +39,14 @@ export async function buildApp(config:ApiConfig,provided?:Core){
   })
   let redis:Redis|undefined
   if(config.REDIS_URL){redis=new Redis(config.REDIS_URL,{maxRetriesPerRequest:1,enableOfflineQueue:false});redis.on('error',()=>{})}
+  // 短信验证码：配了 LCV_* 走雷池验证中心（KV 用上面的 Redis，键前缀 proxysplit:lcvotp:），没配留在本地模式。
+  const smsCenter=createSmsCenterFromEnv(config,redis,msg=>app.log.warn(msg))
+  if(smsCenter&&typeof core.auth.setSmsCenter==='function')core.auth.setSmsCenter(smsCenter)
+  app.log.info(`sms mode: ${smsCenter?'center':'local'}`)
   await app.register(cors,{origin:[config.ADMIN_ORIGIN],credentials:false})
   await app.register(rateLimit,{global:false,max:10,timeWindow:'1 minute',...(redis?{redis}:{})})
   app.setErrorHandler((error,_req,reply)=>{
-    if(error instanceof AppError)return reply.code(error.status).send({error:{code:error.code,message:error.message}})
+    if(error instanceof AppError)return reply.code(error.status).send({error:{...error.extra,code:error.code,message:error.message}})
     if((error as {issues?:unknown}).issues)return reply.code(400).send({error:{code:'VALIDATION_ERROR',message:'Invalid request'}})
     // 限流等框架级 4xx 必须原样透出：包成 500「服务不可用」会让用户以为服务坏了。
     const status=(error as {statusCode?:number}).statusCode

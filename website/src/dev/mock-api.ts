@@ -1,5 +1,5 @@
 // 假接口（只在开发预览和评审包里装，见 main.tsx）：拦下 /v1/*，本地没有 API 也能看全各种状态。
-// 地址参数切状态：?plans=loading|error|empty、?register=fail、?sms=taken|cooldown|daily|down、?version=none；开发时 ?mock=0 改走 vite 代理的真接口。
+// 地址参数切状态：?plans=loading|error|empty、?register=fail、?sms=taken|cooldown|daily|down|captcha、?version=none；开发时 ?mock=0 改走 vite 代理的真接口。
 // 套餐是演示数据，不代表线上价格。
 import type { Plan } from "../api";
 import { siteQuery } from "../query";
@@ -39,11 +39,22 @@ const SMS_FAILS: Record<string, [string, number]> = {
   cooldown: ["SMS_COOLDOWN", 429],
   daily: ["SMS_DAILY_LIMIT", 429],
   down: ["SMS_UNAVAILABLE", 503],
+  captcha: ["CAPTCHA_REQUIRED", 403],
+};
+
+// 短信相关的错误页面用服务端的原话，这里照线上的文案给
+const SMS_TEXT: Record<string, string> = {
+  SMS_COOLDOWN: "发送太频繁，请 42 秒后再试",
+  SMS_DAILY_LIMIT: "今日验证码发送次数已达上限，请明天再试",
+  SMS_UNAVAILABLE: "短信发送失败，请稍后再试",
+  CAPTCHA_REQUIRED: "安全验证未通过或已过期，请重新完成验证",
 };
 
 function respondSms(mode: string | null): Response {
   const fail = mode ? SMS_FAILS[mode] : undefined;
-  return fail ? json({ error: { code: fail[0], message: "mock" } }, fail[1]) : json({ ok: true, cooldownSeconds: 60 });
+  if (!fail) return json({ ok: true, cooldownSeconds: 60, message: "验证码已发送，5 分钟内有效" });
+  const extra = fail[0] === "SMS_COOLDOWN" ? { cooldownSeconds: 42 } : {};
+  return json({ error: { code: fail[0], message: SMS_TEXT[fail[0]] ?? "mock", ...extra } }, fail[1]);
 }
 
 function respond(path: string, q: URLSearchParams): Promise<Response> | Response {

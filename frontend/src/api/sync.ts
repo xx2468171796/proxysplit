@@ -14,9 +14,20 @@ const asPreview = (r: unknown): ImportPreview => (r ?? {}) as ImportPreview;
 
 export const syncApi = {
   // 手机号
-  sendSmsCode: async (phone: string, purpose: SmsPurpose) => {
-    const r = (await W.SendSMSCode(phone, purpose)) as { cooldownSeconds?: number; err?: string } | null;
-    return { err: r?.err ?? "", cooldownSeconds: r?.cooldownSeconds ?? 0 };
+  /** captchaTicket = 人机验证的一次性凭证（state/human-verify，用途 sms），没拿到就传空串。 */
+  sendSmsCode: async (phone: string, purpose: SmsPurpose, captchaTicket = "") => {
+    const r = (await W.SendSMSCode(phone, purpose, captchaTicket)) as {
+      cooldownSeconds?: number;
+      message?: string;
+      err?: string;
+      errCode?: string;
+    } | null;
+    return {
+      err: r?.err ?? "",
+      errCode: r?.errCode ?? "",
+      cooldownSeconds: r?.cooldownSeconds ?? 0,
+      message: r?.message ?? "",
+    };
   },
   registerPhone: (phone: string, code: string, user: string, pass: string, ref: string) =>
     W.RegisterPhone(phone, code, user, pass, ref),

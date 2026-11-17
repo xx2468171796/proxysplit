@@ -2,6 +2,8 @@ package license
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"net/http"
 	"regexp"
@@ -53,22 +55,58 @@ func validCode(code string) (string, error) {
 // DefaultSMSCooldown is used when the server does not say how long to wait.
 const DefaultSMSCooldown = 60
 
+// MaxCaptchaTicket is the longest human-verification ticket the server
+// accepts; anything longer is dropped (sent as "no ticket").
+const MaxCaptchaTicket = 2048
+
+// SMSSent is the server's answer to a sent code.
+type SMSSent struct {
+	// CooldownSeconds is the resend wait. On an error it is only set when the
+	// server said how long to wait (sending too often).
+	CooldownSeconds int
+	// Message is the server's wording for "sent" (may be empty).
+	Message string
+}
+
+// smsDeviceID is a per-device value the verification center uses for its
+// per-device send limit; it is derived so the real fingerprint stays private.
+func (c *Client) smsDeviceID() string {
+	if c.fingerprint == "" {
+		return ""
+	}
+	sum := sha256.Sum256([]byte("ProxySplit-SMS-Device-v1\x00" + c.fingerprint))
+	return hex.EncodeToString(sum[:16])
+}
+
 // SendSMSCode asks the server to text a 6-digit code for purpose
-// (register / reset / bind) and returns the server's resend cooldown in
-// seconds. "bind" needs a signed-in session.
-func (c *Client) SendSMSCode(phone, purpose string) (int, error) {
+// (register / reset / bind). captchaTicket is the one-time ticket from the
+// human verification (frontend human-verify, action "sms"); it is always
+// sent, empty when none could be obtained, so the server can tell this
+// client from older ones that do not know about the verification.
+// "bind" needs a signed-in session.
+func (c *Client) SendSMSCode(phone, purpose, captchaTicket string) (SMSSent, error) {
 	p, err := NormalizePhone(phone)
 	if err != nil {
-		return 0, err
+		return SMSSent{}, err
 	}
 	if purpose != SMSRegister && purpose != SMSReset && purpose != SMSBind {
-		return 0, errors.New("验证码用途无效")
+		return SMSSent{}, errors.New("验证码用途无效")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	ticket := strings.TrimSpace(captchaTicket)
+	if len(ticket) > MaxCaptchaTicket {
+		ticket = ""
+	}
+	// A reset send is padded server-side to at least 2.5 s (so registered and
+	// unregistered numbers look alike), on top of redeeming the ticket.
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	body := map[string]any{"phone": p, "purpose": purpose}
+	body := map[string]any{"phone": p, "purpose": purpose, "captchaTicket": ticket}
+	if id := c.smsDeviceID(); id != "" {
+		body["deviceFp"] = id
+	}
 	var out struct {
-		CooldownSeconds int `json:"cooldownSeconds"`
+		CooldownSeconds int    `json:"cooldownSeconds"`
+		Message         string `json:"message"`
 	}
 	if purpose == SMSBind {
 		c.mu.Lock()
@@ -78,12 +116,16 @@ func (c *Client) SendSMSCode(phone, purpose string) (int, error) {
 		err = c.request(ctx, http.MethodPost, "/v1/auth/sms/send", body, &out, "")
 	}
 	if err != nil {
-		return 0, err
+		var apiErr *APIError
+		if errors.As(err, &apiErr) {
+			return SMSSent{CooldownSeconds: apiErr.CooldownSeconds}, err
+		}
+		return SMSSent{}, err
 	}
 	if out.CooldownSeconds <= 0 || out.CooldownSeconds > 3600 {
 		out.CooldownSeconds = DefaultSMSCooldown
 	}
-	return out.CooldownSeconds, nil
+	return SMSSent{CooldownSeconds: out.CooldownSeconds, Message: out.Message}, nil
 }
 
 // RegisterPhone creates a phone account and signs this device in.

@@ -2,11 +2,13 @@ import { createHash, createPublicKey, randomUUID } from 'node:crypto'
 import { Algorithm, hash, verify } from '@node-rs/argon2'
 import { exportSPKI, generateKeyPair, importPKCS8, jwtVerify, SignJWT } from 'jose'
 import { AppError, normalizePhone, normalizeUsername } from '@proxysplit/shared'
-import type { ActivateDeviceInput, BindPhoneInput, DeviceInput, LoginInput, PasswordResetInput, PowervpnLoginInput, RefreshInput, RegisterInput, SelfPasswordInput, WebRegisterInput } from '@proxysplit/contracts'
+import type { SmsPurpose, ActivateDeviceInput, BindPhoneInput, DeviceInput, LoginInput, PasswordResetInput, PowervpnLoginInput, RefreshInput, RegisterInput, SelfPasswordInput, WebRegisterInput } from '@proxysplit/contracts'
 import { powervpnMeSchema } from '@proxysplit/contracts'
 import { channelOfSources, type PgStore, type UserChannel, type UserRecord } from './store.js'
 import { effective, licenseView } from './entitlement.js'
 import { PhoneAuth, yunpianSender } from './phone-auth.js'
+import type { SmsCenter, SmsSendContext } from './sms-center.js'
+import { withMinDuration } from './vendor/yanzheng/verify-client/index.js'
 import type { DealerContact, DealerService } from './dealer.js'
 
 const encoder=new TextEncoder()
@@ -22,6 +24,9 @@ export type SmsConfig={apiKey?:string|undefined;tplId:string;production:boolean;
 export type AuthConfig={accessSecret:string;refreshDays:number;licensePrivateKeyPem?:string;licensePublicKeyPem?:string;powervpn?:PowervpnConfig;sms?:SmsConfig}
 const userView=(user:UserRecord)=>({id:user.id,username:user.username,role:user.role,channel:user.channel??'',phoneBound:!!user.phone})
 const phoneTaken=()=>new AppError('PHONE_TAKEN','该手机号已被其他账号使用',409)
+const identityTaken=()=>new AppError('IDENTITY_TAKEN','用户名或邮箱已被使用',409)
+/** 中心模式找回改密：核码的所有失败（没发过码 / 失效 / 繁忙 / 错码）对外同一句话，整步最短耗时（防枚举，同 V7） */
+const RESET_CODE_FAILED='验证码错误', RESET_MIN_MS=800
 // 没有匹配账号时也跑一次 argon2 校验，响应时间不泄露账号是否存在。
 let dummyHash:Promise<string>|null=null
 const dummyVerify=async(password:string)=>{dummyHash??=hashPassword(randomUUID());await verify(await dummyHash,password).catch(()=>false)}
@@ -46,13 +51,39 @@ export class AuthService{
   /** 代理站：登录 / 同步时记归属，回应里带客服联系方式（app.ts 装上；没装 = 不带 contact） */
   private dealers:DealerService|null=null
   setDealers(d:DealerService){this.dealers=d}
+  /** 短信验证码走雷池验证中心（app.ts 在配了 LCV_* 时装上）；没装 = 本地模式（phone-auth.ts 的云片 + sms_codes）。 */
+  private smsCenter:SmsCenter|null=null
+  private resetMinMs=RESET_MIN_MS
+  setSmsCenter(c:SmsCenter|null,opts:{resetMinMs?:number}={}){this.smsCenter=c;if(opts.resetMinMs!==undefined)this.resetMinMs=opts.resetMinMs}
+  get smsMode():'center'|'local'{return this.smsCenter?'center':'local'}
+  /** 发短信验证码。中心模式：注册对每个号照常发（防枚举）、找回只给已注册的号发且两条路同一句话、绑定查占用。 */
+  async sendSmsCode(input:{phone:string;purpose:SmsPurpose},userId:string|null,ctx:SmsSendContext){
+    const center=this.smsCenter,{phone,purpose}=input
+    if(!center)return this.phone.send(phone,purpose,userId)
+    if(purpose==='reset')return center.sendReset(phone,ctx,async()=>!!await this.phone.phoneOwner(phone))
+    if(purpose==='register')return center.send(phone,'register',ctx)
+    if(!userId)throw new AppError('ACCESS_INVALID','Authentication required',401)
+    return center.send(phone,'bind',ctx,async()=>await this.phone.phoneTaken(phone,userId)?'该手机号已被其他账号使用':null)
+  }
+  /**
+   * 中心模式注册的前半段（顺序同 V7）：只读核码 → 撞号 / 用户名占用；返回建号事务里「其它闸门都过了、插入用户之前」调的消费函数。
+   * 本地模式或没带手机号（老客户端邮箱注册）返回 null，走原流程。
+   */
+  private async centerRegisterGate(input:{username:string;phone?:string|undefined;code?:string|undefined}){
+    const center=this.smsCenter,{phone,code}=input
+    if(!center||!phone||!code)return null
+    await center.check(phone,'register',code,false)
+    await this.assertIdentityFree(input.username,phone)
+    if(await this.store.findUser(normalizeUsername(input.username)))throw identityTaken()
+    return ()=>center.check(phone,'register',code,true)
+  }
   private async contactOf(userId:string):Promise<DealerContact|null>{
     if(!this.dealers)return null
     try{return await this.dealers.contactFor(userId)}catch{return null}
   }
   private constructor(private store:PgStore,private cfg:AuthConfig,private privateKey:CryptoKey,readonly publicKeyPem:string){
     const sms=cfg.sms
-    this.phone=new PhoneAuth(store.pool,{sender:sms?.apiKey?yunpianSender({apiKey:sms.apiKey,tplId:sms.tplId,...(sms.fetch?{fetch:sms.fetch}:{})}):null,production:sms?.production??false,showDevCode:sms?.showDevCode===true,...(sms?.log?{log:sms.log}:{})})
+    this.phone=new PhoneAuth(store.pool,{sender:sms?.apiKey?yunpianSender({apiKey:sms.apiKey,tplId:sms.tplId,log:sms.log,...(sms.fetch?{fetch:sms.fetch}:{})}):null,production:sms?.production??false,showDevCode:sms?.showDevCode===true,...(sms?.log?{log:sms.log}:{})})
   }
   static async create(store:PgStore,cfg:AuthConfig){
     let privateKey:CryptoKey, publicKeyPem=cfg.licensePublicKeyPem
@@ -85,13 +116,14 @@ export class AuthService{
     if(asPhone&&await this.phone.phoneOwner(asPhone))throw new AppError('IDENTITY_TAKEN','用户名或邮箱已被使用',409)
   }
   async register(input:RegisterInput,ip=''){
-    await this.assertIdentityFree(input.username,input.phone)
-    const codeId=input.phone&&input.code?await this.phone.verify(input.phone,'register',input.code):null
+    const consume=await this.centerRegisterGate(input)
+    if(!consume)await this.assertIdentityFree(input.username,input.phone)
+    const codeId=!consume&&input.phone&&input.code?await this.phone.verify(input.phone,'register',input.code):null
     const passwordHash=await hashPassword(input.password)
     try{
       await this.store.registerTrialUser({
         username:normalizeUsername(input.username),email:input.email?.trim().toLowerCase()||null,phone:input.phone??null,passwordHash,
-        hardwareHash:hashFingerprint(input.device.hardwareHash??input.device.fingerprint),ip,...(input.ref?{ref:input.ref}:{}),
+        hardwareHash:hashFingerprint(input.device.hardwareHash??input.device.fingerprint),ip,...(input.ref?{ref:input.ref}:{}),...(consume?{beforeInsert:consume}:{}),
       })
     }catch(error){
       const code=(error as {code?:string}).code
@@ -107,12 +139,13 @@ export class AuthService{
   }
   // 官网注册：只建账号，不绑定设备、不发试用（试用在首次客户端登录时发放）。
   async registerWeb(input:WebRegisterInput,ip=''){
-    await this.assertIdentityFree(input.username,input.phone)
-    const codeId=input.phone&&input.code?await this.phone.verify(input.phone,'register',input.code):null
+    const consume=await this.centerRegisterGate(input)
+    if(!consume)await this.assertIdentityFree(input.username,input.phone)
+    const codeId=!consume&&input.phone&&input.code?await this.phone.verify(input.phone,'register',input.code):null
     const passwordHash=await hashPassword(input.password)
     try{
       const user=await this.store.registerWebUser({
-        username:normalizeUsername(input.username),email:input.email?.trim().toLowerCase()||null,phone:input.phone??null,passwordHash,ip,...(input.ref?{ref:input.ref}:{}),
+        username:normalizeUsername(input.username),email:input.email?.trim().toLowerCase()||null,phone:input.phone??null,passwordHash,ip,...(input.ref?{ref:input.ref}:{}),...(consume?{beforeInsert:consume}:{}),
       })
       if(codeId)await this.phone.consume(codeId)
       await this.store.audit(user.id,'auth.register.web','user',user.id,ip,'success')
@@ -143,7 +176,11 @@ export class AuthService{
   }
   // 短信找回密码：每号每北京日 1 次，改密同时吊销全部会话（phone-auth.ts）。
   async resetPasswordByPhone(input:PasswordResetInput,ip=''){
-    const r=await this.phone.resetPassword(input.phone,input.code,await hashPassword(input.password))
+    const center=this.smsCenter, passwordHash=await hashPassword(input.password)
+    const r=center
+      ?await withMinDuration(()=>this.phone.resetPasswordChecked(input.phone,passwordHash,consume=>
+        center.check(input.phone,'reset',input.code,consume).catch(()=>{throw new AppError('SMS_CODE_INVALID',RESET_CODE_FAILED,400)})),this.resetMinMs)
+      :await this.phone.resetPassword(input.phone,input.code,passwordHash)
     await this.store.audit(r.userId,'auth.password.reset','user',r.userId,ip,'success')
     return {ok:true}
   }
@@ -155,7 +192,8 @@ export class AuthService{
       const ok=!!input.currentPassword&&await verify(user.passwordHash,input.currentPassword).catch(()=>false)
       if(!ok)throw new AppError('PASSWORD_INVALID','当前登录密码不正确',401)
     }
-    return this.phone.bindPhone(userId,input.phone,input.code)
+    const center=this.smsCenter
+    return this.phone.bindPhone(userId,input.phone,input.code,center?consume=>center.check(input.phone,'bind',input.code,consume):undefined)
   }
   // 登录框接受用户名或手机号（含 +86）：像手机号先按手机号查，再按用户名查（兼容数字用户名）；两个都在时按顺序试密码。
   private async loginCandidates(name:string){

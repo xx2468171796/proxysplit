@@ -1,5 +1,6 @@
 export class AppError extends Error {
-  constructor(public readonly code: string, message: string, public readonly status = 400) { super(message) }
+  /** extra：随错误一起回给客户端的附加字段（如限频时的 cooldownSeconds），只放可公开的数字 / 短字符串。 */
+  constructor(public readonly code: string, message: string, public readonly status = 400, public readonly extra?: Readonly<Record<string, string | number>>) { super(message) }
 }
 export const nowIso = () => new Date().toISOString()
 export const normalizeUsername = (value: string) => value.trim().toLowerCase()
