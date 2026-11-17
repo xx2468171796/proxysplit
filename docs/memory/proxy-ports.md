@@ -9,7 +9,7 @@
 - 开启的端口随软件启动自动开，退出时全关；授权校验（startGuard）同样适用。
 
 ## 坑与约束
-- 主核心 killStrays 会杀同路径的所有 sing-box：已按命令行排除含 proxyports 的进程；端口孤儿由 KillPortStrays 在 service.New 里同步清理（必须在任何端口启动前）。
+- 主核心的按路径清理（Manager.CleanStrays → killCoreProcs）会杀同路径的所有 sing-box，只在软件启动和「网络重置」时跑（审计 2026-11-18：原来每次停止 / 启动都跑，会把测速 / 测延迟的临时内核一起杀掉，还要起两次 PowerShell）；平时 Manager.Stop 只结束自己启动的那个进程。清理时已按命令行排除含 proxyports 的进程；端口孤儿由 KillPortStrays 在 service.New 里同步清理（必须在任何端口启动前）。
 - 端口进程出站带 auto_detect_interface，但主 TUN 仍会抓到它：BuildTUNConfig 在有端口时加 process_path=<sing-box 路径> → direct，避免全局下套两层节点；第一个端口建好时若主核心在跑会自动重启一次。
 - 启停全部经 startPort / stopPort，在每端口 life 锁里先停后起；StopProxyPorts 置 closed 后不再允许启动（审计发现过孤儿进程与 mutex 覆盖崩溃，见 proxyports_test.go）。
 - 防火墙规则「ProxySplit 端口代理」只放行局域网端口的 TCP、来源限私网段；端口列表变化时重建，没有局域网端口时删除。

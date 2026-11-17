@@ -51,8 +51,6 @@ func (m *Manager) StartTUN(node *nodes.Node, logLevel, routeMode string, routeRu
 		return err
 	}
 
-	m.killStrays() // clean slate: remove any orphaned sing-box before starting
-
 	// Spawn with a retry: a TUN start can transiently fail if a previous wintun
 	// adapter is still being released by the driver. Retry once after a short
 	// settle delay before giving up.

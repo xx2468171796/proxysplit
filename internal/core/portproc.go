@@ -19,7 +19,7 @@ import (
 )
 
 // PortDirName is the data sub-directory holding the proxy-port configs. Its
-// name appears in every port process's command line: killStrays (main core)
+// name appears in every port process's command line: CleanStrays (main core)
 // skips those, KillPortStrays targets only them.
 const PortDirName = "proxyports"
 
