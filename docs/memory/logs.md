@@ -5,9 +5,9 @@
 
 ## 现在
 - 每一行 `Service.log`（应用日志 [service]/[subs]/[update]/[sync]/[account]…，以及 sing-box 输出）同时写 `<配置目录>/proxysplit/logs/proxysplit-YYYY-MM-DD.log`（按本地日期；Windows `%APPDATA%\proxysplit\logs`，macOS `~/Library/Application Support/proxysplit/logs`）。
-- 代码：`internal/logfile`（writer.go 缓冲 + 互斥、logfile.go 格式 / 清理 / 天数、phone.go 手机号打码）；接线在 `internal/service/logfiles.go`（New 第一步 openLogFiles，Close 时刷盘）。
+- 代码：`internal/logfile`（writer.go 缓冲 + 互斥、logfile.go 格式 / 清理 / 天数）；接线在 `internal/service/logfiles.go`（New 第一步 openLogFiles，Close 时刷盘）。
 - 行格式：`2026-10-29 14:03:12.345 INFO  [service] 文本`。级别按文本猜（ERROR/FATAL/失败/ failed → ERROR，WARN，DEBUG/TRACE，其余 INFO）；没有 `[分类]` 开头的行是内核输出，补 `[core]`。
-- 脱敏：写盘前过 `telemetry.Sanitize`（分享链接、令牌、密码、UUID、长密钥串、邮箱）+ 手机号只留前 3 后 2（telemetry 的 Sanitize 不管手机号，所以在 logfile 里补）。
+- 脱敏：写盘前过 `telemetry.Sanitize`（分享链接、令牌、密码、UUID、长密钥串、邮箱）、手机号只留前 3 后 2、用户目录里的系统用户名换成 [user]）。脱敏只有 `telemetry.Sanitize` 这一处（2026-11-18 起手机号规则也并进去了），本地日志和上传的日志用同一套；加规则只改 sanitize.go。
 - 写法：内存缓冲，每 2 秒或攒够 64 KB 就「打开 → 追加 → 关闭」，不长期占着文件句柄（Windows 下用户可以随时打开 / 删除，单测的临时目录也能清掉）。写失败直接丢弃缓冲，不涨内存。
 - 单个日文件 50 MB 封顶：到顶写一行「日志已达当天 50 MB 上限…」，当天后面的不再写；重启后看到当天文件已满也不再写。
 - 保留：`Settings.LogDays`（json `logRetentionDays`，omitempty，零值 / 老配置没这个字段 = 7，SetSettings 夹到 1–30）。启动时、每天第一次写 / 刷盘时、改设置时各清一次：只删名字符合 `proxysplit-YYYY-MM-DD.log` 且日期早于「含今天的最近 N 天」的文件。

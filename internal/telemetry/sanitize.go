@@ -8,8 +8,13 @@ import (
 // Sanitisation keeps what debugging needs (domains, IPs, ports, process
 // names, error text) and removes anything that would let the reader use the
 // user's nodes or accounts: share links, passwords, UUIDs, Reality / TLS keys,
-// tokens, auth headers, the clash secret, URL query strings; e-mails are
-// masked. Applied before anything is written to the on-disk spool.
+// tokens, auth headers, the clash secret, URL query strings; e-mails and
+// mainland phone numbers are masked, and the OS account name in home paths
+// (often the user's real name) becomes [user]. Applied before anything is
+// written to the on-disk spool.
+//
+// Sanitize is the single owner of redaction: the uploaded copy and the local
+// log file (internal/logfile) both call it, so a rule added here covers both.
 
 const maxLineLen = 4096
 
@@ -29,7 +34,65 @@ var (
 	// Long base64 / base64url / hex runs: Reality public keys (43 chars), PSKs,
 	// device fingerprints, tokens. Domains never reach 32 characters without a dot.
 	reLongToken = regexp.MustCompile(`[A-Za-z0-9+/_-]{32,}={0,2}`)
+
+	// Home directories: C:\Users\<name>\…, C:/Users/<name>/…, the JSON-escaped
+	// C:\\Users\\<name>, /Users/<name>/… (macOS), /home/<name>/… (Linux) and
+	// /c/Users/<name>/… (Git Bash). Windows account names may contain spaces, so
+	// a name runs to the next separator when there is one (reWinHome) and to
+	// the next blank otherwise (reWinHomeEnd).
+	reWinHome     = regexp.MustCompile(`(?i)\b([a-z]:[\\/]+(?:users|documents and settings)[\\/]+)([^\\/\r\n"'<>|:*?]+)([\\/])`)
+	reWinHomeEnd  = regexp.MustCompile(`(?i)\b([a-z]:[\\/]+(?:users|documents and settings)[\\/]+)([^\\/\s"'<>|:*?\[\]]+)`)
+	reUnixHome    = regexp.MustCompile(`(^|[\s"'=:(\[,])((?:/[A-Za-z])?/(?:Users|home)/)([^/\r\n"'<>:]+)(/)`)
+	reUnixHomeEnd = regexp.MustCompile(`(^|[\s"'=:(\[,])((?:/[A-Za-z])?/(?:Users|home)/)([^/\s"'<>:\[\]]+)`)
+
+	// Mainland mobile numbers (11 digits starting 13–19, optional +86 / 86)
+	// not embedded in a longer digit run.
+	reMobile = regexp.MustCompile(`(^|[^0-9])((?:\+?86)?1[3-9][0-9])([0-9]{6})([0-9]{2})($|[^0-9])`)
 )
+
+// sharedHome lists profile folders that are not a person.
+var sharedHome = map[string]bool{"public": true, "shared": true, "default": true, "all users": true, "default user": true}
+
+// maskHomePaths replaces the account-name segment of home paths with [user].
+func maskHomePaths(s string) string {
+	win := func(re *regexp.Regexp, tail bool) {
+		s = re.ReplaceAllStringFunc(s, func(m string) string {
+			g := re.FindStringSubmatch(m)
+			if sharedHome[strings.ToLower(g[2])] {
+				return m
+			}
+			if tail {
+				return g[1] + "[user]" + g[3]
+			}
+			return g[1] + "[user]"
+		})
+	}
+	unix := func(re *regexp.Regexp, tail bool) {
+		s = re.ReplaceAllStringFunc(s, func(m string) string {
+			g := re.FindStringSubmatch(m)
+			if sharedHome[strings.ToLower(g[3])] {
+				return m
+			}
+			if tail {
+				return g[1] + g[2] + "[user]" + g[4]
+			}
+			return g[1] + g[2] + "[user]"
+		})
+	}
+	win(reWinHome, true)
+	win(reWinHomeEnd, false)
+	unix(reUnixHome, true)
+	unix(reUnixHomeEnd, false)
+	return s
+}
+
+// maskPhones keeps the first 3 and last 2 digits of phone numbers.
+func maskPhones(s string) string {
+	for range 2 { // adjacent numbers share a separator; a second pass catches them
+		s = reMobile.ReplaceAllString(s, "${1}${2}******${4}${5}")
+	}
+	return s
+}
 
 // Sanitize redacts secrets from one log line or error text.
 func Sanitize(s string) string {
@@ -57,6 +120,8 @@ func Sanitize(s string) string {
 	s = reKV.ReplaceAllString(s, "$1$2$3$4$5[redacted]")
 	s = reUUID.ReplaceAllString(s, "[uuid]")
 	s = reEmail.ReplaceAllString(s, "$1***@$2")
+	s = maskHomePaths(s)
+	s = maskPhones(s)
 	s = reLongToken.ReplaceAllString(s, "[secret]")
 	return s
 }
