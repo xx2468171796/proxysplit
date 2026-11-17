@@ -9,9 +9,11 @@
 </head>
 <body>
 <!--
-  客户端付款前人机验证的中继页（只给 ProxySplit 客户端用，客户端以全屏 iframe 打开 /pay-verify.html?n=<nonce>）。
-  雷池 hook.js 只认同源，所以在本站同源里调 LcVerify.open({action:"pay"})，把一次性凭证 postMessage 回客户端窗口。
-  凭证绑定本站域名 + action，由服务端交给支付中心 SDK 兑换；本页不判凭证。
+  客户端人机验证的中继页（只给 ProxySplit 客户端用，客户端以全屏 iframe 打开 /pay-verify.html?n=<nonce>&action=<用途>）。
+  用途 action 只认白名单 pay（付款前）/ sms（发短信验证码：注册、找回密码、绑定手机号）/ register / reset；不带或不认识一律按 pay
+  （已发版客户端打开的就是不带 action 的地址，文件名也因此保留 pay-verify.html）。
+  雷池 hook.js 只认同源，所以在本站同源里调 LcVerify.open({action})，把一次性凭证 postMessage 回客户端窗口。
+  凭证绑定本站域名 + action，由服务端交给支付中心 / 验证中心核销；本页不判凭证。
   nginx 要允许 Wails 窗口嵌入本页和 /__leichiwaf/hv/（见 docs/memory/account-membership.md「付款前人机验证」）。
 -->
 <script src="/__leichiwaf/hv/hook.js"></script>
@@ -21,17 +23,22 @@
   // Wails 窗口的 origin：Windows WebView2 = http://wails.localhost，macOS WKWebView = wails://wails，wails dev = localhost:34115。
   // 只发给这几个 origin（浏览器会丢掉 origin 对不上的消息），不用 "*"。
   var PARENTS = ["http://wails.localhost", "https://wails.localhost", "wails://wails", "http://localhost:34115"];
-  var nonce = (new URLSearchParams(location.search).get("n") || "").replace(/[^0-9a-f]/g, "").slice(0, 64);
+  var ACTIONS = ["pay", "sms", "register", "reset"];
+  var query = new URLSearchParams(location.search);
+  var nonce = (query.get("n") || "").replace(/[^0-9a-f]/g, "").slice(0, 64);
+  var asked = query.get("action") || "";
+  var action = ACTIONS.indexOf(asked) >= 0 ? asked : "pay";
   function send(msg) {
     if (window.parent === window || !nonce) return;
     msg.nonce = nonce;
+    msg.action = action;
     for (var i = 0; i < PARENTS.length; i++) {
       try { window.parent.postMessage(msg, PARENTS[i]); } catch (e) { /* 该 origin 写法浏览器不认：跳过 */ }
     }
   }
   if (!window.LcVerify) { send({ type: "ps-hv-error", reason: "no-hook" }); return; }
   send({ type: "ps-hv-ready" });
-  window.LcVerify.open({ action: "pay" }).then(
+  window.LcVerify.open({ action: action }).then(
     function (token) { send({ type: "ps-hv-ok", token: token }); },
     function (err) { send({ type: "ps-hv-cancel", reason: String((err && err.message) || "cancelled") }); }
   );

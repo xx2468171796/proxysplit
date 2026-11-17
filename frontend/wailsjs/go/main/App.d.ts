@@ -232,7 +232,7 @@ export function SaveSub(arg1:string,arg2:string,arg3:string,arg4:service.SubOpti
 
 export function SelectNode(arg1:string):Promise<string>;
 
-export function SendSMSCode(arg1:string,arg2:string):Promise<main.SMSSendResult>;
+export function SendSMSCode(arg1:string,arg2:string,arg3:string):Promise<main.SMSSendResult>;
 
 export function SetAIHijack(arg1:boolean):Promise<string>;
 

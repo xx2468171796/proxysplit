@@ -1101,7 +1101,9 @@ export namespace main {
 	}
 	export class SMSSendResult {
 	    cooldownSeconds: number;
+	    message?: string;
 	    err?: string;
+	    errCode?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new SMSSendResult(source);
@@ -1110,7 +1112,9 @@ export namespace main {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.cooldownSeconds = source["cooldownSeconds"];
+	        this.message = source["message"];
 	        this.err = source["err"];
+	        this.errCode = source["errCode"];
 	    }
 	}
 	export class ShareResult {

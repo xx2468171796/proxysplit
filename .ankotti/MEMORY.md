@@ -8,6 +8,7 @@
 - **下一步**：公司统一服务接入第 2 期 zhanghao 账号（设计 docs/plan-2026-10-29-zhanghao.md），之后 huiyuan 跨站会员；日志详细化（net.conn_summary 连接成败汇总，业主 2026-10-28 要求，方便版本迭代排查）；有真实 IPv6 的电脑仍待实测（claude00002 是现成用户）；socks5 链式前置代理待业主决定；macOS 版：分支 feat/macos 已移植（Apple 芯片，构建机 xuan-macbook-air，见 docs/memory/macos.md），待 root 实测与随版本发布；不买 Apple 开发者账号（ad-hoc 签名）。发版前用正式下载包跑 alonehome2 自检，查别的会话未合并分支，测试机经 coord 轮流用。
 
 - **统一支付中心（2026-11-17 上线）**：站点 proxysplit（资产 847），通道章鱼哥微信 zyg1103wx，回调 /v1/pay/center/notify。中心强制每单人机验证：客户端经 /pay-verify.html 中继页取 hvToken，服务端兑换；api 容器连不到宿主 127.0.0.1:8976，靠 sz `/www/conf.d/proxysplit-hv-bridge.conf`（172.20.0.1:18976，已 include 进 /etc/openresty/nginx.conf）+ env PAY_HV_URL。伪造凭据已实测被拒。详见 account-membership.md「付款前人机验证」。待办：业主真机付一笔核对到账；macOS 版跟进（老 Mac 客户端显示不了 weixin:// 码）。
+- **短信验证码走雷池验证中心（分支 feat/center-sms，未上线）**：配了 LCV_SITE_ID / LCV_HOST / LCV_SITE_SECRET（+ LCV_URL 桥接 172.20.0.1:18977）= 中心模式，不配 = 原云片本地模式；发码要先过滑块（中继页 ?action=sms）。上线顺序：中心登记站点 → 桥接 → 官网 + 新客户端 → 最后加 env。见 account-membership.md「短信验证码走雷池验证中心」。
 - **代理站与分成（2026-11-17 上线）**：wen 30%（迁移 0023 预置），后台「代理商分成」，aigw v0.36.2 已出下载入口，见 docs/中转站渠道.md「代理站」。
 
 ## 红线（不得做）

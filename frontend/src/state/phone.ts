@@ -2,6 +2,7 @@
 import { syncApi } from "../api/sync";
 import type { SmsPurpose } from "../api/types-account";
 import { refreshLicense } from "./account";
+import { CAPTCHA_REQUIRED, type HumanVerifyResult, openHumanVerify, withHumanVerify } from "./human-verify";
 import { closeBindPhone } from "./prompts";
 
 const PHONE = /^1\d{10}$/;
@@ -19,12 +20,37 @@ export function codeError(code: string): string {
   return /^\d{6}$/.test(code.trim()) ? "" : "请输入 6 位短信验证码";
 }
 
-/** 发验证码；cooldown = 服务端给的重发等待秒数（没给按 60）。 */
-export async function sendSmsCode(phone: string, purpose: SmsPurpose): Promise<{ err: string; cooldown: number }> {
+export type SmsSendOutcome = {
+  /** 非空 = 失败，原样给用户看（服务端的话） */
+  err: string;
+  /** 要倒计时的秒数；失败时只有服务端说了要等多久（发送太频繁）才大于 0 */
+  cooldown: number;
+  /** 发送成功时服务端给的提示（可能为空） */
+  message: string;
+  /** 用户自己关掉了人机验证：没有发请求，什么都不用提示 */
+  cancelled: boolean;
+};
+
+/**
+ * 发验证码：先过人机验证（用途 sms）再带凭证发。取消验证 = 不发请求。
+ * 验证页没起来也照样发（带空凭证），服务端怎么说就给用户看什么 —— 不假装发出去了。
+ * 服务端说凭证不行（过期 / 无效）就再验一次重发，最多一次。
+ */
+export async function sendSmsCode(
+  phone: string,
+  purpose: SmsPurpose,
+  verify: () => Promise<HumanVerifyResult> = () => openHumanVerify("sms"),
+): Promise<SmsSendOutcome> {
   const invalid = phoneError(phone);
-  if (invalid) return { err: invalid, cooldown: 0 };
-  const r = await syncApi.sendSmsCode(cleanPhone(phone), purpose);
-  return { err: r.err, cooldown: r.cooldownSeconds > 0 ? r.cooldownSeconds : 60 };
+  if (invalid) return { err: invalid, cooldown: 0, message: "", cancelled: false };
+  const r = await withHumanVerify(
+    CAPTCHA_REQUIRED,
+    (ticket) => syncApi.sendSmsCode(cleanPhone(phone), purpose, ticket),
+    verify,
+  );
+  if (!r) return { err: "", cooldown: 0, message: "", cancelled: true };
+  if (r.err) return { err: r.err, cooldown: Math.max(0, r.cooldownSeconds), message: "", cancelled: false };
+  return { err: "", cooldown: r.cooldownSeconds > 0 ? r.cooldownSeconds : 60, message: r.message, cancelled: false };
 }
 
 export async function resetPassword(phone: string, code: string, password: string): Promise<string> {

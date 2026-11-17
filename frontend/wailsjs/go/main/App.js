@@ -442,8 +442,8 @@ export function SelectNode(arg1) {
   return window['go']['main']['App']['SelectNode'](arg1);
 }
 
-export function SendSMSCode(arg1, arg2) {
-  return window['go']['main']['App']['SendSMSCode'](arg1, arg2);
+export function SendSMSCode(arg1, arg2, arg3) {
+  return window['go']['main']['App']['SendSMSCode'](arg1, arg2, arg3);
 }
 
 export function SetAIHijack(arg1) {

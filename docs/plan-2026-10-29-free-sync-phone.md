@@ -54,6 +54,7 @@
 - 迁移 0019 同时：users.phone text UNIQUE NULL（存 E.164 去 +86 的 11 位大陆号），表 sms_codes(phone, purpose 'register'|'reset', code_hash, expires_at, attempts, created_at)，表 password_reset_daily(phone, day date, PRIMARY KEY(phone,day))。
 - `POST /v1/auth/sms/send {phone, purpose}` → `{ok, cooldownSeconds}`（客户端按它倒计时）：同号 60 秒 1 条、每小时 5 条、每天 10 条、每 IP 每小时 20 条；register 用途号已被占用（别人的手机号或用户名）→ 同样回成功但不发（不泄露），随后注册接口回 409 PHONE_TAKEN；bind 用途要已激活设备的会话；未登录用途接滑块人机验证是后续工作（TODO）；reset 用途号未注册时也返回成功（不泄露）但不发；reset 当天已成功重置 → 429 RESET_DAILY_LIMIT。验证码 6 位、5 分钟、最多试 5 次。
 - 云片发送：POST https://sms.yunpian.com/v2/sms/tpl_single_send.json（apikey、mobile、tpl_id、tpl_value=urlencode("#code#=123456")），配置 env YUNPIAN_API_KEY / YUNPIAN_TPL_ID（默认 6437354）；未配置时开发模式把码打到日志（NODE_ENV!=='production'），生产未配置 → 503 SMS_UNAVAILABLE。
+- **2026-11-17 起**：生产发码 / 核码改走公司雷池验证中心（发码多带人机凭证 `captchaTicket`，冷却与限额以中心为准）；上面两条是本地模式（没配 LCV_* 时）的行为。见 docs/memory/account-membership.md「短信验证码走雷池验证中心」。
 - `POST /v1/auth/register` 新合同：`{phone, code, username, password, device, ref?}`（email 变可选）；旧客户端发 email 无 phone 的请求：仍接受（兼容已发版客户端），后台不强制。web 注册同理加 phone/code。
 - 登录：loginSchema.username 字段接受用户名或手机号（含 +86 / 86 前缀，归一化在 shared normalizePhone）；像手机号先按手机号查，密码不对再试同一串当用户名；都查不到也对假哈希跑一次 argon2（等时）。注册时手机号不能等于别人的手机号或用户名，像手机号的用户名不能等于别人的手机号。
 - `POST /v1/auth/password/reset {phone, code, password}`：验码 → 写 password_reset_daily（冲突 → 429 RESET_DAILY_LIMIT）→ 改密 + 吊销该用户所有会话，同一事务。

@@ -39,6 +39,41 @@ AI 编程官网（aigw）客户不显示作者联系方式（QQ 群 / 微信 / �
 - 手机号存 users.phone（11 位）；登录框纯 11 位 1 开头先按手机号查、查不到当用户名。老客户端只发邮箱注册仍接受。
 - 云同步 / 云端配置 / 分享导入在 core config-sync.ts / config-profiles.ts，路由 api sync-routes.ts；份数免费 0 / 普通（含试用）1 / 超级 5。
 
+## 短信验证码走雷池验证中心（分支 feat/center-sms，2026-11-17，未上线）
+业主定：注册 / 找回密码 / 绑定手机号的短信验证码与开箱站一样，只走公司验证中心 leichiwaf-verify（参考实现 V7），不再由本站直连云片。起因：用户反馈「注册不了」，本站直发时通道拒发一律显示「短信发送失败」且没有日志。
+- **两种模式，没有第三种**：`LCV_SITE_ID` / `LCV_HOST` / `LCV_SITE_SECRET` 三项都配 = 中心模式；都不配 = 本地模式（原来的云片 + sms_codes 表，开发 / 测试 / 回退用，行为不变，只多了一行失败日志）。只配一部分、或中心模式没配 REDIS_URL：启动直接报错。启动日志有一行 `sms mode: center|local`。
+- **代码**：core `sms-center.ts`（公司包 yanzheng/verify-client 的 createSiteOtp，vendor 在 core/src/vendor/yanzheng，tag yanzheng-v2.43.0，`node scripts/vendor-company.mjs <yanzheng 仓> yanzheng` 升级）；AuthService `setSmsCenter` / `sendSmsCode`；api `phone-routes.ts`。站点 KV 用 API 现有的 Redis，键 `proxysplit:lcvotp:{vid|ok|miss}:sms:<用途>:<手机号>`（只用 get / set / del / incr / expire）；暂存哈希密钥 stashSecret = LCV_SITE_SECRET。
+- **发码** `POST /v1/auth/sms/send` 多收 `captchaTicket`（≤ 2048）和 `deviceFp`（≤ 128，只认请求体；不读 x-device-fingerprint 头，原始指纹不会转给中心）；用户 IP 取 req.ip（trustProxy 只信 1 跳，nginx 覆盖 X-Forwarded-For）。成功回 `{ok, cooldownSeconds, message}`。文案全部用 SDK 默认值，错误码：
+  | 中心 / SDK 结果 | 本站错误码（HTTP） |
+  |---|---|
+  | 没带凭证字段（已发版老客户端） | CLIENT_UPGRADE_REQUIRED（400）「请升级到最新版本后再获取验证码」 |
+  | 没带凭证字段且请求带 Origin 头（浏览器里缓存的旧官网页面） | PAGE_REFRESH_REQUIRED（400）「请刷新页面后重试」 |
+  | 凭证为空 / CAPTCHA_REQUIRED / CAPTCHA_INVALID | CAPTCHA_REQUIRED（403）——只用这一个码，客户端据此重新弹验证 |
+  | COOLDOWN {resendAfter} | SMS_COOLDOWN（429），错误体里带 `cooldownSeconds` |
+  | QUOTA_EXCEEDED {bucket} | SMS_DAILY_LIMIT（429） |
+  | BLOCKED_PREFIX / BAD_RECIPIENT | SMS_BLOCKED_PREFIX / SMS_BAD_RECIPIENT（400） |
+  | SEND_FAILED / CHANNEL_NOT_CONFIGURED | SMS_SEND_FAILED（502）/ SMS_UNAVAILABLE（503） |
+  | 中心不可用、本站 Redis 不可用 | SMS_BUSY（503），一律拒发（fail-closed） |
+  核码：格式错 / 没发过 / 错码（带剩余次数）/ 失效 → SMS_CODE_INVALID（400）；中心不可用 → SMS_BUSY（码没烧，原码可重试）。
+- **中心模式注册必须带手机号 + 验证码**：只带邮箱的注册（老客户端、绕过页面直接调接口）一律拒——客户端接口回 CLIENT_UPGRADE_REQUIRED「请升级到最新版本后再注册」，官网接口回 PHONE_REQUIRED「请使用手机号注册」；否则短信和滑块都能被绕开。邮箱只是可选附加字段。本地模式仍接受老客户端的邮箱注册。
+- **用户名不能是手机号**（两种模式、两个注册接口）：`^1[3-9]\d{9}$` 的用户名回 USERNAME_IS_PHONE「用户名不能是手机号」，除非就是本次验证的手机号。只管注册，登录不动——已有的「用户名 = 手机号」老账号照常登录。
+- **防枚举**：注册、绑定发码对每个号照常发（绑定发码不回「号已被占用」，PHONE_TAKEN 只在提交绑定、核码之后才报）；「已注册」只在注册那一步核码之后才说；找回发码用 sendIfExists，已注册 / 未注册同一句「若该手机号已绑定账号，验证码已发送，5 分钟内有效」、至少 2.5 秒，没注册的号只核凭证不发码；找回改密那一步核码的所有失败统一「验证码错误」、至少 800 毫秒。「今天已找回过」改到改密那一步（核码之后）才提示。
+- **顺序（同 V7，被闸门拒掉的人码不会被烧掉）**：只读核码（consume=false）→ 其它闸门（撞号、用户名 / 邮箱占用、注册开关、设备 / IP 账号上限、试用套餐是否存在、当天找回次数、换绑密码）→ 消费（consume=true，在线核销只成功一次）→ 写库。注册的消费放在建号事务里、插入用户之前（store.registerTrialUser / registerWebUser 的 beforeInsert）。
+- **客户端**：三处「获取验证码」（注册 / 找回 / 绑定，共用 features/account/sms-fields.tsx）先弹滑块：`state/human-verify.ts` 的 openHumanVerify("sms") 盖全屏 iframe 加载中继页 `/pay-verify.html?n=<nonce>&action=sms`，凭证经 Go `SendSMSCode(phone, purpose, captchaTicket)` 带给服务端。取消 = 不发请求；中继页 12 秒没起来 = 带空凭证照发、把服务端的话原样显示（**不假装成功**，这点和付款不同）；回 CAPTCHA_REQUIRED 且本次带了凭证 = 再验一次重发，最多一次。付款验证改为共用同一个 helper（pay-verify.ts 只剩下单流程）。
+- **中继页** website/public/pay-verify.html：`action` 白名单 pay / sms / register / reset，不带或不认识按 pay（已发版客户端打开的就是不带 action 的地址，文件名因此不改）；回传消息带 action，客户端核对用途——老中继页不认 action、一律出付款用途的凭证，拿去发短信必被拒，客户端把它当「验证页没起来」。
+- **官网注册表单**（同源）：website/src/human-verify.ts 直接加载 `/__leichiwaf/hv/hook.js` 调 `LcVerify.open({action:"sms"})`，凭证随发码请求带上；短信相关的错误提示改用服务端原话。
+- **启动**：日志 `sms mode` 记的是 core 实际生效的模式；env 配了 LCV_* 而 core 没切到中心模式 = 启动失败（不会悄悄回落到本地直发）。
+- **找回改密时中心故障**：对用户仍是统一的「验证码错误」，服务端日志有 `sms center check unavailable … fail-closed {"reason":…}` 和 `sms center check unavailable purpose=reset phone=… consume=…` 两行，和真错码（不记 unavailable）分得开。
+- **日志**：中心模式失败记 `sms center send failed purpose=… phone=138****8000 result=… center=… bucket=…`；本地模式云片拒发记 `sms yunpian send failed phone=… http=… code=…`。不记验证码、凭证、密钥。
+- **上线步骤**（顺序不能乱）：
+  1. 中心登记站点（sz `LCV_SITES_FILE`，改完 `kill -HUP`）：`"proxysplit": {"secret": "<≥32 字符，存堡垒机资产>", "hosts": ["proxysplit.zygskins.cn"], "sms": "<云片通道名>", "bindIp": false, "failClosed": ["register","sms","reset","withdraw"]}`；不要配 captchaExempt（三种用途都过滑块）；要自动化测试再加 aiPass。云片模板要有 register / reset / bind（或 default）。
+  2. sz 加签名端口桥接（api 在 docker 里连不到宿主 127.0.0.1:8977）：仿 `/www/conf.d/proxysplit-hv-bridge.conf` 再开 `172.20.0.1:18977 → 127.0.0.1:8977`，只许 docker 网段访问，**原样透传 Host、不许加 X-Real-IP / X-Forwarded-For**（中心对带 X-Real-IP 的签名请求一律 404）。
+  3. 发官网（中继页认 action + 注册表单弹滑块）和新客户端（发码带凭证）——这两样在服务端还是本地模式时就能先上，互不影响。
+  4. 最后在 /opt/proxysplit/secrets/runtime.env 加 `LCV_SITE_ID=proxysplit`、`LCV_HOST=proxysplit.zygskins.cn`、`LCV_SITE_SECRET=…`、`LCV_URL=http://172.20.0.1:18977` 并重启 api；看启动日志 `sms mode: center`，真机各发一条注册 / 找回 / 绑定。回退 = 删掉这四行重启（云片的 YUNPIAN_* 先别删）。
+  - nginx 站点配置不用动：中继页地址没变，`$ps_embed_ok` 已放行 /pay-verify.html 和 /__leichiwaf/hv/。
+- **坑**：① LCV_HOST 必须是出滑块那个页面的域名（凭证按域名绑定），客户端中继页和官网都在 proxysplit.zygskins.cn。② 服务端切到中心模式后，v1.12.4 及更早的客户端发码只会看到「请升级到最新版本后再获取验证码」，所以必须先发客户端。③ 中心的冷却 / 限额才算数，本站 sms_codes 表在中心模式下不读不写（表和迁移保留，本地模式还用；后台统计里的短信条数在中心模式下不再增长，条数看雷池面板）。④ SDK 只能用 node:http 显式带 Host，别改成 fetch。⑤ 核码成功后 SDK 会把结果票据暂存到 Redis（最长 10 分钟），Redis 不可用时一律拒（fail-closed）。
+- **没验证的**：没连过真中心（站点未登记、桥接未建）；8977 签名端口在 sz 的实际监听情况、云片通道名、WebView2 / WKWebView 里 sms 用途的滑块真机表现、官网真实边缘下的 hook.js。测试用假中心 + 本机假端口覆盖了签名头 / Host / 错误码映射 / 顺序。
+
 ## 授权与租约
 Ed25519 离线租约绑定账号 / 设备 / 硬件 / 期限；minimumVersion 会进租约 minVersion，别随手调高。
 - 离线授权防调早时钟：lease iat + LastSeenAt 高水位，容差 10 分钟。
@@ -59,7 +94,7 @@ Ed25519 离线租约绑定账号 / 设备 / 硬件 / 期限；minimumVersion 会
 支付中心全局开了「每笔订单都要先过验证」（challengeEveryOrder，中心统一，站点不能关），不带凭证的下单一律 `PAY_CHALLENGE_REQUIRED`。
 - 客户端：点「立即购买」先盖全屏 iframe 加载 `https://proxysplit.zygskins.cn/pay-verify.html?n=<nonce>`（website/public/pay-verify.html），中继页在站点同源里调 `LcVerify.open({action:"pay"})`，凭证 postMessage 回 Wails 窗口（只发给 http(s)://wails.localhost / wails://wails / localhost:34115，客户端校验 origin + nonce）→ CreateMembershipOrder(planId, hvToken)。取消 = 不下单；验证页 12 秒没起来 = 不带凭证下单（中心关了全局开关时照常能付）；仍回 PAY_CHALLENGE_REQUIRED 就再验一次重下，最多一次。代码 frontend/src/state/pay-verify.ts、OrderResult.errCode。
 - 为什么不在 Wails 页里直接引 hook.js：hook.js 的验证页 iframe 是相对路径、只认同源 postMessage，凭证又绑站点域名（hv 服务按 Host 绑 action + 域名，无 cookie），Wails 的 origin 不是站点域名。
-- 服务端：POST /v1/orders 可选 `hvToken`（zod 1–512）。CenterPay.create 用 SDK 的 redeemHumanToken 兑换**一次**（bad = 不声明通过交中心拒；ok / 验证服务不可达 = challengePassed），同一结果用于 OPEN_ORDER 自动「取消后重下」的第二次下单——凭证一次性，交给 SDK 每次下单各兑一次会让第二次变 bad、玩家死循环。未配 PAY_HV_HOST = 忽略凭证。API 在 sz 本机，127.0.0.1:8976 可达（SDK 兑换只能本机直连）。
+- 服务端：POST /v1/orders 可选 `hvToken`（zod 1–2048，与 captchaTicket 同一上限；客户端收凭证上限 1024）。CenterPay.create 用 SDK 的 redeemHumanToken 兑换**一次**（bad = 不声明通过交中心拒；ok / 验证服务不可达 = challengePassed），同一结果用于 OPEN_ORDER 自动「取消后重下」的第二次下单——凭证一次性，交给 SDK 每次下单各兑一次会让第二次变 bad、玩家死循环。未配 PAY_HV_HOST = 忽略凭证。API 在 sz 本机，127.0.0.1:8976 可达（SDK 兑换只能本机直连）。
 - 老客户端不带凭证：中心拒，提示「请先完成安全验证再购买（旧版客户端请先升级）」；新客户端发版即强制更新。
 - 上线需要：① 服务端 env `PAY_HV_HOST=proxysplit.zygskins.cn`（PAY_HV_URL 默认 http://127.0.0.1:8976 不用配）② 官网带 pay-verify.html ③ sz nginx：本站 server 层 `X-Frame-Options: DENY` 连同源的 hv 验证页 iframe 都挡，要对 /pay-verify.html 和 /__leichiwaf/hv/ 去掉 XFO、改发 `Content-Security-Policy: frame-ancestors 'self' wails: http://wails.localhost https://wails.localhost wails://wails http://localhost:34115`（map 写法见下）④ 发新客户端。hook.js 本站已可用（2026-11-17 实测 200）。
 - nginx（/www/conf.d/proxysplit.zygskins.cn.conf，文件顶部 http 层加 map，server 层把 `more_set_headers "X-Frame-Options: DENY";` 换成两行）：

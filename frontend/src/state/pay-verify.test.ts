@@ -1,40 +1,10 @@
+// 付款前人机验证的下单流程；验证层与中继页协议的测试在 human-verify.test.ts。
 import { describe, expect, it, vi } from "vitest";
-import {
-  CHALLENGE_REQUIRED,
-  PAY_VERIFY_ORIGIN,
-  type PayVerifyResult,
-  placeVerifiedOrder,
-  readRelayMessage,
-} from "./pay-verify";
+import type { HumanVerifyResult } from "./human-verify";
+import { CHALLENGE_REQUIRED, placeVerifiedOrder } from "./pay-verify";
 
-describe("readRelayMessage", () => {
-  const n = "abc";
-  it("只认官网来源 + 本次 nonce", () => {
-    expect(readRelayMessage("https://evil.example", { type: "ps-hv-ok", nonce: n, token: "t" }, n)).toBeNull();
-    expect(readRelayMessage(PAY_VERIFY_ORIGIN, { type: "ps-hv-ok", nonce: "other", token: "t" }, n)).toBeNull();
-    expect(readRelayMessage(PAY_VERIFY_ORIGIN, "x", n)).toBeNull();
-  });
-  it("ready / 凭证 / 取消 / 加载失败", () => {
-    expect(readRelayMessage(PAY_VERIFY_ORIGIN, { type: "ps-hv-ready", nonce: n }, n)).toBe("ready");
-    expect(readRelayMessage(PAY_VERIFY_ORIGIN, { type: "ps-hv-ok", nonce: n, token: "t" }, n)).toEqual({
-      kind: "token",
-      token: "t",
-    });
-    expect(readRelayMessage(PAY_VERIFY_ORIGIN, { type: "ps-hv-cancel", nonce: n, reason: "cancelled" }, n)).toEqual({
-      kind: "cancelled",
-    });
-    expect(readRelayMessage(PAY_VERIFY_ORIGIN, { type: "ps-hv-cancel", nonce: n, reason: "timeout" }, n)).toEqual({
-      kind: "unavailable",
-    });
-    expect(readRelayMessage(PAY_VERIFY_ORIGIN, { type: "ps-hv-error", nonce: n }, n)).toEqual({ kind: "unavailable" });
-    expect(readRelayMessage(PAY_VERIFY_ORIGIN, { type: "ps-hv-ok", nonce: n, token: "" }, n)).toEqual({
-      kind: "unavailable",
-    });
-  });
-});
-
-const seq = (...items: PayVerifyResult[]) => {
-  const fn = vi.fn<() => Promise<PayVerifyResult>>();
+const seq = (...items: HumanVerifyResult[]) => {
+  const fn = vi.fn<() => Promise<HumanVerifyResult>>();
   for (const it of items) fn.mockResolvedValueOnce(it);
   return fn;
 };

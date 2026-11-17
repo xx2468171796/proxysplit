@@ -225,7 +225,8 @@ export class PgStore {
     return this.getCommerceSettings()
   }
 
-  async registerTrialUser(input:{username:string;email:string|null;phone?:string|null;passwordHash:string;hardwareHash:string;ip:string;ref?:string}){
+  // beforeInsert：注册开关 / 设备上限等闸门都过了、插入用户之前调（中心模式在这里消费短信验证码；抛错 = 整个事务回滚）。
+  async registerTrialUser(input:{username:string;email:string|null;phone?:string|null;passwordHash:string;hardwareHash:string;ip:string;ref?:string;beforeInsert?:()=>Promise<void>}){
     const client=await this.pool.connect()
     try{
       await client.query('BEGIN')
@@ -247,15 +248,17 @@ export class PgStore {
         ?await client.query('SELECT 1 FROM trial_claims WHERE hardware_hash=$1',[input.hardwareHash])
         :null
       const grantTrial=trialDays>0&&!claimed?.rowCount
+      // 试用套餐在 beforeInsert（消费验证码）之前查：消费之后不能再有能预见的失败
+      const plan=grantTrial?await client.query('SELECT id FROM plans WHERE code=$1 AND active=true',[trialPlanCode]):null
+      if(grantTrial&&!plan?.rows[0])throw new Error('TRIAL_PLAN_NOT_FOUND')
+      await input.beforeInsert?.()
       const now=new Date(),trialEnds=new Date(now.getTime()+trialDays*86400000)
       const user=await client.query(`INSERT INTO users(username,email,password_hash,role,status,trial_started_at,trial_ends_at,registration_ip_hash,registration_hardware_hash,phone)
         VALUES($1,$2,$3,'user','active',$4,$5,$6,$7,$8) RETURNING id,username,email,role,status`,
         [input.username,input.email,input.passwordHash,grantTrial?now:null,grantTrial?trialEnds:null,sha256('proxysplit-ip-v1:'+input.ip),input.hardwareHash||'',input.phone??null])
       if(grantTrial){
-        const plan=await client.query('SELECT id FROM plans WHERE code=$1 AND active=true',[trialPlanCode])
-        if(!plan.rows[0])throw new Error('TRIAL_PLAN_NOT_FOUND')
         await client.query(`INSERT INTO licenses(user_id,plan_id,starts_at,expires_at,source)
-          VALUES($1,$2,$3,$4,'trial')`,[user.rows[0].id,plan.rows[0].id,now,trialEnds])
+          VALUES($1,$2,$3,$4,'trial')`,[user.rows[0].id,plan?.rows[0].id,now,trialEnds])
         await client.query(`INSERT INTO trial_claims(hardware_hash,user_id,expires_at,ip_hash)
           VALUES($1,$2,$3,$4)`,[input.hardwareHash,user.rows[0].id,trialEnds,sha256('proxysplit-ip-v1:'+input.ip)])
       }
@@ -267,7 +270,7 @@ export class PgStore {
 
   // 官网注册：没有设备指纹，因此按注册来源 IP 限制账号数；不发放试用，
   // 试用留到首次用客户端登录时按硬件发放（见 claimTrialOnLogin）。
-  async registerWebUser(input:{username:string;email:string|null;phone?:string|null;passwordHash:string;ip:string;ref?:string}){
+  async registerWebUser(input:{username:string;email:string|null;phone?:string|null;passwordHash:string;ip:string;ref?:string;beforeInsert?:()=>Promise<void>}){
     const ipHash=sha256('proxysplit-ip-v1:'+input.ip)
     const client=await this.pool.connect()
     try{
@@ -281,6 +284,7 @@ export class PgStore {
         const cnt=await client.query('SELECT count(*)::int AS n FROM users WHERE registration_ip_hash=$1',[ipHash])
         if(cnt.rows[0].n>=maxPerIp)throw new Error('IP_ACCOUNT_LIMIT')
       }
+      await input.beforeInsert?.()
       const user=await client.query(`INSERT INTO users(username,email,password_hash,role,status,registration_ip_hash,registration_hardware_hash,phone)
         VALUES($1,$2,$3,'user','active',$4,'',$5) RETURNING id,username,email,role,status`,
         [input.username,input.email,input.passwordHash,ipHash,input.phone??null])

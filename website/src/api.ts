@@ -1,5 +1,6 @@
 // 官网与商业 API（同域 /v1）之间的全部往来：访客统计、下载地址、最新版本、套餐、网页注册。
 // 页面组件只调这里，不直接 fetch。
+import { openSmsVerify, type VerifyResult } from "./human-verify";
 
 export type Plan = {
   code: string;
@@ -95,7 +96,8 @@ export function readReferralCode(): string {
   }
 }
 
-/** 服务端错误码 → 中文提示。没认出的码用服务端自带的 message，再没有就用兜底文案。 */
+/** 服务端错误码 → 中文提示。没认出的码用服务端自带的 message，再没有就用兜底文案。
+ *  短信验证码相关的错误（发送太频繁要等几秒、验证码还能试几次……）一律用服务端的原话，这里不改写。 */
 const ERROR_TEXT: Record<string, string> = {
   PHONE_TAKEN: "这个手机号已经注册过了，请直接下载软件登录。",
   SMS_COOLDOWN: "验证码发送太频繁，请 60 秒后再试。",
@@ -111,7 +113,7 @@ const ERROR_TEXT: Record<string, string> = {
   RATE_LIMITED: "操作太频繁了，请稍后再试。",
 };
 
-type PostResult = { ok: true; data: unknown } | { ok: false; code: string; message: string };
+type PostResult = { ok: true; data: unknown } | { ok: false; code: string; message: string; cooldownSeconds: number };
 
 async function postJson(path: string, body: unknown): Promise<PostResult> {
   try {
@@ -122,22 +124,62 @@ async function postJson(path: string, body: unknown): Promise<PostResult> {
     });
     const data: unknown = await res.json().catch(() => ({}));
     if (res.ok) return { ok: true, data };
-    const err = (data as { error?: { code?: string; message?: string } }).error;
+    const err = (data as { error?: { code?: string; message?: string; cooldownSeconds?: unknown } }).error;
     const code = err?.code ?? "";
-    return { ok: false, code, message: ERROR_TEXT[code] || err?.message || "请求失败，请稍后重试。" };
+    const wait =
+      typeof err?.cooldownSeconds === "number" && err.cooldownSeconds > 0 ? Math.ceil(err.cooldownSeconds) : 0;
+    return {
+      ok: false,
+      code,
+      message: ERROR_TEXT[code] || err?.message || "请求失败，请稍后重试。",
+      cooldownSeconds: wait,
+    };
   } catch {
-    return { ok: false, code: "NETWORK", message: "网络异常，请稍后重试。" };
+    return { ok: false, code: "NETWORK", message: "网络异常，请稍后重试。", cooldownSeconds: 0 };
   }
 }
 
 export const SMS_COOLDOWN_FALLBACK = 60;
 
-/** 发注册验证码。成功返回冷却秒数；限频报错时也返回要等的秒数，页面照样倒计时。 */
-export async function sendRegisterCode(phone: string): Promise<{ cooldown: number; error: string }> {
-  const r = await postJson("/v1/auth/sms/send", { phone, purpose: "register" });
-  if (!r.ok) return { cooldown: r.code === "SMS_COOLDOWN" ? SMS_COOLDOWN_FALLBACK : 0, error: r.message };
-  const s = (r.data as { cooldownSeconds?: unknown }).cooldownSeconds;
-  return { cooldown: typeof s === "number" && s > 0 ? Math.ceil(s) : SMS_COOLDOWN_FALLBACK, error: "" };
+export type SendCodeResult = { cooldown: number; error: string; message: string; cancelled: boolean };
+
+async function postRegisterCode(phone: string, captchaTicket: string): Promise<SendCodeResult & { code: string }> {
+  // captchaTicket 一律带上（没拿到凭证带空串），服务端据此区分新旧页面
+  const r = await postJson("/v1/auth/sms/send", { phone, purpose: "register", captchaTicket });
+  if (!r.ok) {
+    const cooldown = r.cooldownSeconds || (r.code === "SMS_COOLDOWN" ? SMS_COOLDOWN_FALLBACK : 0);
+    return { cooldown, error: r.message, message: "", cancelled: false, code: r.code };
+  }
+  const d = r.data as { cooldownSeconds?: unknown; message?: unknown };
+  const s = d.cooldownSeconds;
+  return {
+    cooldown: typeof s === "number" && s > 0 ? Math.ceil(s) : SMS_COOLDOWN_FALLBACK,
+    error: "",
+    message: typeof d.message === "string" ? d.message : "",
+    cancelled: false,
+    code: "",
+  };
+}
+
+/**
+ * 发注册验证码：先过人机验证再带凭证发。取消验证 = 不发请求。
+ * 验证组件没起来也照样发（空凭证），服务端怎么说就给用户看什么，不假装发出去了。
+ * 服务端说凭证不行（过期 / 无效）就再验一次重发，最多一次。
+ * 成功返回冷却秒数；限频报错时也返回要等的秒数，页面照样倒计时。
+ */
+export async function sendRegisterCode(
+  phone: string,
+  verify: () => Promise<VerifyResult> = openSmsVerify,
+): Promise<SendCodeResult> {
+  let last: SendCodeResult = { cooldown: 0, error: "", message: "", cancelled: true };
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const v = await verify();
+    if (v.kind === "cancelled") return last;
+    const { code, ...result } = await postRegisterCode(phone, v.kind === "token" ? v.token : "");
+    last = result;
+    if (code !== "CAPTCHA_REQUIRED" || v.kind !== "token") return last;
+  }
+  return last;
 }
 
 /** 网页注册只建账号；试用在第一次用客户端登录时按硬件发放。返回空串 = 成功。 */
