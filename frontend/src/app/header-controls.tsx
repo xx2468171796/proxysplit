@@ -10,7 +10,7 @@ import { linkState } from "../state/link";
 import {
   isRecovering,
   isRunning,
-  RECOVERING_HINT,
+  recoveringHint,
   runLabel,
   runtime,
   selfStopReason,
@@ -63,7 +63,7 @@ function LinkChip() {
   const stopReason = selfStopReason(status);
   const ping = link.pingMs > 0 ? `${link.pingMs} ms` : link.pingMs < 0 ? "不通" : "—";
   const tip = recovering
-    ? RECOVERING_HINT
+    ? recoveringHint(status)
     : running
       ? `已运行 ${fmtUptime(status?.uptimeSec ?? 0)} · ${link.conns} 个连接 · ↓${down.value}${down.unit} ↑${up.value}${up.unit}`
       : stopReason || "代理未运行";

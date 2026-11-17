@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 vi.mock("../api/backend", () => ({ api: {} }));
 
 import type { Status } from "../api/types";
-import { isRecovering, isRunning, runLabel, selfStopReason, startFailureText } from "./runtime";
+import { isRecovering, isRunning, recoveringHint, runLabel, selfStopReason, startFailureText } from "./runtime";
 
 describe("startFailureText", () => {
   it("原始原因永远原样显示", () => {
@@ -65,6 +65,16 @@ describe("运行阶段（Go 的 runState / stopReason / captureState）", () => 
     expect(selfStopReason(s)).toBe("内核意外退出，自动重启没有成功");
     expect(selfStopReason({ ...base, runState: "stopped" })).toBe("");
     expect(selfStopReason(null)).toBe("");
+  });
+
+  it("恢复期间的说明跟实际行为一致：扣住时不直连，接管重启和整机网卡时是直连", () => {
+    expect(recoveringHint({ ...base, runState: "recovering", captureState: "ok" })).toContain("不会改走直连");
+    expect(recoveringHint({ ...base, runState: "recovering" })).toContain("暂时是直连");
+    expect(recoveringHint({ ...base, coreRunning: true, runState: "running", captureState: "restarting" })).toContain(
+      "短暂直连",
+    );
+    expect(recoveringHint({ ...base, coreRunning: true, runState: "restarting" })).toBe("正在应用新的设置，马上就好");
+    expect(recoveringHint({ ...base, coreRunning: true, runState: "running" })).toBe("");
   });
 
   it("老状态（没有 runState 字段）照旧按内核 / 引擎判断", () => {

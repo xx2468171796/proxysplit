@@ -51,8 +51,19 @@ export function runLabel(s: Status | null): "已停止" | "运行中" | "恢复�
   return isRunning(s) ? "运行中" : "已停止";
 }
 
-/** 恢复中给用户看的说明。 */
-export const RECOVERING_HINT = "连接中断，正在重新连接；这期间选中的程序不会改走直连";
+/**
+ * 恢复 / 重连期间给用户看的一句说明（不在这几种状态时为空串）。说法跟 Go 的实际行为走（service/runhealth.go）：
+ * 接管引擎重启期间选中的程序短暂直连；内核自动重启期间，「仅接管选中程序」扣住选中的程序不让直连，整机虚拟网卡没有东西可扣、暂时是直连。
+ */
+export function recoveringHint(s: Status | null): string {
+  if (s?.captureState === "restarting") return "「仅接管选中程序」卡住了，正在自动重启接管；这期间选中的程序会短暂直连";
+  if (s?.runState === "recovering") {
+    return s.captureState === "ok"
+      ? "内核意外退出，正在自动重新连接；这期间选中的程序暂时连不上网，不会改走直连"
+      : "内核意外退出，正在自动重新连接；恢复之前流量暂时是直连";
+  }
+  return s?.runState === "restarting" ? "正在应用新的设置，马上就好" : "";
+}
 
 /** 收到 run-event：立刻刷新状态，返回要提示的一句话和语气（自己停了 = 出错，恢复好了 = 普通提示）。 */
 export async function receiveRunEvent(raw: unknown): Promise<{ text: string; tone: "error" | "info" }> {

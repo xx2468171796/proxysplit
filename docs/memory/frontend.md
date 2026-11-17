@@ -51,7 +51,7 @@ Wails 构建会重新生成 frontend/wailsjs 绑定，需随提交带上；正�
 
 ## 运行阶段与自动恢复（2026-11-18 审计）
 - Go 的 `Status` 带 `runState`（stopped / running / restarting / recovering）、`stopReason`、`captureState`（ok / restarting）；规则见 routing.md「仅接管选中程序」的看门狗与生命周期两条。
-- 判断只在 `state/runtime.ts`：`isRunning`（恢复期间也算开着 → 主按钮是「停止」，点了就取消恢复，不会再启动一次）、`isRecovering`、`runLabel`（运行中 / 恢复中 / 重新连接中 / 已停止）、`selfStopReason`。标题栏状态点、概览大开关、顶部横幅都读它们，不各自判断。
+- 判断只在 `state/runtime.ts`：`isRunning`（恢复期间也算开着 → 主按钮是「停止」，点了就取消恢复，不会再启动一次）、`isRecovering`、`runLabel`（运行中 / 恢复中 / 重新连接中 / 已停止）、`recoveringHint`（说明跟实际行为走：内核重启时「仅接管选中程序」扣住不直连、整机虚拟网卡暂时直连；接管引擎重启时短暂直连）、`selfStopReason`。标题栏状态点、概览大开关、顶部横幅都读它们，不各自判断。
 - Go 推 `run-event {kind, message}`（app.go 把 `Service.SetRunEventSink` 转成 Wails 事件）：界面立即刷新状态并提示一句；`*-failed` 按出错提示。代理自己停下时顶部横幅「代理已自动停止」给出原因，下次启动 / 停止后消失。
 - 窗口收进托盘 / 后台启动时 Go 调 `Service.SetUIVisible(false)`，线路探测与逐应用监测降频；窗口回来立即刷新。
 - AI 控制页有「重新生成令牌」（确认框说明旧令牌立即失效、粘贴过提示词的要重新复制、MCP 方式不用改）。

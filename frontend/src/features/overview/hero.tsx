@@ -10,7 +10,7 @@ import { data, reloadData } from "../../state/data";
 import {
   isRecovering,
   isRunning,
-  RECOVERING_HINT,
+  recoveringHint,
   refreshHealth,
   refreshStatus,
   restartCore,
@@ -75,7 +75,7 @@ function NodeLine() {
 function stateText(status: Status | null, busy: boolean): { title: string; detail: string } {
   const running = isRunning(status);
   if (isRecovering(status)) {
-    return { title: runLabel(status), detail: `${RECOVERING_HINT}（点左边的按钮可以直接停止）` };
+    return { title: runLabel(status), detail: `${recoveringHint(status)}（点左边的按钮可以直接停止）` };
   }
   if (running) {
     const detail = `已运行 ${fmtUptime(status?.uptimeSec ?? 0)} · ${status?.stats?.activeConns ?? 0} 个连接`;
