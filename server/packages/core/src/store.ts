@@ -5,6 +5,7 @@ import { AppError, maskPhone } from '@proxysplit/shared'
 import { planSplit } from './split.js'
 import { createProxysplitFenxiao, type ProxysplitFenxiao } from './fenxiao.js'
 import { recordDealerCommissionInTx, voidDealerCommissionInTx } from './dealer.js'
+import { adoptReusedOrder, isOrderReusableAs, PLAN_ON_SALE_SQL, PURCHASE_COUNT_SQL, purchaseLockKey, type ReuseLink } from './order-reuse.js'
 import type { FxNotice } from './vendor/fenxiao/index.js'
 
 export type UserRecord = {
@@ -825,9 +826,9 @@ export class PgStore {
       await client.query('BEGIN')
       // Serialize purchases of the same plan for one user. Without this lock,
       // two simultaneous requests can both pass a one-time purchase limit.
-      await client.query('SELECT pg_advisory_xact_lock(hashtext($1))',[`purchase:${userId}:${planId}`])
+      await client.query('SELECT pg_advisory_xact_lock(hashtext($1))',[purchaseLockKey(userId,planId)])
       const plan=(await client.query(`SELECT id,name,tier,billing_cycle,duration_days,lifetime,price_cents,currency,purchase_limit_per_user
-        FROM plans WHERE id=$1 AND active=true AND public=true AND (sale_starts_at IS NULL OR sale_starts_at<=now()) AND (sale_ends_at IS NULL OR sale_ends_at>now())`,[planId])).rows[0]
+        FROM plans WHERE id=$1 AND ${PLAN_ON_SALE_SQL}`,[planId])).rows[0]
       if(!plan)throw new Error('PLAN_NOT_AVAILABLE')
       const resumed=await this.resumeSplitInTx(client,userId,planId,expiresAt)
       if(resumed){
@@ -836,8 +837,7 @@ export class PgStore {
       }
       if(plan.purchase_limit_per_user){
         // A split checkout creates several sub-orders; count order GROUPS, not rows.
-        const count=await client.query(`SELECT count(DISTINCT coalesce(group_id,id))::int AS n FROM orders
-          WHERE user_id=$1 AND plan_id=$2 AND (status='paid' OR (status='pending' AND expires_at>now()))`,[userId,planId])
+        const count=await client.query(PURCHASE_COUNT_SQL,[userId,planId,[]])
         if(count.rows[0].n>=plan.purchase_limit_per_user)throw new Error('PURCHASE_LIMIT')
       }
       // 统一支付中心（adapter center）自己管拆单与限额：本站只建一笔。
@@ -890,12 +890,14 @@ export class PgStore {
     return out.length?out:null
   }
   // expiresAt：统一支付中心给的二维码截止时间（不给 = 保留建单时的）。
-  async setOrderPayment(orderNoValue:string,providerOrderNo:string,payUrl:string,details:{checkoutUrl?:string|null;merchantName?:string|null;expiresAt?:Date;revive?:boolean}={}){
-    // revive：中心还回的旧单本地可能因下单超时已标 failed，换上码后恢复成 pending（评审 M2，2026-11-17）。
-    const r=await this.pool.query(`UPDATE orders SET provider_order_no=$2,pay_url=$3,checkout_url=$4,merchant_name=$5,expires_at=coalesce($6,expires_at),status='pending',updated_at=now()
-      WHERE order_no=$1 AND (status='pending' OR ($7::boolean AND status='failed')) RETURNING order_no AS "orderNo"`,[orderNoValue,providerOrderNo,payUrl,details.checkoutUrl??null,details.merchantName??null,details.expiresAt??null,details.revive===true])
+  async setOrderPayment(orderNoValue:string,providerOrderNo:string,payUrl:string,details:{checkoutUrl?:string|null;merchantName?:string|null;expiresAt?:Date}={}){
+    const r=await this.pool.query(`UPDATE orders SET provider_order_no=$2,pay_url=$3,checkout_url=$4,merchant_name=$5,expires_at=coalesce($6,expires_at),updated_at=now()
+      WHERE order_no=$1 AND status='pending' RETURNING order_no AS "orderNo"`,[orderNoValue,providerOrderNo,payUrl,details.checkoutUrl??null,details.merchantName??null,details.expiresAt??null])
     return r.rows[0]??null
   }
+  // 中心还回旧未付单（reused）：能不能接管、怎么接管都在 order-reuse.ts（同人同套餐同金额 + 重新过在售 / 限购）。
+  isOrderReusableAs(target:string,fresh:string){return isOrderReusableAs(this.pool,target,fresh)}
+  adoptReusedOrder(fresh:string,target:string,link:ReuseLink){return adoptReusedOrder(this.pool,fresh,target,link)}
   async failOrder(orderNoValue:string){
     await this.pool.query(`UPDATE orders SET status='failed',updated_at=now() WHERE order_no=$1 AND status='pending'`,[orderNoValue])
   }

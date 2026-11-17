@@ -22,6 +22,8 @@ export type CenterPayContext = {
 export type HvRedeem = (token: string) => Promise<HumanVerdict>
 export type CenterLocalOrder = { orderNo: string; userId: string; amountCents: number }
 export type CenterOrderLink = { siteOrderNo: string; payUrl: string; checkoutUrl: string | null; expireAt: string; localOrderNo: string }
+/** 中心还回旧未付单时问调用方：那笔旧本地订单能不能顶替这次的新单（同人同套餐同金额才行）。 */
+export type AcceptReuse = (reusedLocalOrderNo: string) => Promise<boolean>
 /** paid：中心说已付时，按订单簿（用户 / 金额）拼出的付款事件，事件号与签名回调相同（两条路在 payment_events 互相去重）。 */
 export type CenterOrderState = { status: 'pending' | 'paid' | 'expired' | 'cancelled'; siteOrderNo: string; paid: PaidEvent | null } | null
 type CenterBook = ReturnType<typeof pgCenterOrderBook>
@@ -57,12 +59,12 @@ export class CenterPay {
    * ok / 验证服务不可达 = 通过）。不交给 SDK 每次下单各兑一次，是因为凭证一次性：OPEN_ORDER 后自动「取消后重下」
    * 的第二次下单再兑就成 bad，玩家会卡在「验证 → 下单 → 再要验证」的死循环。未配 PAY_HV_HOST（redeem=null）= 忽略凭证。
    */
-  async create(order: CenterLocalOrder, ctx: CenterPayContext): Promise<CenterOrderLink> {
+  async create(order: CenterLocalOrder, ctx: CenterPayContext, acceptReuse: AcceptReuse): Promise<CenterOrderLink> {
     const passed = !!ctx.hvToken && !!this.redeem && (await this.redeem(ctx.hvToken)) !== 'bad'
-    return this.place(order, ctx, passed, 'ask')
+    return this.place(order, ctx, passed, 'ask', acceptReuse)
   }
 
-  private async place(order: CenterLocalOrder, ctx: CenterPayContext, passed: boolean, onOpen: 'ask' | 'cancel'): Promise<CenterOrderLink> {
+  private async place(order: CenterLocalOrder, ctx: CenterPayContext, passed: boolean, onOpen: 'ask' | 'cancel', acceptReuse: AcceptReuse): Promise<CenterOrderLink> {
     const r: SiteCreateResult = await this.pay.createOrder({
       userId: order.userId, amountCents: order.amountCents, meta: { orderNo: order.orderNo }, requestId: order.orderNo, onOpen,
       ...(passed ? { challengePassed: true } : {}),
@@ -73,12 +75,18 @@ export class CenterPay {
     })
     if (!r.ok) {
       // 本站自己的另一笔未付单（换了套餐又点购买）= 玩家要的就是「取消后重新下单」。
-      if (r.code === 'OPEN_ORDER' && r.open?.sameSite && onOpen === 'ask') return this.place(order, ctx, passed, 'cancel')
+      if (r.code === 'OPEN_ORDER' && r.open?.sameSite && onOpen === 'ask') return this.place(order, ctx, passed, 'cancel', acceptReuse)
       throw centerRefusal(r.code, r.message)
     }
-    // 中心把玩家同金额的旧未付单还回来（reused）：交回那笔本地订单。
+    // 中心把玩家同金额的旧未付单还回来（reused）：那笔本地订单与这次是同人同套餐同金额才交回它；
+    // 否则（同价的另一个套餐等）等同「取消后重新下单」——不能让玩家付着旧单的码、买的却是另一个套餐。
     const rec = await this.book.load(r.order.orderNo)
     const localOrderNo = (rec && localOrderNoOf(rec.meta)) ?? order.orderNo
+    if (localOrderNo !== order.orderNo && !(await acceptReuse(localOrderNo))) {
+      if (onOpen === 'cancel') throw centerRefusal('OPEN_ORDER', '你还有一笔未完成的其它订单，请先完成支付或等它过期后再购买')
+      await this.book.reopen(order.orderNo)
+      return this.place(order, ctx, passed, 'cancel', acceptReuse)
+    }
     return { siteOrderNo: r.order.orderNo, payUrl: r.order.payUrl, checkoutUrl: safeHttps(r.order.checkoutUrl), expireAt: r.order.expireAt, localOrderNo }
   }
 

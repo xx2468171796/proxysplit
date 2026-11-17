@@ -11,6 +11,7 @@ export const localOrderNoOf = (meta: Record<string, unknown>): string | null =>
 
 export function pgCenterOrderBook(db: Queryable): SiteOrderBook & {
   byLocalOrderNo(orderNo: string): Promise<SiteOrderRecord | null>
+  reopen(orderNo: string): Promise<void>
 } {
   const row = (r: Record<string, unknown>): SiteOrderRecord => ({
     siteOrderNo: String(r.site_order_no), userId: String(r.user_id), amountCents: Number(r.amount_cents),
@@ -29,6 +30,11 @@ export function pgCenterOrderBook(db: Queryable): SiteOrderBook & {
     },
     async discard(siteOrderNo, reason) {
       await db.query(`UPDATE pay_center_orders SET discarded=$2 WHERE site_order_no=$1 AND discarded IS NULL`, [siteOrderNo, reason])
+    },
+    // 中心还回的旧单不能接管、改为「取消后重下」时：SDK 刚把这笔本地订单的中心单号标成 reused，
+    // 重下会沿用同一个单号（按 requestId 推出来的），所以先把作废标记拿掉，查单 / 对账才找得到它。
+    async reopen(orderNo) {
+      await db.query(`UPDATE pay_center_orders SET discarded=NULL WHERE order_no=$1 AND discarded='reused'`, [orderNo])
     },
     // 一笔本地订单对应最新那张没作废的中心单（换线 / 复用后以最新为准）。
     async byLocalOrderNo(orderNo) {

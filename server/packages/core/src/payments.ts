@@ -72,18 +72,24 @@ export class PaymentService{
       throw new AppError('PAYMENT_UNAVAILABLE','统一支付中心尚未配置',503)
     }
     let link
-    try{link=await this.center.create({orderNo:order.orderNo,userId:order.userId,amountCents:order.amountCents},ctx)}
+    try{link=await this.center.create({orderNo:order.orderNo,userId:order.userId,amountCents:order.amountCents},ctx,
+      reused=>this.store.isOrderReusableAs(reused,order.orderNo))}
     catch(error){
       await this.store.failOrder(order.orderNo)
       if(error instanceof AppError)throw error
       throw new AppError('PAYMENT_CREATE_FAILED',`支付下单失败：${error instanceof Error?error.message:'支付中心通讯异常'}`,502)
     }
     const expiresAt=new Date(link.expireAt)
-    const details={checkoutUrl:link.checkoutUrl,merchantName:null,revive:true,...(Number.isFinite(expiresAt.getTime())?{expiresAt}:{})}
-    // 中心还回了玩家同金额的旧未付单：那笔本地单换上新码，这次新建的本地单作废。
+    const details={checkoutUrl:link.checkoutUrl,merchantName:null,...(Number.isFinite(expiresAt.getTime())?{expiresAt}:{})}
     const target=link.localOrderNo
-    if(target!==order.orderNo)await this.store.failOrder(order.orderNo)
-    if(!await this.store.setOrderPayment(target,link.siteOrderNo,link.payUrl,details)){
+    if(target!==order.orderNo){
+      // 中心还回了玩家同套餐同金额的旧未付单：那笔本地单换上新码、这次新建的本地单作废（同一事务，重新过在售 / 限购）。
+      const adopted=await this.store.adoptReusedOrder(order.orderNo,target,{providerOrderNo:link.siteOrderNo,payUrl:link.payUrl,...details})
+      if(!adopted.ok){
+        await this.store.failOrder(order.orderNo)
+        throw REUSE_REFUSALS[adopted.reason]()
+      }
+    }else if(!await this.store.setOrderPayment(target,link.siteOrderNo,link.payUrl,details)){
       const current=await this.store.getOrderForCallback(target)
       if(current?.status!=='paid')throw new AppError('PAYMENT_CREATE_FAILED','本地订单状态已变化，请刷新订单状态',409)
     }
@@ -253,6 +259,14 @@ export class PaymentService{
       return {...result,status:'paid',changed:!result.duplicate}
     }finally{clearTimeout(timer)}
   }
+}
+
+/** 接管旧未付单被拒（order-reuse.ts 的四种原因）→ 给客户端的回应。 */
+const REUSE_REFUSALS:Record<'mismatch'|'off_sale'|'limit'|'state',()=>AppError>={
+  mismatch:()=>new AppError('PAYMENT_CREATE_FAILED','你有一笔未完成的其它订单，请稍后再试',409),
+  off_sale:()=>new AppError('PLAN_NOT_AVAILABLE','套餐已下架或不在活动时间内',404),
+  limit:()=>new AppError('PURCHASE_LIMIT','已达到该活动套餐的购买次数上限',409),
+  state:()=>new AppError('PAYMENT_CREATE_FAILED','本地订单状态已变化，请刷新订单状态',409),
 }
 
 const parsePaidAt=(value?:string)=>{

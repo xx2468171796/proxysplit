@@ -4,12 +4,15 @@ import { PaymentService } from './payments.js'
 import { createCenterPay, createCenterPayFromEnv, type HvRedeem } from './pay-center.js'
 import type { Queryable } from './pay-center-book.js'
 import type { PgStore } from './store.js'
+import type { AdoptResult } from './order-reuse.js'
 import { createMockCenter } from './vendor/zhifu/center/mock.js'
 
 const provider={code:'zhifu-center',displayName:'统一支付中心',adapter:'center',endpoint:'https://zfzx.invalid',merchantId:'',credentialRef:'PAY_CENTER',config:{},enabled:true}
 const order={id:'order-id',orderNo:'PS20261117000001AB',userId:'user-1',planId:'plan-id',planName:'超级会员年卡',tier:'premium',billingCycle:'year',durationDays:365,lifetime:false,
   amountCents:29900,currency:'CNY',status:'pending',providerCode:provider.code,providerOrderNo:null,payUrl:null,paidAt:null,expiresAt:new Date(Date.now()+600000),createdAt:new Date(),
   groupId:null,splitIndex:null,splitTotal:null}
+
+const second='PS20261117000002CD'
 
 /** 只认 pay-center-book.ts 用到的几条 SQL 的内存库。 */
 function memoryDb(){
@@ -25,6 +28,7 @@ function memoryDb(){
     if(s.startsWith('SELECT site_order_no,user_id,amount_cents,meta FROM pay_center_orders WHERE order_no')){
       const r=[...orders.values()].filter(x=>x.order_no===v[0]&&x.discarded===null).reverse();return {rows:r.slice(0,1)}
     }
+    if(s.startsWith('UPDATE pay_center_orders SET discarded=NULL')){for(const r of orders.values())if(r.order_no===v[0]&&r.discarded==='reused')r.discarded=null;return {rows:[]}}
     if(s.startsWith('UPDATE pay_center_orders SET discarded')){const r=orders.get(String(v[0]));if(r&&r.discarded===null)r.discarded=v[1];return {rows:[]}}
     if(s.startsWith('INSERT INTO pay_center_notifies')){const fresh=!notifies.has(String(v[0]));notifies.add(String(v[0]));return {rows:fresh?[{}]:[],rowCount:fresh?1:0}}
     if(s.startsWith('SELECT 1 FROM pay_center_notifies')){const n=notifies.has(String(v[0]))?1:0;return {rows:n?[{}]:[],rowCount:n}}
@@ -45,6 +49,7 @@ function setup(hvRedeem?:HvRedeem){
     setOrderPayment:vi.fn(async()=>({orderNo:order.orderNo})),getOrderForUser:async()=>({...order}),
     getOrderForCallback:async()=>({orderNo:order.orderNo,providerCode:provider.code,providerOrderNo:null,amountCents:order.amountCents,status:'pending'}),
     fulfillPaidOrder:vi.fn(async()=>({ok:true,duplicate:false})),
+    isOrderReusableAs:vi.fn(async()=>true),adoptReusedOrder:vi.fn(async():Promise<AdoptResult>=>({ok:true})),
   }
   const paid:string[]=[]
   const service=new PaymentService(store as unknown as PgStore,'https://site.invalid',m=>{logs.push(m)},async no=>{paid.push(no)},
@@ -194,6 +199,42 @@ describe('统一支付中心适配器',()=>{
     expect(redeem).toHaveBeenCalledTimes(1)
     expect(sent).toHaveLength(2)
     expect(sent.every(s=>s.challengePassed===true)).toBe(true)
+  })
+
+  it('中心还回同金额旧未付单：同人同套餐同金额 → 接管旧本地单（事务里作废新单），不另开中心单',async()=>{
+    const {store,service,orders}=setup()
+    const first=await service.createOrder('user-1','plan-id','alice')
+    store.createOrders.mockResolvedValueOnce([{...order,orderNo:second}])
+    const r=await service.createOrder('user-1','plan-id','alice')
+    expect(store.isOrderReusableAs).toHaveBeenCalledWith(order.orderNo,second)
+    expect(store.adoptReusedOrder).toHaveBeenCalledWith(second,order.orderNo,expect.objectContaining({providerOrderNo:first.order?.providerOrderNo,payUrl:first.order?.payUrl}))
+    expect(r.order?.orderNo).toBe(order.orderNo)
+    expect([...orders.values()].filter(o=>o.discarded===null)).toHaveLength(1)
+  })
+
+  it('还回的旧单是另一个套餐（同价）：不接管，取消旧中心单后给这次的订单开新码',async()=>{
+    const {mock,store,service,orders}=setup()
+    const first=await service.createOrder('user-1','plan-id','alice')
+    store.createOrders.mockResolvedValueOnce([{...order,orderNo:second,planId:'other-plan'}])
+    store.isOrderReusableAs.mockResolvedValueOnce(false)
+    const r=await service.createOrder('user-1','other-plan','alice')
+    expect(store.adoptReusedOrder).not.toHaveBeenCalled()
+    expect(r.order?.orderNo).toBe(second)
+    expect(r.order?.providerOrderNo).not.toBe(first.order?.providerOrderNo)
+    expect(store.setOrderPayment).toHaveBeenLastCalledWith(second,r.order?.providerOrderNo,r.order?.payUrl,expect.anything())
+    expect((await mock.client.query({siteOrderNo:String(first.order?.providerOrderNo)})).status).toBe('cancelled')
+    // 新单的订单簿记录没被留在「reused 作废」状态：查单 / 对账还找得到它
+    expect([...orders.values()].find(o=>o.order_no===second)?.discarded).toBeNull()
+  })
+
+  it('接管时重新过在售 / 限购：超过限购 → PURCHASE_LIMIT，新单作废',async()=>{
+    const {store,service}=setup()
+    await service.createOrder('user-1','plan-id','alice')
+    store.createOrders.mockResolvedValueOnce([{...order,orderNo:second}])
+    store.adoptReusedOrder.mockResolvedValueOnce({ok:false,reason:'limit'})
+    await expect(service.createOrder('user-1','plan-id','alice')).rejects.toMatchObject({code:'PURCHASE_LIMIT',status:409})
+    expect(store.failOrder).toHaveBeenCalledWith(second)
+    expect(store.setOrderPayment).toHaveBeenCalledTimes(1)
   })
 
   it('中心要求验证：返回 PAY_CHALLENGE_REQUIRED 给客户端重新验证',async()=>{
