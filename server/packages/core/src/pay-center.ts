@@ -120,6 +120,12 @@ export class CenterPay {
     return { status: s.status, siteOrderNo: rec.siteOrderNo, paid }
   }
 
+  /** 取消这笔本地订单在中心还开着的单（后台手动确认时用）。true = 中心确认已取消；没有中心单、已付 / 已过期、中心不可达都是 false。 */
+  async cancel(localOrderNo: string): Promise<boolean> {
+    const rec = await this.book.byLocalOrderNo(localOrderNo)
+    return rec ? this.pay.cancel(rec.userId, rec.siteOrderNo) : false
+  }
+
   /** 原始请求体进、HTTP 回复出（2xx + {"code":0} 才算收到；其它中心会退避重试 72 小时）。 */
   notify(rawBody: string) { return this.pay.handleNotify('center', rawBody) }
 }

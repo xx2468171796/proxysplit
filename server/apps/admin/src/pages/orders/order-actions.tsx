@@ -10,6 +10,16 @@ export type Order = {
 }
 type RefundResult = { ok: boolean; orders: number; licenseAdjusted: boolean; removedDays?: number | null }
 
+/** 手动确认的结果提示；centerOrder = 支付中心那张未付单的处理结果（服务端 CenterOrderOutcome）。 */
+export function confirmMessage(r: { duplicate?: boolean; centerOrder?: string }): { title: string; tone: 'success' | 'info' | 'warning' } {
+  if (r.centerOrder === 'paid') return { title: '支付中心已收到这笔钱，已按正常付款发放会员', tone: 'success' }
+  if (r.duplicate) return { title: '该订单已是已支付，无需重复发货', tone: 'info' }
+  if (r.centerOrder === 'cancel_refused' || r.centerOrder === 'cancel_failed') {
+    return { title: '已确认收款并发放会员。支付中心那张未付单没取消成，客户照旧码仍可能再付一次，请到支付中心后台核对', tone: 'warning' }
+  }
+  return { title: r.centerOrder === 'cancelled' ? '已确认收款并发放会员，支付中心的未付单已取消' : '已确认收款并发放会员', tone: 'success' }
+}
+
 export function ConfirmPaidDialog({ order, onClose, onDone }: { order: Order | null; onClose: () => void; onDone: () => void }) {
   const notify = useNotify()
   return (
@@ -23,8 +33,9 @@ export function ConfirmPaidDialog({ order, onClose, onDone }: { order: Order | n
       onConfirm={async () => {
         if (!order) return
         try {
-          const r = await post<{ ok: boolean; duplicate?: boolean }>(`/v1/admin/orders/${order.orderNo}/confirm`)
-          notify(r.duplicate ? '该订单已是已支付，无需重复发货' : '已确认收款并发放会员', r.duplicate ? 'info' : 'success')
+          const r = await post<{ ok: boolean; duplicate?: boolean; centerOrder?: string }>(`/v1/admin/orders/${order.orderNo}/confirm`)
+          const m = confirmMessage(r)
+          notify.show({ title: m.title, tone: m.tone })
           onDone()
         } catch (e) {
           throw new Error(errorText(e, '确认失败'))

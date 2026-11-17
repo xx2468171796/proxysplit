@@ -1214,10 +1214,11 @@ export class PgStore {
   }
 
   // 后台手动确认订单发货：把未支付/失败订单直接标记为已支付并发放权益，无需网关回调。
-  async confirmOrderManually(orderNoValue:string,by:AuditActor){
+  // detail：调用方（PaymentService.confirmManually）带进审计明细的东西，比如中心那张单取消了没有。
+  async confirmOrderManually(orderNoValue:string,by:AuditActor,detail:Record<string,unknown>={}){
     const client=await this.pool.connect()
     const audited=async(duplicate:boolean)=>{
-      await insertAudit(client,{...by,action:'admin.order.confirm',targetType:'order',targetId:orderNoValue,result:'success',metadata:{duplicate}})
+      await insertAudit(client,{...by,action:'admin.order.confirm',targetType:'order',targetId:orderNoValue,result:'success',metadata:{duplicate,...detail}})
       await client.query('COMMIT')
     }
     try{

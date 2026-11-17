@@ -53,6 +53,7 @@ function setup(hvRedeem?:HvRedeem){
     fulfillPaidOrder:vi.fn(async()=>({ok:true,duplicate:false})),
     isOrderReusableAs:vi.fn(async()=>true),adoptReusedOrder:vi.fn(async():Promise<AdoptResult>=>({ok:true})),
     refundOrder:vi.fn(async()=>({ok:true,orders:1,licenseAdjusted:true,removedDays:365})),audit:vi.fn(async()=>undefined),
+    confirmOrderManually:vi.fn(async()=>({ok:true,duplicate:false})),
     closeRefundedUnpaidOrder:vi.fn(async():Promise<'closed'|'paid'|'refunded'|'missing'>=>'closed'),
   }
   const paid:string[]=[]
@@ -199,6 +200,40 @@ describe('统一支付中心适配器',()=>{
     expect(sent[0]?.challengePassed).toBe(true)
     expect(logs.filter(m=>m.includes('人机验证服务不可达'))).toHaveLength(1)
     expect(service.centerStats()).toEqual({hvUnavailable:1})
+  })
+
+  // 后台手动确认以前不碰中心那张还开着的单：客户照旧码再付一次，钱收两份、会员只发一份。
+  describe('后台手动确认订单',()=>{
+    const by={actor:'admin-1',ip:'1.2.3.4'}
+    it('先取消中心那张还开着的单，结果写进手动确认的审计明细',async()=>{
+      const {mock,store,service,orders}=setup()
+      await service.createOrder('user-1','plan-id','alice')
+      const siteOrderNo=String([...orders.values()][0]?.site_order_no)
+      expect(await service.confirmManually(order.orderNo,by)).toMatchObject({ok:true,duplicate:false})
+      expect((await mock.client.query({siteOrderNo})).status).toBe('cancelled')
+      expect(store.confirmOrderManually).toHaveBeenCalledWith(order.orderNo,by,{centerOrder:'cancelled'})
+    })
+    it('中心其实已经收到钱：按正常付款发放（不记成手动），再确认只是留痕',async()=>{
+      const {mock,store,service,orders}=setup()
+      await service.createOrder('user-1','plan-id','alice')
+      mock.pay((await mock.client.query({siteOrderNo:String([...orders.values()][0]?.site_order_no)})).order_no)
+      await service.confirmManually(order.orderNo,by)
+      expect(store.fulfillPaidOrder).toHaveBeenCalledTimes(1)
+      expect(store.confirmOrderManually).toHaveBeenCalledWith(order.orderNo,by,{centerOrder:'paid'})
+    })
+    it('中心连不上：照样确认，审计里写明没取消成',async()=>{
+      const {mock,store,service}=setup()
+      await service.createOrder('user-1','plan-id','alice')
+      mock.client.query=async()=>{throw new Error('center down')}
+      mock.client.cancel=async()=>{throw new Error('center down')}
+      await service.confirmManually(order.orderNo,by)
+      expect(store.confirmOrderManually).toHaveBeenCalledWith(order.orderNo,by,{centerOrder:'cancel_failed'})
+    })
+    it('没有中心单（本地单从没出过码）：不调中心',async()=>{
+      const {store,service}=setup()
+      await service.confirmManually(order.orderNo,by)
+      expect(store.confirmOrderManually).toHaveBeenCalledWith(order.orderNo,by,{centerOrder:'none'})
+    })
   })
 
   describe('中心退款回调 order.refunded',()=>{

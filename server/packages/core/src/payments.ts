@@ -2,7 +2,8 @@ import { createHash, createHmac, timingSafeEqual } from 'node:crypto'
 import { AppError } from '@proxysplit/shared'
 import type { PgStore, PaymentProviderRecord } from './store.js'
 import type { PaidEvent } from './vendor/zhifu/site/types.js'
-import { centerEventId, centerFulfilInput, type CenterHooks, type CenterPay, type CenterPayContext, type CenterRefundEvent } from './pay-center.js'
+import { centerEventId, centerFulfilInput, type CenterHooks, type CenterOrderState, type CenterPay, type CenterPayContext, type CenterRefundEvent } from './pay-center.js'
+import type { AuditActor } from './audit.js'
 
 type Scalar=string|number
 type ZhongzhuanCallback={
@@ -10,6 +11,8 @@ type ZhongzhuanCallback={
   status?:string;timestamp?:number|string;sign?:string;sn?:string;trade_no?:string;
   payway?:string;payer_info?:string;paid_at?:string
 }
+/** 手动确认前中心那张单的处理结果：none 没有中心单 / not_center 不是中心通道 / paid 中心已付（已按正常付款发放）/ closed 中心已过期或已取消 / cancelled 已取消 / cancel_refused 中心拒绝取消 / cancel_failed 中心不可达。 */
+export type CenterOrderOutcome='none'|'not_center'|'paid'|'closed'|'cancelled'|'cancel_refused'|'cancel_failed'
 type SyncOrderResult={ok:boolean;status:string;changed:boolean;duplicate?:boolean}
 
 const signedParams=(params:Record<string,unknown>)=>Object.keys(params).sort()
@@ -149,6 +152,33 @@ export class PaymentService{
       throw error
     }
     this.log(`[payments] 支付中心退款已同步到本地订单 ${e.localOrderNo}（退款单 ${e.refundNo??'-'}）`)
+  }
+
+  /**
+   * 后台手动确认订单（唯一入口）：确认之前先把中心那张还开着的单处理掉——否则客户照旧码再付一次，钱收两份、会员只发一份。
+   * 尽力而为，不挡确认；处理结果（CenterOrderOutcome）由 store.confirmOrderManually 写进同一事务的审计明细。
+   */
+  async confirmManually(orderNo:string,by:AuditActor){
+    const centerOrder=await this.settleCenterOrderBeforeManual(orderNo)
+    return {...await this.store.confirmOrderManually(orderNo,by,{centerOrder}),centerOrder}
+  }
+  private async settleCenterOrderBeforeManual(orderNo:string):Promise<CenterOrderOutcome>{
+    const order=await this.store.getOrderForCallback(orderNo)
+    if(!order||(order.status!=='pending'&&order.status!=='failed'))return 'none'
+    const provider=await this.store.getProvider(order.providerCode)
+    if(provider?.adapter!=='center'||!this.center)return 'not_center'
+    let state:CenterOrderState|undefined
+    try{state=await this.center.state(orderNo)}catch(e){this.log(`[payments] 手动确认 ${orderNo}：查中心订单失败 ${String(e)}`)}
+    if(state===null)return 'none'
+    if(state?.paid){
+      // 中心其实已经收到钱：按正常付款落地（分佣照算、事件号与回调相同），随后的手动确认只是留痕。
+      await this.fulfilCenter(state.paid,orderNo).catch(e=>this.log(`[payments] 手动确认 ${orderNo}：中心已付但补发失败 ${String(e)}`))
+      return 'paid'
+    }
+    if(state&&state.status!=='pending')return 'closed'
+    const cancelled=await this.center.cancel(orderNo).catch(()=>false)
+    if(!cancelled)this.log(`[payments] 手动确认 ${orderNo}：中心订单没取消成，客户仍可能照旧码付款，请到支付中心后台核对`)
+    return cancelled?'cancelled':state?'cancel_refused':'cancel_failed'
   }
 
   private async createGatewayOrder(provider:PaymentProviderRecord,order:{orderNo:string;amountCents:number;planName:string;groupId:string|null;splitIndex:number|null;splitTotal:number|null;providerOrderNo:string|null;payUrl:string|null;status:string},username:string){
