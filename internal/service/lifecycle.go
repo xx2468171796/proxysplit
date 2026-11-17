@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"proxysplit/internal/core"
-	"proxysplit/internal/coreupdate"
 	"proxysplit/internal/nodes"
 )
 
@@ -84,146 +83,11 @@ func (s *Service) startLocked() error {
 			return fmt.Errorf("授权校验失败：%w", err)
 		}
 	}
-	s.mu.Lock()
-	node := s.chainLocked(s.selectedNode())
-	level := s.cfg.LogLevel
-	mode := s.cfg.RuleMode
-	set := s.cfg.Settings
-	custom := append([]core.RouteRule(nil), s.cfg.CustomRules...)
-	ruleSets := core.RuleSetOptions{
-		GeoSiteCN: s.cfg.RuleSets["geosite-cn.srs"],
-		GeoIPCN:   s.cfg.RuleSets["geoip-cn.srs"],
-		Ads:       s.cfg.RuleSets["geosite-category-ads-all.srs"],
-	}
-	// 整机全局 base = 全局规则 (bypass China: 大陆直连、境外走节点) — the DEFAULT.
-	// The clash mode picks the flavor at run time: 规则=全局规则(智能), 全局=全局
-	// 代理(含大陆全走节点), 直连=暂停. So 整机全局 has two sub-modes, default 全局规则.
-	tunRoute := core.RouteBypassCN
-	s.mu.Unlock()
-
-	// clash_api controller for live mode switching (全局/直连/规则) + a fresh random
-	// secret each run. The selected mode is baked into the config (default_mode) so
-	// the core boots in it — no post-start apply window.
-	clashSecret := genSecret()
-	s.mu.Lock()
-	s.clashSecret = clashSecret
-	if s.clashMode == "" {
-		s.clashMode = "rule"
-	}
-	wantMode := s.clashMode
-	accelPort := 0
-	if !set.ClaudeAccelOff {
-		accelPort = s.accelPortLocked()
-	}
-	s.mu.Unlock()
-	// Bundled core with relayops patch 0005: POWER云 Reality outbounds keep the
-	// X25519MLKEM768 key share. Cached per core file; stock cores never get it.
-	realityHybrid := coreupdate.HasTag(s.binDir, coreupdate.RealityHybridTag)
-	clashOptsFor := func(port int) core.Options {
-		ctl := ""
-		if port > 0 {
-			ctl = fmt.Sprintf("127.0.0.1:%d", port)
-		}
-		return core.Options{RemoteDNS: set.RemoteDNS, DNS: set.Net.coreDNS(), TunMTU: set.Net.TunMTU, StrictRouteOff: set.Net.StrictRouteOff, GeoDir: s.binDir, ClashController: ctl, ClashSecret: clashSecret, ClashMode: wantMode,
-			LanShare: set.LanShare, LanPort: set.LanPort, LanType: set.LanType, LanUser: set.LanUser, LanPass: set.LanPass,
-			CustomRules: custom, RuleSets: &ruleSets, DirectDomains: s.directDomains(),
-			ProxyPrivate: !set.PrivateDirect, BlockQUIC: set.BlockQUIC, SelfProcess: selfProcess(set.ExcludeSelf), PortProcessPath: s.portProcessPath(),
-			AccelPort: accelPort, RealityHybrid: realityHybrid,
-			// Off by itself while the AI guard is active (core/dnscache.go).
-			DNSOptimistic: true, DNSCacheFile: filepath.Join(s.dataDir, dnsCacheFile)}
-	}
-
-	// System-wide mode: sing-box TUN routes the whole machine.
-	if set.TunMode {
-		if node == nil {
-			return errNoNode
-		}
-		// TUN has no mixed inbound, so the clash port can't collide with one.
-		clashPort, _ := core.FreePort()
-		s.mu.Lock()
-		s.clashPort = clashPort
-		s.trafficStats = Stats{}
-		s.mu.Unlock()
-		tunOpts := clashOptsFor(clashPort)
-		tunOpts.AccelOutbound = "proxy" // 整机全局：Claude Code 也走主节点
-		s.mu.Lock()
-		extra := map[string]*nodes.Node{}
-		s.applyAIGuardLocked(&tunOpts, node.ID, extra)
-		for tag, n := range extra {
-			tunOpts.ExtraNodes = append(tunOpts.ExtraNodes, core.ExtraNode{Tag: tag, Node: s.chainLocked(n)})
-		}
-		s.mu.Unlock()
-		tunOpts.ServerIPs = s.serverIPs(startNodes(node, &tunOpts))
-		if err := s.core.StartTUN(node, level, tunRoute, nil, tunOpts); err != nil {
-			return s.withSecurityHint(fmt.Errorf("core(TUN): %w", err))
-		}
-		s.mu.Lock()
-		s.accelOut = tunOpts.AccelOutbound
-		s.noteAIGuardStartedLocked(&tunOpts)
-		s.mu.Unlock()
-		s.mu.Lock()
-		s.startedAt = time.Now()
-		s.activeFP = nil
-		s.run = nil
-		s.mu.Unlock()
-		s.applySystemProxyOnStart()
-		s.startWarm(node, tunOpts, clashPort, clashSecret)
-		s.log(fmt.Sprintf("[service] started — 全局 TUN 模式 (%s), 节点 %s", tunRoute, node.Name))
-		return nil
-	}
-
-	// App-split mode: sing-box TUN + per-app routing. The per-app lists live in
-	// rule-set files, so later app add/remove can apply without a restart.
-	if node == nil {
-		return errNoNode
-	}
-	clashPort, _ := core.FreePort()
-	base := clashOptsFor(clashPort)
-	base.Split = true
-	base.SplitWhitelist = mode != "blacklist"
-	s.mu.Lock()
-	s.clashPort = clashPort
-	s.trafficStats = Stats{}
-	opts := base
-	sum := s.splitOptionsLocked(&opts, node)
-	s.mu.Unlock()
-	// Kept in base too, so hot app-list reloads rebuild the same outbounds.
-	opts.ServerIPs = s.serverIPs(startNodes(node, &opts))
-	base.ServerIPs = opts.ServerIPs
-	if err := s.prepareProcessCapture(set, &opts, nil); err != nil {
+	plan, err := s.planStart(nil)
+	if err != nil {
 		return err
 	}
-	if err := s.core.StartTUN(node, level, tunRoute, nil, opts); err != nil {
-		return s.withSecurityHint(fmt.Errorf("core(应用分流 TUN): %w", err))
-	}
-	if err := s.startCapture(opts); err != nil {
-		// The driver will not open (security software, a clashing WinDivert,
-		// no kernel resources): never fail the start, run this one on the TUN.
-		_ = s.core.Stop()
-		s.wdBroken.Store(true)
-		s.wdNote.Store(s.captureFallbackNote())
-		s.noteCaptureFailure(err)
-		s.log("[capture] " + err.Error() + "；本次改用整机虚拟网卡，重启软件后再试「仅接管选中程序」")
-		s.log("[capture] 驱动诊断：" + s.captureDiag())
-		opts.Process = nil
-		if err := s.core.StartTUN(node, level, tunRoute, nil, opts); err != nil {
-			return s.withSecurityHint(fmt.Errorf("core(应用分流 TUN): %w", err))
-		}
-	}
-
-	s.mu.Lock()
-	s.startedAt = time.Now()
-	s.activeFP = nil
-	s.run = &runState{node: node, level: level, route: tunRoute, base: base, targets: sum.targets, procPorts: processPorts(opts)}
-	s.accelOut = opts.AccelOutbound
-	s.noteAIGuardStartedLocked(&opts)
-	s.mu.Unlock()
-
-	s.applySystemProxyOnStart()
-	s.startWarm(node, opts, clashPort, clashSecret)
-	s.log(fmt.Sprintf("[service] started — 应用分流 (TUN+进程名), 代理 %d / 直连 %d / 拦截 %d 个程序, 额外节点 %d, 主节点 %s",
-		sum.proxied, sum.direct, sum.blocked, len(opts.ExtraNodes), node.Name))
-	return nil
+	return s.launch(plan)
 }
 
 // runState is what the running app-split core was started with, so an app-rule

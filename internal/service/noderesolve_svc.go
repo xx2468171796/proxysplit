@@ -118,6 +118,34 @@ func (s *Service) serverIPs(list []*nodes.Node) map[string]string {
 	return out
 }
 
+// serverIPsKeeping is serverIPs for a reload: a domain the running core already
+// dials keeps that IP (a fresh lookup may pick another address and would turn
+// an unchanged config into a restart); only new domains are resolved.
+func (s *Service) serverIPsKeeping(list []*nodes.Node, running map[string]string) map[string]string {
+	if len(running) == 0 {
+		return s.serverIPs(list)
+	}
+	out := map[string]string{}
+	var fresh []*nodes.Node
+	for _, n := range list {
+		if !needsResolve(n) {
+			continue
+		}
+		if ip := running[n.Server]; ip != "" {
+			out[n.Server] = ip
+			continue
+		}
+		fresh = append(fresh, n)
+	}
+	for host, ip := range s.serverIPs(fresh) {
+		out[host] = ip
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
 // pinned returns n dialing its pre-resolved IP (latency / speed tests and
 // proxy ports use the same address the core will use).
 func (s *Service) pinned(n *nodes.Node) *nodes.Node {
