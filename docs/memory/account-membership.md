@@ -92,7 +92,7 @@ Ed25519 离线租约绑定账号 / 设备 / 硬件 / 期限；minimumVersion 会
 
 ### 付款前人机验证（hvToken，分支 feat/pay-hv，2026-11-17，未上线）
 支付中心全局开了「每笔订单都要先过验证」（challengeEveryOrder，中心统一，站点不能关），不带凭证的下单一律 `PAY_CHALLENGE_REQUIRED`。
-- 客户端：点「立即购买」先盖全屏 iframe 加载 `https://proxysplit.zygskins.cn/pay-verify.html?n=<nonce>`（website/public/pay-verify.html），中继页在站点同源里调 `LcVerify.open({action:"pay"})`，凭证 postMessage 回 Wails 窗口（只发给 http(s)://wails.localhost / wails://wails / localhost:34115，客户端校验 origin + nonce）→ CreateMembershipOrder(planId, hvToken)。取消 = 不下单；验证页 12 秒没起来 = 不带凭证下单（中心关了全局开关时照常能付）；仍回 PAY_CHALLENGE_REQUIRED 就再验一次重下，最多一次。代码 frontend/src/state/pay-verify.ts、OrderResult.errCode。
+- 客户端：点「立即购买」先盖全屏 iframe 加载 `https://proxysplit.zygskins.cn/pay-verify.html?n=<nonce>`（website/public/pay-verify.html），中继页在站点同源里调 `LcVerify.open({action:"pay"})`，凭证 postMessage 回 Wails 窗口（只发给 http(s)://wails.localhost / wails://wails；2026-11-18 起不再发给开发地址 localhost:34115，wails dev 联调办法写在该文件开头的注释里；客户端校验 origin + nonce）→ CreateMembershipOrder(planId, hvToken)。取消 = 不下单；验证页 12 秒没起来 = 不带凭证下单（中心关了全局开关时照常能付）；仍回 PAY_CHALLENGE_REQUIRED 就再验一次重下，最多一次。代码 frontend/src/state/pay-verify.ts、OrderResult.errCode。
 - 为什么不在 Wails 页里直接引 hook.js：hook.js 的验证页 iframe 是相对路径、只认同源 postMessage，凭证又绑站点域名（hv 服务按 Host 绑 action + 域名，无 cookie），Wails 的 origin 不是站点域名。
 - 服务端：POST /v1/orders 可选 `hvToken`（zod 1–2048，与 captchaTicket 同一上限；客户端收凭证上限 1024）。CenterPay.create 用 SDK 的 redeemHumanToken 兑换**一次**（bad = 不声明通过交中心拒；ok / 验证服务不可达 = challengePassed），同一结果用于 OPEN_ORDER 自动「取消后重下」的第二次下单——凭证一次性，交给 SDK 每次下单各兑一次会让第二次变 bad、玩家死循环。未配 PAY_HV_HOST = 忽略凭证。API 在 sz 本机，127.0.0.1:8976 可达（SDK 兑换只能本机直连）。
 - 老客户端不带凭证：中心拒，提示「请先完成安全验证再购买（旧版客户端请先升级）」；新客户端发版即强制更新。
