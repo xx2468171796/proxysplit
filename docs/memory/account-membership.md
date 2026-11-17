@@ -115,6 +115,7 @@ Ed25519 离线租约绑定账号 / 设备 / 硬件 / 期限；minimumVersion 会
 - 退款：后台订单「退款」→ POST /v1/admin/orders/:no/refund {reason}，整组拆单一起退，只扣未用时长（权益流水 license_grants 记录每次发放的 start/end；refundedLicense 纯函数有单测）；2026-09-26 之前的订单无流水，只标退款不动会员，需手动调；钱在支付宝商户后台原路退。
 - 单笔回调到账走 grantWithinTx（以前漏了试用剩余时长合并）。
 - 拆单续付（2026-10-23）：拆单各笔共用一个过期时间，付了一部分、其余过期时，再买同一套餐会续付这一组（resumeSplitInTx）：还有效的那笔原样返回、不重复下单，过期的标 closed 并换新单号重发；「全部付齐」只数非 closed 的笔。旧二维码迟到付款照样算（closed 的笔仍对账、可到账，同序号的替补自动关掉）；后台手动确认拆单子单只确认这一笔、付齐才发（payGroupPieceInTx，与回调同一组级事件防重复发放）。真库场景脚本在 pve-pg-proxysplit-paytest 跑过 14 项全过。
+- 客户端接着付（2026-11-18 审计）：付款状态只在内存里，没付完的订单由 `frontend/src/state/payment-resume.ts` 的 `findResumable` 从 /v1/me/orders 认出来（启动时和打开会员页都会读订单）——剩下的几笔都没过期就直接出码，有过期的按同一套餐重新下单走上面的续付。入口是套餐区的「继续支付」提示；已经付过一部分时主界面顶部也出横幅。二维码生成失败显示原因 +「重新生成二维码」。Go 的 license.Order 还没带 groupId（接口有返回），客户端暂按「套餐名 + 总笔数」认组。
 
 ## 免费档 / 手机号 / 配置同步（客户端，2026-10-29，docs/plan-2026-10-29-free-sync-phone.md）
 - license.Status 增 member / freeDevices / planDevices / phoneBound；tier=free 照常签租约、全部功能可用；租约 409 DEVICE_LIMIT → PendingDevice（只有这时出整页闸门）。APIError 带服务端 code。

@@ -203,6 +203,11 @@ export type MemberOrder = {
   paidAt: string;
   expiresAt: string;
   createdAt: string;
+  /** 拆单：第几笔 / 共几笔（没拆单时没有或为 0） */
+  splitIndex?: number;
+  splitTotal?: number;
+  /** 拆单组号（Go 的 license.Order 带上 groupId 后才有；没有时按套餐名 + 总笔数认组） */
+  groupId?: string;
 };
 
 export type Announcement = {

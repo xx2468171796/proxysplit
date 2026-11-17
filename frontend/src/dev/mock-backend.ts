@@ -1,5 +1,5 @@
 // 只在 `vite dev` 且不在 Wails 里时装上：给浏览器预览和截图验收一份逼真的假后端。生产包不含本文件。
-// 地址参数：?showcase=1 官网截图（普通用户、不显示 AI 劫持），?theme=dark|system 主题，?gate=login 未登录页，?gate=member 无权益会员页（&full=1 设备名额已满），?split=1 拆单付款，?update=1 有新版本，?update=force 强制升级，?page=<页面 id> 打开指定页，?look=1 打开外观面板（见 preview-params.ts）；?tier=free ?phone=0 ?sync=conflict ?profiles=full 见 mock-sync.ts。
+// 地址参数：?showcase=1 官网截图（普通用户、不显示 AI 劫持），?theme=dark|system 主题，?gate=login 未登录页，?gate=member 无权益会员页（&full=1 设备名额已满），?split=1 拆单付款，?order=split|pending 有没付完的订单，?qr=fail 二维码生成失败，?update=1 有新版本，?update=force 强制升级，?page=<页面 id> 打开指定页，?look=1 打开外观面板（见 preview-params.ts）；?tier=free ?phone=0 ?sync=conflict ?profiles=full 见 mock-sync.ts。
 
 import { createAIMock } from "./mock-ai";
 import { createAppMonMock } from "./mock-appmon";
@@ -7,6 +7,7 @@ import { mockFenxiao } from "./mock-fenxiao";
 import { mockInbox } from "./mock-inbox";
 import { mockLink } from "./mock-link";
 import { mockSetNodeCore } from "./mock-node-core";
+import { mockCheckout, mockOpenOrders } from "./mock-orders";
 import { createPortsMock } from "./mock-ports";
 import { mockReset } from "./mock-reset";
 import { licenseExtras, mockSync } from "./mock-sync";
@@ -172,17 +173,6 @@ const license = {
   channel: "",
   ...licenseExtras, // 档位 / 设备 / 手机号（mock-sync.ts，?tier=free ?phone=0）
 };
-const mockOrder = (orderNo: string, amountCents: number) => ({
-  orderNo,
-  planName: "超级会员 · 年付",
-  amountCents,
-  currency: "CNY",
-  status: "pending",
-  payUrl: "https://pay.example",
-  paidAt: "",
-  expiresAt: new Date(Date.now() + 900_000).toISOString(),
-  createdAt: "",
-});
 const plan = (id: string, tier: string, name: string, days: number, cents: number, lifetime = false) => ({
   id,
   code: id,
@@ -387,7 +377,7 @@ const impl: Record<string, Fn> = {
       },
     ],
   }),
-  GetMyOrders: () => ({ items: [] }),
+  GetMyOrders: () => ({ items: mockOpenOrders(params.get("order")) }),
   GetFenxiao: (kind) => ({ data: mockFenxiao(params.get("fenxiao") === "0")[String(kind)] ?? { items: [], total: 0 } }),
   RequestFenxiaoWithdrawal: () => ({ data: { id: "9" } }),
   GetAnnouncements: () => ({
@@ -409,11 +399,8 @@ const impl: Record<string, Fn> = {
     qr: QR,
     err: "",
   }),
-  GetPaymentQR: () => ({ data: QR, err: "" }),
-  CreateMembershipOrder: () =>
-    params.get("split") === "1"
-      ? { split: true, orders: [mockOrder("PS1a", 20000), mockOrder("PS1b", 12800)] }
-      : { split: false, orders: [], order: mockOrder("PS1", 32800) },
+  GetPaymentQR: () => (params.get("qr") === "fail" ? { data: "", err: "二维码编码失败" } : { data: QR, err: "" }),
+  CreateMembershipOrder: () => mockCheckout(params.get("split") === "1"),
   GetAppIcon: (path) => (showcase ? monogram(String(path)) : ""),
   TestApp: () => 66,
   TestLatency: () => 0,

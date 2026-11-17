@@ -9,6 +9,7 @@ import { useStore } from "../../shared/store";
 import { groupPlans, license, loadCommerce } from "../../state/account";
 import { BenefitTable } from "../member/benefit-table";
 import { LifetimePlanCard, PlanCard } from "./plan-card";
+import { ResumeOrderAlert } from "./resume-order-alert";
 
 function PlanGroup({ title, note, plans }: { title: string; note: string; plans: readonly MemberPlan[] }) {
   if (!plans.length) return null;
@@ -72,6 +73,7 @@ export function PlanPicker() {
   return (
     <div className="ps-plans">
       {loadError ? <PlanLoadError message={loadError} /> : null}
+      <ResumeOrderAlert />
       <BenefitTable plans={plans} />
       <div className="ps-plan-groups">
         <PlanGroup
