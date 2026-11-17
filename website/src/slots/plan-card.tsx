@@ -1,6 +1,7 @@
 // 一张套餐卡：名称、价格（有原价时划掉）、限时倒计时、权益。付款在客户端里完成，这里只引导下载。
 import { Card } from "qiantai";
 import { LATEST_DOWNLOAD, type Plan, yuan } from "../api";
+import { planDevicesLabel } from "../site-copy";
 import { useCountdown } from "../use-site-data";
 
 const pad = (n: number) => String(n).padStart(2, "0");
@@ -25,7 +26,7 @@ export function PlanCard({ plan }: { plan: Plan }) {
   return (
     <Card kind="lift" className={`ps-plan${premium ? " is-premium" : ""}`}>
       <span className="q-chip">
-        {plan.badge || (premium ? "超级会员" : "普通会员")} · {plan.maxDevices} 台设备
+        {plan.badge || (premium ? "超级会员" : "普通会员")} · {planDevicesLabel(plan.maxDevices)}
       </span>
       <h3>{plan.name}</h3>
       <p className="ps-price">
@@ -37,7 +38,7 @@ export function PlanCard({ plan }: { plan: Plan }) {
       {plan.description ? <p className="q-muted ps-plan-desc">{plan.description}</p> : null}
       <ul>
         <li>{period}</li>
-        <li>最多 {plan.maxDevices} 台电脑同时使用</li>
+        <li>在免费版的 1 台之外，{planDevicesLabel(plan.maxDevices)}</li>
         {plan.purchaseLimitPerUser ? <li>每人限购 {plan.purchaseLimitPerUser} 次</li> : null}
       </ul>
       <a className={`q-btn${premium ? "" : " ghost"}`} href={LATEST_DOWNLOAD}>
