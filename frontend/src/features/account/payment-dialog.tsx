@@ -61,19 +61,6 @@ function OrderInfo({ order }: { order: MemberOrder }) {
 
 function QrTile({ order }: { order: MemberOrder }) {
   const qr = useStore(payment, (s) => s.qr);
-  const qrError = useStore(payment, (s) => s.qrError);
-  if (qrError)
-    return (
-      <div className="ps-pay-qr">
-        <InlineAlert tone="error" title="二维码没生成出来" density="compact">
-          {qrError}。点下面的按钮再试一次；还是不行就关掉这个框重新下单。
-        </InlineAlert>
-        <Button variant="outline" size="sm" onClick={() => void retryQR()}>
-          <RefreshCw />
-          重新生成二维码
-        </Button>
-      </div>
-    );
   return (
     <div className="ps-pay-qr">
       <div className="ps-qr-tile">
@@ -88,9 +75,29 @@ function QrTile({ order }: { order: MemberOrder }) {
   );
 }
 
+/** 二维码没生成出来：说明原因，给「重新生成二维码」，不留一个一直转的圈。 */
+function QrFailed({ reason }: { reason: string }) {
+  return (
+    <InlineAlert
+      tone="error"
+      title="二维码没生成出来"
+      density="compact"
+      action={
+        <Button variant="outline" size="sm" onClick={() => void retryQR()}>
+          <RefreshCw />
+          重新生成二维码
+        </Button>
+      }
+    >
+      {reason}。点「重新生成二维码」再试一次；还是不行就关掉这个框重新下单。
+    </InlineAlert>
+  );
+}
+
 export function PaymentDialog() {
   const { say } = useFeedback();
   const order = useStore(payment, (s) => s.order);
+  const qrError = useStore(payment, (s) => s.qrError);
   const busy = useStore(payment, (s) => s.confirming);
   const error = useStore(license, (s) => s.error);
   if (!order) return null;
@@ -123,8 +130,9 @@ export function PaymentDialog() {
           {error}
         </InlineAlert>
       ) : null}
+      {qrError ? <QrFailed reason={qrError} /> : null}
       <div className="ps-pay">
-        <QrTile order={order} />
+        {qrError ? null : <QrTile order={order} />}
         <OrderInfo order={order} />
       </div>
     </Dialog>
