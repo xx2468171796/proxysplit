@@ -73,6 +73,18 @@ describe('后台权限：动管理员账号要超级管理员', () => {
     await t.app.close()
   })
 
+  // 后台建号是注册之外唯一能定用户名的入口：像手机号的用户名在这里也拒（登录框会和别人的手机号撞）。
+  it('后台也不能建手机号形状的用户名', async () => {
+    const t = await appAs(ids.root)
+    for (const username of ['13900139000', '+8613900139000']) {
+      const r = await t.call('POST', '/v1/admin/users', { username, password, role: 'user' })
+      expect(r.statusCode, username).toBe(400)
+      expect(r.json()).toMatchObject({ error: { code: 'USERNAME_IS_PHONE' } })
+    }
+    expect(t.store.createUserWithLicense).not.toHaveBeenCalled()
+    await t.app.close()
+  })
+
   it('普通管理员管普通用户照常；超管可以动管理员、建管理员', async () => {
     const staff = await appAs(ids.staff)
     expect((await staff.call('PATCH', `/v1/admin/users/${ids.customer}/status`, { status: 'suspended' })).statusCode).toBe(200)

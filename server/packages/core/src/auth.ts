@@ -37,6 +37,15 @@ let dummyHash:Promise<string>|null=null
 const dummyVerify=async(password:string)=>{dummyHash??=hashPassword(randomUUID());await verify(await dummyHash,password).catch(()=>false)}
 const takenError=(error:unknown)=>(error as {constraint?:string}).constraint==='users_phone_uq'
   ?new AppError('PHONE_TAKEN','该手机号已被其他账号使用',409):new AppError('IDENTITY_TAKEN','用户名或邮箱已被使用',409)
+/**
+ * 用户名不能长得像手机号（登录框先按手机号找人，会和别人的手机号撞），除非就是本次验证的这个手机号。
+ * 「像」按登录框同一个归一化算（shared normalizePhone：+86 / 86 / 0086 前缀、横线、括号都算）。
+ * 所有能定用户名的入口都调它：客户端注册、官网注册、后台建号。老账号登录不受影响。
+ */
+export function assertUsernameNotPhone(username:string,phone?:string){
+  const name=normalizeUsername(username)
+  if(normalizePhone(name)!==null&&name!==phone)throw new AppError('USERNAME_IS_PHONE','用户名不能是手机号',400)
+}
 export async function fetchPowervpnIdentity(cfg:PowervpnConfig,accessToken:string):Promise<PowervpnIdentity>{
   const doFetch=cfg.fetch??fetch
   let res:Response
@@ -70,11 +79,6 @@ export class AuthService{
     if(!userId)throw new AppError('ACCESS_INVALID','Authentication required',401)
     // 绑定发码也不说「号已被占用」（否则登录后就能逐个探号）：占用只在提交绑定、核码之后才报 PHONE_TAKEN。
     return center.send(phone,'bind',ctx)
-  }
-  /** 用户名不能长得像手机号（登录框会和别人的手机号撞），除非就是本次验证的这个手机号。两种模式都查；老账号登录不受影响。 */
-  private assertUsernameNotPhone(username:string,phone:string|undefined){
-    const name=normalizeUsername(username)
-    if(/^1[3-9]\d{9}$/.test(name)&&name!==phone)throw new AppError('USERNAME_IS_PHONE','用户名不能是手机号',400)
   }
   /**
    * 中心模式注册的前半段（顺序同 V7）：只读核码 → 撞号 / 用户名 / 邮箱占用；返回建号事务里「其它闸门都过了、插入用户之前」调的消费函数。
@@ -134,7 +138,7 @@ export class AuthService{
     if(asPhone&&await this.phone.phoneOwner(asPhone))throw new AppError('IDENTITY_TAKEN','用户名或邮箱已被使用',409)
   }
   async register(input:RegisterInput,ip=''){
-    this.assertUsernameNotPhone(input.username,input.phone)
+    assertUsernameNotPhone(input.username,input.phone)
     const consume=await this.centerRegisterGate(input,'client')
     if(!consume)await this.assertIdentityFree(input.username,input.phone)
     const codeId=!consume&&input.phone&&input.code?await this.phone.verify(input.phone,'register',input.code):null
@@ -158,7 +162,7 @@ export class AuthService{
   }
   // 官网注册：只建账号，不绑定设备、不发试用（试用在首次客户端登录时发放）。
   async registerWeb(input:WebRegisterInput,ip=''){
-    this.assertUsernameNotPhone(input.username,input.phone)
+    assertUsernameNotPhone(input.username,input.phone)
     const consume=await this.centerRegisterGate(input,'web')
     if(!consume)await this.assertIdentityFree(input.username,input.phone)
     const codeId=!consume&&input.phone&&input.code?await this.phone.verify(input.phone,'register',input.code):null

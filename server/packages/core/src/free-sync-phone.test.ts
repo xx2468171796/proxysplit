@@ -231,6 +231,14 @@ describe('sms hardening', () => {
     const { db } = fakeDb(sql => sql.startsWith('SELECT 1 FROM users') ? { rows: [{ x: 1 }], rowCount: 1 } : undefined)
     await expect(new PhoneAuth(db, { sender: null, production: false }).bindPhone('11111111-1111-4111-8111-111111111111', phone, '123456')).rejects.toMatchObject({ code: 'PHONE_TAKEN', status: 409 })
   })
+  // 登录框把 +86 / 86 / 0086 前缀和横线、括号都归一成手机号：别人的用户名写成这些样子也算撞号，绑定时一并查。
+  it('bind also checks usernames that only normalise to the number (+86 / 86 / 0086, dashes, brackets)', async () => {
+    const { db, calls } = fakeDb(() => undefined)
+    await new PhoneAuth(db, { sender: null, production: false }).phoneTaken(phone, null)
+    const q = calls.find(c => c.sql.startsWith('SELECT 1 FROM users WHERE (phone=$1 OR username=$1'))
+    expect(q?.sql).toContain(`regexp_replace(username,'[-()]','','g')=ANY($3::text[])`)
+    expect(q?.params).toEqual([phone, null, [phone, `+86${phone}`, `0086${phone}`, `86${phone}`]])
+  })
   it('caps sends per hour', () => {
     const now = new Date('2026-10-29T10:00:00Z')
     expect(smsSendDecision({ lastAt: new Date(now.getTime() - 120_000), hourCount: SMS_HOURLY_MAX, todayCount: 5 }, now)).toBe('hourly')

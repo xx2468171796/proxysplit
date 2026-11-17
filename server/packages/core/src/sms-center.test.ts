@@ -211,7 +211,7 @@ const ACCESS = 'test-secret-must-be-at-least-32-bytes-long'
 async function authFixture(over: { gate?: string; takenPhone?: boolean; usernameTaken?: boolean; emailTaken?: boolean } = {}) {
   const t = setup(), events: string[] = []
   const { db, calls } = fakeDb((sql) => {
-    if (sql.startsWith('SELECT 1 FROM users WHERE (phone=$1 OR username=$1)')) return { rows: over.takenPhone ? [{}] : [], rowCount: over.takenPhone ? 1 : 0 }
+    if (sql.startsWith('SELECT 1 FROM users WHERE (phone=$1 OR username=$1')) return { rows: over.takenPhone ? [{}] : [], rowCount: over.takenPhone ? 1 : 0 }
     if (sql.startsWith('SELECT id FROM users WHERE phone')) return { rows: [], rowCount: 0 }
     if (sql.startsWith('SELECT 1 FROM users WHERE lower(email)')) return { rows: over.emailTaken ? [{}] : [], rowCount: over.emailTaken ? 1 : 0 }
     return undefined
@@ -282,6 +282,10 @@ describe('center mode: register follows check → gates → consume → insert',
     expect(inserted).toEqual(['alice'])
     // 像手机号的用户名两种模式都拒（这里是本地模式）
     await expect(auth.registerWeb({ username: '13900139000', email: 'a@b.cn', password: 'password123' })).rejects.toMatchObject({ code: 'USERNAME_IS_PHONE', message: '用户名不能是手机号', status: 400 })
+    // 登录框会归一成手机号的写法也算（+86 / 86 / 0086 前缀、横线、括号）：否则这个号以后被人绑定，这个账号就再也登不上
+    for (const username of ['+8613900139000', '8613900139000', '008613900139000', '139-0013-9000', '(139)00139000']) {
+      await expect(auth.registerWeb({ username, email: 'a@b.cn', password: 'password123' }), username).rejects.toMatchObject({ code: 'USERNAME_IS_PHONE' })
+    }
     expect(inserted).toEqual(['alice'])
   })
   it('rejects a phone-shaped username unless it is the phone being verified', async () => {
@@ -357,7 +361,7 @@ describe('center mode: reset and bind', () => {
   const resetDb = (o: { owner?: boolean; usedToday?: boolean } = {}) => fakeDb((sql) => {
     if (sql.startsWith('SELECT id FROM users WHERE phone')) return { rows: o.owner === false ? [] : [{ id: 'u1' }], rowCount: 1 }
     if (sql.startsWith('SELECT 1 FROM password_reset_daily')) return { rows: o.usedToday ? [{}] : [], rowCount: 1 }
-    if (sql.startsWith('SELECT 1 FROM users WHERE (phone=$1 OR username=$1)')) return { rows: [], rowCount: 0 }
+    if (sql.startsWith('SELECT 1 FROM users WHERE (phone=$1 OR username=$1')) return { rows: [], rowCount: 0 }
     return undefined
   })
   it('reset: read-only check → daily limit → consume → change password and revoke sessions', async () => {
@@ -404,7 +408,7 @@ describe('center mode: reset and bind', () => {
   })
   it('bind: a number taken by someone else is refused without consuming the code', async () => {
     const { sms, center } = setup()
-    const { db } = fakeDb((sql) => sql.startsWith('SELECT 1 FROM users WHERE (phone=$1 OR username=$1)') ? { rows: [{}], rowCount: 1 } : undefined)
+    const { db } = fakeDb((sql) => sql.startsWith('SELECT 1 FROM users WHERE (phone=$1 OR username=$1') ? { rows: [{}], rowCount: 1 } : undefined)
     await sms.send(PHONE, 'bind', ctx())
     await expect(new PhoneAuth(db, { sender: null, production: true }).bindPhone('u1', PHONE, CODE, consume => sms.check(PHONE, 'bind', CODE, consume))).rejects.toMatchObject({ code: 'PHONE_TAKEN' })
     expect(center.ops()).not.toContain('ticket.redeem')

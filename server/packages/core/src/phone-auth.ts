@@ -80,9 +80,13 @@ export class PhoneAuth {
     const r = await this.db.query('SELECT id FROM users WHERE phone=$1', [phone])
     return (r.rows[0]?.id as string | undefined) ?? null
   }
-  /** 号码被占用：别人绑了这个号，或别人的用户名就是这串号码（登录框会撞号）。 */
+  /**
+   * 号码被占用：别人绑了这个号，或别人的用户名就是这串号码（登录框会撞号）。
+   * 用户名按登录框的归一化比（shared normalizePhone）：带 +86 / 0086 / 86 前缀、夹横线或括号的老用户名也算。
+   */
   async phoneTaken(phone: string, exceptUserId: string | null = null): Promise<boolean> {
-    const r = await this.db.query('SELECT 1 FROM users WHERE (phone=$1 OR username=$1) AND ($2::uuid IS NULL OR id<>$2::uuid) LIMIT 1', [phone, exceptUserId])
+    const r = await this.db.query(`SELECT 1 FROM users WHERE (phone=$1 OR username=$1 OR regexp_replace(username,'[-()]','','g')=ANY($3::text[])) AND ($2::uuid IS NULL OR id<>$2::uuid) LIMIT 1`,
+      [phone, exceptUserId, [phone, `+86${phone}`, `0086${phone}`, `86${phone}`]])
     return r.rows.length > 0
   }
   async emailTaken(email: string): Promise<boolean> {
