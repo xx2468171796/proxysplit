@@ -79,7 +79,7 @@ export class PaymentService{
       throw new AppError('PAYMENT_CREATE_FAILED',`支付下单失败：${error instanceof Error?error.message:'支付中心通讯异常'}`,502)
     }
     const expiresAt=new Date(link.expireAt)
-    const details={checkoutUrl:link.checkoutUrl,merchantName:null,...(Number.isFinite(expiresAt.getTime())?{expiresAt}:{})}
+    const details={checkoutUrl:link.checkoutUrl,merchantName:null,revive:true,...(Number.isFinite(expiresAt.getTime())?{expiresAt}:{})}
     // 中心还回了玩家同金额的旧未付单：那笔本地单换上新码，这次新建的本地单作废。
     const target=link.localOrderNo
     if(target!==order.orderNo)await this.store.failOrder(order.orderNo)
@@ -184,6 +184,7 @@ export class PaymentService{
 
   // 中心单查单只做展示：过期 / 取消标 failed（前端停轮询）；已付等签名回调发放（中心会重试 72 小时，SDK 规定不从查单入账）。
   private async syncCenterOrder(orderNo:string,status:string):Promise<SyncOrderResult>{
+    if(status!=='pending')return {ok:true,status,changed:false}
     const state=this.center?await this.center.state(orderNo):null
     if(state&&(state.status==='expired'||state.status==='cancelled')&&status==='pending'){
       await this.store.failOrder(orderNo)

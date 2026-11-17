@@ -886,9 +886,10 @@ export class PgStore {
     return out.length?out:null
   }
   // expiresAt：统一支付中心给的二维码截止时间（不给 = 保留建单时的）。
-  async setOrderPayment(orderNoValue:string,providerOrderNo:string,payUrl:string,details:{checkoutUrl?:string|null;merchantName?:string|null;expiresAt?:Date}={}){
-    const r=await this.pool.query(`UPDATE orders SET provider_order_no=$2,pay_url=$3,checkout_url=$4,merchant_name=$5,expires_at=coalesce($6,expires_at),updated_at=now()
-      WHERE order_no=$1 AND status='pending' RETURNING order_no AS "orderNo"`,[orderNoValue,providerOrderNo,payUrl,details.checkoutUrl??null,details.merchantName??null,details.expiresAt??null])
+  async setOrderPayment(orderNoValue:string,providerOrderNo:string,payUrl:string,details:{checkoutUrl?:string|null;merchantName?:string|null;expiresAt?:Date;revive?:boolean}={}){
+    // revive：中心还回的旧单本地可能因下单超时已标 failed，换上码后恢复成 pending（评审 M2，2026-11-17）。
+    const r=await this.pool.query(`UPDATE orders SET provider_order_no=$2,pay_url=$3,checkout_url=$4,merchant_name=$5,expires_at=coalesce($6,expires_at),status='pending',updated_at=now()
+      WHERE order_no=$1 AND (status='pending' OR ($7::boolean AND status='failed')) RETURNING order_no AS "orderNo"`,[orderNoValue,providerOrderNo,payUrl,details.checkoutUrl??null,details.merchantName??null,details.expiresAt??null,details.revive===true])
     return r.rows[0]??null
   }
   async failOrder(orderNoValue:string){

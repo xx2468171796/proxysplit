@@ -59,6 +59,7 @@ export class DealerService{
     const now=this.now()
     const stale=!row?.fetchedAt||now-new Date(row.fetchedAt).getTime()>=REFRESH_MS
     if(!stale||now-(this.attempts.get(slug)??0)<REFRESH_MS)return row??null
+    if(this.attempts.size>=5000)this.attempts.clear()
     this.attempts.set(slug,now)
     const remote=await this.fetchRemote(slug)
     if(!remote)return row??null
@@ -70,13 +71,14 @@ export class DealerService{
     return saved
   }
 
+  // 只认注册 7 天内的账号：防止主站老客户拿到代理商安装包后被永久改挂（评审 L2，2026-11-17）。
   /** 客户归属：只给 aigw 渠道、还没归属的账号写一次，且代理商必须在 aigw 存在并启用。出错不挡登录。 */
   async attribute(userId:string,slug:string|undefined):Promise<boolean>{
     if(!slug)return false
     try{
       const d=await this.get(slug)
       if(!d?.enabled)return false
-      const r=await this.db.query(`UPDATE users SET dealer=$2,updated_at=now() WHERE id=$1 AND dealer='' AND channel='aigw'`,[userId,slug])
+      const r=await this.db.query(`UPDATE users SET dealer=$2,updated_at=now() WHERE id=$1 AND dealer='' AND channel='aigw' AND created_at>now()-interval '7 days'`,[userId,slug])
       return (r.rowCount??0)>0
     }catch(e){console.error('[dealer] attribute failed',{userId,slug,error:(e as Error).message});return false}
   }
