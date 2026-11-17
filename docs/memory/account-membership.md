@@ -44,7 +44,17 @@ Ed25519 离线租约绑定账号 / 设备 / 硬件 / 期限；minimumVersion 会
 - 离线授权防调早时钟：lease iat + LastSeenAt 高水位，容差 10 分钟。
 - 试用硬件摘要依赖客户端上报；离线租约仍存在系统时间回拨 / 快照风险（见 known-issues.md）。
 
-## 收款与退款（服务端，v1.9.56）
+## 收款与退款（服务端）
+**2026-11-17 起改走公司统一支付中心 zhifu-service（分支 feat/zhifu-center，未上线）**：迁移 0022 加通道 `zhifu-center`（adapter `center`）并设为当前通道；中心按站点路由通道（目前只有微信 zyg1103wx），本站不选通道、**不拆单**（createOrders 对 center 只建一笔）。
+- 代码：core/pay-center.ts（CenterPay，公司包 zhifu 6.17.1 的 zhifu/site，vendor 在 core/src/vendor/zhifu，只拷 site + center 用到的文件；运行时依赖 zod）、pay-center-book.ts（订单簿 pay_center_orders、回调去重 pay_center_notifies）；PaymentService 按 adapter 分 zhongzhuan / center。
+- 下单：本地订单号作 requestId → 中心站点单号 `PR…`（同一本地单重试幂等），写进 orders.provider_order_no，pay_url = 中心给的码，expires_at 改成中心截止时间。subject 用 SDK 默认「充值」，不带站名 / 域名（业主红线）。中心拒单（COOLDOWN / QUEUE_FULL / QUEUED / PAY_BANNED / AMOUNT_INVALID / COLLECTION_OFF / CHANNEL_BUSY / CHALLENGE_REQUIRED / OPEN_ORDER / TRUST_REQUIRED）→ 错误码 `PAY_<码>`，中心的中文原因原样给客户端，本地单标 failed。本站自己另一笔未付单（OPEN_ORDER 同站）自动「取消后重新下单」。
+- 回调：POST /v1/pay/center/notify（作用域内 JSON 按原始字符串收，验签要原字节），回复原样（2xx `{"code":0}` 才算收到，中心退避重试 72 小时）。SDK 核对用户与金额 → fulfillPaidOrder（事件号 `center:<站点单号>`，payment_events 去重、grantWithinTx、分销结算、到账通知），notify_id 去重落库。
+- 查单（对账定时器 / 客户端轮询）只做展示：中心 expired / cancelled → 本地标 failed；已付**不从查单入账**，等签名回调（SDK 规定）。
+- 退款：同下面老流程，只在本地标记 + 扣时长；钱在商户后台原路退（中心 refund 接口暂不接）。
+- 运行时 env（不进仓，值在堡垒机资产）：PAY_MODE=center、PAY_CENTER_URL=https://zfzx.zygskins.cn、PAY_CENTER_APP_ID、PAY_CENTER_SECRET，可选 PAY_HV_HOST。不全 = 下单 503「统一支付中心尚未配置」。上线前在中心「站点」登记回调地址 https://<API 域名>/v1/pay/center/notify，WAF 放行该路径。
+- 客户端：微信电脑码是 `weixin://wxpay/bizpayurl?…`，老客户端 validPaymentURL 只认 https / alipays 会报「支付链接格式无效」→ 需发带 wechatNativePayURL 的新客户端（只画二维码，不本机打开）；付款框按链接显示「微信 / 支付宝」。
+
+### 老通道（zhongzhuan，v1.9.56，保留：历史单查单 / 迟到回调 / 退款）
 收款走中转站网关线路 4 = 支付宝直连（收款主体 宣时龙）：payment_providers.config.line=4（后台可改），下单带 line，拆单子单带 split=1；线路 5 = 姚尧（收钱吧，不支持拆单、只收 ≤30 元）。
 - 网关在腾讯云 110.40.185.27，绝对不碰，只能以客户端身份调接口；线路编号 2026-09-26 用 /api/v1/pay/lines + 一笔核验单确认。
 - 订单新增 checkout_url（电脑收银台）/ merchant_name；网关换线时 API 打 warn 日志。

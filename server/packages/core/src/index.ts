@@ -1,6 +1,7 @@
 export * from './auth.js'
 export * from './store.js'
 export * from './payments.js'
+export { CenterPay, createCenterPay, createCenterPayFromEnv, centerRefusal, type CenterPayContext } from './pay-center.js'
 export * from './accel.js'
 export * from './fenxiao.js'
 export { FenxiaoService, maskName } from './fenxiao-service.js'

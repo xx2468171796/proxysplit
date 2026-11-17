@@ -1,4 +1,5 @@
-// 支付宝付款框：二维码、订单名 · 金额、拆单说明、截止时间；「本机打开支付宝」「我已支付，刷新状态」。
+// 付款框（微信 / 支付宝，按付款链接判断）：二维码、订单名 · 金额、拆单说明、截止时间；「本机打开支付宝」「我已支付，刷新状态」。
+// 统一支付中心的微信码（weixin://）只能用手机扫，不出「本机打开」按钮。
 // 到账由 state/payment 每 3 秒自动查单，关掉框即停止查单（订单到期自动失效）。
 import { Button, Dialog, DialogFooter, InlineAlert, Note, Spinner, StatusBadge } from "@ankotti/admin-ui";
 import { ExternalLink, RefreshCw } from "lucide-react";
@@ -7,7 +8,7 @@ import { useFeedback } from "../../app/use-feedback";
 import { fmtDateTime, fmtYuan } from "../../shared/format";
 import { useStore } from "../../shared/store";
 import { license } from "../../state/account";
-import { closePayment, confirmPaid, openPaymentInBrowser, payment } from "../../state/payment";
+import { canOpenPayment, closePayment, confirmPaid, openPaymentInBrowser, payApp, payment } from "../../state/payment";
 import "./account.css";
 
 function SplitNote({ order, total }: { order: MemberOrder; total: number }) {
@@ -31,7 +32,7 @@ function OrderInfo({ order }: { order: MemberOrder }) {
           分 {split.length} 笔支付 · 第 {splitIdx + 1} 笔
         </StatusBadge>
       ) : (
-        <StatusBadge tone="info">支付宝安全支付</StatusBadge>
+        <StatusBadge tone="info">{payApp(order)}安全支付</StatusBadge>
       )}
       <h3 className="ps-pay-title">
         {order.planName} · ¥{fmtYuan(order.amountCents)}
@@ -39,7 +40,9 @@ function OrderInfo({ order }: { order: MemberOrder }) {
       {isSplit ? (
         <SplitNote order={order} total={split.length} />
       ) : (
-        <Note as="p">打开手机支付宝扫描二维码完成付款，支付成功后会自动到账，也可以点「我已支付，刷新状态」。</Note>
+        <Note as="p">
+          打开手机{payApp(order)}扫描二维码完成付款，支付成功后会自动到账，也可以点「我已支付，刷新状态」。
+        </Note>
       )}
       <Note as="p">请在 {fmtDateTime(order.expiresAt)} 前完成支付</Note>
     </div>
@@ -61,13 +64,15 @@ export function PaymentDialog() {
       onClose={closePayment}
       footer={
         <DialogFooter>
-          <Button
-            variant="outline"
-            onClick={() => void openPaymentInBrowser().catch((e: unknown) => say(`打开支付宝失败：${String(e)}`))}
-          >
-            <ExternalLink />
-            本机打开支付宝
-          </Button>
+          {canOpenPayment(order) ? (
+            <Button
+              variant="outline"
+              onClick={() => void openPaymentInBrowser().catch((e: unknown) => say(`打开支付宝失败：${String(e)}`))}
+            >
+              <ExternalLink />
+              本机打开支付宝
+            </Button>
+          ) : null}
           <Button loading={busy} loadingText="正在查询…" onClick={() => void confirmPaid()}>
             <RefreshCw />
             我已支付，刷新状态
@@ -84,12 +89,12 @@ export function PaymentDialog() {
         <div className="ps-pay-qr">
           <div className="ps-qr-tile">
             {qr ? (
-              <img src={qr} alt="支付宝付款二维码" width={180} height={180} />
+              <img src={qr} alt={`${payApp(order)}付款二维码`} width={180} height={180} />
             ) : (
               <Spinner size={32} label="正在生成二维码" />
             )}
           </div>
-          <Note>支付宝扫码</Note>
+          <Note>{payApp(order)}扫码</Note>
         </div>
         <OrderInfo order={order} />
       </div>

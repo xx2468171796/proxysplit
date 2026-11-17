@@ -73,4 +73,24 @@ describe('commercial API shell', () => {
     expect(unbound).toBe('u:old-device')
     await app.close()
   })
+
+  it('统一支付中心回调路由按原始字符串收体；未配置回 503、验签失败回 4xx（都不是 2xx，中心会重试）', async () => {
+    const config: ApiConfig = {
+      NODE_ENV: 'test', HOST: '127.0.0.1', PORT: 18780, PUBLIC_BASE_URL:'http://127.0.0.1:18780',
+      DATABASE_URL: 'postgres://unused', ACCESS_TOKEN_SECRET: 'test-secret-must-be-at-least-32-bytes-long',
+      REFRESH_TOKEN_TTL_DAYS: 30, ADMIN_ORIGIN: 'http://127.0.0.1:18781',
+    }
+    const body = JSON.stringify({ event: 'order.paid', site_order_no: 'PR1', sign: 'bad' })
+    const off = await buildApp(config, { auth: {}, store: {}, payCenterEnv: {}, close: async () => {} } as never)
+    const r1 = await off.inject({ method: 'POST', url: '/v1/pay/center/notify', headers: { 'content-type': 'application/json' }, payload: body })
+    expect(r1.statusCode).toBe(503)
+    await off.close()
+    const env = { PAY_MODE: 'center', PAY_CENTER_URL: 'https://zfzx.invalid', PAY_CENTER_APP_ID: 'site-test', PAY_CENTER_SECRET: 'test-secret' }
+    const on = await buildApp(config, { auth: {}, store: { pool: { query: async () => ({ rows: [] }) } }, payCenterEnv: env, close: async () => {} } as never)
+    const r2 = await on.inject({ method: 'POST', url: '/v1/pay/center/notify', headers: { 'content-type': 'application/json' }, payload: body })
+    expect(r2.statusCode).toBeGreaterThanOrEqual(400)
+    expect(r2.statusCode).toBeLessThan(500)
+    expect(r2.body).not.toContain('"code":0')
+    await on.close()
+  })
 })

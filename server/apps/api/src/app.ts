@@ -6,7 +6,7 @@ import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
 import { AppError, maskPhone, normalizeUsername } from '@proxysplit/shared'
 import { activateDeviceSchema, powervpnLoginSchema, powervpnSyncSchema, adminGrantSchema, adminPowervpnProvisionSchema, selfPasswordSchema, webRegisterSchema, analyticsQuerySchema, auditListQuery, deviceListQuery, downloadStatsQuery, leaseSchema, licenseExtendSchema, loginSchema, orderCreateSchema, orderListQuery, orderRefundSchema, planListQuery, planPatchSchema, planUpsertSchema, providerUpsertSchema, redeemCodeCreateSchema, redeemListQuery, redeemSchema, refreshSchema, registerSchema, releaseCreateSchema, releaseListQuery, settingPatchSchema, trackViewSchema, userCreateSchema, userListQuery, userPasswordSchema, userStatusSchema } from '@proxysplit/contracts'
-import { AccelTokens, ClientNodesQuery, ClientNodesStore, ConfigProfilesStore, ConfigSyncStore, LinkCipher, SyncCipher, createAccount, createCommercialCore, createNotify, createNotifyEvents, type Notify, licenseView, FenxiaoService, hashPassword, PaymentService, TelemetryQuery, TelemetryStore, type AuthService, type PgStore } from '@proxysplit/core'
+import { AccelTokens, ClientNodesQuery, ClientNodesStore, ConfigProfilesStore, ConfigSyncStore, LinkCipher, SyncCipher, createAccount, createCommercialCore, createNotify, createNotifyEvents, type Notify, licenseView, FenxiaoService, hashPassword, PaymentService, createCenterPayFromEnv, type CenterPayContext, TelemetryQuery, TelemetryStore, type AuthService, type PgStore } from '@proxysplit/core'
 import type { ApiConfig } from './config.js'
 import { registerFenxiaoRoutes } from './fenxiao-routes.js'
 import { registerNotifyRoutes } from './notify-routes.js'
@@ -19,7 +19,7 @@ import { registerSyncRoutes } from './sync-routes.js'
 import { registerAdminStatsRoutes, type AdminStatsDeps } from './admin-stats-routes.js'
 import { AdminStatsQuery } from './admin-stats.js'
 
-type Core={auth:AuthService;store:PgStore;fenxiao?:FenxiaoService;notify?:Notify;telemetry?:Pick<TelemetryDeps,'store'|'query'>;clientNodes?:Pick<ClientNodesDeps,'store'|'query'>;adminStats?:AdminStatsDeps['query'];close:()=>Promise<void>}
+type Core={auth:AuthService;store:PgStore;fenxiao?:FenxiaoService;notify?:Notify;telemetry?:Pick<TelemetryDeps,'store'|'query'>;clientNodes?:Pick<ClientNodesDeps,'store'|'query'>;adminStats?:AdminStatsDeps['query'];payCenterEnv?:Record<string,string|undefined>;close:()=>Promise<void>}
 const bearer=(value?:string)=>value?.startsWith('Bearer ')?value.slice(7):''
 export async function buildApp(config:ApiConfig,provided?:Core){
   const core:Core=provided??await createCommercialCore({databaseUrl:config.DATABASE_URL,auth:{accessSecret:config.ACCESS_TOKEN_SECRET,refreshDays:config.REFRESH_TOKEN_TTL_DAYS,...(config.LICENSE_PRIVATE_KEY_PEM?{licensePrivateKeyPem:config.LICENSE_PRIVATE_KEY_PEM}:{}),...(config.LICENSE_PUBLIC_KEY_PEM?{licensePublicKeyPem:config.LICENSE_PUBLIC_KEY_PEM}:{}),powervpn:{baseUrl:config.POWERVPN_BASE_URL??'https://lxc.5fskins.com'},
@@ -114,7 +114,15 @@ export async function buildApp(config:ApiConfig,provided?:Core){
     return accel.issue(p.userId)
   })
   app.post('/v1/license/lease',async(req)=>{const p=await auth(req);const input=leaseSchema.parse(req.body);return core.auth.lease(p.userId,p.deviceId,input.deviceFingerprint,input.appVersion)})
-  const payments=new PaymentService(core.store,config.PUBLIC_BASE_URL.replace(/\/$/,''),message=>app.log.warn(message),orderNo=>notifyEvents.membershipPaid(orderNo))
+  // 统一支付中心：PAY_MODE=center + PAY_CENTER_URL / PAY_CENTER_APP_ID / PAY_CENTER_SECRET（运行时 env，不进仓）；测试经 core.payCenterEnv 注入
+  const payments=new PaymentService(core.store,config.PUBLIC_BASE_URL.replace(/\/$/,''),message=>app.log.warn(message),orderNo=>notifyEvents.membershipPaid(orderNo),
+    fulfil=>createCenterPayFromEnv(core.payCenterEnv??process.env,core.store.pool,fulfil,message=>app.log.warn(message)))
+  // 中心风控读的玩家上下文；UA 缺省按电脑处理（客户端是桌面程序，中心据此给电脑扫码）。不带本站域名 / 站名。
+  const centerContext=(req:FastifyRequest,user:{username:string;nickname?:string|null;phone?:string|null;createdAt?:Date|string|null}):CenterPayContext=>({
+    nickname:user.nickname??null,phone:user.phone??null,clientIp:req.ip,accountCreatedAt:user.createdAt??null,
+    userAgent:String(req.headers['user-agent']||'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'),
+    deviceFingerprint:typeof req.headers['x-device-fingerprint']==='string'?req.headers['x-device-fingerprint']:null,
+  })
   let paymentReconcileRunning=false
   const reconcilePayments=async()=>{
     if(paymentReconcileRunning)return
@@ -196,10 +204,24 @@ export async function buildApp(config:ApiConfig,provided?:Core){
     }
     return row
   })
-  app.post('/v1/orders',{config:{rateLimit:{max:10,timeWindow:'1 minute'}}},async(req)=>{const p=await auth(req);const input=orderCreateSchema.parse(req.body);const user=await core.store.findUserById(p.userId);if(!user)throw new AppError('NOT_FOUND','用户不存在',404);try{return await payments.createOrder(p.userId,input.planId,user.username)}catch(error){const message=(error as Error).message;if(message==='PAYMENT_UNAVAILABLE')throw new AppError('PAYMENT_UNAVAILABLE','支付通道暂不可用',503);if(message==='PLAN_NOT_AVAILABLE')throw new AppError('PLAN_NOT_AVAILABLE','套餐已下架或不在活动时间内',404);if(message==='PURCHASE_LIMIT')throw new AppError('PURCHASE_LIMIT','已达到该活动套餐的购买次数上限',409);throw error}})
+  app.post('/v1/orders',{config:{rateLimit:{max:10,timeWindow:'1 minute'}}},async(req)=>{const p=await auth(req);const input=orderCreateSchema.parse(req.body);const user=await core.store.findUserById(p.userId);if(!user)throw new AppError('NOT_FOUND','用户不存在',404);try{return await payments.createOrder(p.userId,input.planId,user.username,centerContext(req,user))}catch(error){const message=(error as Error).message;if(message==='PAYMENT_UNAVAILABLE')throw new AppError('PAYMENT_UNAVAILABLE','支付通道暂不可用',503);if(message==='PLAN_NOT_AVAILABLE')throw new AppError('PLAN_NOT_AVAILABLE','套餐已下架或不在活动时间内',404);if(message==='PURCHASE_LIMIT')throw new AppError('PURCHASE_LIMIT','已达到该活动套餐的购买次数上限',409);throw error}})
   app.post('/v1/payments/zhongzhuan/notify',{config:{rateLimit:{max:120,timeWindow:'1 minute'}}},async(req,reply)=>{
     try{await payments.handleZhongzhuanCallback(req.body);return {code:0,message:'success'}}
     catch(error){app.log.error({err:error instanceof Error?error.message:'callback failed'},'payment callback rejected');const status=error instanceof AppError?error.status:500;return reply.code(status>=500?500:status).send({code:status,message:'failed'})}
+  })
+
+  // 统一支付中心回调：原始字节验签，所以这个作用域里 JSON 按字符串收；回复（状态码 + body）原样给中心。
+  app.register(async scope=>{
+    scope.addContentTypeParser(['application/json','text/plain'],{parseAs:'string',bodyLimit:64*1024},(_req,body,done)=>done(null,body))
+    scope.post('/v1/pay/center/notify',{config:{rateLimit:{max:300,timeWindow:'1 minute'}}},async(req,reply)=>{
+      const raw=typeof req.body==='string'?req.body:''
+      const result=await payments.handleCenterNotify(raw).catch((error:unknown)=>{
+        app.log.error({err:error instanceof Error?error.message:'center notify failed'},'center notify failed')
+        return {status:500,body:JSON.stringify({code:1,message:'failed'})}
+      })
+      if(result.status>=300)app.log.warn({status:result.status},'center notify not acked')
+      return reply.code(result.status).header('content-type','application/json').send(result.body)
+    })
   })
 
   // 运营总览聚合与用户云端配置元数据（admin-stats-routes.ts，只读）

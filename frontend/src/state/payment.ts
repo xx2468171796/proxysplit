@@ -40,9 +40,9 @@ const fail = (error: string) => license.set({ error });
 
 async function showOrder(order: MemberOrder | undefined): Promise<void> {
   payment.set({ order: order ?? null, qr: "" });
-  if (!order?.payUrl) return fail("支付服务未返回支付宝付款链接，请重新创建订单");
+  if (!order?.payUrl) return fail("支付服务未返回付款链接，请重新创建订单");
   const qr = await api.paymentQR(order.payUrl);
-  if (qr.err || !qr.data) return fail(qr.err || "支付宝二维码生成失败");
+  if (qr.err || !qr.data) return fail(qr.err || "付款二维码生成失败");
   payment.set({ qr: qr.data });
   startPolling();
 }
@@ -132,6 +132,20 @@ export async function confirmPaid(): Promise<void> {
   } finally {
     payment.set({ busy: false });
   }
+}
+
+const WECHAT_PAY = /^(weixin:\/\/wxpay\/|https:\/\/(wx\.tenpay\.com|payapp\.weixin\.qq\.com|payapp\.wechatpay\.cn)\/)/i;
+
+/** 付款 App 名：统一支付中心目前给微信码，老网关是支付宝。 */
+export function payApp(order: Pick<MemberOrder, "payUrl">): "微信" | "支付宝" {
+  return WECHAT_PAY.test(order.payUrl ?? "") ? "微信" : "支付宝";
+}
+
+/** 「本机打开支付宝」只对支付宝链接 / https 收银台有意义；微信码只能手机扫。 */
+export function canOpenPayment(order: Pick<MemberOrder, "payUrl" | "checkoutUrl">): boolean {
+  if (payApp(order) === "微信") return false;
+  const url = order.checkoutUrl || order.payUrl;
+  return /^(https:\/\/|alipays:)/i.test(url ?? "");
 }
 
 export async function openPaymentInBrowser(): Promise<void> {

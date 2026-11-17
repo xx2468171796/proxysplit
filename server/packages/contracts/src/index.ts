@@ -171,7 +171,7 @@ export const settingPatchSchema = z.object({
 export const providerUpsertSchema = z.object({
   code:z.string().regex(/^[a-z0-9][a-z0-9-]{1,62}$/),
   displayName:z.string().trim().min(2).max(80),
-  adapter:z.enum(['zhongzhuan','manual']),
+  adapter:z.enum(['zhongzhuan','center','manual']),
   endpoint:z.string().url().or(z.literal('')),
   merchantId:z.string().trim().max(120).default(''),
   credentialRef:z.string().regex(/^[A-Z][A-Z0-9_]{2,80}$/),

@@ -803,7 +803,7 @@ func (a *App) CreateMembershipOrder(planID string) OrderResult {
 // The URL never leaves the client except when the user explicitly opens it.
 func (a *App) GetPaymentQR(payURL string) QRResult {
 	payURL = strings.TrimSpace(payURL)
-	if !validPaymentURL(payURL) {
+	if !validPaymentURL(payURL) && !wechatNativePayURL(payURL) {
 		return QRResult{Err: "支付链接格式无效"}
 	}
 	data, err := service.EncodeQRDataURI(payURL, 360)
@@ -823,6 +823,18 @@ func validPaymentURL(value string) bool {
 	default:
 		return false
 	}
+}
+
+// wechatNativePayURL: WeChat Pay's native-pay link (weixin://wxpay/bizpayurl?…) that the
+// unified payment center returns for desktop orders. Only ever drawn as a QR code (scanned by
+// the phone), never opened locally, so it is not accepted by OpenPaymentURL.
+func wechatNativePayURL(value string) bool {
+	v := strings.TrimSpace(value)
+	if !strings.HasPrefix(strings.ToLower(v), "weixin://wxpay/bizpayurl") || strings.ContainsAny(v, " \t\r\n#") {
+		return false
+	}
+	rest := v[len("weixin://wxpay/bizpayurl"):]
+	return rest == "" || strings.HasPrefix(rest, "?")
 }
 
 // OpenPaymentURL validates the exact URL again at the privileged browser-open

@@ -8,7 +8,7 @@ export type Provider = {
   config: Record<string, unknown> & { orderTimeoutMinutes?: number }; enabled: boolean; updatedAt: string
 }
 
-export const ADAPTERS = [{ value: 'zhongzhuan', label: '收钱吧中转' }, { value: 'manual', label: '手动确认' }]
+export const ADAPTERS = [{ value: 'center', label: '统一支付中心' }, { value: 'zhongzhuan', label: '收钱吧中转' }, { value: 'manual', label: '手动确认' }]
 export const adapterLabel = (a: string) => ADAPTERS.find((x) => x.value === a)?.label ?? a
 const CODE_RE = /^[a-z0-9][a-z0-9-]{1,62}$/
 const REF_RE = /^[A-Z][A-Z0-9_]{2,80}$/
@@ -38,7 +38,9 @@ export function ProviderDialog({ provider, onClose, onSaved }: { provider: Provi
     <FormDialog
       open
       title={base ? `编辑通道「${base.displayName}」` : '新增支付通道'}
-      description={`真实密钥从服务器环境变量 ${ref}_APP_ID / ${ref}_APP_SECRET 读取，这里不保存明文。`}
+      description={d.adapter === 'center'
+        ? '统一支付中心：通道、档位、排队与付款规则都在支付中心后台配置；凭据读服务器环境变量 PAY_MODE=center、PAY_CENTER_URL / PAY_CENTER_APP_ID / PAY_CENTER_SECRET，这里不保存明文。退款在商户后台原路退，本站只标记。'
+        : `真实密钥从服务器环境变量 ${ref}_APP_ID / ${ref}_APP_SECRET 读取，这里不保存明文。`}
       dirty={JSON.stringify(d) !== JSON.stringify(toDraft(base))}
       submitLabel="保存"
       onClose={onClose}

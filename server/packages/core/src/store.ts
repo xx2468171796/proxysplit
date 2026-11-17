@@ -835,7 +835,8 @@ export class PgStore {
           WHERE user_id=$1 AND plan_id=$2 AND (status='paid' OR (status='pending' AND expires_at>now()))`,[userId,planId])
         if(count.rows[0].n>=plan.purchase_limit_per_user)throw new Error('PURCHASE_LIMIT')
       }
-      const split=planSplit(plan.price_cents/100)
+      // 统一支付中心（adapter center）自己管拆单与限额：本站只建一笔。
+      const split=provider.adapter==='center'?{kind:'single' as const}:planSplit(plan.price_cents/100)
       if(split.kind==='tooLarge')throw new Error('AMOUNT_TOO_LARGE')
       const amounts=split.kind==='split'?split.pieces.map(p=>Math.round(p*100)):[plan.price_cents as number]
       const groupId=amounts.length>1?(await client.query('SELECT gen_random_uuid() AS id')).rows[0].id as string:null
@@ -883,9 +884,10 @@ export class PgStore {
     }
     return out.length?out:null
   }
-  async setOrderPayment(orderNoValue:string,providerOrderNo:string,payUrl:string,details:{checkoutUrl?:string|null;merchantName?:string|null}={}){
-    const r=await this.pool.query(`UPDATE orders SET provider_order_no=$2,pay_url=$3,checkout_url=$4,merchant_name=$5,updated_at=now()
-      WHERE order_no=$1 AND status='pending' RETURNING order_no AS "orderNo"`,[orderNoValue,providerOrderNo,payUrl,details.checkoutUrl??null,details.merchantName??null])
+  // expiresAt：统一支付中心给的二维码截止时间（不给 = 保留建单时的）。
+  async setOrderPayment(orderNoValue:string,providerOrderNo:string,payUrl:string,details:{checkoutUrl?:string|null;merchantName?:string|null;expiresAt?:Date}={}){
+    const r=await this.pool.query(`UPDATE orders SET provider_order_no=$2,pay_url=$3,checkout_url=$4,merchant_name=$5,expires_at=coalesce($6,expires_at),updated_at=now()
+      WHERE order_no=$1 AND status='pending' RETURNING order_no AS "orderNo"`,[orderNoValue,providerOrderNo,payUrl,details.checkoutUrl??null,details.merchantName??null,details.expiresAt??null])
     return r.rows[0]??null
   }
   async failOrder(orderNoValue:string){
