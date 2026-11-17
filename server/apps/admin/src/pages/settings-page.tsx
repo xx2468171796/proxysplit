@@ -100,7 +100,7 @@ export function SettingsPage(_: PageProps) {
               <FormField label={LABELS.activePaymentProvider} htmlFor="st-provider" required changed={changed.includes('activePaymentProvider')}>
                 <Choice id="st-provider" label="当前收款通道" value={draft.activePaymentProvider} onChange={(v) => set({ activePaymentProvider: v })} options={providerOptions} />
               </FormField>
-              <FormField label={LABELS.paymentMethods} htmlFor="st-alipay" hint="目前只支持支付宝，不能修改">
+              <FormField label={LABELS.paymentMethods} htmlFor="st-alipay" hint="只对直连支付网关的通道有效，不能修改；统一支付中心的通道由中心决定（目前是微信），客户实际看到的以「支付通道」页为准">
                 <Checkbox id="st-alipay" checked disabled />
               </FormField>
             </FormSection>

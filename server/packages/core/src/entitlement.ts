@@ -1,5 +1,6 @@
 // 实际权益：免费档 + 会员叠加设备数（docs/plan-2026-10-29-free-sync-phone.md「免费档」）。
 // 登录、激活设备、租约、/v1/me、云同步都只认这里算出来的结果。
+import { freeDevicesOf } from './catalog.js'
 import type { Entitlement } from './store.js'
 
 export type EffectiveTier = Entitlement['tier'] | 'free'
@@ -18,7 +19,7 @@ const FOREVER = new Date('2999-12-31T23:59:59.000Z')
 const ADMIN: Entitlement = { licenseId: 'admin', planId: 'admin', planCode: 'admin', planName: 'Administrator', tier: 'premium', maxDevices: 10, features: ['admin'], expiresAt: FOREVER, lifetime: true, status: 'active' }
 
 export function effective(user: { role: string }, ent: Entitlement | null, settings: { defaultDeviceLimit: number }): Effective {
-  const free = Math.max(0, Math.floor(Number(settings.defaultDeviceLimit) || 0))
+  const free = freeDevicesOf(settings)
   if (user.role === 'admin') {
     const v = ent ?? ADMIN
     return { ent: v, member: true, freeDevices: free, planDevices: v.maxDevices, deviceLimit: Number.MAX_SAFE_INTEGER }

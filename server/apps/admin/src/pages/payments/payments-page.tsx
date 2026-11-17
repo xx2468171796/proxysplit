@@ -18,8 +18,12 @@ function usePayments() {
   const [error, setError] = React.useState<string | undefined>()
   const load = React.useCallback(async () => {
     try {
-      const [p, c] = await Promise.all([get<{ items: Provider[] }>('/v1/admin/payment-providers'), get<Commerce>('/v1/admin/settings/commerce')])
-      setProviders(p.items); setCommerce(c); setError(undefined)
+      // 支付方式读套餐目录接口：那是客户实际看到的（按当前收款通道算），不是设置里那一项
+      const [p, c, catalog] = await Promise.all([
+        get<{ items: Provider[] }>('/v1/admin/payment-providers'), get<Commerce>('/v1/admin/settings/commerce'),
+        get<{ paymentMethods?: string[] }>('/v1/catalog/plans'),
+      ])
+      setProviders(p.items); setCommerce({ ...c, paymentMethods: catalog.paymentMethods ?? c.paymentMethods }); setError(undefined)
     } catch (e) { setError(errorText(e, '支付通道加载失败')) }
   }, [])
   React.useEffect(() => { void load() }, [load])
@@ -61,7 +65,7 @@ export function PaymentsPage(_: PageProps) {
       <PageBody>
         <StatStrip title="收款概况" items={[
           { key: 'active', label: '当前收款通道', value: current?.displayName ?? (active || null), note: current && !current.enabled ? '该通道已停用，用户无法下单' : current?.code, ...(current && !current.enabled ? { noteTone: 'danger' as const } : {}) },
-          { key: 'methods', label: '支付方式', value: commerce ? commerce.paymentMethods.map((m) => METHOD[m] ?? m).join('、') || '—' : null },
+          { key: 'methods', label: '客户看到的支付方式', value: commerce ? commerce.paymentMethods.map((m) => METHOD[m] ?? m).join('、') || '—' : null, note: '按当前收款通道' },
           { key: 'enabled', label: '已启用通道', value: providers ? providers.filter((p) => p.enabled).length : null, unit: '个', note: providers ? `共 ${providers.length} 个` : undefined },
         ]} />
         <ResourcePanel title="通道" {...(providers ? { count: providers.length } : {})} unit="个">

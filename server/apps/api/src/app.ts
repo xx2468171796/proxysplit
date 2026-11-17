@@ -5,7 +5,7 @@ import { Redis } from 'ioredis'
 import { randomUUID } from 'node:crypto'
 import { AppError, maskPhone, normalizeUsername } from '@proxysplit/shared'
 import { activateDeviceSchema, powervpnLoginSchema, powervpnSyncSchema, adminGrantSchema, adminPowervpnProvisionSchema, selfPasswordSchema, webRegisterSchema, analyticsQuerySchema, auditListQuery, deviceListQuery, downloadStatsQuery, leaseSchema, licenseExtendSchema, loginSchema, orderCreateSchema, orderListQuery, orderRefundSchema, planListQuery, planPatchSchema, planUpsertSchema, providerUpsertSchema, redeemCodeCreateSchema, redeemCodeStatusSchema, redeemListQuery, redeemSchema, refreshSchema, registerSchema, releaseCreateSchema, releaseListQuery, settingPatchSchema, trackViewSchema, userCreateSchema, userListQuery, userPasswordSchema, userStatusSchema } from '@proxysplit/contracts'
-import { AccelTokens, ClientNodesQuery, ClientNodesStore, ConfigProfilesStore, ConfigSyncStore, LinkCipher, SyncCipher, createAccount, createCommercialCore, DealerAdmin, DealerService, createNotify, createNotifyEvents, type Notify, licenseView, FenxiaoService, hashPassword, PaymentService, purgeSessions, releasePlatform, createCenterPayFromEnv, createSmsCenterFromEnv, type CenterPayContext, TelemetryQuery, TelemetryStore, type AuthService, type PgStore } from '@proxysplit/core'
+import { AccelTokens, ClientNodesQuery, ClientNodesStore, ConfigProfilesStore, ConfigSyncStore, LinkCipher, SyncCipher, createAccount, createCommercialCore, freeDevicesOf, paymentMethodsOf, DealerAdmin, DealerService, createNotify, createNotifyEvents, type Notify, licenseView, FenxiaoService, hashPassword, PaymentService, purgeSessions, releasePlatform, createCenterPayFromEnv, createSmsCenterFromEnv, type CenterPayContext, TelemetryQuery, TelemetryStore, type AuthService, type PgStore } from '@proxysplit/core'
 import type { ApiConfig } from './config.js'
 import { registerFenxiaoRoutes } from './fenxiao-routes.js'
 import { registerDealerRoutes } from './dealer-routes.js'
@@ -209,7 +209,12 @@ export async function buildApp(config:ApiConfig,provided?:Core){
     await core.store.recordDownloadEvent({kind:'view',ip:req.ip,visitorId:input.visitorId??'',path:input.path??'',userAgent:String(req.headers['user-agent']??''),referer:input.referer??String(req.headers['referer']??req.headers['referrer']??'')}).catch(err=>app.log.warn({err:err instanceof Error?err.message:'record failed'},'view event failed'))
     return {ok:true}
   })
-  app.get('/v1/catalog/plans',async()=>({items:(await core.store.listPlans({publicOnly:true,limit:100})).items,paymentMethods:(await core.store.getCommerceSettings()).paymentMethods}))
+  // 免登录：套餐 + 免费版设备数 + 实际付款方式（按当前收款通道算，见 core/catalog.ts；官网和客户端的文案都读这里）
+  app.get('/v1/catalog/plans',async()=>{
+    const [plans,settings]=await Promise.all([core.store.listPlans({publicOnly:true,limit:100}),core.store.getCommerceSettings()])
+    const provider=await core.store.getProvider(settings.activePaymentProvider)
+    return {items:plans.items,paymentMethods:paymentMethodsOf(provider,settings.paymentMethods),freeDevices:freeDevicesOf(settings)}
+  })
   // membership 仍是原始会员权益（老客户端据此判断，免费为 null）；license 是实际权益（免费档 / 叠加设备数）。
   app.get('/v1/me',async(req)=>{const p=await auth(req,true);const user=await core.store.findUserById(p.userId);return {user:user&&{id:user.id,username:user.username,status:user.status,phone:maskPhone(user.phone),phoneBound:!!user.phone,channel:user.channel??'',contact:await dealers.contactFor(user.id).catch(()=>null)},membership:await core.store.entitlement(p.userId),license:licenseView(await core.auth.effectiveFor(p.userId)),devices:await core.store.listUserDevices(p.userId)}})
   app.post('/v1/me/password',{config:{rateLimit:{max:5,timeWindow:'10 minutes'}}},async(req)=>{const p=await auth(req,true);return core.auth.changeOwnPassword(p.userId,selfPasswordSchema.parse(req.body),req.ip,p.deviceId)})

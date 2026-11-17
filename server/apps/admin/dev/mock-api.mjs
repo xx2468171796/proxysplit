@@ -60,6 +60,8 @@ const routes = [
   ['GET', /^\/v1\/admin\/settings\/commerce$/, () => O.commerce],
   ['PATCH', /^\/v1\/admin\/settings\/commerce$/, (m, qs, b) => Object.assign(O.commerce, b)],
   ['GET', /^\/v1\/admin\/payment-providers$/, () => ({ items: O.providers })],
+  ['GET', /^\/v1\/catalog\/plans$/, () => ({ items: [], freeDevices: 1,
+    paymentMethods: O.providers.find((p) => p.code === O.commerce.activePaymentProvider)?.adapter === 'center' ? ['wechat'] : O.commerce.paymentMethods })],
   ['POST', /^\/v1\/admin\/payment-providers\/([^/]+)\/activate$/, (m) => Object.assign(O.commerce, { activePaymentProvider: decodeURIComponent(m[1]) })],
   ['GET', /^\/v1\/admin\/telemetry\/devices$/, (m, qs) => list(O.telemetryDevices, qs)],
   ['GET', /^\/v1\/admin\/telemetry\/devices\/([^/]+)\/events$/, (m, qs) => list(O.telemetryEvents, qs)],

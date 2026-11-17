@@ -97,3 +97,39 @@ describe('commercial API shell', () => {
     await on.close()
   })
 })
+
+describe('GET /v1/catalog/plans', () => {
+  const config: ApiConfig = {
+    NODE_ENV: 'test', HOST: '127.0.0.1', PORT: 18780, PUBLIC_BASE_URL:'http://127.0.0.1:18780',
+    DATABASE_URL: 'postgres://unused', ACCESS_TOKEN_SECRET: 'test-secret-must-be-at-least-32-bytes-long',
+    REFRESH_TOKEN_TTL_DAYS: 30, ADMIN_ORIGIN: 'http://127.0.0.1:18781',
+  }
+  const catalog = async (provider: { adapter: string; config: Record<string, string>; enabled: boolean } | null) => {
+    const core = {
+      auth: { publicKeyPem: 'PUBLIC-KEY' },
+      store: {
+        listPlans: async () => ({ items: [{ id: 'p1', name: '普通会员', maxDevices: 3 }] }),
+        getCommerceSettings: async () => ({ defaultDeviceLimit: 2, activePaymentProvider: 'active', paymentMethods: ['alipay'] }),
+        getProvider: async (code: string) => (code === 'active' ? provider : null),
+      },
+      close: async () => {},
+    }
+    const app = await buildApp(config, core as never)
+    const res = await app.inject({ method: 'GET', url: '/v1/catalog/plans' })
+    await app.close()
+    expect(res.statusCode).toBe(200)
+    return res.json() as { items: unknown[]; paymentMethods: string[]; freeDevices: number }
+  }
+
+  it('带上免费版设备数，付款方式按当前收款通道给（统一支付中心 = 微信）', async () => {
+    const body = await catalog({ adapter: 'center', config: {}, enabled: true })
+    expect(body.items).toHaveLength(1)
+    expect(body.freeDevices).toBe(2)
+    expect(body.paymentMethods).toEqual(['wechat'])
+  })
+
+  it('直连支付网关：仍是设置里的支付宝', async () => {
+    expect((await catalog({ adapter: 'zhongzhuan', config: {}, enabled: true })).paymentMethods).toEqual(['alipay'])
+    expect((await catalog(null)).paymentMethods).toEqual(['alipay'])
+  })
+})
