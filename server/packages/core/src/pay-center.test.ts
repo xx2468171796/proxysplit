@@ -6,6 +6,7 @@ import type { Queryable } from './pay-center-book.js'
 import type { PgStore } from './store.js'
 import type { AdoptResult } from './order-reuse.js'
 import { createMockCenter } from './vendor/zhifu/center/mock.js'
+import { sign } from './vendor/zhifu/center/sign.js'
 
 const provider={code:'zhifu-center',displayName:'统一支付中心',adapter:'center',endpoint:'https://zfzx.invalid',merchantId:'',credentialRef:'PAY_CENTER',config:{},enabled:true}
 const order={id:'order-id',orderNo:'PS20261117000001AB',userId:'user-1',planId:'plan-id',planName:'超级会员年卡',tier:'premium',billingCycle:'year',durationDays:365,lifetime:false,
@@ -13,6 +14,7 @@ const order={id:'order-id',orderNo:'PS20261117000001AB',userId:'user-1',planId:'
   groupId:null,splitIndex:null,splitTotal:null}
 
 const second='PS20261117000002CD'
+const noHooks={onPaid:async()=>undefined,onRefunded:async()=>undefined}
 
 /** 只认 pay-center-book.ts 用到的几条 SQL 的内存库。 */
 function memoryDb(){
@@ -50,11 +52,18 @@ function setup(hvRedeem?:HvRedeem){
     getOrderForCallback:async()=>({orderNo:order.orderNo,providerCode:provider.code,providerOrderNo:null,amountCents:order.amountCents,status:'pending'}),
     fulfillPaidOrder:vi.fn(async()=>({ok:true,duplicate:false})),
     isOrderReusableAs:vi.fn(async()=>true),adoptReusedOrder:vi.fn(async():Promise<AdoptResult>=>({ok:true})),
+    refundOrder:vi.fn(async()=>({ok:true,orders:1,licenseAdjusted:true,removedDays:365})),audit:vi.fn(async()=>undefined),
   }
   const paid:string[]=[]
   const service=new PaymentService(store as unknown as PgStore,'https://site.invalid',m=>{logs.push(m)},async no=>{paid.push(no)},
-    fulfil=>createCenterPay({appId:'site-test',secret:'test-secret',client:mock.client,db,onPaid:fulfil,log:()=>undefined,...(hvRedeem?{hvRedeem}:{})}))
+    hooks=>createCenterPay({appId:'site-test',secret:'test-secret',client:mock.client,db,...hooks,log:m=>{logs.push(m)},...(hvRedeem?{hvRedeem}:{})}))
   return {mock,orders,notifies,logs,store,service,paid,sent}
+}
+/** 中心的 order.refunded 回调体：拿已付回调改事件与退款额后重新签名（mock 中心没有现成的）。 */
+function refundBody(paidRaw:string,refundedCents:number,refundNo='RF1'){
+  const {sign:_s,...body}=JSON.parse(paidRaw) as Record<string,string|number>
+  const next={...body,event:'order.refunded',notify_id:`N-${refundNo}`,refunded_cents:refundedCents,refund_no:refundNo,refund_amount_cents:refundedCents}
+  return JSON.stringify({...next,sign:sign(next,'test-secret')})
 }
 
 describe('统一支付中心适配器',()=>{
@@ -183,10 +192,48 @@ describe('统一支付中心适配器',()=>{
     expect(unset.sent[0]?.challengePassed).toBeUndefined()
   })
 
-  it('验证服务不可达按通过（SDK 同语义）',async()=>{
-    const {service,sent}=setup(async()=>'unavailable')
+  it('验证服务不可达按通过（SDK 同语义），但要留日志并计数（不是悄悄放行）',async()=>{
+    const {service,sent,logs}=setup(async()=>'unavailable')
     await service.createOrder('user-1','plan-id','alice',{hvToken:'any'})
     expect(sent[0]?.challengePassed).toBe(true)
+    expect(logs.filter(m=>m.includes('人机验证服务不可达'))).toHaveLength(1)
+    expect(service.centerStats()).toEqual({hvUnavailable:1})
+  })
+
+  describe('中心退款回调 order.refunded',()=>{
+    const paidThenRefund=async(local:string,refundedCents=29900)=>{
+      const s=setup()
+      await s.service.createOrder('user-1','plan-id','alice')
+      const paidRaw=s.mock.pay((await s.mock.client.query({siteOrderNo:String([...s.orders.values()][0]?.site_order_no)})).order_no)
+      s.store.getOrderForCallback=async()=>({orderNo:order.orderNo,providerCode:provider.code,providerOrderNo:null,amountCents:order.amountCents,status:local})
+      return {...s,raw:refundBody(paidRaw,refundedCents)}
+    }
+    it('全额退款：走本地退款（收回会员时间、冲回佣金），原因「支付中心退款」，带审计',async()=>{
+      const {service,store,raw}=await paidThenRefund('paid')
+      const reply=await service.handleCenterNotify(raw)
+      expect(reply.status).toBe(200)
+      expect(store.refundOrder).toHaveBeenCalledTimes(1)
+      expect(store.refundOrder).toHaveBeenCalledWith(order.orderNo,'支付中心退款')
+      expect(store.audit).toHaveBeenCalledWith(null,'payment.center.refund','order',order.orderNo,'','success',expect.objectContaining({refundNo:'RF1',refundedCents:29900}))
+      expect(store.fulfillPaidOrder).not.toHaveBeenCalled()
+    })
+    it('本地已是已退款：直接确认，不重复退',async()=>{
+      const {service,store,raw}=await paidThenRefund('refunded')
+      expect((await service.handleCenterNotify(raw)).status).toBe(200)
+      expect(store.refundOrder).not.toHaveBeenCalled()
+    })
+    it('本地还没发放（退款回调先到）：不确认，等付款落地后中心重试',async()=>{
+      const {service,store,raw}=await paidThenRefund('pending')
+      expect((await service.handleCenterNotify(raw)).status).toBeGreaterThanOrEqual(500)
+      expect(store.refundOrder).not.toHaveBeenCalled()
+    })
+    it('部分退款：不自动收回整笔会员，记 warn + 审计后确认（人工处理）',async()=>{
+      const {service,store,raw,logs}=await paidThenRefund('paid',1000)
+      expect((await service.handleCenterNotify(raw)).status).toBe(200)
+      expect(store.refundOrder).not.toHaveBeenCalled()
+      expect(store.audit).toHaveBeenCalledWith(null,'payment.center.refund','order',order.orderNo,'','partial',expect.objectContaining({refundedCents:1000}))
+      expect(logs.some(m=>m.includes('部分退款'))).toBe(true)
+    })
   })
 
   it('本站旧未付单自动「取消后重下」：凭证只兑一次，两次下单都带通过',async()=>{
@@ -245,8 +292,8 @@ describe('统一支付中心适配器',()=>{
 
   it('env 不全不接中心；center 通道下单报未配置',async()=>{
     const {db}=memoryDb()
-    expect(createCenterPayFromEnv({PAY_MODE:'center',PAY_CENTER_URL:'https://zfzx.invalid'},db,async()=>undefined)).toBeNull()
-    expect(createCenterPayFromEnv({PAY_CENTER_URL:'https://x',PAY_CENTER_APP_ID:'a',PAY_CENTER_SECRET:'s'},db,async()=>undefined)).toBeNull()
+    expect(createCenterPayFromEnv({PAY_MODE:'center',PAY_CENTER_URL:'https://zfzx.invalid'},db,noHooks)).toBeNull()
+    expect(createCenterPayFromEnv({PAY_CENTER_URL:'https://x',PAY_CENTER_APP_ID:'a',PAY_CENTER_SECRET:'s'},db,noHooks)).toBeNull()
     const store={createOrders:async()=>[order],getProvider:async()=>provider,failOrder:vi.fn(async()=>undefined)}
     const service=new PaymentService(store as unknown as PgStore,'https://site.invalid',()=>undefined,undefined,()=>null)
     await expect(service.createOrder('user-1','plan-id','alice')).rejects.toMatchObject({code:'PAYMENT_UNAVAILABLE'})

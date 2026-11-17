@@ -128,7 +128,7 @@ export async function buildApp(config:ApiConfig,provided?:Core){
   app.post('/v1/license/lease',async(req)=>{const p=await auth(req);const input=leaseSchema.parse(req.body);return core.auth.lease(p.userId,p.deviceId,input.deviceFingerprint,input.appVersion)})
   // 统一支付中心：PAY_MODE=center + PAY_CENTER_URL / PAY_CENTER_APP_ID / PAY_CENTER_SECRET（运行时 env，不进仓）；测试经 core.payCenterEnv 注入
   const payments=new PaymentService(core.store,config.PUBLIC_BASE_URL.replace(/\/$/,''),message=>app.log.warn(message),orderNo=>notifyEvents.membershipPaid(orderNo),
-    fulfil=>createCenterPayFromEnv(core.payCenterEnv??process.env,core.store.pool,fulfil,message=>app.log.warn(message)))
+    hooks=>createCenterPayFromEnv(core.payCenterEnv??process.env,core.store.pool,hooks,message=>app.log.warn(message)))
   // 中心风控读的玩家上下文；UA 缺省按电脑处理（客户端是桌面程序，中心据此给电脑扫码）。不带本站域名 / 站名。
   const centerContext=(req:FastifyRequest,user:{username:string;nickname?:string|null;phone?:string|null;createdAt?:Date|string|null}):CenterPayContext=>({
     nickname:user.nickname??null,phone:user.phone??null,clientIp:req.ip,accountCreatedAt:user.createdAt??null,

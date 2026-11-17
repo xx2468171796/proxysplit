@@ -49,19 +49,32 @@ export function centerRefusal(code: SitePayFailCode, message: string | undefined
 }
 
 export type CenterFulfil = (e: PaidEvent, localOrderNo: string) => Promise<void>
+/** 中心退款回调（已按订单簿核过用户）：refundedCents = 这笔订单累计已退，amountCents = 订单金额。 */
+export type CenterRefundEvent = { siteOrderNo: string; localOrderNo: string; refundedCents: number; amountCents: number; refundNo: string | null }
+export type CenterRefund = (e: CenterRefundEvent) => Promise<void>
+/** PaymentService 给中心适配器的两个落地点：付款发放、退款收回。 */
+export type CenterHooks = { onPaid: CenterFulfil; onRefunded: CenterRefund }
 
 export class CenterPay {
-  constructor(private pay: SitePay, private book: CenterBook, private redeem: HvRedeem | null = null) {}
+  /** 人机验证服务不可达而放行的次数（进程内累计，给日志 / 排障看）。 */
+  readonly stats = { hvUnavailable: 0 }
+  constructor(private pay: SitePay, private book: CenterBook, private redeem: HvRedeem | null = null, private log: (m: string) => void = () => undefined) {}
 
   /**
    * 中心下单；本地订单号作 requestId → 同一本地单重试得到同一中心单号（中心按单号幂等）。
    * hvToken 在这里兑换一次（SDK redeemHumanToken，语义与 SDK withHuman 相同：bad = 不声明通过，交中心拒；
    * ok / 验证服务不可达 = 通过）。不交给 SDK 每次下单各兑一次，是因为凭证一次性：OPEN_ORDER 后自动「取消后重下」
    * 的第二次下单再兑就成 bad，玩家会卡在「验证 → 下单 → 再要验证」的死循环。未配 PAY_HV_HOST（redeem=null）= 忽略凭证。
+ * 验证服务不可达的放行会记日志并计数（stats.hvUnavailable）。
    */
   async create(order: CenterLocalOrder, ctx: CenterPayContext, acceptReuse: AcceptReuse): Promise<CenterOrderLink> {
-    const passed = !!ctx.hvToken && !!this.redeem && (await this.redeem(ctx.hvToken)) !== 'bad'
-    return this.place(order, ctx, passed, 'ask', acceptReuse)
+    const verdict = ctx.hvToken && this.redeem ? await this.redeem(ctx.hvToken) : null
+    if (verdict === 'unavailable') {
+      // 放行是有意的（验证服务挂了不能挡住收款），但不能没人知道：这段时间付款前的人机验证等于没开。
+      this.stats.hvUnavailable++
+      this.log(`[pay-center] 人机验证服务不可达，本次按通过放行（进程内累计 ${this.stats.hvUnavailable} 次）`)
+    }
+    return this.place(order, ctx, verdict === 'ok' || verdict === 'unavailable', 'ask', acceptReuse)
   }
 
   private async place(order: CenterLocalOrder, ctx: CenterPayContext, passed: boolean, onOpen: 'ask' | 'cancel', acceptReuse: AcceptReuse): Promise<CenterOrderLink> {
@@ -123,7 +136,7 @@ type SiteClient = CenterSideOptions['client']
 
 /** 组装 CenterPay（生产走 createCenterPayFromEnv；测试直接给 createMockCenter().client）。 */
 export function createCenterPay(o: {
-  appId: string; secret: string; client: SiteClient; db: Queryable; onPaid: CenterFulfil;
+  appId: string; secret: string; client: SiteClient; db: Queryable; onPaid: CenterFulfil; onRefunded: CenterRefund;
   baseUrl?: string; hvHost?: string; hvUrl?: string; log?: (m: string) => void; hvRedeem?: HvRedeem;
 }): CenterPay {
   const book = pgCenterOrderBook(o.db)
@@ -133,6 +146,15 @@ export function createCenterPay(o: {
     center: {
       appId: o.appId, secret: o.secret, client: o.client, book, dedupe: pgCenterDedupe(o.db), orderPrefix: 'P', snapshotFile: null,
       ...(o.baseUrl ? { baseUrl: o.baseUrl } : {}),
+      // 中心侧退款（运营在支付中心后台退）：核对订单簿后交给本地退款路径；抛错 = 不确认，中心会重试。
+      async onRefunded(n) {
+        const rec = await book.load(n.site_order_no)
+        if (!rec) throw new Error(`center refund: unknown site order ${n.site_order_no}`)
+        if (rec.userId !== n.user_ref) throw new Error(`center refund: user mismatch on ${n.site_order_no}`)
+        const localOrderNo = localOrderNoOf(rec.meta)
+        if (!localOrderNo) throw new Error(`center refund ${n.site_order_no}: meta.orderNo missing`)
+        await o.onRefunded({ siteOrderNo: rec.siteOrderNo, localOrderNo, refundedCents: Number(n.refunded_cents) || 0, amountCents: rec.amountCents, refundNo: n.refund_no ?? null })
+      },
     },
     // 档位 / 金额上下限以中心「站点 → 充值档位」为准；中心不可达时只做最基本的金额校验。
     local: () => ({ minAmountCents: 1, allowCustom: true }),
@@ -145,18 +167,18 @@ export function createCenterPay(o: {
   })
   const hv = o.hvHost ? { host: o.hvHost, ...(o.hvUrl ? { url: o.hvUrl } : {}) } : null
   const redeem: HvRedeem | null = o.hvRedeem ?? (hv ? token => redeemHumanToken(hv, token, 'pay') : null)
-  return new CenterPay(pay, book, redeem)
+  return new CenterPay(pay, book, redeem, log)
 }
 
 /**
  * 运行时 env 齐全（PAY_MODE=center + PAY_CENTER_URL / APP_ID / SECRET）才接中心，否则 null（center 通道下单报「未配置」）。
- * PAY_HV_HOST（可选）= 付款前人机验证绑定的站点域名。onPaid 由 PaymentService 给（它负责落地 + 到账通知）。
+ * PAY_HV_HOST（可选）= 付款前人机验证绑定的站点域名。hooks 由 PaymentService 给（它负责发放 / 退款落地 + 到账通知）。
  */
-export function createCenterPayFromEnv(env: CenterEnv, db: Queryable, onPaid: CenterFulfil, log: (m: string) => void = m => console.warn(m)): CenterPay | null {
+export function createCenterPayFromEnv(env: CenterEnv, db: Queryable, hooks: CenterHooks, log: (m: string) => void = m => console.warn(m)): CenterPay | null {
   const { PAY_MODE, PAY_CENTER_URL: baseUrl, PAY_CENTER_APP_ID: appId, PAY_CENTER_SECRET: secret } = env
   if (PAY_MODE?.trim() !== 'center' || !baseUrl || !appId || !secret) return null
   return createCenterPay({
-    appId, secret, baseUrl, db, onPaid, log, client: createPayClient({ appId, secret, baseUrl }),
+    appId, secret, baseUrl, db, ...hooks, log, client: createPayClient({ appId, secret, baseUrl }),
     ...(env.PAY_HV_HOST ? { hvHost: env.PAY_HV_HOST } : {}), ...(env.PAY_HV_URL ? { hvUrl: env.PAY_HV_URL } : {}),
   })
 }
