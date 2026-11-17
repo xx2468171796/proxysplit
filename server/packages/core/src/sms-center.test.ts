@@ -418,7 +418,8 @@ describe('center mode: reset and bind', () => {
     await sms.send(PHONE, 'bind', ctx())
     await expect(new PhoneAuth(db, { sender: null, production: true }).bindPhone('u1', PHONE, CODE, consume => sms.check(PHONE, 'bind', CODE, consume))).resolves.toEqual({ ok: true })
     expect(center.ops().at(-1)).toBe('ticket.redeem')
-    expect(calls.at(-1)).toContain('UPDATE users SET phone')
+    // 写手机号 + 带上试用领取记录，同一个事务
+    expect(calls.slice(-4).map(s => s.trim().slice(0, 16))).toEqual(['BEGIN', 'UPDATE users SET', 'INSERT INTO tria', 'COMMIT'])
   })
 })
 

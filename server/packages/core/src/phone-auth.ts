@@ -5,6 +5,7 @@ import { createHash, randomInt, timingSafeEqual } from 'node:crypto'
 import { AppError, maskPhone } from '@proxysplit/shared'
 import type { SmsPurpose } from '@proxysplit/contracts'
 import type { Db } from './telemetry-store.js'
+import { carryTrialClaimToPhone } from './trial.js'
 
 export const SMS_TTL_MS = 5 * 60_000
 export const SMS_MAX_ATTEMPTS = 5
@@ -183,6 +184,11 @@ export class PhoneAuth {
     })
     return { ok: true, userId }
   }
+  /** 写手机号；账号领过试用的话，新号同时记成领过（规则在 trial.ts）。 */
+  private async setPhone(c: Tx, userId: string, phone: string) {
+    await c.query('UPDATE users SET phone=$2,updated_at=now() WHERE id=$1', [userId, phone])
+    await carryTrialClaimToPhone(c, userId, phone)
+  }
   /**
    * 已登录用户补绑 / 换绑手机号（换绑要的当前密码在 AuthService.bindPhone 里校验）。
    * 给了 check = 中心模式：只读核码 → 查占用 → 消费 → 写库；不给 = 本地模式（sms_codes 表），行为不变。
@@ -192,7 +198,7 @@ export class PhoneAuth {
       await check(false)
       if (await this.phoneTaken(phone, userId)) throw phoneTakenError()
       await check(true)
-      try { await this.db.query('UPDATE users SET phone=$2,updated_at=now() WHERE id=$1', [userId, phone]) }
+      try { await this.tx(c => this.setPhone(c, userId, phone)) }
       catch (e) { if ((e as { code?: string }).code === '23505') throw phoneTakenError(); throw e }
       return { ok: true }
     }
@@ -201,7 +207,7 @@ export class PhoneAuth {
     try {
       await this.tx(async c => {
         if (!await this.consume(codeId, c)) throw new AppError('SMS_CODE_INVALID', CODE_GONE, 400)
-        await c.query('UPDATE users SET phone=$2,updated_at=now() WHERE id=$1', [userId, phone])
+        await this.setPhone(c, userId, phone)
       })
     } catch (e) {
       if ((e as { code?: string }).code === '23505') throw phoneTakenError()

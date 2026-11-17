@@ -144,3 +144,25 @@ describe('迁移 0026 回填', () => {
     expect(sql).not.toMatch(/DELETE FROM|DROP |UPDATE /i)
   })
 })
+
+// 领过试用的账号换绑一个新手机号：新号也要记成领过，否则拿新号再注册一个账号又能领一次。
+describe('绑定手机号时带上领取记录（bindPhone）', () => {
+  const bind = async () => {
+    const calls: Call[] = []
+    const query = async (sql: string, params: unknown[] = []) => { calls.push({ sql, params }); return { rows: [], rowCount: 1 } }
+    const { PhoneAuth } = await import('./phone-auth.js')
+    const phone = new PhoneAuth({ query, connect: async () => ({ query, release: () => {} }) }, { sender: null, production: true })
+    await phone.bindPhone('u1', '13800138000', '123456', async () => {})
+    return calls
+  }
+  it('改手机号和记领取记录在同一个事务里；只给领过试用的账号记（条件在 SQL 里），重复不报错', async () => {
+    const calls = await bind()
+    const words = calls.map(c => c.sql.trim().split(/\s+/)[0])
+    expect(words.slice(words.indexOf('BEGIN'))).toEqual(['BEGIN', 'UPDATE', 'INSERT', 'COMMIT'])
+    const carry = calls.find(c => c.sql.includes('INSERT INTO trial_identity_claims'))
+    expect(carry?.params).toEqual(['u1', trialIdentity('phone', '13800138000').hash])
+    expect(carry?.sql).toContain('u.trial_started_at IS NOT NULL')
+    expect(carry?.sql).toContain('FROM trial_claims c WHERE c.user_id=u.id')
+    expect(carry?.sql).toContain('ON CONFLICT(identity_hash) DO NOTHING')
+  })
+})

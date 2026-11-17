@@ -90,3 +90,14 @@ export async function assertIpRegistrationBudget(tx: TrialTx, ip: string, max: n
   const r = await tx.query(`SELECT count(*)::int AS n FROM users WHERE registration_ip_hash=$1 AND created_at>now()-interval '${REGISTRATION_WINDOW_HOURS} hours'`, [hash])
   if (Number(r.rows[0]?.n ?? 0) >= max) throw new Error('IP_ACCOUNT_LIMIT')
 }
+
+/**
+ * 账号绑上（或换成）一个新手机号时调，和改手机号同一个事务：这个账号要是已经领过试用，新号也记成领过——
+ * 否则领完换绑一个号，再拿新号注册一个账号又能领一次。没领过的账号什么都不写；重复不报错。
+ */
+export async function carryTrialClaimToPhone(tx: TrialTx, userId: string, phone: string) {
+  await tx.query(`INSERT INTO trial_identity_claims(identity_hash,kind,user_id,claimed_at)
+    SELECT $2,'phone',u.id,COALESCE(u.trial_started_at,(SELECT min(c.claimed_at) FROM trial_claims c WHERE c.user_id=u.id),now())
+    FROM users u WHERE u.id=$1 AND (u.trial_started_at IS NOT NULL OR EXISTS(SELECT 1 FROM trial_claims c WHERE c.user_id=u.id))
+    ON CONFLICT(identity_hash) DO NOTHING`, [userId, trialIdentity('phone', phone).hash])
+}

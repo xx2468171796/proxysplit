@@ -77,7 +77,7 @@ AI 编程官网（aigw）客户不显示作者联系方式（QQ 群 / 微信 / �
 ## 授权与租约
 Ed25519 离线租约绑定账号 / 设备 / 硬件 / 期限；minimumVersion 会进租约 minVersion，别随手调高。
 - 离线授权防调早时钟：lease iat + LastSeenAt 高水位，容差 10 分钟。
-- **试用（2026-11-18 第二轮，规则唯一归属 core `trial.ts`）**：一个核实身份只发一次——短信验证过的手机号、或合作方账号（`user_identities`）；两样都没有的账号（只有邮箱的老注册接口）不发。硬件摘要（客户端自报）领过也不发，只是辅助信号。领取记录 `trial_identity_claims`（迁移 0026，存身份摘要不存手机号，删号不清）+ 原 `trial_claims`（按硬件）。注册发（`registerTrialUser`）和登录补发（`claimTrialOnLogin`）都调 `decideTrial` / `grantTrial`。已发出的试用不受影响，迁移把领过的账号记到它现有的手机号 / 合作方账号上。已知空子：领过后换绑手机号，旧号有记录、新号没有（要两个真手机号才换得到一次）。
+- **试用（2026-11-18 第二轮，规则唯一归属 core `trial.ts`）**：一个核实身份只发一次——短信验证过的手机号、或合作方账号（`user_identities`）；两样都没有的账号（只有邮箱的老注册接口）不发。硬件摘要（客户端自报）领过也不发，只是辅助信号。领取记录 `trial_identity_claims`（迁移 0026，存身份摘要不存手机号，删号不清）+ 原 `trial_claims`（按硬件）。注册发（`registerTrialUser`）和登录补发（`claimTrialOnLogin`）都调 `decideTrial` / `grantTrial`。已发出的试用不受影响，迁移把领过的账号记到它现有的手机号 / 合作方账号上。领过试用的账号换绑手机号时，新号同事务记成领过（`carryTrialClaimToPhone`，由 `PhoneAuth.bindPhone` 调）。
 - **注册来源限额**：同一来源 24 小时内的注册数，官网 `max_accounts_per_ip`（默认 3，以前是永久累计）、客户端 `max_client_accounts_per_ip`（默认 10，新增），后台「设置 → 注册与试用」可改，0 = 不限；两边数的是同一批账号（`users.registration_ip_hash`）。来源键 `trial.ts ipKey`：IPv4 原样、IPv6 取 /64（限流插件本身也按 /64）。超限回 429 `IP_ACCOUNT_LIMIT`。
 - 离线租约仍存在系统时间回拨 / 快照风险（见 known-issues.md）。
 - **吊销只认错误码（2026-11-18 审计，`internal/license/rejection.go`）**：`ACCOUNT_UNAVAILABLE / DEVICE_MISMATCH / REFRESH_INVALID / REFRESH_REPLAY` 才清会话，而且会话和租约一起清（`applyRejectionLocked` 是唯一改状态的入口）；`DEVICE_LIMIT` 只清租约、留会话去解绑；408 / 425 / 429、WAF 或上网认证页（没有本站 JSON 错误码的 4xx）、断网都按临时故障，保留会话与租约走离线宽限。POWER云 那边是另一套协议：只有 OAuth `invalid_grant` 才丢授权（`powervpn.grantRejected`），两处各管各的服务端，不合并。
