@@ -422,6 +422,20 @@ export namespace license {
 	        this.publishedAt = source["publishedAt"];
 	    }
 	}
+	export class Contact {
+	    wechat: string;
+	    brand?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new Contact(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.wechat = source["wechat"];
+	        this.brand = source["brand"];
+	    }
+	}
 	export class Device {
 	    id: string;
 	    name: string;
@@ -563,6 +577,8 @@ export namespace license {
 	    freeDevices: number;
 	    planDevices: number;
 	    phoneBound: boolean;
+	    dealer?: string;
+	    contact?: Contact;
 	    channel: string;
 	    error?: string;
 	
@@ -588,9 +604,29 @@ export namespace license {
 	        this.freeDevices = source["freeDevices"];
 	        this.planDevices = source["planDevices"];
 	        this.phoneBound = source["phoneBound"];
+	        this.dealer = source["dealer"];
+	        this.contact = this.convertValues(source["contact"], Contact);
 	        this.channel = source["channel"];
 	        this.error = source["error"];
 	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 
 }
