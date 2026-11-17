@@ -242,6 +242,9 @@ func (u *Uploader) send(ctx context.Context, meta Meta, group []part) outcome {
 	var events []Event
 	var chunks []LogChunk
 	for _, p := range group {
+		if _, err := os.Stat(p.path); os.IsNotExist(err) {
+			continue // purged since it was read (Purge): must not be uploaded any more
+		}
 		if p.bad {
 			return rejected
 		}

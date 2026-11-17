@@ -4,36 +4,29 @@ import (
 	"context"
 	"os"
 	"path/filepath"
-	"time"
 )
 
-// FlushAndPurge seals the current segment, uploads as much of the spool as it
-// can before ctx ends, then deletes what is left (the reset center's 本地日志
-// 队列). dataDir is used when the recorder is off (dev builds, opted out).
-// Returns how many segments were uploaded and how many were deleted unsent.
-func FlushAndPurge(ctx context.Context, dataDir string) (sent, removed int) {
-	r := active.Load()
-	if r == nil {
-		return 0, purgeDir(filepath.Join(dataDir, "telemetry"))
+// Purge deletes the local log queue — the segment being written, the sealed
+// ones and the quarantined ones — WITHOUT uploading any of it (the reset
+// center's 本地日志队列: clearing means discarding). dataDir is used when the
+// recorder is off (dev builds, opted out). Returns how many files were deleted.
+//
+// A request that is already on the wire cannot be recalled, but a running
+// drain sends nothing further: it skips segments that no longer exist.
+func Purge(dataDir string) (removed int) {
+	if r := active.Load(); r != nil {
+		return r.spool.Purge()
 	}
-	// Wait for the background drain to finish so the Uploader is ours.
-	for !r.uploading.CompareAndSwap(false, true) {
-		select {
-		case <-ctx.Done():
-			return 0, 0
-		case <-time.After(100 * time.Millisecond):
-		}
-	}
-	defer r.uploading.Store(false)
-	_ = r.spool.Seal()
-	segs := r.spool.Segments()
-	sent = r.up.Drain(ctx, segs, len(segs))
-	for _, p := range r.spool.Segments() {
-		if os.Remove(p) == nil {
-			removed++
-		}
-	}
-	return sent, removed
+	return purgeDir(filepath.Join(dataDir, "telemetry"))
+}
+
+// FlushAndPurge is the old name of Purge and no longer uploads anything
+// (sent is always 0).
+//
+// Deprecated: call Purge. Kept only until app_reset.go (owned by another
+// change set) is switched over; delete it in that same change.
+func FlushAndPurge(_ context.Context, dataDir string) (sent, removed int) {
+	return 0, Purge(dataDir)
 }
 
 func purgeDir(dir string) (removed int) {

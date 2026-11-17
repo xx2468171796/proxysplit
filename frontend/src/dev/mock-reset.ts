@@ -42,7 +42,7 @@ const items: Item[] = [
   }),
   it({ id: "windows-dns-cache", group: "cache", title: "Windows 系统 DNS 缓存", effect: "等同 ipconfig /flushdns" }),
   it({ id: "rulesets", group: "cache", title: "规则库重新下载", effect: "从深圳镜像重新同步规则库并校验" }),
-  it({ id: "log-spool", group: "cache", title: "本地日志队列", effect: "先上传待传日志，再清空本机日志队列" }),
+  it({ id: "log-spool", group: "cache", title: "本地日志队列", effect: "清空本机还没上传的运行日志，不会再上传" }),
   it({ id: "sysproxy", group: "network", title: "清理残留系统代理", effect: "关闭 Windows 系统代理" }),
   it({
     id: "strays",

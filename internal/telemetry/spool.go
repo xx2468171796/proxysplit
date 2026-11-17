@@ -135,6 +135,19 @@ func (s *Spool) sealLocked() error {
 	return nil
 }
 
+// Purge drops everything in the spool — the current segment (unsealed), the
+// sealed ones and the quarantined ones — and returns how many files went.
+// The spool stays usable: the next Append opens a fresh segment.
+func (s *Spool) Purge() (removed int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.f != nil {
+		_ = s.f.Close() // buffered records are dropped on purpose
+		s.f, s.w, s.size = nil, nil, 0
+	}
+	return purgeDir(s.dir)
+}
+
 // quarantineKeep is how many rejected segments stay on disk for diagnosis.
 const quarantineKeep = 5
 
