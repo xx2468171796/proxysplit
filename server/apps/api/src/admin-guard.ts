@@ -14,7 +14,10 @@ export type AdminGuardDeps = {
 const superRequired = () => new AppError('SUPER_ADMIN_REQUIRED', '只有超级管理员能操作管理员账号', 403)
 
 export function createAdminGuard(d: AdminGuardDeps) {
-  const names = new Set((d.superAdminUsernames ?? 'admin').split(',').map(s => s.trim().toLowerCase()).filter(Boolean))
+  const parse = (list: string) => list.split(',').map(s => s.trim().toLowerCase()).filter(Boolean)
+  // 没配、配成空串或全是空白 = 默认 admin：名单为空的话没有任何人能管理管理员账号。
+  const configured = parse(d.superAdminUsernames ?? '')
+  const names = new Set(configured.length ? configured : ['admin'])
   const isSuperAdmin = async (p: AdminPrincipal) => {
     if (p.role !== 'admin') return false
     const u = await d.findUser(p.userId)

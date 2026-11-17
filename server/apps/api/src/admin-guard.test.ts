@@ -1,6 +1,7 @@
 // 后台权限闸门：普通管理员动不了管理员账号（含超管），也不能新建管理员。
 import { describe, expect, it, vi } from 'vitest'
 import { buildApp } from './app.js'
+import { createAdminGuard } from './admin-guard.js'
 import type { ApiConfig } from './config.js'
 
 const config: ApiConfig = {
@@ -82,5 +83,18 @@ describe('后台权限：动管理员账号要超级管理员', () => {
     expect((await root.call('POST', '/v1/admin/users', { username: 'newadmin', password, role: 'admin' })).statusCode).toBe(200)
     expect((await root.call('DELETE', `/v1/admin/devices/${ids.device}`)).statusCode).toBe(200)
     await root.app.close()
+  })
+})
+
+describe('超管名单', () => {
+  it('SUPER_ADMIN_USERNAMES 配成空串 / 全是空白：按默认的 admin（否则没有任何人能管理管理员账号）', async () => {
+    for (const value of ['', ' , ']) {
+      const guard = createAdminGuard({ findUser: async id => users[id] ?? null, superAdminUsernames: value })
+      expect(await guard.isSuperAdmin({ userId: ids.root, role: 'admin' })).toBe(true)
+      expect(await guard.isSuperAdmin({ userId: ids.staff, role: 'admin' })).toBe(false)
+    }
+    const custom = createAdminGuard({ findUser: async id => users[id] ?? null, superAdminUsernames: 'Ops, boss' })
+    expect(await custom.isSuperAdmin({ userId: ids.otherAdmin, role: 'admin' })).toBe(true)
+    expect(await custom.isSuperAdmin({ userId: ids.root, role: 'admin' })).toBe(false)
   })
 })
