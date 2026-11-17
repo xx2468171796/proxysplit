@@ -125,7 +125,8 @@ const SHARES_WITH_BUYER=`((b.registration_ip_hash<>'' AND s.registration_ip_hash
 /**
  * 付款发货时记一行分成（与发货同事务，保存点隔离：出错只记日志，绝不挡客户的发货）。分成记不记、记成什么状态只在这里定：
  * - 买家没有归属代理商、或实付为 0：不记。
- * - 代理商已停用（dealers.enabled=false）：不记——停用之后的新订单不再给他分成（停用前已记的流水不动）。
+ * - 代理商是停用状态（dealers.enabled=false）：照记，但记成 review（待复核）。enabled 是 aigw 接口的缓存，对面一次 404 就会翻成停用，
+ *   直接不记的话真分成会悄悄丢；该不该给由后台复核时定（确实停用了就作废）。
  * - 买家与代理商本人的账号（dealers.owner_user_ids）同设备 / 同注册来源，或 30 天内与该代理商另外 ≥3 个付费客户
  *   同设备 / 同注册来源：记成 review（待复核），不进应付，后台复核通过才变 pending。
  * - 其余：pending（待结算）。
@@ -142,7 +143,7 @@ export async function recordDealerCommissionInTx(client:Db,orderId:string){
         FROM orders o WHERE o.id=$1) x
       JOIN users u ON u.id=x.user_id AND u.dealer<>''
       JOIN dealers d ON d.slug=u.dealer`,[orderId])).rows[0] as {userId:string;ref:string;gross:number;slug:string;enabled:boolean;bps:number;owners:string[]|null}|undefined
-    if(o&&o.gross>0&&o.enabled){
+    if(o&&o.gross>0){
       const owners=o.owners??[]
       const s=(await client.query(`SELECT
           ($3::uuid[] @> ARRAY[b.id] OR EXISTS(SELECT 1 FROM users s WHERE s.id=ANY($3::uuid[]) AND ${SHARES_WITH_BUYER})) AS own,
@@ -150,7 +151,8 @@ export async function recordDealerCommissionInTx(client:Db,orderId:string){
             WHERE c.dealer_slug=$2 AND c.user_id<>b.id AND c.status<>'void' AND c.created_at>now()-interval '${DEALER_REVIEW_WINDOW_DAYS} days' AND ${SHARES_WITH_BUYER}) AS cluster
         FROM users b WHERE b.id=$1`,[o.userId,o.slug,owners])).rows[0] as {own:boolean;cluster:number}|undefined
       const cluster=Number(s?.cluster??0)
-      const why=s?.own?'待复核：与代理商本人的账号同设备或同注册来源'
+      const why=!o.enabled?'待复核：下单时代理商是停用状态'
+        :s?.own?'待复核：与代理商本人的账号同设备或同注册来源'
         :cluster>=DEALER_REVIEW_CLUSTER?`待复核：${DEALER_REVIEW_WINDOW_DAYS} 天内与该代理商另外 ${cluster} 个付费客户同设备或同注册来源`:''
       await client.query(`INSERT INTO dealer_commissions(dealer_slug,user_id,source,gross_cents,bps,commission_cents,status,note)
         VALUES($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT (source) DO NOTHING`,

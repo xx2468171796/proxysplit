@@ -59,7 +59,7 @@ export function CommissionsTab({ dealer, onDealerChange }: { dealer: string; onD
   return (
     <>
       <ResourcePanel title="分成流水" {...list.panel} unit="笔"
-        description="每笔已付订单（拆单按整组）一行，比例是下单时的快照；退款自动作废。买家与代理商本人、或与该代理商多个客户同设备 / 同注册来源的记成「待复核」，复核通过才进应付。合计行是筛选结果里待结算的分成（应付），其余状态另列。"
+        description="每笔已付订单（拆单按整组）一行，比例是下单时的快照；退款自动作废。代理商是停用状态、买家与代理商本人或与该代理商多个客户同设备 / 同注册来源的，记成「待复核」，复核通过才进应付。合计行是筛选结果里待结算的分成（应付），其余状态另列。"
         filters={
           <QueryBar {...list.queryBar} placeholder="搜索（暂不支持，按右侧筛选）">
             <Input size="sm" aria-label="代理商标识" placeholder="代理商标识，如 wen" value={dealer}

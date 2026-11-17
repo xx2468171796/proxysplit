@@ -82,11 +82,11 @@ describe('分成入账（recordDealerCommissionInTx）', () => {
       expect(calls.at(-1)?.text).toBe('RELEASE SAVEPOINT dealer_commission')
     }
   })
-  // 以前 SQL 里没看 enabled：停用的代理商照样记分成。
-  it('代理商已停用：新订单不记分成', async () => {
+  // dealers.enabled 是 aigw 接口的缓存，对面一次 404 就会翻成停用：直接不记的话真分成会悄悄丢，所以记成待复核、让后台定。
+  it('代理商是停用状态：照记一行，但进待复核（不进应付），备注写明原因', async () => {
     const { db, calls } = ledger({ ...order, enabled: false })
     await recordDealerCommissionInTx(db, 'order-1')
-    expect(inserted(calls)).toBeUndefined()
+    expect(inserted(calls)?.params).toEqual(['wen', 'buyer', 'order-1', 9900, 3000, 2970, 'review', '待复核：下单时代理商是停用状态'])
   })
   it('买家与代理商本人的账号同设备 / 同注册来源：记成待复核（不进应付）', async () => {
     const { db, calls } = ledger(order, { own: true, cluster: 0 })

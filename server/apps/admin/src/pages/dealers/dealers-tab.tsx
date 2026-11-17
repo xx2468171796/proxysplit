@@ -38,7 +38,7 @@ export function DealersTab({ onOpenLedger }: { onOpenLedger: (slug: string) => v
   return (
     <>
       <ResourcePanel title="代理商" {...list.panel} unit="个"
-        description="代理商资料从 AI 中转站拉取（最多 10 分钟一次）；分成比例只在这里设，改了只影响之后的订单。停用的代理商，新订单不再记分成。">
+        description="代理商资料从 AI 中转站拉取（最多 10 分钟一次）；分成比例只在这里设，改了只影响之后的订单。代理商是停用状态时，新订单的分成进「待复核」。">
         <DataTable caption="代理商" columns={columns} rowKey={(d) => d.slug} {...list.table} />
       </ResourcePanel>
       {edit && <BpsDialog dealer={edit} onClose={() => setEdit(null)} onDone={list.refresh} />}
