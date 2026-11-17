@@ -1,17 +1,30 @@
 package license
 
-import "sync"
-
-var (
-	machineOnce sync.Once
-	machineVal  string
+import (
+	"path/filepath"
+	"sync"
 )
 
-// MachineID returns the stable machine identifier also used for the ProxySplit
-// device fingerprint (cached; the Windows implementation shells out to CIM).
-// Shared with internal/powervpn so the POWER云 device ID uses the same identity.
+var (
+	machineOnce  sync.Once
+	machineVal   string
+	machineStore string // sealed component store; "" = not stored
+)
+
+// UseMachineStore sets the data dir in which the machine identity is stored
+// (machine_store.go). It must run before the first MachineID call; New does it.
+func UseMachineStore(dataDir string) {
+	if dataDir != "" {
+		machineStore = filepath.Join(dataDir, machineStoreFile)
+	}
+}
+
+// MachineID returns the stable machine identifier used for the ProxySplit
+// device fingerprint: computed once, stored in the data dir, reused on every
+// later start (cached for the process). Shared with internal/powervpn so the
+// POWER云 device ID is the same identity and just as stable.
 func MachineID() string {
-	machineOnce.Do(func() { machineVal = machineID() })
+	machineOnce.Do(func() { machineVal = resolveMachineID(machineStore, platformMachineProbe()) })
 	return machineVal
 }
 

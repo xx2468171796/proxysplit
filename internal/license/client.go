@@ -228,6 +228,7 @@ func (e *APIError) Error() string { return e.Message }
 
 func New(dataDir, version string) *Client {
 	host, _ := os.Hostname()
+	UseMachineStore(dataDir)
 	machine := MachineID()
 	if machine == "" {
 		machine = host
