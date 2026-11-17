@@ -8,7 +8,8 @@
 //	 sections:{nodes, subscriptions, rules, proxyPorts, settings}}
 //
 // A bundle never contains the login session (license.dat lives elsewhere),
-// device fingerprints, core caches, logs, the local AI-control API token, or
+// device fingerprints, core caches, logs, the local AI-control API token, LAN
+// exposure (LAN share / port-proxy LAN switch and credentials, foreign.go), or
 // POWER云 official lines / the POWER云 profile subscription: those belong to
 // the signed-in account and this machine, not to the config.
 package configsync
@@ -173,6 +174,13 @@ func sectionsOf(cfg obj) (map[string]json.RawMessage, error) {
 		}
 		parts[sec] = part
 	}
+	// LAN exposure and its credentials stay on this machine (foreign.go).
+	if v, ok := parts[SecSettings]["settings"]; ok {
+		parts[SecSettings]["settings"] = portableSettings(v)
+	}
+	if v, ok := parts[SecProxyPorts]["proxyPorts"]; ok {
+		parts[SecProxyPorts]["proxyPorts"] = portablePorts(v)
+	}
 	out := make(map[string]json.RawMessage, len(parts))
 	for sec, part := range parts {
 		raw, err := json.Marshal(part)
@@ -267,6 +275,18 @@ func (b Bundle) Hash() string {
 			for _, s := range list(m["subs"]) {
 				delete(s, "lastUpdate")
 				delete(s, "nodeCount")
+			}
+		}
+		// Copies written by clients up to v1.12.5 still carry the machine-local
+		// LAN keys: the same portable content must hash the same.
+		if m, ok := v.(obj); ok && sec == SecSettings {
+			if set, has := m["settings"]; has {
+				m["settings"] = portableSettings(set)
+			}
+		}
+		if m, ok := v.(obj); ok && sec == SecProxyPorts {
+			if ports, has := m["proxyPorts"]; has {
+				m["proxyPorts"] = portablePorts(ports)
 			}
 		}
 		canon, _ := json.Marshal(v) // map keys are sorted: canonical
