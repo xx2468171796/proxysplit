@@ -121,6 +121,21 @@ func (s *Service) startCapture(opts core.Options) error {
 	if opts.Process == nil {
 		return nil
 	}
+	return s.startCaptureRoutes(core.ProcessRoutes(opts))
+}
+
+// openCaptureEngine is the real engine start (tests replace s.capStart).
+func openCaptureEngine(opts capture.Options, routes *capture.Routes) (captureEngine, error) {
+	eng, err := capture.Start(opts, routes)
+	if err != nil {
+		return nil, err
+	}
+	return eng, nil
+}
+
+// startCaptureRoutes opens a capture engine for routes and makes it the
+// service's engine; its watchdog reports to onCaptureFail.
+func (s *Service) startCaptureRoutes(routes *capture.Routes) error {
 	// Every core we run shares these two binaries: the main / 端口代理 / probe
 	// sing-box and every xray sidecar (main, per port, latency probe) run from
 	// binDir, so excluding by image path covers all of them. Capturing them in
@@ -129,21 +144,32 @@ func (s *Service) startCapture(opts core.Options) error {
 	if p := s.portProcessPath(); p != "" {
 		exclude = append(exclude, p)
 	}
-	if !coreupdate.WinDivertReady(s.binDir) {
+	if !s.winDivertReady() {
 		// Never download under lifecycleMu: Start / SetSettings fetch it first.
 		s.prefetchWinDivert()
 		return fmt.Errorf("仅接管选中程序需要的驱动还没下载好，正在后台下载，请稍后再启动（或在设置里改回「整机虚拟网卡」）")
 	}
-	eng, err := capture.Start(capture.Options{
+	s.mu.Lock()
+	s.health.capGen++
+	gen := s.health.capGen
+	start := s.capStart
+	s.mu.Unlock()
+	if start == nil {
+		start = openCaptureEngine
+	}
+	eng, err := start(capture.Options{
 		DLLPath: filepath.Join(s.binDir, "WinDivert.dll"),
 		Exclude: exclude,
 		Log:     s.log, // the watchdog's stall message lands in the log as well
-	}, core.ProcessRoutes(opts))
+		OnFail:  func(msg string) { s.onCaptureFail(gen, msg) },
+	}, routes)
 	if err != nil {
 		return fmt.Errorf("仅接管选中程序启动失败（可在设置里改回「整机虚拟网卡」）: %w", err)
 	}
 	s.mu.Lock()
 	s.capEng = eng
+	s.health.capture = CaptureOK
+	s.health.capRoutes = routes
 	s.mu.Unlock()
 	return nil
 }
@@ -195,11 +221,18 @@ func (s *Service) ensureWinDivertUnlocked() {
 
 // updateCaptureRoutes applies a hot app-list change to the running engine.
 func (s *Service) updateCaptureRoutes(opts core.Options) {
+	if opts.Process == nil {
+		return
+	}
+	routes := core.ProcessRoutes(opts)
 	s.mu.Lock()
 	eng := s.capEng
+	if eng != nil {
+		s.health.capRoutes = routes
+	}
 	s.mu.Unlock()
-	if eng != nil && opts.Process != nil {
-		eng.SetRoutes(core.ProcessRoutes(opts))
+	if eng != nil {
+		eng.SetRoutes(routes)
 	}
 }
 
@@ -208,6 +241,7 @@ func (s *Service) stopCapture() {
 	s.mu.Lock()
 	eng := s.capEng
 	s.capEng = nil
+	s.health.capture = ""
 	s.mu.Unlock()
 	if eng != nil {
 		eng.Stop()

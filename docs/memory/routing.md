@@ -46,7 +46,7 @@ SelectNode / RemoveNode / SetRouting / SetSettings / SetLogLevel 返回重启错
 - SOCKET 层 sniff 句柄记录 本地端口 → PID（connect / bind / close 事件），没赶上时探测循环不等：把 SYN / DNS 复制进待定队列（512 条，满了直接放行），resolveLoop 到达后最多等 2 ms 再查 GetExtendedTcp/UdpTable（探测循环里不 sleep）；PID → exe 路径缓存一分钟，按 capture.Routes 判定（自家内核排除 > 拦截 > 有按目标规则的应用 > 直连 > 分组 > 默认线路）。
 - 自家内核排除（2026-10-27 审查 BLOCKER）：binDir 下的 sing-box.exe 和 xray.exe（主 / 端口代理 / 测速的 xray 旁路都跑这同一个文件）按完整路径永不接管；TUN 规则里的 process_path → direct（端口代理内核、XrayPath）由 core.processPathDirect 转成 Routes.Exclude，否则默认全走代理时 xray 的上游被接管回 sing-box 形成回环。测试 TestProcessRoutesExcludeProcessPathRules 守住「TUN 树里每条 process_path 都被排除」。
 - 数据句柄的过滤器只列被接管连接的本地端口（连续端口合成区间）；变更按 25 ms 批量合并成一次换句柄（先开新句柄再 ShutdownRecv 旧句柄排空），被接管的 SYN 拿一份副本等覆盖它的那次换句柄后才放行，避免握手后的 ACK 漏到原目标被 RST。端口比较项上限 FilterBudget=200（WinDivert 过滤器最多 256 个对象），超了就把间隔最小的区间合并——多盖进来的别的程序的少数端口进用户态查表后原样放回，绝不退回「全部出站流量」。
-- 看门狗：每个正在处理的包 / 被扣住的 SYN、DNS 都记开始时间，任何一个超过 3 秒就判定卡死：立即 Shutdown 全部句柄（流量直接放行=直连），日志提示「…请在设置里改用「整机虚拟网卡」」，再后台 Stop。
+- 看门狗：每个正在处理的包 / 被扣住的 SYN、DNS 都记开始时间，任何一个超过 3 秒就判定卡死：立即 Shutdown 全部句柄（流量直接放行=直连），日志提示「…请在设置里改用「整机虚拟网卡」」，再后台 Stop。引擎通过 Options.OnFail 通知 service（service/runhealth.go onCaptureFail）：自动重启一次引擎；重启失败、或重启后 10 分钟内又卡死，就停掉整个代理并记下原因（Status.stopReason + RunEvent「capture-failed」），不会再出现「内核在跑、界面显示运行中、实际没接管」。Status.engineRunning 在此模式下要求引擎也在。
 - UDP 登记带 PID，端口换了主人（漏了 close 事件）就作废；TCP 数据包核对原目标 IP 和端口。连接表只放 TCP、UDP 另有表，所以按本地端口做键不会跨协议串。
 - TCP：SYN 及后续包改写成 127.0.0.1→127.0.0.1:中转端口（保留源端口作连接表键），中转 accept 后按表查原目标，SOCKS5 CONNECT 原 IP:端口 到该组的 sing-box mixed 入站（sing-box 嗅探出域名再走原规则）；中转回包改回「原目标 → 应用」从原网卡注入。
 - UDP：按 bind 事件登记端口；数据报用 SOCKS5 UDP ASSOCIATE 交给组入站，回包在 Go 里拼 IPv4/UDP 注入。DNS（53）同样走组入站，由 sing-box 的 sniff + hijack-dns 应答。QUIC 仍由配置里的 quicRules 拒绝（BlockQUIC）。

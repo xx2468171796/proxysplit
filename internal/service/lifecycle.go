@@ -1,6 +1,7 @@
 package service
 
 import (
+	"cmp"
 	"fmt"
 	"path/filepath"
 	"sort"
@@ -23,6 +24,12 @@ type Status struct {
 	Stats         Stats  `json:"stats"`
 	// CaptureNote: 仅接管选中程序 could not load its driver, so the TUN is in use.
 	CaptureNote string `json:"captureNote,omitempty"`
+	// RunState is the service's own view (runhealth.go): stopped | running.
+	RunState string `json:"runState"`
+	// StopReason: why the proxy stopped by itself (until the next start / stop).
+	StopReason string `json:"stopReason,omitempty"`
+	// CaptureState of 仅接管选中程序: ok | restarting ("" = TUN capture / stopped).
+	CaptureState string `json:"captureState,omitempty"`
 }
 
 // applyLive re-applies a rule/line change to the running core. In the
@@ -291,6 +298,7 @@ func (s *Service) stopLocked() {
 	s.activeFP = nil
 	s.run = nil
 	s.trafficStats = Stats{}
+	s.health.phase, s.health.stopReason = RunStopped, ""
 	clearSysProxy := s.sysProxyOn
 	s.mu.Unlock()
 	s.stopCapture() // before the core: captured apps must not hit dead inbounds
@@ -309,6 +317,13 @@ func (s *Service) stopLocked() {
 	s.log("[service] stopped")
 }
 
+// engineUp reports whether traffic is actually being taken: the core alone in
+// TUN capture; in 仅接管选中程序 the capture engine must be alive as well (a
+// core without it proxies nothing).
+func engineUp(coreRunning, processCapture, engine bool) bool {
+	return coreRunning && (!processCapture || engine)
+}
+
 // Status returns a UI snapshot.
 func (s *Service) Status() Status {
 	s.mu.Lock()
@@ -319,6 +334,8 @@ func (s *Service) Status() Status {
 	clashPort := s.clashPort
 	clashSecret := s.clashSecret
 	stats := s.trafficStats
+	health := s.health
+	processCapture, engine := s.run != nil && s.run.procPorts != nil, s.capEng != nil
 	s.mu.Unlock()
 
 	running := s.core.Running()
@@ -327,7 +344,10 @@ func (s *Service) Status() Status {
 		CorePort:      s.core.Port(),
 		SelectedID:    sel,
 		RuleMode:      mode,
-		EngineRunning: running,
+		EngineRunning: engineUp(running, processCapture, engine),
+		RunState:      cmp.Or(health.phase, RunStopped),
+		StopReason:    health.stopReason,
+		CaptureState:  health.capture,
 	}
 	if note, _ := s.wdNote.Load().(string); running && note != "" {
 		st.CaptureNote = note

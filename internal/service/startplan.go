@@ -166,6 +166,7 @@ func (s *Service) launch(p *startPlan) error {
 	}
 	s.accelOut = p.opts.AccelOutbound
 	s.noteAIGuardStartedLocked(&p.opts)
+	s.health.phase, s.health.stopReason = RunRunning, ""
 	s.mu.Unlock()
 
 	s.applySystemProxyOnStart()
