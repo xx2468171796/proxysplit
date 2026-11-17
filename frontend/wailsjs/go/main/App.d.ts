@@ -194,6 +194,8 @@ export function RefreshEntitlement():Promise<string>;
 
 export function RefreshPowerVPN():Promise<string>;
 
+export function RegenerateAIControlToken():Promise<main.AIControlInfo>;
+
 export function Register(arg1:string,arg2:string,arg3:string,arg4:string):Promise<string>;
 
 export function RegisterPhone(arg1:string,arg2:string,arg3:string,arg4:string,arg5:string):Promise<string>;

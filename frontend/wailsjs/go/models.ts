@@ -473,6 +473,7 @@ export namespace license {
 	    createdAt: string;
 	    splitIndex: number;
 	    splitTotal: number;
+	    groupId: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new Order(source);
@@ -492,6 +493,7 @@ export namespace license {
 	        this.createdAt = source["createdAt"];
 	        this.splitIndex = source["splitIndex"];
 	        this.splitTotal = source["splitTotal"];
+	        this.groupId = source["groupId"];
 	    }
 	}
 	export class Plan {
@@ -2342,6 +2344,9 @@ export namespace service {
 	    uptimeSec: number;
 	    stats: Stats;
 	    captureNote?: string;
+	    runState: string;
+	    stopReason?: string;
+	    captureState?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new Status(source);
@@ -2358,6 +2363,9 @@ export namespace service {
 	        this.uptimeSec = source["uptimeSec"];
 	        this.stats = this.convertValues(source["stats"], Stats);
 	        this.captureNote = source["captureNote"];
+	        this.runState = source["runState"];
+	        this.stopReason = source["stopReason"];
+	        this.captureState = source["captureState"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
