@@ -40,7 +40,7 @@ export function ConfirmImport(arg1:Array<string>):Promise<string>;
 
 export function CopyToClipboard(arg1:string):Promise<string>;
 
-export function CreateMembershipOrder(arg1:string):Promise<main.OrderResult>;
+export function CreateMembershipOrder(arg1:string,arg2:string):Promise<main.OrderResult>;
 
 export function DeleteConfigProfile(arg1:string,arg2:string):Promise<string>;
 

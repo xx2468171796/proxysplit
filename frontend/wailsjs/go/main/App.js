@@ -58,8 +58,8 @@ export function CopyToClipboard(arg1) {
   return window['go']['main']['App']['CopyToClipboard'](arg1);
 }
 
-export function CreateMembershipOrder(arg1) {
-  return window['go']['main']['App']['CreateMembershipOrder'](arg1);
+export function CreateMembershipOrder(arg1, arg2) {
+  return window['go']['main']['App']['CreateMembershipOrder'](arg1, arg2);
 }
 
 export function DeleteConfigProfile(arg1, arg2) {

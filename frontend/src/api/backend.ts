@@ -50,7 +50,13 @@ const arr = <T>(v: T[] | null | undefined): T[] => v ?? [];
 // 生成的绑定参数是带 convertValues 的类；界面传纯对象，在边界处转一次。
 const asArg = <T>(v: unknown): T => v as T;
 
-export type OrderCreated = { order?: MemberOrder; orders: MemberOrder[]; split: boolean; err?: string };
+export type OrderCreated = {
+  order?: MemberOrder;
+  orders: MemberOrder[];
+  split: boolean;
+  err?: string;
+  errCode?: string;
+};
 export type QrResult = { data: string; err: string };
 export type NodeShareResult = { link: string; qr: string; err: string };
 export type SpeedResult = { mbps: number; err: string };
@@ -212,9 +218,16 @@ export const api = {
   announcements: async () => listOf<Announcement>(await W.GetAnnouncements()),
   unbindDevice: (id: string) => W.UnbindMyDevice(id),
   activateCurrentDevice: () => W.ActivateCurrentDevice(),
-  createOrder: async (planId: string): Promise<OrderCreated> => {
-    const r = await W.CreateMembershipOrder(planId);
-    return { order: r?.order, orders: arr(r?.orders), split: !!r?.split, err: r?.err || undefined };
+  /** hvToken = 付款前人机验证的一次性凭证（state/pay-verify），没有就传空串。 */
+  createOrder: async (planId: string, hvToken = ""): Promise<OrderCreated> => {
+    const r = await W.CreateMembershipOrder(planId, hvToken);
+    return {
+      order: r?.order,
+      orders: arr(r?.orders),
+      split: !!r?.split,
+      err: r?.err || undefined,
+      errCode: r?.errCode || undefined,
+    };
   },
   paymentQR: (payUrl: string) => W.GetPaymentQR(payUrl) as Promise<QrResult>,
   openPaymentURL: (url: string) => W.OpenPaymentURL(url),

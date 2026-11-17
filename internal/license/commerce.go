@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strings"
 	"time"
 )
 
@@ -141,12 +142,18 @@ func (c *Client) Orders() ([]Order, error) {
 	return result.Items, nil
 }
 
-func (c *Client) CreateOrder(planID string) (Checkout, error) {
+// CreateOrder places a membership order. hvToken is the one-time pay-time
+// human-verification token (LcVerify action=pay); empty = not sent.
+func (c *Client) CreateOrder(planID, hvToken string) (Checkout, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	var result Checkout
 	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
 	defer cancel()
-	err := c.authedRequestLocked(ctx, http.MethodPost, "/v1/orders", map[string]string{"planId": planID}, &result)
+	body := map[string]string{"planId": planID}
+	if hvToken = strings.TrimSpace(hvToken); hvToken != "" {
+		body["hvToken"] = hvToken
+	}
+	err := c.authedRequestLocked(ctx, http.MethodPost, "/v1/orders", body, &result)
 	return result, err
 }

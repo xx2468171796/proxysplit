@@ -6,6 +6,7 @@ import { createHash } from 'node:crypto'
 import { AppError } from '@proxysplit/shared'
 import { createPayClient } from './vendor/zhifu/center/client.js'
 import { createSitePay, type CenterSideOptions, type SitePayEnv } from './vendor/zhifu/site/index.js'
+import { redeemHumanToken, type HumanVerdict } from './vendor/zhifu/site/human-verify.js'
 import type { PaidEvent, SiteCreateResult, SitePay, SitePayFailCode } from './vendor/zhifu/site/types.js'
 import { localOrderNoOf, pgCenterDedupe, pgCenterOrderBook, type Queryable } from './pay-center-book.js'
 
@@ -13,7 +14,11 @@ import { localOrderNoOf, pgCenterDedupe, pgCenterOrderBook, type Queryable } fro
 export type CenterPayContext = {
   username?: string; nickname?: string | null; phone?: string | null; clientIp?: string;
   userAgent?: string; deviceFingerprint?: string | null; accountCreatedAt?: Date | string | null;
+  /** 付款前人机验证（LcVerify action=pay）的一次性凭证；由 SDK 的 redeemHumanToken 兑换，本站不自己判。 */
+  hvToken?: string;
 }
+/** 兑换一次凭证：SDK redeemHumanToken（生产）或测试替身。 */
+export type HvRedeem = (token: string) => Promise<HumanVerdict>
 export type CenterLocalOrder = { orderNo: string; userId: string; amountCents: number }
 export type CenterOrderLink = { siteOrderNo: string; payUrl: string; checkoutUrl: string | null; expireAt: string; localOrderNo: string }
 export type CenterOrderState = { status: 'pending' | 'paid' | 'expired' | 'cancelled'; siteOrderNo: string } | null
@@ -24,7 +29,7 @@ const REFUSALS: Record<SitePayFailCode, [number, string]> = {
   COOLDOWN: [429, '下单太频繁，请稍后再试'],
   QUEUE_FULL: [429, '当前付款人数较多，请稍后再试'],
   QUEUED: [429, '当前付款人数较多，正在排队，请稍后再点购买'],
-  CHALLENGE_REQUIRED: [403, '有未支付的订单，请稍后再试或联系客服'],
+  CHALLENGE_REQUIRED: [403, '请先完成安全验证再购买（旧版客户端请先升级）'],
   PAY_BANNED: [403, '付款功能已暂停，请联系客服'],
   AMOUNT_INVALID: [400, '订单金额不在可支付范围内，请联系客服'],
   COLLECTION_OFF: [503, '充值通道维护中，请稍后再试或联系客服'],
@@ -42,12 +47,23 @@ export function centerRefusal(code: SitePayFailCode, message: string | undefined
 export type CenterFulfil = (e: PaidEvent, localOrderNo: string) => Promise<void>
 
 export class CenterPay {
-  constructor(private pay: SitePay, private book: CenterBook) {}
+  constructor(private pay: SitePay, private book: CenterBook, private redeem: HvRedeem | null = null) {}
 
-  /** 中心下单；本地订单号作 requestId → 同一本地单重试得到同一中心单号（中心按单号幂等）。 */
-  async create(order: CenterLocalOrder, ctx: CenterPayContext, onOpen: 'ask' | 'cancel' = 'ask'): Promise<CenterOrderLink> {
+  /**
+   * 中心下单；本地订单号作 requestId → 同一本地单重试得到同一中心单号（中心按单号幂等）。
+   * hvToken 在这里兑换一次（SDK redeemHumanToken，语义与 SDK withHuman 相同：bad = 不声明通过，交中心拒；
+   * ok / 验证服务不可达 = 通过）。不交给 SDK 每次下单各兑一次，是因为凭证一次性：OPEN_ORDER 后自动「取消后重下」
+   * 的第二次下单再兑就成 bad，玩家会卡在「验证 → 下单 → 再要验证」的死循环。未配 PAY_HV_HOST（redeem=null）= 忽略凭证。
+   */
+  async create(order: CenterLocalOrder, ctx: CenterPayContext): Promise<CenterOrderLink> {
+    const passed = !!ctx.hvToken && !!this.redeem && (await this.redeem(ctx.hvToken)) !== 'bad'
+    return this.place(order, ctx, passed, 'ask')
+  }
+
+  private async place(order: CenterLocalOrder, ctx: CenterPayContext, passed: boolean, onOpen: 'ask' | 'cancel'): Promise<CenterOrderLink> {
     const r: SiteCreateResult = await this.pay.createOrder({
       userId: order.userId, amountCents: order.amountCents, meta: { orderNo: order.orderNo }, requestId: order.orderNo, onOpen,
+      ...(passed ? { challengePassed: true } : {}),
       ...(ctx.username ? { username: ctx.username } : {}), ...(ctx.nickname ? { nickname: ctx.nickname } : {}),
       ...(ctx.phone ? { phone: ctx.phone, phoneVerified: true } : {}), ...(ctx.clientIp ? { clientIp: ctx.clientIp } : {}),
       ...(ctx.userAgent ? { userAgent: ctx.userAgent } : {}), ...(ctx.deviceFingerprint ? { deviceFingerprint: ctx.deviceFingerprint } : {}),
@@ -55,7 +71,7 @@ export class CenterPay {
     })
     if (!r.ok) {
       // 本站自己的另一笔未付单（换了套餐又点购买）= 玩家要的就是「取消后重新下单」。
-      if (r.code === 'OPEN_ORDER' && r.open?.sameSite && onOpen === 'ask') return this.create(order, ctx, 'cancel')
+      if (r.code === 'OPEN_ORDER' && r.open?.sameSite && onOpen === 'ask') return this.place(order, ctx, passed, 'cancel')
       throw centerRefusal(r.code, r.message)
     }
     // 中心把玩家同金额的旧未付单还回来（reused）：交回那笔本地订单。
@@ -92,7 +108,7 @@ type SiteClient = CenterSideOptions['client']
 /** 组装 CenterPay（生产走 createCenterPayFromEnv；测试直接给 createMockCenter().client）。 */
 export function createCenterPay(o: {
   appId: string; secret: string; client: SiteClient; db: Queryable; onPaid: CenterFulfil;
-  baseUrl?: string; hvHost?: string; hvUrl?: string; log?: (m: string) => void;
+  baseUrl?: string; hvHost?: string; hvUrl?: string; log?: (m: string) => void; hvRedeem?: HvRedeem;
 }): CenterPay {
   const book = pgCenterOrderBook(o.db)
   const log = o.log ?? (m => console.warn(m))
@@ -101,7 +117,6 @@ export function createCenterPay(o: {
     center: {
       appId: o.appId, secret: o.secret, client: o.client, book, dedupe: pgCenterDedupe(o.db), orderPrefix: 'P', snapshotFile: null,
       ...(o.baseUrl ? { baseUrl: o.baseUrl } : {}),
-      ...(o.hvHost ? { humanVerify: { host: o.hvHost, ...(o.hvUrl ? { url: o.hvUrl } : {}) } } : {}),
     },
     // 档位 / 金额上下限以中心「站点 → 充值档位」为准；中心不可达时只做最基本的金额校验。
     local: () => ({ minAmountCents: 1, allowCustom: true }),
@@ -112,7 +127,9 @@ export function createCenterPay(o: {
       await o.onPaid(e, localOrderNo)
     },
   })
-  return new CenterPay(pay, book)
+  const hv = o.hvHost ? { host: o.hvHost, ...(o.hvUrl ? { url: o.hvUrl } : {}) } : null
+  const redeem: HvRedeem | null = o.hvRedeem ?? (hv ? token => redeemHumanToken(hv, token, 'pay') : null)
+  return new CenterPay(pay, book, redeem)
 }
 
 /**

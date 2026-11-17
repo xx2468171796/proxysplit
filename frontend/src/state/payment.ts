@@ -4,6 +4,7 @@ import { api } from "../api/backend";
 import type { MemberOrder, MemberPlan } from "../api/types";
 import { createStore } from "../shared/store";
 import { license, loadCommerce, refreshLicense } from "./account";
+import { placeVerifiedOrder } from "./pay-verify";
 
 export type PaymentState = {
   order: MemberOrder | null;
@@ -56,7 +57,9 @@ export async function buyPlan(plan: MemberPlan): Promise<void> {
   payment.set({ busy: true });
   license.set({ error: "" });
   try {
-    const r = await api.createOrder(plan.id);
+    // 支付中心要求每笔订单先过人机验证：先弹验证，取消就不下单。
+    const r = await placeVerifiedOrder((hvToken) => api.createOrder(plan.id, hvToken));
+    if (!r) return;
     if (r.err) return fail(r.err);
     const split = r.split && r.orders.length > 1 ? r.orders : [];
     payment.set({ split, splitIdx: 0 });

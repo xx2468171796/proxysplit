@@ -853,6 +853,7 @@ export namespace main {
 	    orders: license.Order[];
 	    order: license.Order;
 	    err?: string;
+	    errCode?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new OrderResult(source);
@@ -865,6 +866,7 @@ export namespace main {
 	        this.orders = this.convertValues(source["orders"], license.Order);
 	        this.order = this.convertValues(source["order"], license.Order);
 	        this.err = source["err"];
+	        this.errCode = source["errCode"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

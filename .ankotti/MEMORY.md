@@ -8,6 +8,7 @@
 - **下一步**：公司统一服务接入第 2 期 zhanghao 账号（设计 docs/plan-2026-10-29-zhanghao.md），之后 huiyuan 跨站会员；日志详细化（net.conn_summary 连接成败汇总，业主 2026-10-28 要求，方便版本迭代排查）；有真实 IPv6 的电脑仍待实测（claude00002 是现成用户）；socks5 链式前置代理待业主决定；macOS 版：分支 feat/macos 已移植（Apple 芯片，构建机 xuan-macbook-air，见 docs/memory/macos.md），待 root 实测与随版本发布；不买 Apple 开发者账号（ad-hoc 签名）。发版前用正式下载包跑 alonehome2 自检，查别的会话未合并分支，测试机经 coord 轮流用。
 
 - **统一支付中心**：已把会员收款改走 zhifu-service（迁移 0022 设 zhifu-center 为当前通道、不拆单、回调 POST /v1/pay/center/notify），未上线；上线要先配 PAY_CENTER_* env、中心登记回调、并发能显示微信码（weixin://）的新客户端。见 docs/memory/account-membership.md「收款与退款」。
+- 分支 feat/pay-hv（2026-11-17，未合并未部署）：中心要求每笔先过人机验证，否则全部 PAY_CHALLENGE_REQUIRED、没人能付。客户端点购买先弹官网中继页 /pay-verify.html（iframe 里 LcVerify）拿 hvToken → 服务端用 SDK 兑一次再下单。上线 = env PAY_HV_HOST + 官网 + sz nginx 放开两条路径的嵌入 + 发新客户端，步骤见 account-membership.md「付款前人机验证」。
 - 分支 feat/dealer-attribution（2026-11-17，未合并未部署）：AI 中转站代理站归属 + 客服微信 + 代理商分成（迁移 0023、后台「代理商分成」、nginx 两条下载 location、env AIGW_PUBLIC_BASE / AIGW_PUBLIC_HOST），见 docs/中转站渠道.md「代理站」。
 
 ## 红线（不得做）

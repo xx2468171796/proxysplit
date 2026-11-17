@@ -4,6 +4,7 @@ import (
 	"context"
 	"embed"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/url"
@@ -759,6 +760,9 @@ type OrderResult struct {
 	Orders  []license.Order `json:"orders"`
 	Order   license.Order   `json:"order"`
 	Err     string          `json:"err,omitempty"`
+	// ErrCode is the server error code, e.g. PAY_CHALLENGE_REQUIRED (the
+	// frontend re-opens the pay-time human verification and retries).
+	ErrCode string `json:"errCode,omitempty"`
 }
 
 type AnnouncementsResult struct {
@@ -795,9 +799,20 @@ func (a *App) GetMyOrders() OrdersResult {
 	return OrdersResult{Items: items, Err: errStr(err)}
 }
 
-func (a *App) CreateMembershipOrder(planID string) OrderResult {
-	checkout, err := a.lic.CreateOrder(planID)
-	return OrderResult{Split: checkout.Split, GroupNo: checkout.GroupNo, Orders: checkout.Orders, Order: checkout.Order, Err: errStr(err)}
+// CreateMembershipOrder places an order; hvToken comes from the pay-time
+// human verification (frontend payverify), empty when none was done.
+func (a *App) CreateMembershipOrder(planID, hvToken string) OrderResult {
+	checkout, err := a.lic.CreateOrder(planID, hvToken)
+	return OrderResult{Split: checkout.Split, GroupNo: checkout.GroupNo, Orders: checkout.Orders, Order: checkout.Order,
+		Err: errStr(err), ErrCode: apiErrCode(err)}
+}
+
+func apiErrCode(err error) string {
+	var apiErr *license.APIError
+	if errors.As(err, &apiErr) {
+		return apiErr.Code
+	}
+	return ""
 }
 
 // GetPaymentQR locally encodes the payment provider URL as a scannable PNG.

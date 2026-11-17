@@ -1,7 +1,7 @@
 // 统一支付中心适配器：用 SDK 自带的 createMockCenter（内存版 zhifu-service，签名回调与真服务一致）。
 import { describe, expect, it, vi } from 'vitest'
 import { PaymentService } from './payments.js'
-import { createCenterPay, createCenterPayFromEnv } from './pay-center.js'
+import { createCenterPay, createCenterPayFromEnv, type HvRedeem } from './pay-center.js'
 import type { Queryable } from './pay-center-book.js'
 import type { PgStore } from './store.js'
 import { createMockCenter } from './vendor/zhifu/center/mock.js'
@@ -34,8 +34,11 @@ function memoryDb(){
   return {db,orders,notifies}
 }
 
-function setup(){
+function setup(hvRedeem?:HvRedeem){
   const mock=createMockCenter({appId:'site-test',secret:'test-secret'})
+  const sent:Array<{challengePassed?:boolean}>=[]
+  const tryCreate=mock.client.tryCreateOrder
+  mock.client.tryCreateOrder=async input=>{sent.push(input as {challengePassed?:boolean});return tryCreate(input)}
   const {db,orders}=memoryDb()
   const store={
     createOrders:vi.fn(async()=>[order]),getProvider:async()=>provider,failOrder:vi.fn(async()=>undefined),
@@ -45,8 +48,8 @@ function setup(){
   }
   const paid:string[]=[]
   const service=new PaymentService(store as unknown as PgStore,'https://site.invalid',()=>undefined,async no=>{paid.push(no)},
-    fulfil=>createCenterPay({appId:'site-test',secret:'test-secret',client:mock.client,db,onPaid:fulfil,log:()=>undefined}))
-  return {mock,orders,store,service,paid}
+    fulfil=>createCenterPay({appId:'site-test',secret:'test-secret',client:mock.client,db,onPaid:fulfil,log:()=>undefined,...(hvRedeem?{hvRedeem}:{})}))
+  return {mock,orders,store,service,paid,sent}
 }
 
 describe('统一支付中心适配器',()=>{
@@ -119,6 +122,49 @@ describe('统一支付中心适配器',()=>{
     expect(r).toMatchObject({status:'cancelled',changed:true})
     expect(store.failOrder).toHaveBeenCalledWith(order.orderNo)
     expect(store.fulfillPaidOrder).not.toHaveBeenCalled()
+  })
+
+  it('付款前人机验证：凭证兑换通过才声明 challengePassed；不带凭证 / 未配 PAY_HV_HOST 不声明',async()=>{
+    const redeem=vi.fn<HvRedeem>(async token=>(token==='good'?'ok':'bad'))
+    const ok=setup(redeem)
+    await ok.service.createOrder('user-1','plan-id','alice',{hvToken:'good'})
+    expect(redeem).toHaveBeenCalledWith('good')
+    expect(ok.sent[0]?.challengePassed).toBe(true)
+    const bad=setup(redeem)
+    await bad.service.createOrder('user-1','plan-id','alice',{hvToken:'forged'})
+    expect(bad.sent[0]?.challengePassed).toBeUndefined()
+    const none=setup(redeem)
+    redeem.mockClear()
+    await none.service.createOrder('user-1','plan-id','alice')
+    expect(redeem).not.toHaveBeenCalled()
+    expect(none.sent[0]?.challengePassed).toBeUndefined()
+    const unset=setup()
+    await unset.service.createOrder('user-1','plan-id','alice',{hvToken:'good'})
+    expect(unset.sent[0]?.challengePassed).toBeUndefined()
+  })
+
+  it('验证服务不可达按通过（SDK 同语义）',async()=>{
+    const {service,sent}=setup(async()=>'unavailable')
+    await service.createOrder('user-1','plan-id','alice',{hvToken:'any'})
+    expect(sent[0]?.challengePassed).toBe(true)
+  })
+
+  it('本站旧未付单自动「取消后重下」：凭证只兑一次，两次下单都带通过',async()=>{
+    const redeem=vi.fn<HvRedeem>(async()=>'ok')
+    const {mock,service,sent}=setup(redeem)
+    mock.failNext('OPEN_ORDER_EXISTS','你有一笔未支付的订单',{order_no:'M0',site_order_no:'PR0',amount_cents:100,same_site:true,site_name:null,
+      expires_at:new Date(Date.now()+60000).toISOString()})
+    const r=await service.createOrder('user-1','plan-id','alice',{hvToken:'good'})
+    expect(r.order?.payUrl).toBeTruthy()
+    expect(redeem).toHaveBeenCalledTimes(1)
+    expect(sent).toHaveLength(2)
+    expect(sent.every(s=>s.challengePassed===true)).toBe(true)
+  })
+
+  it('中心要求验证：返回 PAY_CHALLENGE_REQUIRED 给客户端重新验证',async()=>{
+    const {mock,service}=setup()
+    mock.failNext('CHALLENGE_REQUIRED','')
+    await expect(service.createOrder('user-1','plan-id','alice')).rejects.toMatchObject({code:'PAY_CHALLENGE_REQUIRED',status:403})
   })
 
   it('env 不全不接中心；center 通道下单报未配置',async()=>{

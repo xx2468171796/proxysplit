@@ -51,8 +51,27 @@ Ed25519 离线租约绑定账号 / 设备 / 硬件 / 期限；minimumVersion 会
 - 回调：POST /v1/pay/center/notify（作用域内 JSON 按原始字符串收，验签要原字节），回复原样（2xx `{"code":0}` 才算收到，中心退避重试 72 小时）。SDK 核对用户与金额 → fulfillPaidOrder（事件号 `center:<站点单号>`，payment_events 去重、grantWithinTx、分销结算、到账通知），notify_id 去重落库。
 - 查单（对账定时器 / 客户端轮询）只做展示：中心 expired / cancelled → 本地标 failed；已付**不从查单入账**，等签名回调（SDK 规定）。
 - 退款：同下面老流程，只在本地标记 + 扣时长；钱在商户后台原路退（中心 refund 接口暂不接）。
-- 运行时 env（不进仓，值在堡垒机资产）：PAY_MODE=center、PAY_CENTER_URL=https://zfzx.zygskins.cn、PAY_CENTER_APP_ID、PAY_CENTER_SECRET，可选 PAY_HV_HOST。不全 = 下单 503「统一支付中心尚未配置」。上线前在中心「站点」登记回调地址 https://<API 域名>/v1/pay/center/notify，WAF 放行该路径。
+- 运行时 env（不进仓，值在堡垒机资产）：PAY_MODE=center、PAY_CENTER_URL=https://zfzx.zygskins.cn、PAY_CENTER_APP_ID、PAY_CENTER_SECRET，PAY_HV_HOST=proxysplit.zygskins.cn（付款前人机验证，见下节）。不全 = 下单 503「统一支付中心尚未配置」。上线前在中心「站点」登记回调地址 https://<API 域名>/v1/pay/center/notify，WAF 放行该路径。
 - 客户端：微信电脑码是 `weixin://wxpay/bizpayurl?…`，老客户端 validPaymentURL 只认 https / alipays 会报「支付链接格式无效」→ 需发带 wechatNativePayURL 的新客户端（只画二维码，不本机打开）；付款框按链接显示「微信 / 支付宝」。
+
+
+### 付款前人机验证（hvToken，分支 feat/pay-hv，2026-11-17，未上线）
+支付中心全局开了「每笔订单都要先过验证」（challengeEveryOrder，中心统一，站点不能关），不带凭证的下单一律 `PAY_CHALLENGE_REQUIRED`。
+- 客户端：点「立即购买」先盖全屏 iframe 加载 `https://proxysplit.zygskins.cn/pay-verify.html?n=<nonce>`（website/public/pay-verify.html），中继页在站点同源里调 `LcVerify.open({action:"pay"})`，凭证 postMessage 回 Wails 窗口（只发给 http(s)://wails.localhost / wails://wails / localhost:34115，客户端校验 origin + nonce）→ CreateMembershipOrder(planId, hvToken)。取消 = 不下单；验证页 12 秒没起来 = 不带凭证下单（中心关了全局开关时照常能付）；仍回 PAY_CHALLENGE_REQUIRED 就再验一次重下，最多一次。代码 frontend/src/state/pay-verify.ts、OrderResult.errCode。
+- 为什么不在 Wails 页里直接引 hook.js：hook.js 的验证页 iframe 是相对路径、只认同源 postMessage，凭证又绑站点域名（hv 服务按 Host 绑 action + 域名，无 cookie），Wails 的 origin 不是站点域名。
+- 服务端：POST /v1/orders 可选 `hvToken`（zod 1–512）。CenterPay.create 用 SDK 的 redeemHumanToken 兑换**一次**（bad = 不声明通过交中心拒；ok / 验证服务不可达 = challengePassed），同一结果用于 OPEN_ORDER 自动「取消后重下」的第二次下单——凭证一次性，交给 SDK 每次下单各兑一次会让第二次变 bad、玩家死循环。未配 PAY_HV_HOST = 忽略凭证。API 在 sz 本机，127.0.0.1:8976 可达（SDK 兑换只能本机直连）。
+- 老客户端不带凭证：中心拒，提示「请先完成安全验证再购买（旧版客户端请先升级）」；新客户端发版即强制更新。
+- 上线需要：① 服务端 env `PAY_HV_HOST=proxysplit.zygskins.cn`（PAY_HV_URL 默认 http://127.0.0.1:8976 不用配）② 官网带 pay-verify.html ③ sz nginx：本站 server 层 `X-Frame-Options: DENY` 连同源的 hv 验证页 iframe 都挡，要对 /pay-verify.html 和 /__leichiwaf/hv/ 去掉 XFO、改发 `Content-Security-Policy: frame-ancestors 'self' wails: http://wails.localhost https://wails.localhost wails://wails http://localhost:34115`（map 写法见下）④ 发新客户端。hook.js 本站已可用（2026-11-17 实测 200）。
+- nginx（/www/conf.d/proxysplit.zygskins.cn.conf，文件顶部 http 层加 map，server 层把 `more_set_headers "X-Frame-Options: DENY";` 换成两行）：
+  ```
+  map $uri $ps_embed_ok { default 0; /pay-verify.html 1; ~^/__leichiwaf/hv/ 1; }
+  map $ps_embed_ok $ps_xfo { 1 ""; default "DENY"; }
+  map $ps_embed_ok $ps_frame_csp { 1 "frame-ancestors 'self' wails: http://wails.localhost https://wails.localhost wails://wails http://localhost:34115"; default ""; }
+  # server 443 内：
+  more_set_headers "X-Frame-Options: $ps_xfo";
+  more_set_headers "Content-Security-Policy: $ps_frame_csp";
+  ```
+- 待实测：Windows WebView2 与 macOS WKWebView 各真付一次（mac 上 iframe 跨站，若验证页依赖 cookie 会被 ITP 挡；目前 hv 的 pay 凭证不用 cookie）。
 
 ### 老通道（zhongzhuan，v1.9.56，保留：历史单查单 / 迟到回调 / 退款）
 收款走中转站网关线路 4 = 支付宝直连（收款主体 宣时龙）：payment_providers.config.line=4（后台可改），下单带 line，拆单子单带 split=1；线路 5 = 姚尧（收钱吧，不支持拆单、只收 ≤30 元）。
