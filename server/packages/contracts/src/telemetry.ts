@@ -33,6 +33,13 @@ export const TELEMETRY_ERROR_CODES = [
 ] as const
 
 export const telemetryStatus = z.enum(['ok','fail','info'])
+export const TELEMETRY_ERROR_TEXT_MAX = 4000
+/**
+ * 描述性的自由文本（错误原文、系统 / 内核版本等）：超长截断而不是拒绝。
+ * 一批最多 2000 条事件，其中一条的 errorText 超长就整批 400 的话，客户端会把被拒的这一段整个丢掉（uploader.go），同批的事件全没了。
+ * 结构性字段（设备号、事件 id / 类型、错误码）仍然严格校验；整体大小由路由的 bodyLimit 管。
+ */
+const clipped = (max: number) => z.string().transform(s => (s.length > max ? s.slice(0, max) : s))
 export const telemetryDeviceId = z.string().regex(/^[0-9a-f]{64}$/)
 
 export const telemetryEventSchema = z.object({
@@ -44,7 +51,7 @@ export const telemetryEventSchema = z.object({
   status: telemetryStatus,
   durationMs: z.number().int().min(0).max(86_400_000).optional(),
   errorCode: z.string().regex(/^[A-Z][A-Z0-9_]{1,47}$/).optional(),
-  errorText: z.string().max(4000).optional(),
+  errorText: clipped(TELEMETRY_ERROR_TEXT_MAX).optional(),
   payload: z.record(z.string(), z.unknown()).nullable().default({}),
 })
 
@@ -60,11 +67,11 @@ export const telemetryLogChunkSchema = z.object({
 export const telemetryBatchSchema = z.object({
   schemaVersion: z.number().int().min(1).max(100),
   deviceId: telemetryDeviceId,
-  appVersion: z.string().max(40).default(''),
-  coreVersion: z.string().max(120).optional(),
-  os: z.string().max(160).optional(),
-  arch: z.string().max(20).optional(),
-  accountHint: z.string().max(120).optional(),
+  appVersion: clipped(40).default(''),
+  coreVersion: clipped(120).optional(),
+  os: clipped(160).optional(),
+  arch: clipped(20).optional(),
+  accountHint: clipped(120).optional(),
   events: z.array(telemetryEventSchema).max(2000).default([]),
   logs: z.array(telemetryLogChunkSchema).max(50).default([]),
 })

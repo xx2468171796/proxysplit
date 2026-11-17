@@ -50,6 +50,17 @@ describe('client telemetry upload', () => {
     await app.close()
   })
 
+  it('truncates one oversized errorText instead of rejecting the whole batch', async () => {
+    const { core, ingested } = setup()
+    const app = await buildApp({ ...config, TELEMETRY_MAX_GZIP_BYTES: 64 * 1024 }, core as never)
+    const big = batch()
+    ;(big.events[0] as Record<string, unknown>).errorText = 'e'.repeat(9000)
+    const res = await app.inject({ method: 'POST', url: '/v1/client/telemetry', headers: { 'content-type': 'application/json', 'x-device-id': DEVICE }, payload: big })
+    expect(res.statusCode).toBe(200)
+    expect((ingested[0]?.batch as { events: Array<{ errorText: string }> }).events[0]?.errorText).toHaveLength(4000)
+    await app.close()
+  })
+
   it('rejects malformed batches, device id mismatch and oversized bodies', async () => {
     const { core, ingested } = setup()
     const app = await buildApp(config, core as never)

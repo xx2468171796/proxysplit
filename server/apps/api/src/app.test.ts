@@ -2,6 +2,9 @@ import { describe, expect, it } from 'vitest'
 import { buildApp } from './app.js'
 import type { ApiConfig } from './config.js'
 
+// 设备 id 是 uuid：路径参数现在统一校验形状（params.ts），所以这里用真实形状的 id。
+const OLD_DEVICE = '77777777-7777-4777-8777-777777777777'
+
 describe('commercial API shell', () => {
   it('exposes health and the lease verification public key without authentication', async () => {
     const config: ApiConfig = {
@@ -65,12 +68,12 @@ describe('commercial API shell', () => {
     }
     const app = await buildApp(config, core as never)
     const response = await app.inject({
-      method: 'DELETE', url: '/v1/me/devices/old-device',
+      method: 'DELETE', url: `/v1/me/devices/${OLD_DEVICE}`,
       headers: { authorization: 'Bearer token', 'content-type':'application/json' },
     })
     expect(response.statusCode).toBe(200)
     expect(response.json()).toEqual({ok:true})
-    expect(unbound).toBe('u:old-device')
+    expect(unbound).toBe(`u:${OLD_DEVICE}`)
     await app.close()
   })
 

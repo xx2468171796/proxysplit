@@ -1,4 +1,5 @@
-// 客户端日志上报的每 IP 流量预算：每个时间窗内解压后的字节数封顶（防止有人拿任意设备号灌库）。
+// 匿名上报口（客户端日志、节点清单）的每 IP 预算：每个时间窗内解压后的字节数封顶、没见过的设备号个数封顶
+//（防止有人拿任意设备号灌库）。
 // 配了 Redis 就用 Redis（多进程共享，INCRBY + PEXPIRE），否则 / Redis 出错时退回进程内计数。
 
 export type BudgetRedis = {
@@ -15,13 +16,15 @@ export class IpByteBudget {
     private readonly redis?: BudgetRedis,
     private readonly cap = 50_000,
     private readonly now = () => Date.now(),
+    /** 哪个上报口的预算（Redis 键的一段）：各口各算。 */
+    private readonly scope = 'telemetry',
   ) {}
 
   /** 记上 bytes，返回记完后是否仍在预算内。 */
   async charge(ip: string, bytes: number): Promise<boolean> {
     const w = Math.floor(this.now() / this.windowMs)
     if (this.redis) {
-      const key = `proxysplit:telemetry:ipbytes:${w}:${ip}`
+      const key = `proxysplit:${this.scope}:ipbytes:${w}:${ip}`
       try {
         const total = await this.redis.incrby(key, bytes)
         if (total === bytes) await this.redis.pexpire(key, this.windowMs)
@@ -32,5 +35,29 @@ export class IpByteBudget {
     const total = (this.used.get(ip) ?? 0) + bytes
     this.used.set(ip, total)
     return total <= this.maxBytes
+  }
+}
+
+/** 每 IP 每个时间窗最多带进来多少个「没见过的设备号」（进程内计数，表大小有上限，换窗清零）。 */
+export class IpNewDeviceBudget {
+  private window = 0
+  private seen = new Map<string, Set<string>>()
+  constructor(
+    private readonly max: number,
+    private readonly windowMs = 60 * 60_000,
+    private readonly cap = 50_000,
+    private readonly now = () => Date.now(),
+  ) {}
+
+  /** 这个 IP 还能不能带这台新设备进来；同一台在同一窗口里只占一个名额。 */
+  allow(ip: string, deviceId: string): boolean {
+    const w = Math.floor(this.now() / this.windowMs)
+    if (w !== this.window || this.seen.size > this.cap) { this.window = w; this.seen.clear() }
+    const devices = this.seen.get(ip) ?? new Set<string>()
+    this.seen.set(ip, devices)
+    if (devices.has(deviceId)) return true
+    if (devices.size >= this.max) return false
+    devices.add(deviceId)
+    return true
   }
 }

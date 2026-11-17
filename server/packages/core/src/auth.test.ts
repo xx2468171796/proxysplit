@@ -3,6 +3,7 @@ import { importSPKI, jwtVerify } from 'jose'
 import { AuthService, hashFingerprint, hashPassword, powervpnUsernameBase } from './auth.js'
 import { classifyRefresh, REFRESH_RETRY_GRACE_MS } from './store.js'
 import type { DeviceRecord, Entitlement, PgStore, SessionRecord, UserRecord } from './store.js'
+import { LOGIN_LOCK, nextLoginFailure } from './login-lockout.js'
 
 class FakeStore {
   user!: UserRecord
@@ -14,16 +15,14 @@ class FakeStore {
   clockOffsetMs = 0
   now() { return new Date(Date.now() + this.clockOffsetMs) }
   revokedFamilies: string[] = []
-  async recordLoginFailure() {
-    this.user.failedLoginCount += 1
-    if (this.user.failedLoginCount >= 5) {
-      this.user.failedLoginCount = 0
-      this.user.lockoutLevel += 1
-      this.user.lockedUntil = new Date(Date.now() + this.user.lockoutLevel * 5 * 60000)
-    }
-    return { failedLoginCount: this.user.failedLoginCount, lockoutLevel: this.user.lockoutLevel, lockedUntil: this.user.lockedUntil }
+  failureIds: string[] = []
+  async recordLoginFailure(id: string) {
+    this.failureIds.push(id)
+    const u = this.phoneUser && id === this.phoneUser.id ? this.phoneUser : this.user
+    Object.assign(u, nextLoginFailure({ failedLoginCount: u.failedLoginCount, lockoutLevel: u.lockoutLevel, lockedUntil: u.lockedUntil ? new Date(u.lockedUntil) : null }, new Date()))
+    return { failedLoginCount: u.failedLoginCount, lockoutLevel: u.lockoutLevel, lockedUntil: u.lockedUntil }
   }
-  async recordLoginSuccess() { this.user.failedLoginCount = 0; this.user.lockedUntil = null }
+  async recordLoginSuccess() { this.user.failedLoginCount = 0; this.user.lockedUntil = null; this.user.lockoutLevel = 0 }
   async claimTrialOnLogin() { return null }
   async findUser(username: string) { return username === this.user.username ? this.user : null }
   async findUserById(id: string) { return id === this.user.id ? this.user : null }
@@ -83,11 +82,17 @@ class FakeStore {
   async isDeviceWithinLimit() { return this.withinLimit }
   phoneUser: UserRecord | null = null
   async findUserByPhone(phone: string) { return this.phoneUser?.phone === phone ? this.phoneUser : null }
-  async audit() {}
+  audits: string[] = []
+  async audit(_actor: string | null, action: string) { this.audits.push(action) }
   async findDevice(id: string) { return id === this.device.id ? this.device : null }
   async touchDevice() {}
   async getCommerceSettings(){return {registrationEnabled:true,trialDays:3,trialPlanCode:'trial',defaultDeviceLimit:3,licenseLeaseMinutes:60,offlineGraceHours:6,activePaymentProvider:'zhongzhuan-prod'}}
-  async latestRelease() { return { version: '2.0.0', minimumVersion: '1.9.0', url: 'https://download.invalid/app.exe', sha256: 'a'.repeat(64), signature: 'signature', mandatory: false, title:'', summary:'', changelog:'', channel:'stable', publishedAt: new Date() } }
+  releaseAsks: string[] = []
+  async latestRelease(channel: 'stable' | 'beta', platform: 'windows' | 'macos') {
+    this.releaseAsks.push(`${channel}/${platform}`)
+    const mac = platform === 'macos'
+    return { version: '2.0.0', minimumVersion: mac ? '1.12.0' : '1.9.0', url: mac ? 'https://download.invalid/app.zip' : 'https://download.invalid/app.exe', sha256: 'a'.repeat(64), signature: 'signature', mandatory: false, title:'', summary:'', changelog:'', channel, platform, publishedAt: new Date() }
+  }
 }
 
 async function fixture() {
@@ -100,11 +105,34 @@ async function fixture() {
 }
 
 describe('commercial auth', () => {
-  it('locks an account for five minutes after five wrong passwords', async () => {
-    const { auth, device } = await fixture()
-    for (let i = 0; i < 4; i++) await expect(auth.login({ username: 'alice', password: 'wrong password', device })).rejects.toMatchObject({ code: 'AUTH_INVALID' })
-    await expect(auth.login({ username: 'alice', password: 'wrong password', device })).rejects.toMatchObject({ code: 'AUTH_LOCKED', status: 429 })
-    await expect(auth.login({ username: 'alice', password: 'correct horse battery staple', device })).rejects.toMatchObject({ code: 'AUTH_LOCKED' })
+  // 原来锁定回 AUTH_LOCKED/429、不存在回 AUTH_INVALID/401：能据此探出某个手机号 / 用户名注册没注册（审计 2026-11-18）。
+  it('locks an account for five minutes after five wrong passwords, answering exactly like an unknown account', async () => {
+    const { store, auth, device } = await fixture()
+    const answer = (username: string, password: string) => auth.login({ username, password, device }).then(() => null, (e: { code: string; status: number; message: string }) => ({ code: e.code, status: e.status, message: e.message }))
+    const unknown = await answer('ghost', 'wrong password')
+    expect(unknown).toMatchObject({ code: 'AUTH_INVALID', status: 401 })
+    for (let i = 0; i < 5; i++) expect(await answer('alice', 'wrong password')).toEqual(unknown)
+    const lockedFor = new Date(store.user.lockedUntil!).getTime() - Date.now()
+    expect(lockedFor).toBeGreaterThan(4 * 60_000)
+    expect(lockedFor).toBeLessThanOrEqual(5 * 60_000)
+    // 锁定期间不验密码（否则锁定挡不住撞库），对的密码也是同一句话；锁定期内的尝试不再累计
+    expect(await answer('alice', 'correct horse battery staple')).toEqual(unknown)
+    expect(await answer('alice', 'wrong password')).toEqual(unknown)
+    expect(store.user).toMatchObject({ failedLoginCount: 0, lockoutLevel: 1 })
+  })
+
+  it('resets the lockout level on a successful login, decays it after a quiet day and caps the lock at 30 minutes', async () => {
+    const { store, auth, device } = await fixture()
+    store.user = { ...store.user, lockoutLevel: 4, lockedUntil: new Date(Date.now() - 60_000) }
+    await auth.login({ username: 'alice', password: 'correct horse battery staple', device })
+    expect(store.user).toMatchObject({ lockoutLevel: 0, failedLoginCount: 0, lockedUntil: null })
+    const now = new Date('2026-11-18T00:00:00Z')
+    const hit = (lockoutLevel: number, lockedUntil: Date | null) => nextLoginFailure({ failedLoginCount: LOGIN_LOCK.threshold - 1, lockoutLevel, lockedUntil }, now)
+    const recent = new Date(now.getTime() - 3600_000), longAgo = new Date(now.getTime() - 25 * 3600_000)
+    expect(hit(1, recent)).toEqual({ failedLoginCount: 0, lockoutLevel: 2, lockedUntil: new Date(now.getTime() + 10 * 60_000) })
+    expect(hit(500, recent)).toEqual({ failedLoginCount: 0, lockoutLevel: 6, lockedUntil: new Date(now.getTime() + 30 * 60_000) })
+    expect(hit(500, longAgo)).toEqual({ failedLoginCount: 0, lockoutLevel: 1, lockedUntil: new Date(now.getTime() + 5 * 60_000) })
+    expect(nextLoginFailure({ failedLoginCount: 0, lockoutLevel: 0, lockedUntil: null }, now)).toEqual({ failedLoginCount: 1, lockoutLevel: 0, lockedUntil: null })
   })
 
   it('rotates refresh tokens and revokes the family on replay', async () => {
@@ -116,6 +144,14 @@ describe('commercial auth', () => {
     await auth.rotate({ refreshToken: rotated.refreshToken, deviceFingerprint: device.fingerprint })
     await expect(auth.rotate({ refreshToken: login.refreshToken, deviceFingerprint: device.fingerprint })).rejects.toMatchObject({ code: 'REFRESH_REPLAY' })
     expect(store.revokedFamilies).toHaveLength(1)
+  })
+
+  // 每个在线客户端十来分钟刷新一次：以前每次都写一行审计，audit_logs 里绝大多数是这种没人看的行。
+  it('does not write an audit row for a successful refresh (logins and failures are still audited)', async () => {
+    const { store, auth, device } = await fixture()
+    const login = await auth.login({ username: 'alice', password: 'correct horse battery staple', device })
+    await auth.rotate({ refreshToken: login.refreshToken, deviceFingerprint: device.fingerprint })
+    expect(store.audits).toEqual(['auth.login'])
   })
 
   it('treats a re-sent token whose rotation response was lost as a retry', async () => {
@@ -178,6 +214,18 @@ describe('commercial auth', () => {
     expect(payload.did).toBe(principal.deviceId)
     expect(payload.features).toEqual(['proxy', 'custom-lines'])
     expect(payload.minVersion).toBe('1.9.0')
+  })
+
+  it('签租约按这台设备自己的平台取最低版本和最新版（macOS 设备不再拿 Windows 的发布）', async () => {
+    const { store, auth, device } = await fixture()
+    const mac = { ...device, name: 'MacBook', platform: 'macos' as const }
+    const login = await auth.login({ username: 'alice', password: 'correct horse battery staple', device: mac })
+    const principal = await auth.verifyAccess(login.accessToken)
+    const lease = await auth.lease(principal.userId, principal.deviceId, mac.fingerprint, mac.appVersion)
+    const { payload } = await jwtVerify(lease.lease, await importSPKI(auth.publicKeyPem, 'EdDSA'), { algorithms: ['EdDSA'] })
+    expect(store.releaseAsks).toEqual(['stable/macos'])
+    expect(payload.minVersion).toBe('1.12.0')
+    expect(lease.release).toMatchObject({ platform: 'macos', url: 'https://download.invalid/app.zip' })
   })
 
   it('never accepts the lease on a different device fingerprint', async () => {
@@ -245,6 +293,19 @@ describe('commercial auth', () => {
     await expect(auth.changeOwnPassword(store.user.id, { currentPassword: '', newPassword: 'another-password' })).rejects.toMatchObject({ code: 'PASSWORD_INVALID' })
   })
 
+  // 原来改密把本人所有会话（含正在用的这条）一起吊销：15 分钟后刷新令牌被判「重放」，改完密码的人被踢下线。
+  it('changing your own password keeps the session of the device you are on and drops the others', async () => {
+    const { store, auth, device } = await fixture()
+    const kept: Array<string | null> = []
+    ;(store as unknown as { setUserPassword: (id: string, hash: string, keepDeviceId: string | null) => Promise<boolean> }).setUserPassword = async (_id, _hash, keepDeviceId) => { kept.push(keepDeviceId); return true }
+    const login = await auth.login({ username: 'alice', password: 'correct horse battery staple', device })
+    const principal = await auth.verifyAccess(login.accessToken)
+    await auth.changeOwnPassword(principal.userId, { currentPassword: 'correct horse battery staple', newPassword: 'brand-new-password' }, '', principal.deviceId)
+    // 设备名额满时拿到的 pending 令牌没有会话可留：全部吊销
+    await auth.changeOwnPassword(principal.userId, { currentPassword: 'correct horse battery staple', newPassword: 'brand-new-password' }, '', 'pending')
+    expect(kept).toEqual([principal.deviceId, null])
+  })
+
   it('rejects an invalid POWER云 token and reports panel outages', async () => {
     const { store, device } = await fixture()
     const make = (status: number) => AuthService.create(store as unknown as PgStore, { accessSecret: 'test-secret-must-be-at-least-32-bytes-long', refreshDays: 30, powervpn: { baseUrl: 'https://panel.test', fetch: (async () => new Response('{}', { status })) as unknown as typeof fetch } })
@@ -296,15 +357,20 @@ describe('free tier and phone login', () => {
     store.withinLimit = true
     expect((await auth.activateDevice(store.user.id, device)).refreshToken).not.toBe('')
   })
-  it('falls back to the username when a phone-shaped name matches a phone owner with another password', async () => {
+  // 原来像手机号的输入会按手机号、用户名各找一个账号挨个试密码（一次请求两个候选）；现在只认一个：
+  // 有人绑了这个手机号就是他，没人绑才按用户名找（老的数字用户名账号还能登录）。
+  it('resolves a phone-shaped login name to exactly one account: the phone owner, else the same-named username', async () => {
     const { store, auth, device } = await fixture()
     store.user = { ...store.user, username: '13800138000' }
-    store.phoneUser = { ...store.user, id: '55555555-5555-4555-8555-555555555555', username: 'bob', phone: '13800138000', passwordHash: await hashPassword('bob password 123') }
-    const asUsername = await auth.login({ username: '13800138000', password: 'correct horse battery staple', device })
-    expect(asUsername.user.username).toBe('13800138000')
+    const legacy = await auth.login({ username: '13800138000', password: 'correct horse battery staple', device })
+    expect(legacy.user.username).toBe('13800138000')
+    const bob = { ...store.user, id: '55555555-5555-4555-8555-555555555555', username: 'bob', phone: '13800138000', passwordHash: await hashPassword('bob password 123') }
+    store.phoneUser = bob
     const asPhone = await auth.login({ username: '+86 138 0013 8000', password: 'bob password 123', device })
     expect(asPhone.user.username).toBe('bob')
-    await expect(auth.login({ username: '13800138000', password: 'nobody', device })).rejects.toMatchObject({ code: 'AUTH_INVALID' })
+    // 手机号有主之后，同名用户名账号的密码不再被拿来试，失败也只记在手机号主人头上
+    await expect(auth.login({ username: '13800138000', password: 'correct horse battery staple', device })).rejects.toMatchObject({ code: 'AUTH_INVALID' })
+    expect(store.failureIds).toEqual([bob.id])
   })
   it('still spends a password hash on an unknown account', async () => {
     const { auth, device } = await fixture()

@@ -7,6 +7,7 @@ import { AppError } from '@proxysplit/shared'
 import { telemetryAnalyticsQuery, telemetryBatchSchema, telemetryDeviceId, telemetryDeviceListQuery, telemetryEventListQuery, telemetryFailureQuery, telemetryLogQuery } from '@proxysplit/contracts'
 import type { TelemetryQuery, TelemetryStore } from '@proxysplit/core'
 import type { IpByteBudget } from './telemetry-budget.js'
+import { FLEET_LIMIT } from './rate-limits.js'
 
 /** 解压后单次上报上限（客户端一段 256 KB，留足余量）。 */
 export const TELEMETRY_MAX_BODY_BYTES = 4 * 1024 * 1024
@@ -69,7 +70,7 @@ export function registerTelemetryRoutes(app: FastifyInstance, d: TelemetryDeps) 
   const limiter = new DeviceLimiter(d.perDevicePerMinute)
   app.post('/v1/client/telemetry', {
     bodyLimit: TELEMETRY_MAX_BODY_BYTES, // 解压后上限；压缩前上限在 preParsing 里按 maxGzipBytes 查
-    config: { rateLimit: { max: 240, timeWindow: '1 minute' } }, // 每 IP（公司 NAT 后多台机器）
+    config: { rateLimit: FLEET_LIMIT }, // 每 IP（公司 NAT 后多台机器）；滥用靠每设备次数 + 每 IP 字节预算
     preParsing: gzipPreParsing(d.maxGzipBytes),
   }, async (req) => {
     const header = String(req.headers['x-device-id'] ?? '')

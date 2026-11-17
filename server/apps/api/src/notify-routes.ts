@@ -3,6 +3,7 @@
 // 老客户端的 /v1/announcements 从 notice 派生。
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 import type { Notify } from '@proxysplit/core'
+import { FLEET_LIMIT } from './rate-limits.js'
 
 type Principal = { userId: string; role: string }
 type Deps = {
@@ -23,7 +24,7 @@ export function registerNotifyRoutes(app: FastifyInstance, d: Deps) {
   app.route({
     method: ['GET', 'POST'],
     url: `${PLAYER}/*`,
-    config: { rateLimit: { max: 120, timeWindow: '1 minute' } },
+    config: { rateLimit: FLEET_LIMIT }, // 每个在线客户端都在轮询通知：按 IP 用 FLEET_LIMIT
     handler: async (req, reply) => {
       const p = await d.auth(req)
       const r = await d.notify.http.dispatchPlayer(

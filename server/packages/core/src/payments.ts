@@ -1,7 +1,8 @@
 import { createHash, createHmac, timingSafeEqual } from 'node:crypto'
 import { AppError } from '@proxysplit/shared'
 import type { PgStore, PaymentProviderRecord } from './store.js'
-import { centerFulfilInput, type CenterFulfil, type CenterPay, type CenterPayContext } from './pay-center.js'
+import type { PaidEvent } from './vendor/zhifu/site/types.js'
+import { centerFulfilInput, type CenterHooks, type CenterPay, type CenterPayContext, type CenterRefundEvent } from './pay-center.js'
 
 type Scalar=string|number
 type ZhongzhuanCallback={
@@ -19,8 +20,9 @@ const safeHexEqual=(a:string,b:string)=>{
   const left=Buffer.from(a,'hex'),right=Buffer.from(b,'hex')
   return left.length===right.length&&timingSafeEqual(left,right)
 }
+const credentialOrNull=(provider:PaymentProviderRecord,name:'APP_ID'|'APP_SECRET')=>process.env[`${provider.credentialRef}_${name}`]||null
 const credential=(provider:PaymentProviderRecord,name:'APP_ID'|'APP_SECRET')=>{
-  const value=process.env[`${provider.credentialRef}_${name}`]
+  const value=credentialOrNull(provider,name)
   if(!value)throw new AppError('PAYMENT_UNAVAILABLE','支付通道凭据尚未配置',503)
   return value
 }
@@ -30,11 +32,13 @@ export class PaymentService{
   /** 统一支付中心（adapter center）；运行时 env 不全 = null */
   private center:CenterPay|null
   /** onPaid：付款真正落地（非重复事件）后调，用于发到账通知；失败不影响履约。
-   *  centerFactory：接统一支付中心（createCenterPayFromEnv），拿到的回调即中心付款落地入口。 */
+   *  centerFactory：接统一支付中心（createCenterPayFromEnv），拿到的 hooks 即中心付款 / 退款落地入口。 */
   constructor(private store:PgStore,private publicBaseUrl:string,private log:(message:string)=>void=message=>console.warn(message),private onPaid?:(orderNo:string)=>Promise<void>,
-    centerFactory?:(fulfil:CenterFulfil)=>CenterPay|null){
-    this.center=centerFactory?.((e,orderNo)=>this.fulfilCenter(e,orderNo))??null
+    centerFactory?:(hooks:CenterHooks)=>CenterPay|null){
+    this.center=centerFactory?.({onPaid:async(e,orderNo)=>{await this.fulfilCenter(e,orderNo)},onRefunded:e=>this.refundCenter(e)})??null
   }
+  /** 中心适配器的进程内计数（人机验证不可达放行次数）；没接中心 = null。 */
+  centerStats(){return this.center?{...this.center.stats}:null}
   private async landed<T extends {duplicate?:boolean}>(orderNo:string,result:T):Promise<T>{
     if(!result.duplicate)await this.onPaid?.(orderNo).catch(e=>this.log(`onPaid ${orderNo} failed: ${String(e)}`))
     return result
@@ -72,18 +76,24 @@ export class PaymentService{
       throw new AppError('PAYMENT_UNAVAILABLE','统一支付中心尚未配置',503)
     }
     let link
-    try{link=await this.center.create({orderNo:order.orderNo,userId:order.userId,amountCents:order.amountCents},ctx)}
+    try{link=await this.center.create({orderNo:order.orderNo,userId:order.userId,amountCents:order.amountCents},ctx,
+      reused=>this.store.isOrderReusableAs(reused,order.orderNo))}
     catch(error){
       await this.store.failOrder(order.orderNo)
       if(error instanceof AppError)throw error
       throw new AppError('PAYMENT_CREATE_FAILED',`支付下单失败：${error instanceof Error?error.message:'支付中心通讯异常'}`,502)
     }
     const expiresAt=new Date(link.expireAt)
-    const details={checkoutUrl:link.checkoutUrl,merchantName:null,revive:true,...(Number.isFinite(expiresAt.getTime())?{expiresAt}:{})}
-    // 中心还回了玩家同金额的旧未付单：那笔本地单换上新码，这次新建的本地单作废。
+    const details={checkoutUrl:link.checkoutUrl,merchantName:null,...(Number.isFinite(expiresAt.getTime())?{expiresAt}:{})}
     const target=link.localOrderNo
-    if(target!==order.orderNo)await this.store.failOrder(order.orderNo)
-    if(!await this.store.setOrderPayment(target,link.siteOrderNo,link.payUrl,details)){
+    if(target!==order.orderNo){
+      // 中心还回了玩家同套餐同金额的旧未付单：那笔本地单换上新码、这次新建的本地单作废（同一事务，重新过在售 / 限购）。
+      const adopted=await this.store.adoptReusedOrder(order.orderNo,target,{providerOrderNo:link.siteOrderNo,payUrl:link.payUrl,...details})
+      if(!adopted.ok){
+        await this.store.failOrder(order.orderNo)
+        throw REUSE_REFUSALS[adopted.reason]()
+      }
+    }else if(!await this.store.setOrderPayment(target,link.siteOrderNo,link.payUrl,details)){
       const current=await this.store.getOrderForCallback(target)
       if(current?.status!=='paid')throw new AppError('PAYMENT_CREATE_FAILED','本地订单状态已变化，请刷新订单状态',409)
     }
@@ -100,12 +110,39 @@ export class PaymentService{
   }
 
   // 中心回调验签、核对用户与金额后到这里：与网关回调同一落地点（payment_events 去重、grantWithinTx、分销结算）。
-  private async fulfilCenter(e:Parameters<CenterFulfil>[0],orderNo:string){
+  private async fulfilCenter(e:PaidEvent,orderNo:string){
     const order=await this.store.getOrderForCallback(orderNo)
     if(!order)throw new Error(`center notify: local order ${orderNo} not found`)
     const provider=await this.store.getProvider(order.providerCode)
     if(!provider||provider.adapter!=='center')throw new Error(`center notify: order ${orderNo} is not a center order`)
-    await this.landed(orderNo,await this.store.fulfillPaidOrder(centerFulfilInput(provider.code,e,orderNo)))
+    return this.landed(orderNo,await this.store.fulfillPaidOrder(centerFulfilInput(provider.code,e,orderNo)))
+  }
+
+  // 中心侧退款回调 → 本地退款路径（store.refundOrder：收回没用掉的会员时间、冲回分销 / 代理商佣金）。按订单状态幂等：
+  // 已退 = 直接确认；还没发放（退款回调抢在付款回调前）= 抛错不确认，付款落地后中心重试再退；
+  // 部分退款不自动收回整笔会员（收多少没有规则），记 warn + 审计交人工。
+  private async refundCenter(e:CenterRefundEvent){
+    const order=await this.store.getOrderForCallback(e.localOrderNo)
+    if(!order)throw new Error(`center refund: local order ${e.localOrderNo} not found`)
+    const provider=await this.store.getProvider(order.providerCode)
+    if(!provider||provider.adapter!=='center')throw new Error(`center refund: order ${e.localOrderNo} is not a center order`)
+    if(order.status==='refunded')return
+    const meta={siteOrderNo:e.siteOrderNo,refundNo:e.refundNo,refundedCents:e.refundedCents,amountCents:e.amountCents}
+    if(e.refundedCents<e.amountCents){
+      this.log(`[payments] 支付中心部分退款 ${e.refundedCents}/${e.amountCents} 分，订单 ${e.localOrderNo} 未自动收回会员，请人工处理`)
+      await this.store.audit(null,'payment.center.refund','order',e.localOrderNo,'','partial',meta)
+      return
+    }
+    if(order.status!=='paid')throw new Error(`center refund: local order ${e.localOrderNo} is ${order.status}, not paid yet`)
+    try{
+      // 审计行（payment.center.refund）由 refundOrder 在退款事务里写
+      await this.store.refundOrder(e.localOrderNo,CENTER_REFUND_REASON,{actor:null,ip:'',action:'payment.center.refund',metadata:meta})
+    }catch(error){
+      // 并发的两次退款回调：另一条已经退完 = 成功。
+      if(error instanceof AppError&&error.code==='ORDER_NOT_REFUNDABLE'&&(await this.store.getOrderForCallback(e.localOrderNo))?.status==='refunded')return
+      throw error
+    }
+    this.log(`[payments] 支付中心退款已同步到本地订单 ${e.localOrderNo}（退款单 ${e.refundNo??'-'}）`)
   }
 
   private async createGatewayOrder(provider:PaymentProviderRecord,order:{orderNo:string;amountCents:number;planName:string;groupId:string|null;splitIndex:number|null;splitTotal:number|null;providerOrderNo:string|null;payUrl:string|null;status:string},username:string){
@@ -157,13 +194,20 @@ export class PaymentService{
     if(!body||typeof body!=='object')throw new AppError('PAYMENT_CALLBACK_INVALID','无效支付回调',400)
     const callback=body as ZhongzhuanCallback
     if(!callback.app_order_no||!callback.sign||!callback.app_id||callback.timestamp===undefined)throw new AppError('PAYMENT_CALLBACK_INVALID','支付回调字段不完整',400)
+    // 验签要用订单所属通道的密钥，所以只能先查订单。订单不存在 / 不是这个通道的 / 通道密钥没配 / 签名不对，
+    // 对外一律是同一个 401：分开回 404 / 400 / 401 的话，不知道密钥的人也能探出哪些订单号存在。原因只进日志。
+    const rejected=(why:string)=>{
+      this.log(`[payments] zhongzhuan callback rejected (${why}) order=${String(callback.app_order_no).slice(0,64)}`)
+      return new AppError('PAYMENT_SIGNATURE_INVALID','支付签名验证失败',401)
+    }
     const order=await this.store.getOrderForCallback(callback.app_order_no)
-    if(!order)throw new AppError('PAYMENT_ORDER_NOT_FOUND','支付订单不存在',404)
+    if(!order)throw rejected('unknown order')
     const provider=await this.store.getProvider(order.providerCode)
-    if(!provider||provider.adapter!=='zhongzhuan')throw new AppError('PAYMENT_PROVIDER_INVALID','支付通道不匹配',400)
-    const appId=credential(provider,'APP_ID'),secret=credential(provider,'APP_SECRET')
+    if(!provider||provider.adapter!=='zhongzhuan')throw rejected('provider mismatch')
+    const appId=credentialOrNull(provider,'APP_ID'),secret=credentialOrNull(provider,'APP_SECRET')
+    if(!appId||!secret)throw rejected('credentials not configured')
     const {sign:signature,...params}=callback
-    if(callback.app_id!==appId||!safeHexEqual(sign(params,secret),signature))throw new AppError('PAYMENT_SIGNATURE_INVALID','支付签名验证失败',401)
+    if(callback.app_id!==appId||!safeHexEqual(sign(params,secret),signature))throw rejected('bad signature')
     const timestamp=Number(callback.timestamp)
     if(!Number.isFinite(timestamp)||Math.abs(Math.floor(Date.now()/1000)-timestamp)>300)throw new AppError('PAYMENT_CALLBACK_EXPIRED','支付回调已过期',401)
     if(String(callback.status??'').toUpperCase()!=='PAID')return {ok:true,ignored:true}
@@ -182,10 +226,15 @@ export class PaymentService{
     }))
   }
 
-  // 中心单查单只做展示：过期 / 取消标 failed（前端停轮询）；已付等签名回调发放（中心会重试 72 小时，SDK 规定不从查单入账）。
+  // 中心单对账：过期 / 取消标 failed（前端停轮询）；中心已付而本地还没发放（回调丢了 / 发放中途进程退出）→
+  // 走与签名回调相同的 fulfilCenter（同一事件号，payment_events 去重，和迟到的回调双写安全）补发，并记 warn。
   private async syncCenterOrder(orderNo:string,status:string):Promise<SyncOrderResult>{
-    if(status!=='pending')return {ok:true,status,changed:false}
     const state=this.center?await this.center.state(orderNo):null
+    if(state?.paid){
+      this.log(`[payments] 中心订单 ${state.siteOrderNo} 已付而本地订单 ${orderNo} 仍是 ${status}，查单补发`)
+      const result=await this.fulfilCenter(state.paid,orderNo)
+      return {...result,status:'paid',changed:!result.duplicate}
+    }
     if(state&&(state.status==='expired'||state.status==='cancelled')&&status==='pending'){
       await this.store.failOrder(orderNo)
       return {ok:true,status:state.status,changed:true}
@@ -248,6 +297,16 @@ export class PaymentService{
       return {...result,status:'paid',changed:!result.duplicate}
     }finally{clearTimeout(timer)}
   }
+}
+
+const CENTER_REFUND_REASON='支付中心退款'
+
+/** 接管旧未付单被拒（order-reuse.ts 的四种原因）→ 给客户端的回应。 */
+const REUSE_REFUSALS:Record<'mismatch'|'off_sale'|'limit'|'state',()=>AppError>={
+  mismatch:()=>new AppError('PAYMENT_CREATE_FAILED','你有一笔未完成的其它订单，请稍后再试',409),
+  off_sale:()=>new AppError('PLAN_NOT_AVAILABLE','套餐已下架或不在活动时间内',404),
+  limit:()=>new AppError('PURCHASE_LIMIT','已达到该活动套餐的购买次数上限',409),
+  state:()=>new AppError('PAYMENT_CREATE_FAILED','本地订单状态已变化，请刷新订单状态',409),
 }
 
 const parsePaidAt=(value?:string)=>{

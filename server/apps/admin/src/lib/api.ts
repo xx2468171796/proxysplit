@@ -57,7 +57,7 @@ export const patch = <T>(path: string, body?: unknown) => api<T>(path, withBody(
 export const put = <T>(path: string, body?: unknown) => api<T>(path, withBody('PUT', body))
 export const del = <T>(path: string) => api<T>(path, { method: 'DELETE' })
 
-/** 列表信封：所有 /v1/admin 列表都回 { items, total, limit, offset }，订单另带 amountSum、佣金带 amountSumCents。 */
+/** 列表信封：所有 /v1/admin 列表都回 { items, total, limit, offset }，订单另带 amountSum、分销佣金带 amountSumCents、代理商分成带按状态的 sums。 */
 export type ListEnvelope<T> = {
   items: T[]
   total: number
@@ -65,6 +65,8 @@ export type ListEnvelope<T> = {
   offset?: number
   amountSum?: number | string
   amountSumCents?: number | string
+  /** 按状态分开的合计（分），键由各接口定，如代理商分成的 pendingCents / settledCents / voidCents。 */
+  sums?: Record<string, number | string>
 }
 
 export type QueryValue = string | number | boolean | null | undefined

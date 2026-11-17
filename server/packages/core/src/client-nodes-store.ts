@@ -140,10 +140,22 @@ export class ClientNodesStore {
       [deviceId, subs.map(s => s.sub_id), now])
   }
 
-  /** 删掉 retentionDays 之前的变化记录（分批，同 TelemetryStore.purge）。 */
-  async purge(retentionDays = 90, opts: { batchSize?: number; maxBatches?: number; now?: Date } = {}) {
+  /** 这台设备以前报过清单没有（上报口匿名、设备号是客户端自己给的：没见过的设备号按 IP 限量，见 client-nodes-routes.ts）。 */
+  async knownDevice(deviceId: string): Promise<boolean> {
+    const r = await this.db.query('SELECT 1 FROM client_nodes WHERE device_id=$1 UNION ALL SELECT 1 FROM client_subs WHERE device_id=$1 LIMIT 1', [deviceId])
+    return r.rows.length > 0
+  }
+
+  /**
+   * 保留期清理（分批，同 TelemetryStore.purge）：删 retentionDays 之前的变化记录、清掉已移除条目的加密链接；
+   * 另外删掉「还标着在用、但设备已经 staleDays 天没再上报」的节点 / 订阅行 —— 这些行以前永远不清，
+   * 设备一旦不再上报（或是有人用随机设备号灌进来的）就一直留在清单里。
+   */
+  async purge(retentionDays = 90, opts: { batchSize?: number; maxBatches?: number; now?: Date; staleDays?: number } = {}) {
     const batchSize = opts.batchSize ?? 5000, maxBatches = opts.maxBatches ?? 20
-    const cutoff = new Date((opts.now ?? new Date()).getTime() - retentionDays * 86_400_000).toISOString()
+    const nowMs = (opts.now ?? new Date()).getTime()
+    const cutoff = new Date(nowMs - retentionDays * 86_400_000).toISOString()
+    const staleCutoff = new Date(nowMs - (opts.staleDays ?? retentionDays) * 86_400_000).toISOString()
     let changes = 0
     for (let i = 0; i < maxBatches; i++) {
       const r = await this.db.query('DELETE FROM client_node_changes WHERE id IN (SELECT id FROM client_node_changes WHERE at<$1 ORDER BY id LIMIT $2)', [cutoff, batchSize])
@@ -153,6 +165,14 @@ export class ClientNodesStore {
     // 删掉超过保留期的节点 / 订阅：只清加密链接，行留着做历史统计。
     const n = await this.db.query('UPDATE client_nodes SET link_enc=NULL WHERE removed_at<$1 AND link_enc IS NOT NULL', [cutoff])
     const s = await this.db.query('UPDATE client_subs SET url_enc=NULL WHERE removed_at<$1 AND url_enc IS NOT NULL', [cutoff])
-    return { changes, clearedLinks: (n.rowCount ?? 0) + (s.rowCount ?? 0) }
+    let staleRows = 0
+    for (const table of ['client_nodes', 'client_subs'] as const) {
+      for (let i = 0; i < maxBatches; i++) {
+        const r = await this.db.query(`DELETE FROM ${table} WHERE ctid IN (SELECT ctid FROM ${table} WHERE removed_at IS NULL AND last_seen<$1 LIMIT $2)`, [staleCutoff, batchSize])
+        staleRows += r.rowCount ?? 0
+        if ((r.rowCount ?? 0) < batchSize) break
+      }
+    }
+    return { changes, clearedLinks: (n.rowCount ?? 0) + (s.rowCount ?? 0), staleRows }
   }
 }

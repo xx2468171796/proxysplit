@@ -118,9 +118,28 @@ describe('client node inventory replace', () => {
     const query = async (sql: string, params: unknown[] = []) => { calls.push({ sql, params }); return { rows: [], rowCount: counts.shift() ?? 0 } }
     const res = await new ClientNodesStore({ query, connect: async () => ({ query, release: () => {} }) }, new LinkCipher(KEY))
       .purge(90, { batchSize: 5, now: new Date('2026-10-28T00:00:00Z') })
-    expect(res).toEqual({ changes: 7, clearedLinks: 0 })
+    expect(res).toEqual({ changes: 7, clearedLinks: 0, staleRows: 0 })
     expect(calls.some(c => c.sql.includes("SET link_enc=NULL WHERE removed_at<"))).toBe(true)
     expect(calls[0]!.params[0]).toBe('2026-07-30T00:00:00.000Z')
+  })
+
+  it('purges alive inventory rows of devices that stopped reporting (never purged before), in bounded batches', async () => {
+    const calls: Call[] = []
+    const query = async (sql: string, params: unknown[] = []) => { calls.push({ sql, params }); return { rows: [], rowCount: sql.startsWith('DELETE FROM client_nodes') ? 3 : sql.startsWith('DELETE FROM client_subs') ? 1 : 0 } }
+    const res = await new ClientNodesStore({ query, connect: async () => ({ query, release: () => {} }) }, new LinkCipher(KEY))
+      .purge(90, { batchSize: 5, now: new Date('2026-10-28T00:00:00Z'), staleDays: 30 })
+    expect(res).toEqual({ changes: 0, clearedLinks: 0, staleRows: 4 })
+    const del = calls.find(c => c.sql.startsWith('DELETE FROM client_nodes'))!
+    expect(del.sql).toContain('removed_at IS NULL AND last_seen<$1')
+    expect(del.params).toEqual(['2026-09-28T00:00:00.000Z', 5])
+  })
+
+  it('knownDevice: a device id counts as known once it has any inventory row', async () => {
+    const seen: Call[] = []
+    const query = async (sql: string, params: unknown[] = []) => { seen.push({ sql, params }); return { rows: params[0] === DEVICE ? [{}] : [], rowCount: 0 } }
+    const store = new ClientNodesStore({ query, connect: async () => ({ query, release: () => {} }) }, new LinkCipher(KEY))
+    expect(await store.knownDevice(DEVICE)).toBe(true)
+    expect(await store.knownDevice('b'.repeat(64))).toBe(false)
   })
 
   it('list query paginates by page / pageSize and escapes LIKE', async () => {

@@ -1,5 +1,5 @@
 // 统一支付中心（zhifu-service）在本站的两张表：订单簿 pay_center_orders（SDK SiteOrderBook）
-// 与回调去重 pay_center_notifies（SDK DedupeStore，notify_id 唯一键）。迁移 0022。
+// 与回调去重 pay_center_notifies（SDK DedupeStore，notify_id 唯一键，发放成功后才写）。迁移 0022。
 import type { DedupeStore } from './vendor/zhifu/center/notify.js'
 import type { SiteOrderBook, SiteOrderRecord } from './vendor/zhifu/site/types.js'
 
@@ -11,6 +11,7 @@ export const localOrderNoOf = (meta: Record<string, unknown>): string | null =>
 
 export function pgCenterOrderBook(db: Queryable): SiteOrderBook & {
   byLocalOrderNo(orderNo: string): Promise<SiteOrderRecord | null>
+  reopen(orderNo: string): Promise<void>
 } {
   const row = (r: Record<string, unknown>): SiteOrderRecord => ({
     siteOrderNo: String(r.site_order_no), userId: String(r.user_id), amountCents: Number(r.amount_cents),
@@ -30,6 +31,11 @@ export function pgCenterOrderBook(db: Queryable): SiteOrderBook & {
     async discard(siteOrderNo, reason) {
       await db.query(`UPDATE pay_center_orders SET discarded=$2 WHERE site_order_no=$1 AND discarded IS NULL`, [siteOrderNo, reason])
     },
+    // 中心还回的旧单不能接管、改为「取消后重下」时：SDK 把这笔本地订单的中心单号标成了 reused，而重下沿用同一个单号
+    //（按 requestId 推出来的）。重下成功后把作废标记拿掉，查单 / 对账才找得到它。
+    async reopen(orderNo) {
+      await db.query(`UPDATE pay_center_orders SET discarded=NULL WHERE order_no=$1 AND discarded='reused'`, [orderNo])
+    },
     // 一笔本地订单对应最新那张没作废的中心单（换线 / 复用后以最新为准）。
     async byLocalOrderNo(orderNo) {
       const r = await db.query(`SELECT site_order_no,user_id,amount_cents,meta FROM pay_center_orders
@@ -39,13 +45,13 @@ export function pgCenterOrderBook(db: Queryable): SiteOrderBook & {
   }
 }
 
+// 只实现 seen / mark，故意不给 SDK claim / release：claim 会在发放之前先把回调记成「已处理」（独立连接、已提交），
+// 进程在 claim 与发放之间退出（发版重启）后那条记录没人释放，中心此后每次重试都被直接确认 → 扣了钱不发会员。
+// 不给 claim 时 SDK 的顺序是 seen → 发放 → mark：只有发放成功才记。并发的两次重试都会进发放，
+// 由 fulfillPaidOrder 的 payment_events(provider_code,event_id) 唯一键保证只发一次（退款路径按订单状态幂等）。
 export function pgCenterDedupe(db: Queryable): DedupeStore {
   return {
     async seen(id) { return ((await db.query(`SELECT 1 FROM pay_center_notifies WHERE notify_id=$1`, [id])).rowCount ?? 0) > 0 },
     async mark(id) { await db.query(`INSERT INTO pay_center_notifies(notify_id) VALUES($1) ON CONFLICT DO NOTHING`, [id]) },
-    async claim(id) {
-      return ((await db.query(`INSERT INTO pay_center_notifies(notify_id) VALUES($1) ON CONFLICT DO NOTHING RETURNING 1`, [id])).rowCount ?? 0) > 0
-    },
-    async release(id) { await db.query(`DELETE FROM pay_center_notifies WHERE notify_id=$1`, [id]) },
   }
 }

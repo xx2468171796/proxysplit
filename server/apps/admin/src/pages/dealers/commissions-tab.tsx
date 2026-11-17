@@ -1,4 +1,4 @@
-// 分成流水：按代理商 / 状态 / 时间筛选，合计按筛选结果；勾选待结算的批量「标记已结算」（线下打款后点，写审计）。
+// 分成流水：按代理商 / 状态 / 时间筛选，合计按筛选结果、按状态分开（应付 = 待结算）；勾选待结算的批量「标记已结算」（线下打款后点，写审计）。
 import * as React from 'react'
 import { CheckCheck } from 'lucide-react'
 import {
@@ -27,7 +27,9 @@ export function CommissionsTab({ dealer, onDealerChange }: { dealer: string; onD
   React.useEffect(() => { setSelected([]) }, [list.source.data])
   const picked = rows.filter((c) => selected.includes(String(c.id)))
   const pickedCents = picked.reduce((a, c) => a + c.commissionCents, 0)
-  const sum = minor(list.meta.amountSumCents ?? null)
+  // 合计按状态分开（服务端给）：应付只看待结算；已结算 / 已作废单列，不混进一个数。
+  const sums = list.meta.sums
+  const payable = minor(sums?.pendingCents ?? null)
 
   const columns: Column<DealerCommission>[] = [
     { key: 'createdAt', title: '时间', width: 150, render: (c) => <CellDate value={c.createdAt} time /> },
@@ -46,7 +48,7 @@ export function CommissionsTab({ dealer, onDealerChange }: { dealer: string; onD
   return (
     <>
       <ResourcePanel title="分成流水" {...list.panel} unit="笔"
-        description="每笔已付订单（拆单按整组）一行，比例是下单时的快照；退款自动作废。合计是筛选结果的分成。"
+        description="每笔已付订单（拆单按整组）一行，比例是下单时的快照；退款自动作废。合计行是筛选结果里待结算的分成（应付），已结算 / 已作废另列。"
         filters={
           <QueryBar {...list.queryBar} placeholder="搜索（暂不支持，按右侧筛选）">
             <Input size="sm" aria-label="代理商标识" placeholder="代理商标识，如 wen" value={dealer}
@@ -60,7 +62,10 @@ export function CommissionsTab({ dealer, onDealerChange }: { dealer: string; onD
           selected={selected} onSelectionChange={setSelected} isRowSelectable={(c) => c.status === 'pending'}
           bulkNote={`合计 ${money(pickedCents)}`}
           bulkActions={[{ key: 'settle', label: '标记已结算', icon: <CheckCheck />, onSelect: () => setConfirm(true) }]}
-          {...(sum !== null && list.total ? { summary: { amount: <MoneyDisplay value={sum} />, createdAt: '筛选结果合计' } } : {})} />
+          {...(payable !== null && list.total ? { summary: {
+            createdAt: '待结算合计（应付）', amount: <MoneyDisplay value={payable} />,
+            status: `已结算 ${money(sums?.settledCents ?? 0)} · 已作废 ${money(sums?.voidCents ?? 0)}`,
+          } } : {})} />
       </ResourcePanel>
       <ConfirmDialog open={confirm} tone="info" title={`把 ${picked.length} 笔分成标记为已结算？`} confirmLabel="标记已结算"
         impact={[`合计 ${money(pickedCents)}`, '确认线下已打款后再点；操作写进审计']}

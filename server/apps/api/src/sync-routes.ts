@@ -1,8 +1,9 @@
 // 配置云同步 + 云端命名配置（会员专属）+ 分享导入（任何已登录用户）。
 // 存储在 core config-sync.ts / config-profiles.ts，合同 docs/plan-2026-10-29-free-sync-phone.md。
 import type { FastifyInstance, FastifyRequest } from 'fastify'
-import { z } from 'zod'
 import { AppError } from '@proxysplit/shared'
+import { FLEET_LIMIT } from './rate-limits.js'
+import { idParam } from './params.js'
 import { CONFIG_PAYLOAD_MAX, configProfileCreateSchema, configProfileUpdateSchema, configRestorePasswordSchema, configRestoreSchema, configShareImportSchema, configShareSchema, configSyncGetQuery, configSyncPutSchema } from '@proxysplit/contracts'
 import { profileQuota, type ConfigProfilesStore, type ConfigSyncStore, type Effective } from '@proxysplit/core'
 
@@ -15,13 +16,11 @@ export type SyncDeps = {
 }
 /** JSON 转义会让正文比 2 MB 字符串大，留余量。 */
 const BODY_LIMIT = CONFIG_PAYLOAD_MAX * 2
+// 人手动操作的（云端配置增删改、恢复密码、分享导入）保持每 IP 每分钟 30 次：恢复密码和分享码都不能给人刷。
 const limit = { rateLimit: { max: 30, timeWindow: '1 minute' } }
-const idParam = z.object({ id: z.string().uuid() })
-const profileId = (req: FastifyRequest) => {
-  const r = idParam.safeParse(req.params)
-  if (!r.success) throw new AppError('NOT_FOUND', '配置不存在', 404)
-  return r.data.id
-}
+// 配置同步 / 云端配置列表是客户端后台定时、改动后自动调的：按 IP 用 FLEET_LIMIT（rate-limits.ts）。
+const fleet = { rateLimit: FLEET_LIMIT }
+const profileId = (req: FastifyRequest) => idParam(req, '配置不存在')
 
 /** 设了恢复密码的配置：GET / DELETE 用请求头 x-restore-password 带恢复密码。 */
 const restoreHeader = (req: FastifyRequest) => {
@@ -36,11 +35,11 @@ export function registerSyncRoutes(app: FastifyInstance, d: SyncDeps) {
     return { ...p, e }
   }
 
-  app.get('/v1/me/config-sync', { config: limit }, async (req) => {
+  app.get('/v1/me/config-sync', { config: fleet }, async (req) => {
     const p = await member(req), q = configSyncGetQuery.parse(req.query)
     return q.meta === '1' || q.meta === 'true' ? d.sync.meta(p.userId) : d.sync.get(p.userId)
   })
-  app.put('/v1/me/config-sync', { config: limit, bodyLimit: BODY_LIMIT }, async (req, reply) => {
+  app.put('/v1/me/config-sync', { config: fleet, bodyLimit: BODY_LIMIT }, async (req, reply) => {
     const p = await member(req), input = configSyncPutSchema.parse(req.body)
     const r = await d.sync.put(p.userId, input.payload, input.baseVersion, await d.deviceName(p.deviceId))
     if (!r.ok) return reply.code(409).send({ error: { code: 'SYNC_CONFLICT', message: '云端配置已被其他设备更新' }, current: r.current })
@@ -48,7 +47,7 @@ export function registerSyncRoutes(app: FastifyInstance, d: SyncDeps) {
   })
   app.delete('/v1/me/config-sync', { config: limit }, async (req) => d.sync.remove((await member(req)).userId))
 
-  app.get('/v1/me/config-profiles', { config: limit }, async (req) => {
+  app.get('/v1/me/config-profiles', { config: fleet }, async (req) => {
     const p = await member(req), items = await d.profiles.list(p.userId)
     return { items, quota: profileQuota(p.e), used: items.length }
   })
