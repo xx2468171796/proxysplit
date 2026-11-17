@@ -21,7 +21,7 @@ export type ServerListOptions<F extends Filters> = {
 
 const EXTRA_KEY = '__extra'
 
-export type ListMeta = { amountSum?: number | string | undefined; amountSumCents?: number | string | undefined }
+export type ListMeta = { amountSum?: number | string | undefined; amountSumCents?: number | string | undefined; sums?: Record<string, number | string> | undefined }
 
 export function listParams<F extends Filters>(query: ListQuery<F>, extra: QueryParams, paging: 'offset' | 'page'): QueryParams {
   const base: QueryParams = paging === 'page'
@@ -54,7 +54,7 @@ export function useServerList<T, F extends Filters>(path: string, opts: ServerLi
 
   const adapter = React.useCallback<ListAdapter<T, F>>(async (q, { signal }) => {
     const env = await get<ListEnvelope<T>>(path + toQuery(listParams(q, extraRef.current, paging)), signal)
-    setMeta({ amountSum: env.amountSum, amountSumCents: env.amountSumCents })
+    setMeta({ amountSum: env.amountSum, amountSumCents: env.amountSumCents, sums: env.sums })
     return { rows: env.items, total: env.total }
   }, [path, paging])
   // extraKey 进 query 比较键，参数变了才会重新请求。

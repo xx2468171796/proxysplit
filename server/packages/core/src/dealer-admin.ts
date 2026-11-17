@@ -44,13 +44,20 @@ export class DealerAdmin{
 
   async commissions(q:DealerCommissionsQuery){
     const {where,vals}=range(q)
-    const sum=(await this.db.query(`SELECT count(*)::int AS n,coalesce(sum(c.gross_cents),0)::int AS gross,coalesce(sum(c.commission_cents),0)::int AS commission
-      FROM dealer_commissions c ${where}`,vals)).rows[0] as {n:number;gross:number;commission:number}
+    // 合计按状态分开：应付给代理商的只有「待结算」。已结算的钱付过了、已作废的（退款）不该付，混成一个数会让人多打款。
+    // 实付合计同代理商列表的口径：不含已作废。
+    const sum=(await this.db.query(`SELECT count(*)::int AS n,
+        coalesce(sum(c.commission_cents) FILTER (WHERE c.status='pending'),0)::int AS pending,
+        coalesce(sum(c.commission_cents) FILTER (WHERE c.status='settled'),0)::int AS settled,
+        coalesce(sum(c.commission_cents) FILTER (WHERE c.status='void'),0)::int AS void,
+        coalesce(sum(c.gross_cents) FILTER (WHERE c.status<>'void'),0)::int AS gross
+      FROM dealer_commissions c ${where}`,vals)).rows[0] as {n:number;pending:number;settled:number;void:number;gross:number}
     const items=(await this.db.query(`SELECT c.id::int AS id,c.dealer_slug AS "dealerSlug",c.user_id AS "userId",coalesce(u.username,'') AS username,c.source,
         c.gross_cents AS "grossCents",c.bps,c.commission_cents AS "commissionCents",c.status,c.created_at AS "createdAt",c.settled_at AS "settledAt",c.note
       FROM dealer_commissions c LEFT JOIN users u ON u.id=c.user_id ${where}
       ORDER BY c.created_at DESC,c.id DESC LIMIT $${vals.length+1} OFFSET $${vals.length+2}`,[...vals,q.limit,q.offset])).rows as DealerCommissionRow[]
-    return {items,total:sum.n,grossCents:sum.gross,commissionCents:sum.commission,amountSumCents:sum.commission,limit:q.limit,offset:q.offset}
+    return {items,total:sum.n,limit:q.limit,offset:q.offset,grossCents:sum.gross,payableCents:sum.pending,
+      sums:{pendingCents:sum.pending,settledCents:sum.settled,voidCents:sum.void}}
   }
 
   /** 批量标记已结算：只动 pending 的；返回真正改了的 id 与金额（给审计）。 */
