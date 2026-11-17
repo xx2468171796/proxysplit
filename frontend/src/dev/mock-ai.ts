@@ -130,3 +130,16 @@ export function createAIMock(showcase: boolean): Record<string, Fn> {
     }),
   };
 }
+
+let controlToken = "ps_8f2c1d9e0a7b4c3e";
+/** AI 控制信息；regenerate = 换一个新令牌。 */
+export function mockAIControl(regenerate: boolean) {
+  if (regenerate) controlToken = `ps_${Math.random().toString(16).slice(2, 18)}`;
+  return {
+    url: "http://127.0.0.1:18088",
+    token: controlToken,
+    prompt: "你可以控制本机 ProxySplit…",
+    mcpConfig: "{}",
+    running: true,
+  };
+}

@@ -36,6 +36,19 @@ export async function loadSystem(): Promise<void> {
   system.set({ autostart, logLevel: logLevel || "info", lanIP, ai: ai ?? cur.ai });
 }
 
+/** 重新生成 AI 控制令牌：旧令牌立刻失效。返回给用户看的一句话。 */
+export async function regenerateAIToken(): Promise<string> {
+  const before = system.get().ai.token;
+  try {
+    const ai = await api.regenerateAIControlToken();
+    if (!ai?.token || ai.token === before) return "重新生成失败：令牌没有变化，请稍后再试";
+    system.set({ ai });
+    return "令牌已重新生成，旧令牌已失效";
+  } catch (e) {
+    return `重新生成失败：${String(e)}`;
+  }
+}
+
 export async function setAutostart(on: boolean): Promise<string> {
   const err = await api.setAutostart(on);
   system.set({ autostart: await api.autostart().catch(() => on) });

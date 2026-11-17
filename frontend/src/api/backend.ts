@@ -170,6 +170,7 @@ export const api = {
   logLevel: () => W.GetLogLevel(),
   setLogLevel: (level: string) => W.SetLogLevel(level),
   aiControlInfo: () => W.GetAIControlInfo() as Promise<AIControlInfo>,
+  regenerateAIControlToken: () => W.RegenerateAIControlToken() as Promise<AIControlInfo>,
   claudeAccel: () => W.GetClaudeAccel() as Promise<AccelState>,
   setClaudeAccelMode: (mode: string) => W.SetClaudeAccelMode(mode),
   // 服务没起来时 Go 回空报告，items 是 null。
