@@ -33,7 +33,7 @@ export class PaymentService{
    *  centerFactory：接统一支付中心（createCenterPayFromEnv），拿到的回调即中心付款落地入口。 */
   constructor(private store:PgStore,private publicBaseUrl:string,private log:(message:string)=>void=message=>console.warn(message),private onPaid?:(orderNo:string)=>Promise<void>,
     centerFactory?:(fulfil:CenterFulfil)=>CenterPay|null){
-    this.center=centerFactory?.((e,orderNo)=>this.fulfilCenter(e,orderNo))??null
+    this.center=centerFactory?.(async(e,orderNo)=>{await this.fulfilCenter(e,orderNo)})??null
   }
   private async landed<T extends {duplicate?:boolean}>(orderNo:string,result:T):Promise<T>{
     if(!result.duplicate)await this.onPaid?.(orderNo).catch(e=>this.log(`onPaid ${orderNo} failed: ${String(e)}`))
@@ -105,7 +105,7 @@ export class PaymentService{
     if(!order)throw new Error(`center notify: local order ${orderNo} not found`)
     const provider=await this.store.getProvider(order.providerCode)
     if(!provider||provider.adapter!=='center')throw new Error(`center notify: order ${orderNo} is not a center order`)
-    await this.landed(orderNo,await this.store.fulfillPaidOrder(centerFulfilInput(provider.code,e,orderNo)))
+    return this.landed(orderNo,await this.store.fulfillPaidOrder(centerFulfilInput(provider.code,e,orderNo)))
   }
 
   private async createGatewayOrder(provider:PaymentProviderRecord,order:{orderNo:string;amountCents:number;planName:string;groupId:string|null;splitIndex:number|null;splitTotal:number|null;providerOrderNo:string|null;payUrl:string|null;status:string},username:string){
@@ -182,10 +182,15 @@ export class PaymentService{
     }))
   }
 
-  // 中心单查单只做展示：过期 / 取消标 failed（前端停轮询）；已付等签名回调发放（中心会重试 72 小时，SDK 规定不从查单入账）。
+  // 中心单对账：过期 / 取消标 failed（前端停轮询）；中心已付而本地还没发放（回调丢了 / 发放中途进程退出）→
+  // 走与签名回调相同的 fulfilCenter（同一事件号，payment_events 去重，和迟到的回调双写安全）补发，并记 warn。
   private async syncCenterOrder(orderNo:string,status:string):Promise<SyncOrderResult>{
-    if(status!=='pending')return {ok:true,status,changed:false}
     const state=this.center?await this.center.state(orderNo):null
+    if(state?.paid){
+      this.log(`[payments] 中心订单 ${state.siteOrderNo} 已付而本地订单 ${orderNo} 仍是 ${status}，查单补发`)
+      const result=await this.fulfilCenter(state.paid,orderNo)
+      return {...result,status:'paid',changed:!result.duplicate}
+    }
     if(state&&(state.status==='expired'||state.status==='cancelled')&&status==='pending'){
       await this.store.failOrder(orderNo)
       return {ok:true,status:state.status,changed:true}

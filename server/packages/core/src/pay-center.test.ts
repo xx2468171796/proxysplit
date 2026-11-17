@@ -28,7 +28,6 @@ function memoryDb(){
     if(s.startsWith('UPDATE pay_center_orders SET discarded')){const r=orders.get(String(v[0]));if(r&&r.discarded===null)r.discarded=v[1];return {rows:[]}}
     if(s.startsWith('INSERT INTO pay_center_notifies')){const fresh=!notifies.has(String(v[0]));notifies.add(String(v[0]));return {rows:fresh?[{}]:[],rowCount:fresh?1:0}}
     if(s.startsWith('SELECT 1 FROM pay_center_notifies')){const n=notifies.has(String(v[0]))?1:0;return {rows:n?[{}]:[],rowCount:n}}
-    if(s.startsWith('DELETE FROM pay_center_notifies')){notifies.delete(String(v[0]));return {rows:[]}}
     throw new Error(`unexpected SQL: ${s}`)
   }}
   return {db,orders,notifies}
@@ -39,7 +38,8 @@ function setup(hvRedeem?:HvRedeem){
   const sent:Array<{challengePassed?:boolean}>=[]
   const tryCreate=mock.client.tryCreateOrder
   mock.client.tryCreateOrder=async input=>{sent.push(input as {challengePassed?:boolean});return tryCreate(input)}
-  const {db,orders}=memoryDb()
+  const {db,orders,notifies}=memoryDb()
+  const logs:string[]=[]
   const store={
     createOrders:vi.fn(async()=>[order]),getProvider:async()=>provider,failOrder:vi.fn(async()=>undefined),
     setOrderPayment:vi.fn(async()=>({orderNo:order.orderNo})),getOrderForUser:async()=>({...order}),
@@ -47,9 +47,9 @@ function setup(hvRedeem?:HvRedeem){
     fulfillPaidOrder:vi.fn(async()=>({ok:true,duplicate:false})),
   }
   const paid:string[]=[]
-  const service=new PaymentService(store as unknown as PgStore,'https://site.invalid',()=>undefined,async no=>{paid.push(no)},
+  const service=new PaymentService(store as unknown as PgStore,'https://site.invalid',m=>{logs.push(m)},async no=>{paid.push(no)},
     fulfil=>createCenterPay({appId:'site-test',secret:'test-secret',client:mock.client,db,onPaid:fulfil,log:()=>undefined,...(hvRedeem?{hvRedeem}:{})}))
-  return {mock,orders,store,service,paid,sent}
+  return {mock,orders,notifies,logs,store,service,paid,sent}
 }
 
 describe('统一支付中心适配器',()=>{
@@ -83,6 +83,41 @@ describe('统一支付中心适配器',()=>{
     const replay=await service.handleCenterNotify(raw)
     expect(replay.status).toBe(200)
     expect(store.fulfillPaidOrder).toHaveBeenCalledTimes(1)
+  })
+
+  it('发放中途失败 / 进程退出：回调没被记成「已处理」，中心重试时照样发放（至少一次）',async()=>{
+    const {mock,store,service,orders,notifies}=setup()
+    await service.createOrder('user-1','plan-id','alice')
+    const raw=mock.pay((await mock.client.query({siteOrderNo:String([...orders.values()][0]?.site_order_no)})).order_no)
+    store.fulfillPaidOrder.mockImplementationOnce(async()=>{
+      // 发放开始时库里不能已经有这条回调的记录：进程此刻退出，重试就会被当成重复而不发放。
+      expect(notifies.size).toBe(0)
+      throw new Error('process died')
+    })
+    const first=await service.handleCenterNotify(raw)
+    expect(first.status).toBeGreaterThanOrEqual(500)
+    expect(notifies.size).toBe(0)
+    const retry=await service.handleCenterNotify(raw)
+    expect(retry.status).toBe(200)
+    expect(store.fulfillPaidOrder).toHaveBeenCalledTimes(2)
+    expect(notifies.size).toBe(1)
+  })
+
+  it('查单对账：中心已付而本地还是待支付 / 失败 → 走同一个 fulfillPaidOrder 补发并记 warn',async()=>{
+    for(const local of ['pending','failed']){
+      const {mock,store,service,orders,logs,paid}=setup()
+      await service.createOrder('user-1','plan-id','alice')
+      const siteOrderNo=String([...orders.values()][0]?.site_order_no)
+      mock.pay((await mock.client.query({siteOrderNo})).order_no) // 中心收到钱了，回调没送到
+      store.getOrderForCallback=async()=>({orderNo:order.orderNo,providerCode:provider.code,providerOrderNo:null,amountCents:order.amountCents,status:local})
+      const r=await service.syncOrder(order.orderNo)
+      expect(r).toMatchObject({status:'paid',changed:true})
+      expect(store.fulfillPaidOrder).toHaveBeenCalledWith(expect.objectContaining({
+        providerCode:'zhifu-center',eventId:`center:${siteOrderNo}`,orderNo:order.orderNo,amountCents:29900,providerOrderNo:siteOrderNo,
+      }))
+      expect(paid).toEqual([order.orderNo])
+      expect(logs.some(m=>m.includes(order.orderNo)&&m.includes('补发'))).toBe(true)
+    }
   })
 
   it('回调用户与订单簿不符：不发放、不回 2xx（中心会重试并报警）',async()=>{

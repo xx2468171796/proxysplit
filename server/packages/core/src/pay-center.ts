@@ -1,6 +1,7 @@
 // 会员收款走公司统一支付中心 zhifu-service（PAY_MODE=center）：公司包 zhifu 的 zhifu/site（vendor 在 ./vendor/zhifu）。
 // 中心决定通道（目前微信 zyg1103wx）、排队、未付规则、拆单；本站只建一笔本地订单、签名下单、收签名回调。
-// 发放只在回调（onPaid → store.fulfillPaidOrder，payment_events 去重）；查单只用于展示与把过期单标失败。
+// 发放 = store.fulfillPaidOrder（payment_events 去重，恰好一次）：签名回调 onPaid 是主路，至少送达一次；
+// 查单发现中心已付而本地未付时走同一落地点补发（PaymentService.syncCenterOrder），并把过期单标失败。
 // 红线：不把本站域名 / 站名带上游 —— subject 用 SDK 默认「充值」，不传站名。
 import { createHash } from 'node:crypto'
 import { AppError } from '@proxysplit/shared'
@@ -21,7 +22,8 @@ export type CenterPayContext = {
 export type HvRedeem = (token: string) => Promise<HumanVerdict>
 export type CenterLocalOrder = { orderNo: string; userId: string; amountCents: number }
 export type CenterOrderLink = { siteOrderNo: string; payUrl: string; checkoutUrl: string | null; expireAt: string; localOrderNo: string }
-export type CenterOrderState = { status: 'pending' | 'paid' | 'expired' | 'cancelled'; siteOrderNo: string } | null
+/** paid：中心说已付时，按订单簿（用户 / 金额）拼出的付款事件，事件号与签名回调相同（两条路在 payment_events 互相去重）。 */
+export type CenterOrderState = { status: 'pending' | 'paid' | 'expired' | 'cancelled'; siteOrderNo: string; paid: PaidEvent | null } | null
 type CenterBook = ReturnType<typeof pgCenterOrderBook>
 
 /** 拒单码 → HTTP 状态与兜底文案（中心给的 message 优先原样显示，它带等待时间 / 原因）。 */
@@ -80,12 +82,18 @@ export class CenterPay {
     return { siteOrderNo: r.order.orderNo, payUrl: r.order.payUrl, checkoutUrl: safeHttps(r.order.checkoutUrl), expireAt: r.order.expireAt, localOrderNo }
   }
 
-  /** 展示用查单（不发放）：返回中心状态；本地订单没有中心单 = null。 */
+  /** 查单（带签名的服务端请求）：返回中心状态；本地订单没有中心单 = null。已付时带上对账补发用的付款事件。 */
   async state(localOrderNo: string): Promise<CenterOrderState> {
     const rec = await this.book.byLocalOrderNo(localOrderNo)
     if (!rec) return null
     const s = await this.pay.getOrder(rec.userId, rec.siteOrderNo)
-    return s ? { status: s.status, siteOrderNo: rec.siteOrderNo } : null
+    if (!s) return null
+    const paidAt = new Date(s.paidAt ?? Date.now())
+    const paid: PaidEvent | null = s.status !== 'paid' ? null : {
+      mode: 'center', orderNo: rec.siteOrderNo, idempotencyKey: rec.siteOrderNo, userId: rec.userId, amountCents: rec.amountCents,
+      paidCents: rec.amountCents, meta: rec.meta, late: false, paidAt: Number.isFinite(paidAt.getTime()) ? paidAt : new Date(),
+    }
+    return { status: s.status, siteOrderNo: rec.siteOrderNo, paid }
   }
 
   /** 原始请求体进、HTTP 回复出（2xx + {"code":0} 才算收到；其它中心会退避重试 72 小时）。 */

@@ -1,5 +1,5 @@
 // 统一支付中心（zhifu-service）在本站的两张表：订单簿 pay_center_orders（SDK SiteOrderBook）
-// 与回调去重 pay_center_notifies（SDK DedupeStore，notify_id 唯一键）。迁移 0022。
+// 与回调去重 pay_center_notifies（SDK DedupeStore，notify_id 唯一键，发放成功后才写）。迁移 0022。
 import type { DedupeStore } from './vendor/zhifu/center/notify.js'
 import type { SiteOrderBook, SiteOrderRecord } from './vendor/zhifu/site/types.js'
 
@@ -39,13 +39,13 @@ export function pgCenterOrderBook(db: Queryable): SiteOrderBook & {
   }
 }
 
+// 只实现 seen / mark，故意不给 SDK claim / release：claim 会在发放之前先把回调记成「已处理」（独立连接、已提交），
+// 进程在 claim 与发放之间退出（发版重启）后那条记录没人释放，中心此后每次重试都被直接确认 → 扣了钱不发会员。
+// 不给 claim 时 SDK 的顺序是 seen → 发放 → mark：只有发放成功才记。并发的两次重试都会进发放，
+// 由 fulfillPaidOrder 的 payment_events(provider_code,event_id) 唯一键保证只发一次（退款路径按订单状态幂等）。
 export function pgCenterDedupe(db: Queryable): DedupeStore {
   return {
     async seen(id) { return ((await db.query(`SELECT 1 FROM pay_center_notifies WHERE notify_id=$1`, [id])).rowCount ?? 0) > 0 },
     async mark(id) { await db.query(`INSERT INTO pay_center_notifies(notify_id) VALUES($1) ON CONFLICT DO NOTHING`, [id]) },
-    async claim(id) {
-      return ((await db.query(`INSERT INTO pay_center_notifies(notify_id) VALUES($1) ON CONFLICT DO NOTHING RETURNING 1`, [id])).rowCount ?? 0) > 0
-    },
-    async release(id) { await db.query(`DELETE FROM pay_center_notifies WHERE notify_id=$1`, [id]) },
   }
 }
