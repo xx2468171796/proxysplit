@@ -8,6 +8,7 @@ import { recordDealerCommissionInTx, voidDealerCommissionInTx } from './dealer.j
 import { nextLoginFailure, type LoginLockState } from './login-lockout.js'
 import { insertAudit, withAuditedTx, type AuditActor } from './audit.js'
 import { verifyReleaseSignature } from './release-signature.js'
+import { assertIpRegistrationBudget, decideTrial, grantTrial, ipHash, trialIdentity, verifiedIdentitiesOf } from './trial.js'
 import { adoptReusedOrder, isOrderReusableAs, PLAN_ON_SALE_SQL, PURCHASE_COUNT_SQL, purchaseLockKey, type ReuseLink } from './order-reuse.js'
 import type { FxNotice } from './vendor/fenxiao/index.js'
 
@@ -55,7 +56,7 @@ export type CommerceSettings = {
   registrationEnabled:boolean; trialDays:number; trialPlanCode:string;
   defaultDeviceLimit:number; licenseLeaseMinutes:number;
   offlineGraceHours:number; activePaymentProvider:string;
-  paymentMethods:Array<'alipay'>; maxAccountsPerDevice:number; maxAccountsPerIp:number
+  paymentMethods:Array<'alipay'>; maxAccountsPerDevice:number; maxAccountsPerIp:number; maxClientAccountsPerIp:number
 }
 export type PaymentProviderRecord = {
   code:string; displayName:string; adapter:string; endpoint:string;
@@ -159,11 +160,12 @@ const settingMap:Record<keyof CommerceSettings,string>={
   paymentMethods:'payment_methods',
   maxAccountsPerDevice:'max_accounts_per_device',
   maxAccountsPerIp:'max_accounts_per_ip',
+  maxClientAccountsPerIp:'max_client_accounts_per_ip',
 }
 const settingsDefaults:CommerceSettings={
   registrationEnabled:true,trialDays:3,trialPlanCode:'trial',
   defaultDeviceLimit:1,licenseLeaseMinutes:60,offlineGraceHours:6,
-  activePaymentProvider:'zhongzhuan-prod',paymentMethods:['alipay'],maxAccountsPerDevice:3,maxAccountsPerIp:3,
+  activePaymentProvider:'zhongzhuan-prod',paymentMethods:['alipay'],maxAccountsPerDevice:3,maxAccountsPerIp:3,maxClientAccountsPerIp:10,
 }
 
 // ---- Admin list helpers: parameterized paging + whitelisted sorting ----
@@ -235,68 +237,52 @@ export class PgStore {
   }
 
   // beforeInsert：注册开关 / 设备上限等闸门都过了、插入用户之前调（中心模式在这里消费短信验证码；抛错 = 整个事务回滚）。
+  // 试用发不发只问 trial.ts decideTrial（核实身份一次 + 硬件一次）；不发时账号照建，由客户端引导购买。
   async registerTrialUser(input:{username:string;email:string|null;phone?:string|null;passwordHash:string;hardwareHash:string;ip:string;ref?:string;beforeInsert?:()=>Promise<void>}){
     const client=await this.pool.connect()
     try{
       await client.query('BEGIN')
       await client.query('SELECT pg_advisory_xact_lock(hashtext($1))',[input.hardwareHash])
-      const settings=await client.query(`SELECT key,value FROM system_settings WHERE key IN ('registration_enabled','trial_days','trial_plan_code','max_accounts_per_device')`)
-      const map=new Map(settings.rows.map(x=>[x.key,x.value]))
+      const settings=await client.query(`SELECT key,value FROM system_settings WHERE key IN ('registration_enabled','trial_days','trial_plan_code','max_accounts_per_device','max_client_accounts_per_ip')`)
+      const map=new Map<string,unknown>(settings.rows.map(x=>[x.key,x.value]))
       if((map.get('registration_enabled')??true)!==true)throw new Error('REGISTRATION_DISABLED')
-      const trialDays=Number(map.get('trial_days')??3)
-      const trialPlanCode=String(map.get('trial_plan_code')??'trial')
       // 同一设备的注册账号数上限（防刷试用）。hardwareHash 由 auth.register 保证非空。
       const maxPerDevice=Number(map.get('max_accounts_per_device')??3)
       if(input.hardwareHash&&maxPerDevice>0){
         const cnt=await client.query('SELECT count(*)::int AS n FROM users WHERE registration_hardware_hash=$1',[input.hardwareHash])
         if(cnt.rows[0].n>=maxPerDevice)throw new Error('DEVICE_ACCOUNT_LIMIT')
       }
-      // 同一硬件只能领取一次试用，但不能因此阻止共享电脑上的其他用户注册。
-      // 已领取过试用时仍创建正常账号，只是不发放试用授权，由客户端引导购买套餐。
-      const claimed=trialDays>0
-        ?await client.query('SELECT 1 FROM trial_claims WHERE hardware_hash=$1',[input.hardwareHash])
-        :null
-      const grantTrial=trialDays>0&&!claimed?.rowCount
-      // 试用套餐在 beforeInsert（消费验证码）之前查：消费之后不能再有能预见的失败
-      const plan=grantTrial?await client.query('SELECT id FROM plans WHERE code=$1 AND active=true',[trialPlanCode]):null
-      if(grantTrial&&!plan?.rows[0])throw new Error('TRIAL_PLAN_NOT_FOUND')
+      // 同一来源 24 小时内的注册数上限：硬件摘要是客户端自报的，换一个就绕过上面那条，来源地址绕不过。
+      await assertIpRegistrationBudget(client,input.ip,Number(map.get('max_client_accounts_per_ip')??settingsDefaults.maxClientAccountsPerIp))
+      // 注册时唯一的核实身份是短信验证过的手机号（合同：带手机号必须带验证码）；只有邮箱的老接口没有核实身份。
+      // 试用套餐也在这里查（beforeInsert 消费验证码之前）：消费之后不能再有能预见的失败。
+      const trial=await decideTrial(client,{identities:input.phone?[trialIdentity('phone',input.phone)]:[],hardwareHash:input.hardwareHash,settings:map})
+      if(!trial.grant&&trial.reason==='no_plan')throw new Error('TRIAL_PLAN_NOT_FOUND')
       await input.beforeInsert?.()
-      const now=new Date(),trialEnds=new Date(now.getTime()+trialDays*86400000)
-      const user=await client.query(`INSERT INTO users(username,email,password_hash,role,status,trial_started_at,trial_ends_at,registration_ip_hash,registration_hardware_hash,phone)
-        VALUES($1,$2,$3,'user','active',$4,$5,$6,$7,$8) RETURNING id,username,email,role,status`,
-        [input.username,input.email,input.passwordHash,grantTrial?now:null,grantTrial?trialEnds:null,sha256('proxysplit-ip-v1:'+input.ip),input.hardwareHash||'',input.phone??null])
-      if(grantTrial){
-        await client.query(`INSERT INTO licenses(user_id,plan_id,starts_at,expires_at,source)
-          VALUES($1,$2,$3,$4,'trial')`,[user.rows[0].id,plan?.rows[0].id,now,trialEnds])
-        await client.query(`INSERT INTO trial_claims(hardware_hash,user_id,expires_at,ip_hash)
-          VALUES($1,$2,$3,$4)`,[input.hardwareHash,user.rows[0].id,trialEnds,sha256('proxysplit-ip-v1:'+input.ip)])
-      }
+      const user=await client.query(`INSERT INTO users(username,email,password_hash,role,status,registration_ip_hash,registration_hardware_hash,phone)
+        VALUES($1,$2,$3,'user','active',$4,$5,$6) RETURNING id,username,email,role,status`,
+        [input.username,input.email,input.passwordHash,ipHash(input.ip),input.hardwareHash||'',input.phone??null])
+      const granted=trial.grant?await grantTrial(client,trial,{userId:user.rows[0].id,hardwareHash:input.hardwareHash,ip:input.ip}):null
       await this.bindReferrerInTx(client,user.rows[0].id,input.ref)
       await client.query('COMMIT')
-      return {...user.rows[0],trialDays:grantTrial?trialDays:0,trialEndsAt:grantTrial?trialEnds:null,trialGranted:grantTrial}
+      return {...user.rows[0],trialDays:granted?.trialDays??0,trialEndsAt:granted?.trialEndsAt??null,trialGranted:!!granted}
     }catch(e){await client.query('ROLLBACK');throw e}finally{client.release()}
   }
 
-  // 官网注册：没有设备指纹，因此按注册来源 IP 限制账号数；不发放试用，
-  // 试用留到首次用客户端登录时按硬件发放（见 claimTrialOnLogin）。
+  // 官网注册：没有设备指纹，因此按注册来源限制 24 小时内的账号数；不发放试用，
+  // 试用留到首次用客户端登录时发放（见 claimTrialOnLogin）。
   async registerWebUser(input:{username:string;email:string|null;phone?:string|null;passwordHash:string;ip:string;ref?:string;beforeInsert?:()=>Promise<void>}){
-    const ipHash=sha256('proxysplit-ip-v1:'+input.ip)
     const client=await this.pool.connect()
     try{
       await client.query('BEGIN')
-      await client.query('SELECT pg_advisory_xact_lock(hashtext($1))',[`webreg:${ipHash}`])
       const settings=await client.query(`SELECT key,value FROM system_settings WHERE key IN ('registration_enabled','max_accounts_per_ip')`)
       const map=new Map(settings.rows.map(x=>[x.key,x.value]))
       if((map.get('registration_enabled')??true)!==true)throw new Error('REGISTRATION_DISABLED')
-      const maxPerIp=Number(map.get('max_accounts_per_ip')??3)
-      if(maxPerIp>0){
-        const cnt=await client.query('SELECT count(*)::int AS n FROM users WHERE registration_ip_hash=$1',[ipHash])
-        if(cnt.rows[0].n>=maxPerIp)throw new Error('IP_ACCOUNT_LIMIT')
-      }
+      await assertIpRegistrationBudget(client,input.ip,Number(map.get('max_accounts_per_ip')??settingsDefaults.maxAccountsPerIp))
       await input.beforeInsert?.()
       const user=await client.query(`INSERT INTO users(username,email,password_hash,role,status,registration_ip_hash,registration_hardware_hash,phone)
         VALUES($1,$2,$3,'user','active',$4,'',$5) RETURNING id,username,email,role,status`,
-        [input.username,input.email,input.passwordHash,ipHash,input.phone??null])
+        [input.username,input.email,input.passwordHash,ipHash(input.ip),input.phone??null])
       await this.bindReferrerInTx(client,user.rows[0].id,input.ref)
       await client.query('COMMIT')
       return user.rows[0]
@@ -332,7 +318,7 @@ export class PgStore {
         try{
           u=await client.query(`INSERT INTO users(username,email,password_hash,role,status,registration_ip_hash,registration_hardware_hash)
             VALUES($1,$2,NULL,'user','active',$3,'') RETURNING id,username,password_hash AS "passwordHash",role,status,created_at AS "createdAt",failed_login_count AS "failedLoginCount",lockout_level AS "lockoutLevel",locked_until AS "lockedUntil",channel,phone,nickname,staff`,
-            [username,email,sha256('proxysplit-ip-v1:'+input.ip)])
+            [username,email,ipHash(input.ip)])
           break
         }catch(e){
           const err=e as {code?:string;constraint?:string}
@@ -396,34 +382,25 @@ export class PgStore {
     return r.rows[0]?.user_id??null
   }
 
-  // 首次用客户端登录时补发试用：官网注册的账号没有设备信息，登录时才知道硬件。
-  // 仍遵守「一台设备只发一次试用」「一个账号只领一次试用」。
+  // 首次用客户端登录时补发试用：官网注册 / 合作方账号建号时没有设备信息，登录时才知道硬件。
+  // 「一个账号只领一次」「已有有效授权不发」在这里；其余资格（核实身份一次、硬件一次）只问 trial.ts decideTrial。
   async claimTrialOnLogin(userId:string,hardwareHash:string,ip:string){
     if(!hardwareHash)return null
     const client=await this.pool.connect()
     try{
       await client.query('BEGIN')
-      await client.query('SELECT pg_advisory_xact_lock(hashtext($1))',[hardwareHash])
       const settings=await client.query(`SELECT key,value FROM system_settings WHERE key IN ('trial_days','trial_plan_code')`)
-      const map=new Map(settings.rows.map(x=>[x.key,x.value]))
-      const trialDays=Number(map.get('trial_days')??3)
-      if(!(trialDays>0)){await client.query('ROLLBACK');return null}
+      const map=new Map<string,unknown>(settings.rows.map(x=>[x.key,x.value]))
       const user=(await client.query('SELECT id,trial_started_at FROM users WHERE id=$1 FOR UPDATE',[userId])).rows[0]
       if(!user||user.trial_started_at){await client.query('ROLLBACK');return null}
-      const claimed=await client.query('SELECT 1 FROM trial_claims WHERE hardware_hash=$1',[hardwareHash])
-      if(claimed.rowCount){await client.query('ROLLBACK');return null}
       // 已有有效授权（付费/兑换）时不再发试用。
       const active=await client.query(`SELECT 1 FROM licenses WHERE user_id=$1 AND status='active' AND expires_at>now()`,[userId])
       if(active.rowCount){await client.query('ROLLBACK');return null}
-      const plan=(await client.query('SELECT id FROM plans WHERE code=$1 AND active=true',[String(map.get('trial_plan_code')??'trial')])).rows[0]
-      if(!plan){await client.query('ROLLBACK');return null}
-      const now=new Date(),trialEnds=new Date(now.getTime()+trialDays*86400000)
-      await client.query(`INSERT INTO licenses(user_id,plan_id,starts_at,expires_at,source) VALUES($1,$2,$3,$4,'trial')`,[userId,plan.id,now,trialEnds])
-      await client.query(`INSERT INTO trial_claims(hardware_hash,user_id,expires_at,ip_hash) VALUES($1,$2,$3,$4)`,
-        [hardwareHash,userId,trialEnds,sha256('proxysplit-ip-v1:'+ip)])
-      await client.query(`UPDATE users SET trial_started_at=$2,trial_ends_at=$3 WHERE id=$1`,[userId,now,trialEnds])
+      const trial=await decideTrial(client,{identities:await verifiedIdentitiesOf(client,userId),hardwareHash,settings:map})
+      if(!trial.grant){await client.query('ROLLBACK');return null}
+      const granted=await grantTrial(client,trial,{userId,hardwareHash,ip})
       await client.query('COMMIT')
-      return {trialDays,trialEndsAt:trialEnds}
+      return granted
     }catch(e){await client.query('ROLLBACK');throw e}finally{client.release()}
   }
 

@@ -167,6 +167,7 @@ export const settingPatchSchema = z.object({
   trialDays:z.number().int().min(0).max(365).optional(),
   maxAccountsPerDevice:z.number().int().min(0).max(100).optional(),
   maxAccountsPerIp:z.number().int().min(0).max(100).optional(),
+  maxClientAccountsPerIp:z.number().int().min(0).max(1000).optional(),
   trialPlanCode:z.string().min(2).max(64).optional(),
   defaultDeviceLimit:z.number().int().min(1).max(100).optional(),
   licenseLeaseMinutes:z.number().int().min(15).max(1440).optional(),

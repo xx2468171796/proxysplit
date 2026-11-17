@@ -155,6 +155,7 @@ export class AuthService{
       if(code==='23505')throw takenError(error)
       if(message==='REGISTRATION_DISABLED')throw new AppError('REGISTRATION_DISABLED','当前暂停开放注册',403)
       if(message==='DEVICE_ACCOUNT_LIMIT')throw new AppError('DEVICE_ACCOUNT_LIMIT','该设备注册的账号已达上限，请使用已有账号登录',429)
+      if(message==='IP_ACCOUNT_LIMIT')throw new AppError('IP_ACCOUNT_LIMIT','当前网络今天注册的账号已达上限，请明天再试或直接登录已有账号',429)
       if(message==='TRIAL_PLAN_NOT_FOUND')throw new AppError('TRIAL_UNAVAILABLE','试用套餐暂不可用',503)
       throw error
     }
@@ -180,7 +181,7 @@ export class AuthService{
       const message=(error as Error).message
       if(code==='23505')throw takenError(error)
       if(message==='REGISTRATION_DISABLED')throw new AppError('REGISTRATION_DISABLED','当前暂停开放注册',403)
-      if(message==='IP_ACCOUNT_LIMIT')throw new AppError('IP_ACCOUNT_LIMIT','当前网络注册的账号已达上限，请直接登录或联系客服',429)
+      if(message==='IP_ACCOUNT_LIMIT')throw new AppError('IP_ACCOUNT_LIMIT','当前网络今天注册的账号已达上限，请明天再试或直接登录已有账号',429)
       throw error
     }
   }

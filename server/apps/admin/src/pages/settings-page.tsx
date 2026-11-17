@@ -9,21 +9,23 @@ import { get, patch } from '@/lib/api'
 import type { PageProps } from '@/shell/workspace-context'
 
 type Commerce = {
-  registrationEnabled: boolean; trialDays: number; trialPlanCode: string; maxAccountsPerDevice: number; maxAccountsPerIp: number
+  registrationEnabled: boolean; trialDays: number; trialPlanCode: string; maxAccountsPerDevice: number; maxAccountsPerIp: number; maxClientAccountsPerIp: number
   defaultDeviceLimit: number; licenseLeaseMinutes: number; offlineGraceHours: number; activePaymentProvider: string; paymentMethods: string[]
 }
 type Provider = { code: string; displayName: string; enabled: boolean }
-type NumKey = 'trialDays' | 'maxAccountsPerDevice' | 'maxAccountsPerIp' | 'defaultDeviceLimit' | 'licenseLeaseMinutes' | 'offlineGraceHours'
+type NumKey = 'trialDays' | 'maxAccountsPerDevice' | 'maxAccountsPerIp' | 'maxClientAccountsPerIp' | 'defaultDeviceLimit' | 'licenseLeaseMinutes' | 'offlineGraceHours'
 
 const LABELS: Record<keyof Commerce, string> = {
   registrationEnabled: '开放注册', trialDays: '试用天数', trialPlanCode: '试用套餐编码', maxAccountsPerDevice: '每台设备最多注册账号',
-  maxAccountsPerIp: '每个 IP 最多注册账号', defaultDeviceLimit: '免费设备数（会员在此基础上叠加套餐设备数）',
+  maxAccountsPerIp: '官网注册：每个 IP 24 小时内最多注册账号', maxClientAccountsPerIp: '客户端注册：每个 IP 24 小时内最多注册账号',
+  defaultDeviceLimit: '免费设备数（会员在此基础上叠加套餐设备数）',
   licenseLeaseMinutes: '授权租约时长', offlineGraceHours: '离线宽限', activePaymentProvider: '当前收款通道', paymentMethods: '支付方式',
 }
 const RANGES: Record<NumKey, [number, number, string, string]> = {
   trialDays: [0, 365, '天', '0 = 不送试用'],
   maxAccountsPerDevice: [0, 100, '个', '0 = 不限'],
-  maxAccountsPerIp: [0, 100, '个', '0 = 不限'],
+  maxAccountsPerIp: [0, 100, '个', '0 = 不限；IPv6 按 /64 网段算'],
+  maxClientAccountsPerIp: [0, 1000, '个', '0 = 不限；公司 / 校园共用出口的人多时调大'],
   defaultDeviceLimit: [1, 100, '台', '免费用户能同时绑定的设备数；会员 = 这个数 + 套餐设备数'],
   licenseLeaseMinutes: [15, 1440, '分钟', '客户端多久续一次租约，15–1440'],
   offlineGraceHours: [0, 72, '小时', '断网后还能用多久，0–72'],
@@ -77,7 +79,7 @@ export function SettingsPage(_: PageProps) {
       <SideNavLayout
         label="设置分节"
         sections={[
-          { id: 'signup', label: '注册与试用', icon: <UserPlus />, dirty: sectionDirty(['registrationEnabled', 'trialDays', 'trialPlanCode', 'maxAccountsPerDevice', 'maxAccountsPerIp']), content: (
+          { id: 'signup', label: '注册与试用', icon: <UserPlus />, dirty: sectionDirty(['registrationEnabled', 'trialDays', 'trialPlanCode', 'maxAccountsPerDevice', 'maxAccountsPerIp', 'maxClientAccountsPerIp']), content: (
             <Panel title="注册与试用"><FormSection>
               <FormField label={LABELS.registrationEnabled} htmlFor="st-reg" changed={changed.includes('registrationEnabled')} hint="关掉后新用户不能注册">
                 <Checkbox id="st-reg" checked={draft.registrationEnabled} onCheckedChange={(v) => set({ registrationEnabled: v === true })} />
@@ -88,6 +90,7 @@ export function SettingsPage(_: PageProps) {
               </FormField>
               {num('maxAccountsPerDevice')}
               {num('maxAccountsPerIp')}
+              {num('maxClientAccountsPerIp')}
             </FormSection></Panel>) },
           { id: 'devices', label: '设备与授权', icon: <Laptop />, dirty: sectionDirty(['defaultDeviceLimit', 'licenseLeaseMinutes', 'offlineGraceHours']), content: (
             <Panel title="设备与授权"><FormSection>

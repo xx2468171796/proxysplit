@@ -163,3 +163,20 @@ describe('默认限流 + 明确豁免', () => {
     expect(CALLBACK_LIMIT.max).toBeGreaterThanOrEqual(1200)
   })
 })
+
+// 一户宽带 / 一台手机拿到的是整个 IPv6 /64：按单个地址限流，换个后缀就是一个新桶，等于不限。
+describe('IPv6 按 /64 计', () => {
+  const payload = { username: 'alice', email: 'a@example.com', password: 'a-long-enough-password', device: { fingerprint, name: 'pc', platform: 'windows', appVersion: '1.12.5' } }
+  it('同一 /64 里换地址注册：共用一个桶（每小时 3 次），别的 /64 不受影响', async () => {
+    let registered = 0
+    const core = { auth: { publicKeyPem: 'K', register: async () => { registered++; return { ok: true } } }, store: {}, close: async () => {} }
+    const a = await buildApp(config, core as never)
+    const post = (remoteAddress: string) => a.inject({ method: 'POST', url: '/v1/auth/register', remoteAddress, payload })
+    const codes: number[] = []
+    for (let i = 1; i <= 4; i++) codes.push((await post(`2408:8207:1234:5678::${i}`)).statusCode)
+    expect(codes).toEqual([200, 200, 200, 429])
+    expect((await post('2408:8207:1234:5679::1')).statusCode).toBe(200)
+    expect(registered).toBe(4)
+    await a.close()
+  })
+})

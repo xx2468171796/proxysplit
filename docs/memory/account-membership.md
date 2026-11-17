@@ -77,7 +77,9 @@ AI 编程官网（aigw）客户不显示作者联系方式（QQ 群 / 微信 / �
 ## 授权与租约
 Ed25519 离线租约绑定账号 / 设备 / 硬件 / 期限；minimumVersion 会进租约 minVersion，别随手调高。
 - 离线授权防调早时钟：lease iat + LastSeenAt 高水位，容差 10 分钟。
-- 试用硬件摘要依赖客户端上报；离线租约仍存在系统时间回拨 / 快照风险（见 known-issues.md）。
+- **试用（2026-11-18 第二轮，规则唯一归属 core `trial.ts`）**：一个核实身份只发一次——短信验证过的手机号、或合作方账号（`user_identities`）；两样都没有的账号（只有邮箱的老注册接口）不发。硬件摘要（客户端自报）领过也不发，只是辅助信号。领取记录 `trial_identity_claims`（迁移 0026，存身份摘要不存手机号，删号不清）+ 原 `trial_claims`（按硬件）。注册发（`registerTrialUser`）和登录补发（`claimTrialOnLogin`）都调 `decideTrial` / `grantTrial`。已发出的试用不受影响，迁移把领过的账号记到它现有的手机号 / 合作方账号上。已知空子：领过后换绑手机号，旧号有记录、新号没有（要两个真手机号才换得到一次）。
+- **注册来源限额**：同一来源 24 小时内的注册数，官网 `max_accounts_per_ip`（默认 3，以前是永久累计）、客户端 `max_client_accounts_per_ip`（默认 10，新增），后台「设置 → 注册与试用」可改，0 = 不限；两边数的是同一批账号（`users.registration_ip_hash`）。来源键 `trial.ts ipKey`：IPv4 原样、IPv6 取 /64（限流插件本身也按 /64）。超限回 429 `IP_ACCOUNT_LIMIT`。
+- 离线租约仍存在系统时间回拨 / 快照风险（见 known-issues.md）。
 - **吊销只认错误码（2026-11-18 审计，`internal/license/rejection.go`）**：`ACCOUNT_UNAVAILABLE / DEVICE_MISMATCH / REFRESH_INVALID / REFRESH_REPLAY` 才清会话，而且会话和租约一起清（`applyRejectionLocked` 是唯一改状态的入口）；`DEVICE_LIMIT` 只清租约、留会话去解绑；408 / 425 / 429、WAF 或上网认证页（没有本站 JSON 错误码的 4xx）、断网都按临时故障，保留会话与租约走离线宽限。POWER云 那边是另一套协议：只有 OAuth `invalid_grant` 才丢授权（`powervpn.grantRejected`），两处各管各的服务端，不合并。
 - 刷新节奏：巡检每 60 秒只取租约（不轮换凭据，封号 / 解绑 / 套餐变化仍在一个周期内生效）；访问令牌剩余不足 2 分钟或年龄未知才刷新（`renewOnlineLocked`，按本机收到时间 + 服务端有效期算，不受时钟不准影响）；租约 401 且不是吊销码时补一次刷新。巡检条件 = 有会话 / 租约仍有效 / 代理在跑 任一成立（未登录但代理在跑会被停）。没有会话的租约加载时丢弃。
 - 设备指纹：成分第一次完整算出后用 DPAPI 封存到数据目录 `device.dat`（`machine_store.go`，唯一来源），之后直接复用不再探测；老用户首次按 4 / 8 / 15 秒重试探测成功才落盘（指纹不变），连续 3 次启动都失败才把注册表成分定为指纹。**device.dat 不能删**（指纹变 = DEVICE_MISMATCH + 多占一个名额），清除与重置任何一项都不碰它。powervpn 的设备 ID 取同一份。
